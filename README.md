@@ -7,7 +7,7 @@
 
 ## Status
 
-**0.2 — manifest check.** Anti-cheat primitives in place: `guard` (frozen paths, shipped in 0.1) + `manifest` (record/verify discoverable test sets, shipped in 0.2). Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is documented in [`docs/DESIGN.md`](./docs/DESIGN.md) and under active development.
+**0.3 — `init` command.** Anti-cheat primitives in place: `guard` (0.1) + `manifest` (0.2). 0.3 adds one-shot scaffolding so adopting slowcook in a new project is a single command. Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is documented in [`docs/DESIGN.md`](./docs/DESIGN.md) and under active development.
 
 ## The idea
 
@@ -20,13 +20,35 @@ Existing "vibe-coding" platforms optimize for time-to-first-screenshot. That's g
 
 Result: sturdy, test-covered code produced while you sleep, with an audit trail of exactly how it got there.
 
-## Install
+## Getting started
+
+```bash
+# Scaffold slowcook config in an existing TS/Vitest project
+npx @slowcook-ai/cli@latest init
+
+# Review + commit the generated files, then
+npx @slowcook-ai/cli@latest manifest record
+```
+
+Or install locally:
 
 ```bash
 npm i -D @slowcook-ai/cli
+npx slowcook init
 ```
 
-## What works today (v0.2)
+## What works today (v0.3)
+
+### `slowcook init`
+
+Scaffolds `.brewing/*`, a GitHub Actions workflow, and CODEOWNERS entries in one command. Idempotent (re-running skips existing files unless `--force`). Detects Vitest and Playwright in your `package.json`; Playwright is recognized but left out of `stack.json` until slowcook supports Playwright discovery.
+
+```bash
+npx slowcook init                # default
+npx slowcook init --dry-run      # show plan, write nothing
+npx slowcook init --owner @team  # override CODEOWNERS handle
+npx slowcook init --force        # overwrite existing slowcook files
+```
 
 ### `slowcook guard`
 
@@ -59,7 +81,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for full usage.
 | Version | Brings |
 |---|---|
 | 0.2 ✅ | `manifest record\|verify` — prevents test skip/exclude cheats |
-| 0.3 | `init` — scaffolds `.brewing/*` in consumer projects |
+| 0.3 ✅ | `init` — scaffolds `.brewing/*` in consumer projects |
 | 0.4 | `refine` — refinement agent (issue → structured spec) |
 | 0.5 | `testgen` — test generation from spec |
 | 0.6 | `brew` — the ratcheted overnight loop (single lane) |

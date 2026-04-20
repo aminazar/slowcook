@@ -502,7 +502,7 @@ slowcook ships incrementally. Each version is usable on its own; rewo (and any o
 |---|---|---|---|
 | **0.1** ✅ | `guard` command — frozen-paths enforcement | `@slowcook-ai/core`, `@slowcook-ai/cli` | ~1 day |
 | **0.2** ✅ | `manifest record\|verify` — prevents skip/exclude cheating | `@slowcook-ai/stack-ts` (discovery only; Vitest) | ~1 day |
-| **0.3** | `init` — scaffolds consumer `.brewing/*` + CI workflow + CODEOWNERS | (cli growth) | ~1 day |
+| **0.3** ✅ | `init` — scaffolds consumer `.brewing/*` + CI workflow + CODEOWNERS | (cli growth) | ~1 day |
 | **0.4** | `refine` — issue → structured spec (refinement agent) | `@slowcook-ai/forge-github` | ~3 days |
 | **0.5** | `testgen` — spec → frozen tests | (stack-ts growth) | ~2 days |
 | **0.6** | `brew` — single-lane ratchet, budget, pg-boss, halt schema, **graduality mechanisms (target-test selection, diff soft-cap, justification schema)** per §5.2 | `@slowcook-ai/worker` | ~5 days |

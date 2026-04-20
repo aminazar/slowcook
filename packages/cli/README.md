@@ -8,7 +8,33 @@ CLI for the slowcook brewing harness. Installs the `slowcook` binary.
 npm i -D @slowcook-ai/cli
 ```
 
-## Commands (v0.1)
+## Commands (v0.3)
+
+### `slowcook init`
+
+Scaffold slowcook configuration in a consumer project. Writes `.brewing/*`, `.github/workflows/slowcook.yml`, and a `CODEOWNERS` section. Idempotent — re-running skips existing files unless `--force`.
+
+```bash
+npx slowcook init [--owner <handle>] [--force] [--dry-run] [--cwd <path>]
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--cwd <path>` | `.` | Target project directory |
+| `--owner <handle>` | detected from git remote | CODEOWNERS handle/team (e.g. `@aminazar`, `@acme/frontend`) |
+| `--force` | false | Overwrite existing slowcook files |
+| `--dry-run` | false | Print the plan without writing anything |
+
+**Stack detection (0.3):** reads `package.json`. Requires Vitest in `devDependencies`. If Playwright is present, it's noted as a warning and left out of `stack.json` until slowcook supports Playwright discovery.
+
+**CODEOWNERS handling:** uses `# --- slowcook:frozen-paths BEGIN/END ---` markers so re-running or adopting slowcook in a repo that already has a `CODEOWNERS` is safe.
+
+**Exit codes:**
+
+- `0` — success (or dry-run completed)
+- `2` — script error (no `package.json`, vitest not found, invalid JSON)
 
 ### `slowcook guard`
 
