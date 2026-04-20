@@ -5,6 +5,7 @@ import type {
   Comment,
   PullRequest,
   PullRequestInput,
+  PullRequestSummary,
   BranchOperations,
 } from "@slowcook-ai/core";
 import { LocalGitOps } from "./git-ops.js";
@@ -141,6 +142,68 @@ export class GitHubAdapter implements ForgeAdapter {
       url: pr.html_url,
       head_branch: pr.head.ref,
     };
+  }
+
+  async listIssuesByLabel(
+    label: string,
+    state: "open" | "closed" | "all" = "open"
+  ): Promise<Issue[]> {
+    const issues = await this.octokit.paginate(
+      this.octokit.issues.listForRepo,
+      {
+        owner: this.owner,
+        repo: this.repo,
+        state,
+        labels: label,
+        per_page: 100,
+      }
+    );
+    return issues
+      .filter((i) => !i.pull_request) // listForRepo includes PRs too — filter them out
+      .map((i) => ({
+        number: i.number,
+        title: i.title,
+        body: i.body ?? "",
+        author: i.user?.login ?? "unknown",
+        labels: (i.labels ?? [])
+          .map((l) => (typeof l === "string" ? l : l.name ?? ""))
+          .filter((s): s is string => typeof s === "string" && s.length > 0),
+        state: i.state === "closed" ? "closed" : "open",
+        url: i.html_url,
+      }));
+  }
+
+  async findPullRequestByBranch(
+    headBranch: string
+  ): Promise<PullRequestSummary | null> {
+    // GitHub's pulls.list `head` filter requires `owner:branch` format.
+    // Try `open` first, then `closed`, to prefer a live PR if both exist.
+    const headFilter = `${this.owner}:${headBranch}`;
+    for (const state of ["open", "closed"] as const) {
+      const { data } = await this.octokit.pulls.list({
+        owner: this.owner,
+        repo: this.repo,
+        state,
+        head: headFilter,
+        per_page: 1,
+      });
+      if (data.length > 0) {
+        const pr = data[0]!;
+        return {
+          number: pr.number,
+          title: pr.title,
+          state: pr.state === "closed" ? "closed" : "open",
+          merged: Boolean(pr.merged_at),
+          labels: (pr.labels ?? [])
+            .map((l) => l.name ?? "")
+            .filter((s) => s.length > 0),
+          head_branch: pr.head.ref,
+          body: pr.body ?? "",
+          url: pr.html_url,
+        };
+      }
+    }
+    return null;
   }
 
   async listBranchesMatching(prefix: string): Promise<string[]> {

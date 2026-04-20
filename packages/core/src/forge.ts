@@ -37,6 +37,18 @@ export interface PullRequest {
   head_branch: string;
 }
 
+/** Lighter read-only view of a PR for listing/inspection. */
+export interface PullRequestSummary {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  merged: boolean;
+  labels: string[];
+  head_branch: string;
+  body: string;
+  url: string;
+}
+
 /**
  * Minimal git operations the agent needs. Implementations shell out to git
  * or use a library; the agent doesn't care. Working directory handling is
@@ -80,4 +92,17 @@ export interface ForgeAdapter {
    * story ID, avoiding collisions when multiple refinements are in progress.
    */
   listBranchesMatching(prefix: string): Promise<string[]>;
+
+  /**
+   * List issues filtered by label. Used by `catchup` to surface refinements
+   * whose webhook-trigger appears to have been missed.
+   */
+  listIssuesByLabel(label: string, state?: "open" | "closed" | "all"): Promise<Issue[]>;
+
+  /**
+   * Find a pull request by its head-branch name. Used by `catchup` to locate
+   * the spec PR for a given story so `on-spec-merged` can be re-run.
+   * Returns the most recent match (merged or open) or null if none exist.
+   */
+  findPullRequestByBranch(headBranch: string): Promise<PullRequestSummary | null>;
 }
