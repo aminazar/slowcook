@@ -57,7 +57,6 @@ export class GitHubAdapter implements ForgeAdapter {
   }
 
   async listIssueComments(number: number): Promise<Comment[]> {
-    const botUsername = await this.botUsername();
     const comments = await this.octokit.paginate(
       this.octokit.issues.listComments,
       {
@@ -72,12 +71,13 @@ export class GitHubAdapter implements ForgeAdapter {
       author: c.user?.login ?? "unknown",
       body: c.body ?? "",
       created_at: c.created_at,
-      is_bot: (c.user?.type === "Bot") || c.user?.login === botUsername,
+      // GitHub reliably marks workflow-token comments as type=Bot, same for GitHub Apps.
+      // This avoids an extra /user call that GITHUB_TOKEN cannot make (403).
+      is_bot: c.user?.type === "Bot",
     }));
   }
 
   async createIssueComment(number: number, body: string): Promise<Comment> {
-    const botUsername = await this.botUsername();
     const { data } = await this.octokit.issues.createComment({
       owner: this.owner,
       repo: this.repo,
@@ -86,7 +86,7 @@ export class GitHubAdapter implements ForgeAdapter {
     });
     return {
       id: data.id,
-      author: data.user?.login ?? botUsername,
+      author: data.user?.login ?? "slowcook-bot",
       body: data.body ?? "",
       created_at: data.created_at,
       is_bot: true,
@@ -145,8 +145,20 @@ export class GitHubAdapter implements ForgeAdapter {
 
   async botUsername(): Promise<string> {
     if (this.cachedBotUsername) return this.cachedBotUsername;
-    const { data } = await this.octokit.users.getAuthenticated();
-    this.cachedBotUsername = data.login;
-    return data.login;
+    // `/user` is not accessible when auth'd with a workflow's GITHUB_TOKEN
+    // (installation tokens don't expose /user — 403 "Resource not accessible
+    // by integration"). Return a sensible fallback so callers don't explode.
+    try {
+      const { data } = await this.octokit.users.getAuthenticated();
+      this.cachedBotUsername = data.login;
+      return data.login;
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      if (status === 403 || status === 401) {
+        this.cachedBotUsername = "github-actions[bot]";
+        return this.cachedBotUsername;
+      }
+      throw e;
+    }
   }
 }
