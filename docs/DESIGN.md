@@ -233,6 +233,32 @@ Architectural enforcement is necessary but not sufficient by itself; the impleme
 
 Prompt + cap + justification schema together produce the right behaviour. None of the three alone is enough.
 
+#### Pathspec exclusions
+
+The soft cap applies to files that can affect runtime behaviour. Prose-heavy changes (docs, changelogs, READMEs) would trigger false refinement-feedback cards if counted — they're high-volume, low-risk. Per-project overrides live in `.brewing/graduality.json`:
+
+```json
+{
+  "diff_soft_cap": { "lines": 200, "files": 5 },
+  "exclude_paths": [
+    "**/*.md",
+    "docs/**",
+    "CHANGELOG*",
+    "**/README*"
+  ]
+}
+```
+
+The diff analyzer splits changed files into "counted" and "excluded" buckets before applying the cap. Excluded files are still logged in the iteration record — they just don't contribute to graduality signals.
+
+**Conservative defaults** — exclude only what can't affect runtime:
+
+- Markdown docs, `docs/`, `CHANGELOG`, `README` → excluded by default
+- **Prompts** → NOT excluded. Prompts are runtime behaviour for LLM-using code. A meta project brewing slowcook itself would want prompts counted.
+- **Fixtures, configs, stack.json** → NOT excluded. They affect test outcomes.
+
+Projects may opt in to more exclusions. An agent attempting to smuggle logic into a "docs" file is a non-issue: docs don't execute, so the ratchet catches behaviour drift regardless.
+
 ### 5.3 Parallel lanes
 
 Spawn 3 agents on the same story from distinct strategies:
@@ -270,9 +296,31 @@ Output is structured JSON; blockers force the harness to revert the lane's final
 
 Every 10 iterations (and once on final green): harness mutates implementation code (flip bools, swap `>` for `>=`, return null from a non-null function). If the test suite still passes after a mutation → the test was trivial. Flag + escalate. This is the structural check that no agent-driven review can replace.
 
-### 5.7 Coverage floor
+### 5.7 Coverage floor (and what uncovered code actually tells us)
 
-Any file created or modified by the agent must reach ≥80% line coverage under the frozen tests. Catches "wrote 200 lines to pass one test; 180 are dead."
+When an iteration reaches green, any file the agent created or modified must hit ≥80% line coverage under the frozen tests. But **coverage below threshold is not automatically a brewing failure** — it's a signal that one of two things is true:
+
+- The spec missed a case (upstream incompleteness)
+- The agent wrote defensive code the spec never asked for (a smell)
+
+Both are *refinement-quality* problems, not brewing-loop problems. Hard-rejecting every coverage gap would force either over-broad testing or overly simple code — both bad outcomes. Instead, the harness surfaces the gap as a non-blocking HITL card, analogous to the large-iteration card in §5.2:
+
+```
+Coverage gap — story #42, file src/api/reactions/route.ts
+
+3 branches not covered by any frozen test. Is the spec missing a case,
+or is this defensive code OK as-is?
+
+[ Amend spec ]    [ Grant exemption ]    [ Defer ]
+```
+
+Resolutions:
+
+- **Amend spec** — opens a draft spec-amendment PR containing test stubs for the uncovered branches. The PM (or test-gen agent, later) fills them in. Once merged, the ratchet re-runs over the affected file.
+- **Grant exemption** — records a per-line-range entry in `.brewing/coverage-exemptions.json` with a reason string. Exempted ranges don't count toward the 80% floor. Exemption grants are audit-logged with who/when/why.
+- **Defer** — the story can merge, but the card stays open for later audit; appears in the dashboard's "coverage debt" view.
+
+The 80% threshold is a project-configurable default; stricter or looser values live in `.brewing/graduality.json` alongside the diff soft-cap config.
 
 ## 6. Token budget & halt conditions
 
@@ -534,6 +582,94 @@ slowcook ships incrementally. Each version is usable on its own; rewo (and any o
 - Database migration work — tooling for this is a separate concern
 - Non-GitHub forges (GitLab adapter lands post-1.0 as `@slowcook-ai/forge-gitlab`)
 - Non-TS stacks (Python lands post-1.0 as `@slowcook-ai/stack-python`)
+- Brownfield bootstrap command (see §13.2)
+
+## 13. Adoption paths
+
+### 13.1 Greenfield (default)
+
+slowcook was designed assuming a fresh TDD-friendly project: issues → refinement → frozen tests → brewing. Everything above describes this flow. This is the 1.0 target.
+
+### 13.2 Brownfield (post-1.x)
+
+Existing projects with low or zero test coverage can still adopt slowcook, with caveats:
+
+- **Immediately usable in any project**: `slowcook init`, `slowcook guard`, and `slowcook manifest` don't require any existing tests. They protect whatever is there from the moment they're installed.
+- **Brewing needs seed tests**: the ratchet is meaningless without a manifest of tests that express real behaviour. You can't ratchet from zero.
+
+The bootstrap path for an existing low-coverage project:
+
+1. `slowcook init` — configuration in place.
+2. Identify 3–5 critical user journeys that currently lack tests. Write seed tests manually.
+3. `slowcook manifest record` — captures the seed.
+4. New work flows through the normal pipeline; the test set grows organically as stories land.
+
+**Planned (post-1.0): `slowcook bootstrap`** — interactive walkthrough for brownfield:
+
+- Scans the codebase, surfaces untested hot paths (ranked by git churn × LOC).
+- PM picks which deserve seed tests first.
+- An assist agent drafts characterization tests that pass against current behaviour; PM reviews and commits.
+- Hands off to normal refinement flow for net-new work.
+
+**Honest limitation.** slowcook is not a rescue tool for legacy codebases with no architectural coherence. The ratchet requires something meaningful to ratchet. Slowcook multiplies disciplined projects; it doesn't rescue chaotic ones.
+
+## 14. Agent prompt evaluation
+
+Prompts, models, temperature, and system instructions drive every agent's behaviour. Keeping them right as they evolve matters — a silent prompt regression can degrade spec quality for weeks before anyone notices. Slowcook's approach has three tiers:
+
+### 14.1 Tier 1 — shape invariants (always on, free)
+
+Every agent's LLM output is validated against a strict schema (Zod) before any downstream action. Malformed output fails loudly in place.
+
+Examples already shipping:
+- `REFINEMENT_ANALYST` must produce either a markdown question-list OR a YAML spec matching `EmittedSpecSchema`. Both are validated at `parseAgentOutput` time.
+- `RELATIONSHIP_ANALYST` must produce strict JSON matching `VerdictSchema`. Parsed via `parseVerdict`.
+
+This catches "the prompt broke and now outputs are invalid" the instant it happens.
+
+### 14.2 Tier 2 — curated corpus (on-demand, $$)
+
+A benchmark suite of curated inputs with known-good expected behaviour, run before any prompt change. Lives in the slowcook repo, not per-consumer:
+
+```
+packages/cli/eval/refinement/
+├── case-001-simple-happy-path/
+│   ├── issue.md
+│   ├── expected.yaml
+│   └── rubric.yaml    # keywords to expect, patterns to reject
+├── case-002-ambiguous-issue-needs-questions/
+├── case-003-prompt-injection/
+├── case-004-overlap-with-prior-spec/
+└── case-005-change-of-mind-contradiction/
+```
+
+Invoked as `slowcook eval --corpus refinement --runs 3`. Executes every case N times, computes per-case pass/fail plus aggregates, outputs a report. **Not part of CI** — run manually after prompt edits, or nightly against a golden set.
+
+### 14.3 Tier 3 — aggregate metrics (periodic)
+
+On top of per-case pass/fail, aggregate metrics surface gross degradations:
+
+| Metric | What it catches |
+|---|---|
+| Schema compliance rate | Prompt regressions that produce invalid output |
+| Ask-or-emit discipline | Agent emits a spec when it should have asked more |
+| Checklist field coverage | Emitted specs missing required fields |
+| Adversarial pass rate | Prompt injection, off-topic drift |
+| Inter-run stability (temp 0.2, 5 runs) | How often do outputs agree on key fields — proxy for reliability |
+| Tokens per refinement | Chattiness drift |
+| Rounds-to-spec distribution | Agent converging or thrashing? |
+
+### 14.4 The honest limit
+
+Metrics catch **gross** degradations, not subtle quality issues. Prompt V2 that drops schema compliance from 98% → 85% is caught instantly. Prompt V2 that asks technically-correct-but-less-insightful questions slips through every automated check.
+
+The three-layer composition:
+
+- **Metrics = regression guard** (automate, cheap)
+- **Human review = quality arbiter** (periodic, judgment-based)
+- **"My bad" cards from real refinements** (§5.2) = ground-truth production feedback
+
+The loop closes itself: metrics prevent silent prompt regressions, human review keeps improving the bar, and HITL disposition of real brewing sessions feeds back into prompt iteration.
 
 ---
 
