@@ -34,6 +34,7 @@ export function frozenPathsJson(): string {
           "vitest.config.js",
           ".brewing/frozen-paths.json",
           ".brewing/stack.json",
+          ".brewing/context.md",
           ".github/workflows/slowcook.yml",
         ],
         partial: {
