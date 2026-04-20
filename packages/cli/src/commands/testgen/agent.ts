@@ -114,11 +114,12 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
   );
   await ctx.forge.git.push(ctx.branchName);
 
-  // PR
-  const labels = ["slowcook-tests"];
-  if (actuallyRemoved.length > 0) {
-    labels.push(LABEL_OVERRIDE_FREEZE);
-  }
+  // PR. `override-freeze` is ALWAYS applied: testgen is the one place
+  // that legitimately adds files under `tests/` (and potentially removes
+  // superseded ones), both of which are frozen-path operations by definition.
+  // The reviewer still has to approve the PR; the label only tells the guard
+  // to run in advisory mode.
+  const labels = ["slowcook-tests", LABEL_OVERRIDE_FREEZE];
 
   try {
     const pr = await ctx.forge.createPullRequest({
