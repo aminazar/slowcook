@@ -1,0 +1,231 @@
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  appendFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+import {
+  buildManifest,
+  diffManifest,
+  type Manifest,
+  type TestEntry,
+} from "@slowcook-ai/core";
+import {
+  discoverTests,
+  validateStackConfig,
+  type StackConfig,
+} from "@slowcook-ai/stack-ts";
+
+const CLI_VERSION = "0.2.0";
+
+interface ManifestArgs {
+  subcommand: "record" | "verify";
+  stackConfig: string;
+  manifestPath: string;
+  storyId: string | null;
+  cwd: string;
+}
+
+function defaultManifestPath(storyId: string | null): string {
+  return storyId
+    ? `.brewing/manifests/story-${storyId}.json`
+    : `.brewing/manifests/all.json`;
+}
+
+function parseArgs(argv: string[]): ManifestArgs {
+  const sub = argv[0];
+  if (sub !== "record" && sub !== "verify") {
+    printHelp();
+    process.exit(64);
+  }
+  const args: ManifestArgs = {
+    subcommand: sub,
+    stackConfig: ".brewing/stack.json",
+    manifestPath: "",
+    storyId: null,
+    cwd: process.cwd(),
+  };
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    const next = argv[i + 1];
+    if (arg === "--stack-config" && next) {
+      args.stackConfig = next;
+      i++;
+    } else if (arg === "--manifest" && next) {
+      args.manifestPath = next;
+      i++;
+    } else if (arg === "--story" && next) {
+      args.storyId = next;
+      i++;
+    } else if (arg === "--cwd" && next) {
+      args.cwd = next;
+      i++;
+    } else if (arg === "--help" || arg === "-h") {
+      printHelp();
+      process.exit(0);
+    }
+  }
+  if (!args.manifestPath) {
+    args.manifestPath = defaultManifestPath(args.storyId);
+  }
+  return args;
+}
+
+function printHelp(): void {
+  console.log(`
+slowcook manifest — record or verify the set of discoverable tests
+
+Usage:
+  slowcook manifest record [options]
+  slowcook manifest verify [options]
+
+Common options:
+  --stack-config <path>    Path to stack.json (default: .brewing/stack.json)
+  --manifest <path>        Path to write/read manifest JSON
+                           (default: .brewing/manifests/all.json, or
+                            .brewing/manifests/story-<id>.json if --story set)
+  --story <id>             Tag manifest with this story id
+  --cwd <path>             Working directory for discovery commands (default: .)
+  --help, -h               Show this help
+
+record:
+  Runs every suite's discover_command, writes a manifest capturing the set
+  of tests that exist right now. Meant for human-invoked freezing after a
+  story's tests are approved.
+
+verify:
+  Re-runs discovery and compares against the recorded manifest. Exits 1 if
+  any recorded test is no longer discoverable (file deleted, renamed, or
+  broken). Newly-discovered tests are informational only.
+
+Exit codes:
+  0 = verify: manifest matches; record: manifest written
+  1 = verify: missing tests detected
+  2 = script error (missing config, exec failure, parse error)
+`);
+}
+
+function sh(stackConfigPath: string, cwd: string): StackConfig {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(stackConfigPath, "utf8"));
+  } catch (e) {
+    console.error(
+      `Could not read stack config at ${stackConfigPath}: ${(e as Error).message}`
+    );
+    process.exit(2);
+  }
+  try {
+    return validateStackConfig(raw);
+  } catch (e) {
+    console.error(`Invalid stack config: ${(e as Error).message}`);
+    process.exit(2);
+  }
+  // unreachable — the two process.exit calls above terminate
+}
+
+function appendGhSummary(md: string): void {
+  const summary = process.env["GITHUB_STEP_SUMMARY"];
+  if (!summary) return;
+  try {
+    appendFileSync(summary, md);
+  } catch {
+    // best effort
+  }
+}
+
+export async function manifest(argv: string[]): Promise<void> {
+  const args = parseArgs(argv);
+  const config = sh(args.stackConfig, args.cwd);
+
+  if (args.subcommand === "record") {
+    return recordManifest(args, config);
+  }
+  return verifyManifest(args, config);
+}
+
+function recordManifest(args: ManifestArgs, config: StackConfig): void {
+  const { tests, suites, errors } = discoverTests(config, { cwd: args.cwd });
+
+  if (errors.length > 0) {
+    console.error("Discovery errors (refusing to record an incomplete manifest):");
+    for (const err of errors) {
+      console.error(`  [${err.suite}] ${err.message}`);
+    }
+    process.exit(2);
+  }
+
+  const m = buildManifest({
+    slowcookVersion: CLI_VERSION,
+    storyId: args.storyId,
+    tests,
+    suites,
+  });
+
+  // Ensure directory exists
+  const dir = dirname(args.manifestPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  writeFileSync(args.manifestPath, JSON.stringify(m, null, 2) + "\n", "utf8");
+
+  console.log(
+    `Recorded ${m.tests.length} test(s) across ${m.suites.length} suite(s) → ${args.manifestPath}`
+  );
+  for (const s of m.suites) {
+    console.log(`  [${s.suite}] ${s.test_count} tests`);
+  }
+  appendGhSummary(
+    `### Manifest recorded\n\n- ${m.tests.length} tests across ${m.suites.length} suites\n- Written to \`${args.manifestPath}\`\n`
+  );
+}
+
+function verifyManifest(args: ManifestArgs, config: StackConfig): void {
+  let manifest: Manifest;
+  try {
+    manifest = JSON.parse(readFileSync(args.manifestPath, "utf8"));
+  } catch (e) {
+    console.error(
+      `Could not read manifest at ${args.manifestPath}: ${(e as Error).message}`
+    );
+    process.exit(2);
+  }
+
+  const { tests, errors } = discoverTests(config, { cwd: args.cwd });
+  if (errors.length > 0) {
+    console.error("Discovery errors during verify:");
+    for (const err of errors) {
+      console.error(`  [${err.suite}] ${err.message}`);
+    }
+    // Discovery errors mean we can't trust the current snapshot — exit 2.
+    process.exit(2);
+  }
+
+  const diff = diffManifest(manifest, tests);
+
+  if (diff.missing.length === 0) {
+    const msg = `Manifest verified: all ${manifest.tests.length} recorded tests still discoverable.${diff.added.length ? ` (${diff.added.length} new tests since record — informational.)` : ""}`;
+    console.log(msg);
+    appendGhSummary(`### Manifest verify\n\n✅ ${msg}\n`);
+    if (diff.added.length) {
+      console.log(`\nNew tests since record (informational):`);
+      for (const t of diff.added) console.log(`  + ${t.id}`);
+    }
+    process.exit(0);
+  }
+
+  console.error(
+    `Manifest verify FAILED: ${diff.missing.length} recorded test(s) no longer discoverable.`
+  );
+  for (const t of diff.missing) {
+    console.error(`  - ${t.id}`);
+    console.log(`::error file=${t.file}::Manifest verify — test missing from current discovery: ${t.id}`);
+  }
+  appendGhSummary(
+    `### Manifest verify\n\n❌ ${diff.missing.length} recorded test(s) missing from current discovery.\n\n${diff.missing
+      .map((t: TestEntry) => `- \`${t.id}\``)
+      .join("\n")}\n`
+  );
+  process.exit(1);
+}

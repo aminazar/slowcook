@@ -7,7 +7,7 @@
 
 ## Status
 
-**0.1 — frozen-paths enforcement.** The full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is documented in [`docs/DESIGN.md`](./docs/DESIGN.md) and under active development. First shipping feature is the `guard` command — the foundational anti-cheat primitive that the rest of the pipeline depends on.
+**0.2 — manifest check.** Anti-cheat primitives in place: `guard` (frozen paths, shipped in 0.1) + `manifest` (record/verify discoverable test sets, shipped in 0.2). Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is documented in [`docs/DESIGN.md`](./docs/DESIGN.md) and under active development.
 
 ## The idea
 
@@ -26,7 +26,7 @@ Result: sturdy, test-covered code produced while you sleep, with an audit trail 
 npm i -D @slowcook-ai/cli
 ```
 
-## What works today (v0.1)
+## What works today (v0.2)
 
 ### `slowcook guard`
 
@@ -36,7 +36,21 @@ Enforces frozen paths between two git refs. Runs in CI on every PR.
 npx slowcook guard --base origin/main --head HEAD
 ```
 
-Reads `.brewing/frozen-paths.json` from the consumer project. Exits non-zero on any violation. Produces GitHub Actions annotations and PR step summaries. Supports `--override` for legitimate frozen-path edits (typically via an `override-freeze` PR label).
+Reads `.brewing/frozen-paths.json`. Exits non-zero on any violation. Produces GitHub Actions annotations and PR step summaries. Supports `--override` for legitimate frozen-path edits (typically via an `override-freeze` PR label).
+
+### `slowcook manifest record` / `slowcook manifest verify`
+
+Captures the set of tests discoverable at a point in time and later verifies none have gone missing. Runs in CI alongside `guard`.
+
+```bash
+# Freeze the current set of tests into a manifest
+npx slowcook manifest record
+
+# Verify later that nothing got quietly removed
+npx slowcook manifest verify
+```
+
+Reads `.brewing/stack.json` to know how to discover tests. 0.2 supports Vitest (`vitest-list-lines`); Playwright support lands in a later release.
 
 See [`packages/cli/README.md`](./packages/cli/README.md) for full usage.
 
@@ -44,7 +58,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for full usage.
 
 | Version | Brings |
 |---|---|
-| 0.2 | `manifest record\|verify` — prevents test skip/exclude cheats |
+| 0.2 ✅ | `manifest record\|verify` — prevents test skip/exclude cheats |
 | 0.3 | `init` — scaffolds `.brewing/*` in consumer projects |
 | 0.4 | `refine` — refinement agent (issue → structured spec) |
 | 0.5 | `testgen` — test generation from spec |
@@ -64,7 +78,7 @@ slowcook is a pnpm workspace monorepo:
 |---|---|
 | `@slowcook-ai/core` | Types, ratchet logic, halt schema — pure functions, no I/O |
 | `@slowcook-ai/cli` | `slowcook` CLI binary |
-| `@slowcook-ai/stack-ts` | TypeScript/JS adapter (vitest, playwright, stryker) — 0.2 |
+| `@slowcook-ai/stack-ts` | TypeScript/JS adapter — vitest (shipped 0.2), playwright (later), stryker (0.8) |
 | `@slowcook-ai/forge-github` | GitHub adapter (labels, statuses, PRs) — 0.4 |
 | `@slowcook-ai/worker` | Long-running orchestrator daemon — 0.6 |
 | `@slowcook-ai/dashboard` | Next.js HITL admin UI — 1.0 |

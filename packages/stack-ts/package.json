@@ -1,19 +1,27 @@
 {
-  "name": "@slowcook-ai/core",
+  "name": "@slowcook-ai/stack-ts",
   "version": "0.2.0",
-  "description": "Core types and logic for the slowcook brewing harness",
+  "description": "TypeScript/JavaScript stack adapter for slowcook — test discovery, runners, coverage, mutation",
   "license": "MIT",
   "author": "aminazar",
   "repository": {
     "type": "git",
     "url": "https://github.com/aminazar/slowcook.git",
-    "directory": "packages/core"
+    "directory": "packages/stack-ts"
   },
-  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/core#readme",
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/stack-ts#readme",
   "bugs": {
     "url": "https://github.com/aminazar/slowcook/issues"
   },
-  "keywords": ["tdd", "ai", "agents", "testing", "brewing", "slowcook"],
+  "keywords": [
+    "tdd",
+    "ai",
+    "agents",
+    "testing",
+    "vitest",
+    "playwright",
+    "slowcook"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,6 +36,9 @@
     "build": "tsc -b",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@slowcook-ai/core": "workspace:^"
   },
   "publishConfig": {
     "access": "public"

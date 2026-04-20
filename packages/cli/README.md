@@ -79,6 +79,55 @@ jobs:
 
 The guard emits `::error file=...::` annotations and writes to `$GITHUB_STEP_SUMMARY` when run in GitHub Actions.
 
+### `slowcook manifest` (record / verify)
+
+Captures the set of discoverable tests so agents can't silently remove or exclude them. 0.2 supports Vitest; Playwright is coming later.
+
+```bash
+# Record a snapshot of every test currently discoverable
+npx slowcook manifest record
+
+# Verify later that the recorded set still fully resolves
+npx slowcook manifest verify
+```
+
+**Options (both subcommands):**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--stack-config <path>` | `.brewing/stack.json` | Consumer stack config |
+| `--manifest <path>` | `.brewing/manifests/all.json` (or `.brewing/manifests/story-<id>.json` if `--story`) | Where to write / read the manifest |
+| `--story <id>` | none | Tag manifest with a story id (enables per-story freezing) |
+| `--cwd <path>` | `.` | Working directory for discovery commands |
+
+**Config file** — `.brewing/stack.json` declares how to discover tests per suite:
+
+```json
+{
+  "language": "typescript",
+  "test": {
+    "backend": {
+      "runner": "vitest",
+      "run_command": "npx vitest run",
+      "discover_command": "npx vitest list",
+      "reporter_format": "vitest-list-lines"
+    }
+  }
+}
+```
+
+**Exit codes:**
+
+- `record`: `0` manifest written, `2` script error (bad config, suite discovery failed)
+- `verify`: `0` manifest matches (new tests since record are informational), `1` recorded tests no longer discoverable, `2` script error
+
+**Use in GitHub Actions** — after the frozen-paths guard:
+
+```yaml
+      - name: Verify test manifest
+        run: npx --yes @slowcook-ai/cli@latest manifest verify
+```
+
 ## Coming in later versions
 
 See the [monorepo README](../../README.md) for the roadmap.

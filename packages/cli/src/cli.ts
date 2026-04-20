@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 import { guard } from "./commands/guard.js";
+import { manifest } from "./commands/manifest.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 const USAGE = `
 slowcook — TDD-first agentic development harness
 
 Usage:
   slowcook guard --base <ref> --head <ref> [--override] [--config <path>]
+  slowcook manifest record [--stack-config <path>] [--manifest <path>] [--story <id>]
+  slowcook manifest verify [--stack-config <path>] [--manifest <path>] [--story <id>]
   slowcook version
   slowcook help
 
 Commands available in ${VERSION}:
   guard       Check for frozen-path violations between two git refs.
+  manifest    Record or verify the set of discoverable tests.
 
 Coming in later versions:
-  init, manifest, refine, testgen, brew, review, dashboard
+  init, refine, testgen, brew, review, dashboard
 
 Docs: https://github.com/aminazar/slowcook
 `;
@@ -27,6 +31,9 @@ async function main(): Promise<void> {
   switch (command) {
     case "guard":
       await guard(args.slice(1));
+      return;
+    case "manifest":
+      await manifest(args.slice(1));
       return;
     case "version":
     case "--version":

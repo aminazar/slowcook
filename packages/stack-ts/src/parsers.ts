@@ -1,0 +1,61 @@
+import type { TestEntry } from "@slowcook-ai/core";
+
+/**
+ * Parse vitest's `list` subcommand output. Each non-empty line is a test in
+ * the format:
+ *
+ *     <file> > <describe-1> [> <describe-N>]... > <test-name>
+ *
+ * The file is the left-most segment; the test id is the entire line.
+ */
+export function parseVitestList(output: string): TestEntry[] {
+  const entries: TestEntry[] = [];
+  for (const rawLine of output.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    // The separator `>` may itself appear inside a test name — but by vitest's
+    // convention the first " > " separates file from path, and we only need
+    // to extract the file portion.
+    const sepIdx = line.indexOf(" > ");
+    if (sepIdx === -1) {
+      // Lines that don't match the format (stray stderr, warnings) are skipped.
+      // We don't want a noisy stderr line to become a bogus test id.
+      continue;
+    }
+    const file = line.slice(0, sepIdx).trim();
+    if (!file) continue;
+    entries.push({ id: line, file });
+  }
+  return entries;
+}
+
+/**
+ * Playwright list output parser. Stub for 0.2 — support lands in a later
+ * release. Throws with a clear message so the CLI can surface it cleanly.
+ */
+export function parsePlaywrightList(_output: string): TestEntry[] {
+  throw new Error(
+    "Playwright discovery is not implemented in this slowcook version. " +
+      "Configure 'reporter_format' to 'vitest-list-lines' for now, or wait for a later release."
+  );
+}
+
+export function parseByReporterFormat(
+  format: string,
+  output: string
+): TestEntry[] {
+  switch (format) {
+    case "vitest-list-lines":
+    // For 0.1 compatibility, also accept the older name users may have in stack.json.
+    case "vitest-json":
+      return parseVitestList(output);
+    case "playwright-list-lines":
+    case "playwright-json":
+      return parsePlaywrightList(output);
+    default:
+      throw new Error(
+        `Unknown reporter_format: ${JSON.stringify(format)}. ` +
+          `Supported: vitest-list-lines. Coming: playwright-list-lines.`
+      );
+  }
+}

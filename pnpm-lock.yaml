@@ -23,8 +23,17 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+      '@slowcook-ai/stack-ts':
+        specifier: workspace:^
+        version: link:../stack-ts
 
   packages/core: {}
+
+  packages/stack-ts:
+    dependencies:
+      '@slowcook-ai/core':
+        specifier: workspace:^
+        version: link:../core
 
 packages:
 
