@@ -8,6 +8,7 @@ import {
   brewingReadme,
   contextMdTemplate,
   slowcookWorkflow,
+  slowcookSpecMergedWorkflow,
   codeownersFullFile,
   codeownersSection,
   gitkeep,
@@ -66,6 +67,7 @@ const TARGETS = {
   contextMd: ".brewing/context.md",
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
   workflow: ".github/workflows/slowcook.yml",
+  specMergedWorkflow: ".github/workflows/slowcook-spec-merged.yml",
   codeowners: "CODEOWNERS",
   packageJson: "package.json",
 };
@@ -148,6 +150,15 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
     options.force,
     TARGETS.workflow,
     slowcookWorkflow(cliVersion)
+  );
+
+  // 5b. .github/workflows/slowcook-spec-merged.yml
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.specMergedWorkflow,
+    slowcookSpecMergedWorkflow(cliVersion)
   );
 
   // 6. CODEOWNERS — special case (append if exists without our markers)

@@ -23,6 +23,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.32.1
         version: 0.32.1
+      '@octokit/rest':
+        specifier: ^21.0.2
+        version: 21.1.1
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core

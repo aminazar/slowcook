@@ -33,6 +33,7 @@ import { applySupersede } from "@slowcook-ai/core";
 export const LABEL_CHANGE_OF_MIND = "change-of-mind";
 export const LABEL_BLOCKED_CONTRADICTION = "blocked-contradiction";
 export const LABEL_BLOCKED_OVERLAP = "blocked-overlap";
+export const LABEL_SPEC_SUBMITTED = "spec-submitted";
 export const LABEL_SPEC_READY = "spec-ready";
 export const LABEL_NEEDS_REFINEMENT = "needs-refinement";
 
@@ -192,7 +193,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
       draft: true,
       labels: ["slowcook-spec"],
     });
-    await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_READY]);
+    await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_SUBMITTED]);
     await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_NEEDS_REFINEMENT);
     return { kind: "spec-emitted", specPath, prUrl: pr.url, prNumber: pr.number };
   } catch (e) {
@@ -217,7 +218,7 @@ Once enabled, you can either (a) bounce the \`needs-refinement\` label to re-run
 Labels updated regardless of PR status.`
       );
       // Progress the state machine even though the PR didn't open.
-      await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_READY]);
+      await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_SUBMITTED]);
       await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_NEEDS_REFINEMENT);
       return { kind: "spec-emitted", specPath, prUrl: "", prNumber: -1 };
     }

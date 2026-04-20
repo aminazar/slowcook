@@ -1,7 +1,7 @@
 // Static and parameterized file contents written by `slowcook init`.
 // Version is bumped in lockstep with the CLI package.
 
-export const CLI_VERSION_FOR_TEMPLATES = "0.4.5";
+export const CLI_VERSION_FOR_TEMPLATES = "0.4.6";
 
 export interface TemplateParams {
   /** CODEOWNERS handle or team (e.g. "@aminazar" or "@acme/frontend"). */
@@ -36,6 +36,7 @@ export function frozenPathsJson(): string {
           ".brewing/stack.json",
           ".brewing/context.md",
           ".github/workflows/slowcook.yml",
+          ".github/workflows/slowcook-spec-merged.yml",
         ],
         partial: {
           "package.json": {
@@ -171,6 +172,46 @@ Deliberately slightly inconvenient. Frozen-path changes are rare events that des
 `;
 }
 
+export function slowcookSpecMergedWorkflow(cliVersion: string): string {
+  return `name: slowcook — spec merged
+
+# Transitions source-issue labels from \`spec-submitted\` → \`spec-ready\` when
+# a spec PR merges. Detects spec PRs by the \`slowcook-spec\` label.
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  SLOWCOOK_CLI: "@slowcook-ai/cli@${cliVersion}"
+
+jobs:
+  transition:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'slowcook-spec')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event.pull_request.merge_commit_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Transition labels
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes "$SLOWCOOK_CLI" on-spec-merged --pr \${{ github.event.pull_request.number }}
+`;
+}
+
 export function slowcookWorkflow(cliVersion: string): string {
   return `name: slowcook
 
@@ -232,9 +273,10 @@ export function codeownersSection(params: TemplateParams): string {
 /tests-fixtures/                ${params.owner}
 /tests-helpers/                 ${params.owner}
 /vitest.config.*                ${params.owner}
-/.brewing/                      ${params.owner}
-/.github/workflows/slowcook.yml ${params.owner}
-/CODEOWNERS                     ${params.owner}
+/.brewing/                                  ${params.owner}
+/.github/workflows/slowcook.yml             ${params.owner}
+/.github/workflows/slowcook-spec-merged.yml ${params.owner}
+/CODEOWNERS                                 ${params.owner}
 ${SLOWCOOK_CODEOWNERS_MARKER_END}
 `;
 }

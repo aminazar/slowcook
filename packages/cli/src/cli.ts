@@ -6,6 +6,7 @@ import { guard } from "./commands/guard.js";
 import { manifest } from "./commands/manifest.js";
 import { init } from "./commands/init/index.js";
 import { refine } from "./commands/refine/index.js";
+import { onSpecMerged } from "./commands/on-spec-merged/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -32,14 +33,16 @@ Usage:
   slowcook manifest record [--stack-config <path>] [--manifest <path>] [--story <id>]
   slowcook manifest verify [--stack-config <path>] [--manifest <path>] [--story <id>]
   slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]
+  slowcook on-spec-merged --pr <number> [--cwd <path>]
   slowcook version
   slowcook help
 
 Commands available in ${VERSION}:
-  init        Scaffold slowcook configuration in a consumer project.
-  guard       Check for frozen-path violations between two git refs.
-  manifest    Record or verify the set of discoverable tests.
-  refine      Drive a GitHub issue toward a frozen spec (refinement agent).
+  init               Scaffold slowcook configuration in a consumer project.
+  guard              Check for frozen-path violations between two git refs.
+  manifest           Record or verify the set of discoverable tests.
+  refine             Drive a GitHub issue toward a frozen spec (refinement agent).
+  on-spec-merged     Transition source-issue labels after a spec PR merges.
 
 Coming in later versions:
   testgen, brew, review, dashboard
@@ -63,6 +66,9 @@ async function main(): Promise<void> {
       return;
     case "refine":
       await refine(args.slice(1), VERSION);
+      return;
+    case "on-spec-merged":
+      await onSpecMerged(args.slice(1));
       return;
     case "version":
     case "--version":
