@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/stack-ts" },
+    { "path": "./packages/forge-github" },
     { "path": "./packages/cli" }
   ]
 }

@@ -2,8 +2,9 @@
 import { guard } from "./commands/guard.js";
 import { manifest } from "./commands/manifest.js";
 import { init } from "./commands/init/index.js";
+import { refine } from "./commands/refine/index.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 const USAGE = `
 slowcook — TDD-first agentic development harness
@@ -13,6 +14,7 @@ Usage:
   slowcook guard --base <ref> --head <ref> [--override] [--config <path>]
   slowcook manifest record [--stack-config <path>] [--manifest <path>] [--story <id>]
   slowcook manifest verify [--stack-config <path>] [--manifest <path>] [--story <id>]
+  slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]
   slowcook version
   slowcook help
 
@@ -20,9 +22,10 @@ Commands available in ${VERSION}:
   init        Scaffold slowcook configuration in a consumer project.
   guard       Check for frozen-path violations between two git refs.
   manifest    Record or verify the set of discoverable tests.
+  refine      Drive a GitHub issue toward a frozen spec (refinement agent).
 
 Coming in later versions:
-  refine, testgen, brew, review, dashboard
+  testgen, brew, review, dashboard
 
 Docs: https://github.com/aminazar/slowcook
 `;
@@ -40,6 +43,9 @@ async function main(): Promise<void> {
       return;
     case "manifest":
       await manifest(args.slice(1));
+      return;
+    case "refine":
+      await refine(args.slice(1), VERSION);
       return;
     case "version":
     case "--version":

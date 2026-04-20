@@ -8,7 +8,45 @@ CLI for the slowcook brewing harness. Installs the `slowcook` binary.
 npm i -D @slowcook-ai/cli
 ```
 
-## Commands (v0.3)
+## Commands (v0.4)
+
+### `slowcook refine` (first agent)
+
+Drives a GitHub issue through a clarifying-question loop until a frozen spec is emitted as a draft PR. Enforces the issue-level ratchet: new issues must not silently duplicate or contradict earlier decisions.
+
+```bash
+npx slowcook refine --issue <number> [options]
+```
+
+**Required environment:**
+
+- `ANTHROPIC_API_KEY` — for the refinement and relationship-analysis LLM calls
+- `GITHUB_TOKEN` — with `contents: write`, `issues: write`, `pull-requests: write`
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--issue <number>` | required | GitHub issue number |
+| `--cwd <path>` | `.` | Repo working directory |
+| `--owner <login>` | parsed from git remote | Repo owner |
+| `--repo <name>` | parsed from git remote | Repo name |
+| `--base <branch>` | `main` | Base branch for the draft spec PR |
+| `--refine-model <id>` | `claude-opus-4-7` | Model for the refinement loop |
+| `--relationship-model <id>` | `claude-sonnet-4-5` | Model for relationship analysis |
+
+**Behaviour per invocation:**
+
+1. Reads the issue (body + labels + comments) and all currently-active specs.
+2. Runs a relationship analysis: `new_or_independent | overlap | contradiction`.
+3. Acts on the verdict:
+   - **overlap** — posts a comment naming the overlapping spec ids, applies `blocked-overlap` label, exits.
+   - **contradiction** without `change-of-mind` label — posts a blocker comment, applies `blocked-contradiction` label, exits.
+   - **contradiction** with `change-of-mind` label — proceeds; the spec's `supersedes` field is populated.
+   - **new / independent** — proceeds to the refinement loop.
+4. Runs one round of refinement: either posts clarifying questions (and exits; next invocation picks up on the next PM comment) OR emits the spec YAML, writes `specs/story-N.yaml` and updates `specs/_index.yaml`, commits + pushes a branch, opens a draft PR, applies `spec-ready` label.
+
+Re-run on every new PM comment in the issue (via a GitHub Actions workflow triggered by `issue_comment` + `issues` events).
 
 ### `slowcook init`
 

@@ -1,0 +1,156 @@
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  mkdirSync,
+} from "node:fs";
+import { join, dirname } from "node:path";
+import YAML from "yaml";
+import { z } from "zod";
+import {
+  makeEmptyIndex,
+  type Spec,
+  type SpecIndex,
+  type SpecIndexEntry,
+} from "@slowcook-ai/core";
+
+/** Where specs live, relative to repo root. */
+export const SPECS_DIR = "specs";
+export const INDEX_FILE = join(SPECS_DIR, "_index.yaml");
+
+const SpecStatusSchema = z.enum(["draft", "active", "superseded"]);
+
+const SpecIndexEntrySchema = z.object({
+  title: z.string(),
+  status: SpecStatusSchema,
+  source_issue: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  summary: z.string().optional(),
+  supersedes: z.array(z.string()).optional(),
+  superseded_by: z.union([z.string(), z.null()]).optional(),
+});
+
+const SpecIndexSchema = z.object({
+  $schema: z.string().optional(),
+  schema_version: z.literal(1),
+  stories: z.record(z.string(), SpecIndexEntrySchema),
+});
+
+const SpecSchema = z.object({
+  $schema: z.string().optional(),
+  story_id: z.string(),
+  title: z.string(),
+  status: SpecStatusSchema,
+  created_at: z.string(),
+  supersedes: z.array(z.string()),
+  superseded_by: z.union([z.string(), z.null()]),
+  token_budget_usd: z.number().optional(),
+  estimate: z.enum(["small", "medium", "large"]).optional(),
+  source_issue: z.string().optional(),
+  refined_by: z.string().optional(),
+  actors: z.array(z.object({ name: z.string(), notes: z.string().optional() })),
+  preconditions: z.array(z.string()),
+  invariants: z.array(z.string()),
+  api_contract: z.array(z.unknown()).optional(),
+  ui_behavior: z.record(z.string(), z.string()).optional(),
+  acceptance_scenarios: z.array(z.string()),
+  non_goals: z.array(z.string()),
+  related_specs: z
+    .array(
+      z.object({
+        id: z.string(),
+        relationship: z.enum(["overlap", "related", "superseded"]),
+        note: z.string().optional(),
+      })
+    )
+    .optional(),
+});
+
+export function readIndex(repoRoot: string): SpecIndex {
+  const path = join(repoRoot, INDEX_FILE);
+  if (!existsSync(path)) return makeEmptyIndex();
+  const raw = YAML.parse(readFileSync(path, "utf8"));
+  const parsed = SpecIndexSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid ${INDEX_FILE}: ${parsed.error.issues.map((i) => i.message).join("; ")}`
+    );
+  }
+  return parsed.data;
+}
+
+export function writeIndex(repoRoot: string, index: SpecIndex): void {
+  const path = join(repoRoot, INDEX_FILE);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    YAML.stringify(index, { lineWidth: 0 }),
+    "utf8"
+  );
+}
+
+export function readSpec(repoRoot: string, storyId: string): Spec {
+  const path = join(repoRoot, SPECS_DIR, `story-${storyId}.yaml`);
+  const raw = YAML.parse(readFileSync(path, "utf8"));
+  const parsed = SpecSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid spec at ${path}: ${parsed.error.issues.map((i) => i.message).join("; ")}`
+    );
+  }
+  return parsed.data as Spec;
+}
+
+export function writeSpec(repoRoot: string, spec: Spec): string {
+  const path = join(repoRoot, SPECS_DIR, `story-${spec.story_id}.yaml`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, YAML.stringify(spec, { lineWidth: 0 }), "utf8");
+  return path;
+}
+
+export function listActiveSpecs(repoRoot: string): Spec[] {
+  const dir = join(repoRoot, SPECS_DIR);
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir).filter(
+    (f) => f.startsWith("story-") && f.endsWith(".yaml")
+  );
+  const specs: Spec[] = [];
+  for (const f of files) {
+    const id = f.replace(/^story-/, "").replace(/\.yaml$/, "");
+    try {
+      const s = readSpec(repoRoot, id);
+      if (s.status === "active") specs.push(s);
+    } catch {
+      // ignore invalid specs; surface them elsewhere
+    }
+  }
+  return specs;
+}
+
+/** Allocate the next unused story ID (zero-padded 3 digits). */
+export function nextStoryId(repoRoot: string): string {
+  const index = readIndex(repoRoot);
+  const existing = Object.keys(index.stories).map((id) => parseInt(id, 10)).filter((n) => !isNaN(n));
+  const max = existing.length > 0 ? Math.max(...existing) : 0;
+  return String(max + 1).padStart(3, "0");
+}
+
+/** Public accessors for tests. */
+export const schemas = {
+  SpecIndex: SpecIndexSchema,
+  Spec: SpecSchema,
+  SpecIndexEntry: SpecIndexEntrySchema,
+};
+
+/** Minimal helper for the agent to build a SpecIndexEntry from a Spec. */
+export function entryFromSpec(spec: Spec): SpecIndexEntry {
+  return {
+    title: spec.title,
+    status: spec.status,
+    source_issue: spec.source_issue,
+    summary: spec.acceptance_scenarios[0]?.slice(0, 160),
+    supersedes: spec.supersedes,
+    superseded_by: spec.superseded_by,
+  };
+}

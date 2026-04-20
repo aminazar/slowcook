@@ -1,25 +1,28 @@
 {
-  "name": "@slowcook-ai/cli",
+  "name": "@slowcook-ai/forge-github",
   "version": "0.4.0",
-  "description": "CLI for the slowcook brewing harness",
+  "description": "GitHub ForgeAdapter implementation for slowcook",
   "license": "MIT",
   "author": "aminazar",
   "repository": {
     "type": "git",
     "url": "https://github.com/aminazar/slowcook.git",
-    "directory": "packages/cli"
+    "directory": "packages/forge-github"
   },
-  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/forge-github#readme",
   "bugs": {
     "url": "https://github.com/aminazar/slowcook/issues"
   },
-  "keywords": ["tdd", "ai", "agents", "testing", "cli", "brewing", "slowcook"],
+  "keywords": ["slowcook", "github", "forge", "adapter", "tdd", "ai", "agents"],
   "type": "module",
-  "bin": {
-    "slowcook": "./dist/cli.js"
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "main": "./dist/cli.js",
-  "types": "./dist/cli.d.ts",
   "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc -b",
@@ -28,11 +31,7 @@
   },
   "dependencies": {
     "@slowcook-ai/core": "workspace:^",
-    "@slowcook-ai/stack-ts": "workspace:^",
-    "@slowcook-ai/forge-github": "workspace:^",
-    "@anthropic-ai/sdk": "^0.32.1",
-    "yaml": "^2.6.0",
-    "zod": "^3.23.8"
+    "@octokit/rest": "^21.0.2"
   },
   "publishConfig": {
     "access": "public"

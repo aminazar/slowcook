@@ -6,9 +6,5 @@
   },
   "include": ["src/**/*"],
   "exclude": ["**/*.test.ts", "dist"],
-  "references": [
-    { "path": "../core" },
-    { "path": "../stack-ts" },
-    { "path": "../forge-github" }
-  ]
+  "references": [{ "path": "../core" }]
 }

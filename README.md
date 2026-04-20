@@ -7,7 +7,7 @@
 
 ## Status
 
-**0.3 — `init` command.** Anti-cheat primitives in place: `guard` (0.1) + `manifest` (0.2). 0.3 adds one-shot scaffolding so adopting slowcook in a new project is a single command. Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is documented in [`docs/DESIGN.md`](./docs/DESIGN.md) and under active development.
+**0.4 — refinement agent.** First actual agent in slowcook: `slowcook refine` drives a GitHub issue toward a frozen spec through a clarifying-question loop, enforcing a ratchet on prior decisions (overlap detection, contradiction blocking, change-of-mind revocation). Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is in [`docs/DESIGN.md`](./docs/DESIGN.md).
 
 ## The idea
 
@@ -37,7 +37,22 @@ npm i -D @slowcook-ai/cli
 npx slowcook init
 ```
 
-## What works today (v0.3)
+## What works today (v0.4)
+
+### `slowcook refine` (first agent)
+
+Drives a GitHub issue toward a frozen spec. Each invocation is one round: it analyzes the issue against existing specs, then either asks clarifying questions or emits the final spec and opens a draft PR. The agent enforces a **ratchet** on previously-accepted decisions:
+
+- **Overlap** with existing specs → posts a comment, asks PM to merge / delta / close-as-duplicate, exits.
+- **Contradiction** without a `change-of-mind` label → posts a blocker comment, applies `blocked-contradiction` label, exits.
+- **Contradiction** with `change-of-mind` label → proceeds; the resulting spec explicitly `supersedes` the older stories and `specs/_index.yaml` is updated.
+
+```bash
+# In CI (triggered on issue labeled/commented):
+ANTHROPIC_API_KEY=... GITHUB_TOKEN=... npx slowcook refine --issue 15
+```
+
+Requires `ANTHROPIC_API_KEY` (Claude) and `GITHUB_TOKEN` (issues/PRs write) in the environment.
 
 ### `slowcook init`
 
@@ -82,7 +97,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for full usage.
 |---|---|
 | 0.2 ✅ | `manifest record\|verify` — prevents test skip/exclude cheats |
 | 0.3 ✅ | `init` — scaffolds `.brewing/*` in consumer projects |
-| 0.4 | `refine` — refinement agent (issue → structured spec) |
+| 0.4 ✅ | `refine` — refinement agent (issue → structured spec) |
 | 0.5 | `testgen` — test generation from spec |
 | 0.6 | `brew` — the ratcheted overnight loop (single lane) |
 | 0.7 | Parallel lanes |
