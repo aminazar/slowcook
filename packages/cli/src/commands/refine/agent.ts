@@ -270,6 +270,16 @@ ${issue.body}`;
     });
   }
 
+  // Claude's reasoning-enabled models (Opus 4.7, Sonnet 4.5+) require the
+  // conversation to END with a user turn — they refuse to "prefill" an
+  // assistant response. If the workflow re-triggered on a label bounce (no
+  // new PM comment), the last comment is our own prior bot turn. Strip
+  // trailing assistant turns so the agent sees the thread up to the last
+  // real user turn and decides from there.
+  while (messages.length > 0 && messages[messages.length - 1]?.role === "assistant") {
+    messages.pop();
+  }
+
   return messages;
 }
 
