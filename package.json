@@ -1,0 +1,26 @@
+{
+  "name": "slowcook",
+  "private": true,
+  "description": "slowcook monorepo — TDD-first agentic development harness",
+  "license": "MIT",
+  "author": "aminazar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aminazar/slowcook.git"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter=./packages/* build",
+    "test": "pnpm -r --filter=./packages/* test",
+    "typecheck": "pnpm -r --filter=./packages/* typecheck",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

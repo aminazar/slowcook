@@ -1,0 +1,461 @@
+# slowcook — Design
+
+> **Status: active design; 0.1 shipped (frozen-paths enforcement). Full pipeline under active development.** This document describes a TDD-first agentic development pipeline: issue → refined spec → frozen tests → "brewing" (iterated implementation under guardrails) → tiered review → PR merged.
+>
+> slowcook is forge-agnostic and stack-agnostic by design. 0.1 ships a GitHub forge adapter and a TypeScript stack adapter; other forges (GitLab, Gitea) and stacks (Python, Go) are fast-follows. Consumer projects integrate via `npm install @slowcook-ai/cli` plus a small `.brewing/` config.
+>
+> [`reworthy/app`](https://github.com/reworthy/app) is slowcook's first consumer and integration-test project.
+
+## 1. Principles
+
+1. **TDD-first.** Tests are written (and human-approved) before any implementation code. Tests are the contract.
+2. **Progressive green, ratcheted.** Every implementation iteration must maintain all previously-passing tests and add at least one. Regressions are auto-reverted. No exceptions.
+3. **Cheating is a first-class concern.** Frozen tests, manifest checks, reviewer agents, mutation testing, and coverage floors all exist to make test-gaming structurally hard.
+4. **Humans review judgment, not correctness.** Mechanical checks and vision models handle objective failures. Humans only see the ~10% that require taste.
+5. **Bounded cost.** Every story has a token budget. Semi-infinite loops are detected and halted with a clear forked-road prompt for the human.
+6. **Observable and reversible.** Every iteration is a diff with full metadata. Any state can be inspected, reverted, or forked.
+
+## 2. Pipeline overview
+
+```
+GitHub Issue
+     │ label: needs-refinement
+     ▼
+┌────────────────────────────────────────────────────────────┐
+│ Phase 1 — Refinement Agent                                 │
+│  Posts clarifying Qs until spec has no ambiguity.          │
+│  Output: specs/story-N.yaml (PR)                           │
+└────────────────────────────────────────────────────────────┘
+     │ human approves spec PR
+     ▼
+┌────────────────────────────────────────────────────────────┐
+│ Phase 2 — Test-Gen Agent                                   │
+│  Produces backend integration + e2e + mechanical tests.    │
+│  Records test manifest. Output: tests-only PR.             │
+└────────────────────────────────────────────────────────────┘
+     │ human approves tests PR → tests frozen
+     ▼
+┌────────────────────────────────────────────────────────────┐
+│ Phase 3 — Brewing Harness (overnight)                      │
+│  Parallel lanes × ratcheted iterations                     │
+│  ├─ Tier-1 static scan (every iter)                        │
+│  ├─ Tier-2 diff reviewer (every checkpoint)                │
+│  ├─ Stagnation detection & strategy rotation               │
+│  └─ Token budget enforcement                               │
+│  Exit: all-green, or halt-with-explanation                 │
+└────────────────────────────────────────────────────────────┘
+     │ green
+     ▼
+┌────────────────────────────────────────────────────────────┐
+│ Phase 4 — Review Gates                                     │
+│  Gate 0.5: Tier-3 reviewer (spec-vs-code, blind to tests)  │
+│  Gate 1: Mechanical UI checks                              │
+│  Gate 2: AI vision per viewport × scheme                   │
+│  Gate 3: Human review (~10% of cases)                      │
+└────────────────────────────────────────────────────────────┘
+     │
+     ▼ PR merged, issue closed
+```
+
+## 3. Phase 1 — Story Refinement
+
+**Trigger:** issue labeled `needs-refinement`.
+
+Refinement Agent loops until the spec has zero ambiguities against a fixed checklist:
+
+- Actors & preconditions
+- API contract (endpoints, schemas, error cases)
+- UI behavior per viewport × color-scheme
+- Invariants (things that must remain true regardless of input)
+- Acceptance scenarios (Given/When/Then)
+- Non-goals (explicit out-of-scope list)
+
+It posts numbered clarifying questions as **one issue comment at a time**. Humans answer inline. When the checklist is satisfied, it emits `specs/story-N.yaml` via a PR against a `specs/` directory.
+
+**Spec schema** (abbreviated):
+
+```yaml
+story_id: 42
+title: User can react to a rewo with an emotion
+actors: [authenticated_member]
+preconditions: [...]
+invariants: [...]
+api_contract: [...]
+ui_behavior:
+  desktop_light: "..."
+  mobile_light: "..."
+  mobile_dark: "..."
+acceptance_scenarios: [...]
+non_goals: [...]
+estimate: small    # small ≤4h, medium ≤12h, large → split
+token_budget_usd: 5.00
+```
+
+The spec PR is **the primary artifact humans review**. Approving it means "the spec correctly captures the story." Human review of the later test PR is a quick confirmation, not a deep read.
+
+## 4. Phase 2 — Test Generation & Freezing
+
+**Trigger:** spec PR merged.
+
+Test-Gen Agent produces three test bundles:
+
+- `tests/integration/story-N.test.ts` — Vitest against real Postgres (testcontainers)
+- `tests/e2e/story-N.spec.ts` — Playwright per viewport × scheme
+- `tests/mechanical/story-N.json` — declarative Gate-1 rules (dimensions, token conformance, contrast, viewport asserts)
+
+Plus records a **manifest** of every test ID that will run:
+
+```json
+{
+  "story_id": 42,
+  "expected_tests": [
+    "tests/integration/story-042.test.ts > POST /api/reactions > creates reaction",
+    "tests/integration/story-042.test.ts > POST /api/reactions > rejects 16th reaction with 429",
+    ...
+  ],
+  "baseline_skipped": 0,
+  "test_files_sha256": {
+    "tests/integration/story-042.test.ts": "abc123...",
+    ...
+  }
+}
+```
+
+On merge of the tests PR, everything in the **frozen set** becomes write-protected:
+
+- `tests/**`
+- `tests-fixtures/**` (seed data, DB fixtures, mock responses)
+- `tests-helpers/**` (custom matchers, setup utilities)
+- `vitest.config.*`, `playwright.config.*`, `playwright.fixture.ts`
+- `package.json` — only the `scripts.test*` keys (rest remains editable)
+- `.github/workflows/tests.yml`
+- `.brewing/manifests/story-N.json`
+
+Enforced by:
+- Pre-push hook on the VPS runner
+- CI check `rewo/frozen-paths-untouched` (blocks PR merge)
+- `CODEOWNERS` requires `@rewo-admin` to modify any frozen path (escape hatch with audit trail)
+
+## 5. Phase 3 — The Brewing Harness
+
+### 5.1 Core ratchet
+
+At every iteration:
+
+```
+1. Agent proposes a diff.
+2. Static scan (Tier 1): regex/AST cheats — revert if matched.
+3. Scope check: files outside spec's allowed_paths — revert.
+4. Frozen-paths check: any frozen path touched — revert + log violation.
+5. Apply diff, run full test suite with fixed invocation.
+6. Manifest check:
+     - discovered == expected_tests?           else VIOLATION
+     - skipped == baseline_skipped?            else VIOLATION
+7. Ratchet check:
+     - previously_green ⊆ now_green?           else revert (regression)
+8. Progress check:
+     - now_green ⊃ previously_green?           else stagnation_counter++
+9. Tier-2 reviewer on the diff (cheap, ~30s):
+     - blocker?                                else revert
+10. Checkpoint: commit diff, update green_set.
+11. Exit if green_set == all_tests.
+```
+
+Violations (steps 4, 6) are stronger signals than regressions. Three consecutive violations → halt the lane; don't just revert.
+
+### 5.2 Parallel lanes
+
+Spawn 3 agents on the same story from distinct strategies:
+
+| Lane | Strategy |
+|---|---|
+| A | Minimal diff, match existing patterns, low temp |
+| B | Clean-room, reuse library primitives, medium temp |
+| C | Exploratory, higher temp, bolder refactors |
+
+Each in its own git worktree + Docker container. First lane to all-green wins; others terminate. Results in ~2× empirical success rate at ~3× compute cost.
+
+### 5.3 Stagnation escape
+
+When `stagnation_counter ≥ 15`:
+1. Revert the lane to its last checkpoint.
+2. Rotate strategy (swap system prompt, adjust temp, or fork to a different model).
+3. Reset stagnation counter.
+4. If stagnation occurs again after rotation → flag as `stuck`, halt for human intervention.
+
+### 5.4 Tiered reviewer agent (anti-gaming)
+
+| Tier | When | Cost | Sees | Focus |
+|---|---|---|---|---|
+| **Tier 1** | Every iteration | Free (regex/AST) | Diff | Obvious cheat patterns: `NODE_ENV==='test'`, `if (id==='fixture-uuid')`, hardcoded test values |
+| **Tier 2** | Every checkpoint | ~$0.05, ~30s (LLM) | Diff only | Is this iteration introducing a smell? |
+| **Tier 3** | Once, on all-green | ~$0.50, ~2m (LLM) | Full impl + spec; **tests hidden** | Does the code implement the spec, or just pass the tests? |
+
+**Tier-3 framing is adversarial:**
+> "You are a skeptical senior reviewer. The implementer was rewarded for passing tests. Find shortcuts, hardcoded values, spec omissions, and dead code. Cite line numbers and describe a concrete scenario where each finding fails. Do not propose fixes — only describe problems."
+
+Output is structured JSON; blockers force the harness to revert the lane's final checkpoint and re-enter brewing with the findings injected as constraints. Warnings surface in the PR. Nits are logged only.
+
+### 5.5 Periodic mutation audit
+
+Every 10 iterations (and once on final green): harness mutates implementation code (flip bools, swap `>` for `>=`, return null from a non-null function). If the test suite still passes after a mutation → the test was trivial. Flag + escalate. This is the structural check that no agent-driven review can replace.
+
+### 5.6 Coverage floor
+
+Any file created or modified by the agent must reach ≥80% line coverage under the frozen tests. Catches "wrote 200 lines to pass one test; 180 are dead."
+
+## 6. Token budget & halt conditions
+
+### 6.1 Budget structure
+
+Each story declares `token_budget_usd` in its spec. Default $5. Soft-allocated across phases:
+
+| Phase | Budget share | Notes |
+|---|---|---|
+| Refinement | 5% | If overrun, spec is too ambiguous — escalate |
+| Test-gen | 5% | Rarely overruns |
+| Brewing (across all 3 lanes) | 70% | Main spend |
+| Tier-2 reviewer | 10% | ~$0.05 × ~150 checkpoints |
+| Tier-3 reviewer + mutation | 5% | End-of-lane only |
+| Vision / Gate-2 | 5% | Per viewport × scheme × iteration on UI stories |
+
+Every LLM call is tagged with `(story_id, phase, lane, iteration)` and logged to a `brewing_spend` table. Running total tracked live.
+
+### 6.2 Halt conditions (any one triggers halt)
+
+| Trigger | Description |
+|---|---|
+| `BUDGET_EXHAUSTED` | Total spend ≥ `token_budget_usd` |
+| `STAGNATION` | Second stagnation event after strategy rotation (lane is truly stuck) |
+| `VIOLATION_STREAK` | 3 consecutive scope or frozen-path violations in a lane |
+| `REVIEWER_LOOP` | Same Tier-3 blocker recurs after 3 revert-and-retry cycles |
+| `MANIFEST_DRIFT` | Test manifest ≠ discovered tests (possible cheat or flaky runner) |
+| `MUTATION_SURVIVAL` | Mutation audit passes too often (tests are tautological) |
+| `ITERATION_CAP` | Hard cap (e.g., 200 iterations per lane) |
+| `WALL_CLOCK` | Story has been brewing > 12 hours |
+
+Soft warning at 80% of any numeric threshold: dashboard highlights in amber. At 100%: halt.
+
+### 6.3 Halt behavior
+
+On halt:
+1. Commit the lane's current state to a `brewing/story-N/halted` branch.
+2. Emit a **human-readable halt report** into the dashboard and as an issue comment.
+3. Relabel the issue `needs-human-intervention`.
+4. The lane's resources are torn down.
+
+Halt report schema — designed for the dashboard UI to render as an actionable card:
+
+```yaml
+story_id: 42
+halt_reason: REVIEWER_LOOP
+halt_timestamp: 2026-04-19T22:14:00Z
+iterations_run: 87
+checkpoints_committed: 12
+tests_green: 14 / 18
+tokens_spent_usd: 4.23 / 5.00
+summary_plain_english: |
+  Reviewer keeps flagging the same issue: when a member has exactly 15
+  reactions, the 16th attempt returns 200 (not 429). The agent has
+  alternated between two implementations across 3 cycles:
+    - A: count-then-insert (race condition)
+    - B: insert-then-check (violates constraint)
+  Neither handles concurrent requests correctly. Agent appears stuck
+  without a pattern it hasn't tried.
+
+last_three_diffs: [shortstat summaries]
+last_reviewer_finding: "..."
+last_agent_rationale: "..."
+
+suggested_actions:
+  - id: pick_approach
+    label: "Resolve the forked road"
+    description: "The agent can't decide between two approaches. Pick one."
+    options:
+      - id: approach_a
+        label: "Use DB-level atomic insert with unique partial index"
+        prompt_prefill: |
+          Use Postgres INSERT ... ON CONFLICT with a unique partial
+          index scoped to (member_id, week_start). Increment and check
+          in a single statement. This is race-safe.
+      - id: approach_b
+        label: "Use row-level lock + count"
+        prompt_prefill: |
+          Use SELECT ... FOR UPDATE on the member's reactions for the
+          current week, count, then insert if under ration. Wrap in
+          a transaction.
+  - id: increase_budget
+    label: "Give the agent more budget"
+    description: "Current spend: $4.23 / $5.00. Adding budget to let it try further."
+    param: new_budget_usd
+    suggested_value: 8.00
+  - id: edit_spec
+    label: "Clarify the spec"
+    description: "Ambiguity in the spec may be causing this loop."
+    action: open_spec_PR
+  - id: abandon
+    label: "Abandon this story"
+    description: "Close the issue or defer to manual implementation."
+```
+
+Every halt surfaces **2–4 concrete options**, each with a prefilled prompt. The human clicks one, optionally edits the prompt, and brewing resumes with the chosen path injected as the next iteration's guidance.
+
+**Key rule: never present a halt without at least one forked-road option.** If the harness can't propose concrete options, it's a bug in the halt-reporting logic, not a deficiency to live with.
+
+## 7. HITL dashboard
+
+Standalone Next.js app (`@slowcook-ai/dashboard`). Deployed by the consumer team alongside the orchestrator daemon. Auth is pluggable; the reference deployment uses email-allowlist OAuth.
+
+### Views
+
+**Queue.** Stories in flight, grouped by status (`brewing`, `halted`, `needs-review`, `blocked`).
+
+**Story detail.** For each story:
+
+- Timeline of iterations (one row per iteration):
+  ```
+  [#42] 19:14  Lane B  +18 / -3 lines in src/api/reactions/route.ts
+               tests: 12 green → 13 green (+1: rejects 16th)
+               tokens: 1.2k, $0.04
+               reviewer: clean
+  ```
+- Per-lane green progress bar (X / Y tests passing)
+- Total spend / budget progress bar
+- Last reviewer findings
+- Inline screenshots for UI stories, grouped by viewport × scheme
+- **Halt card** if halted, rendering the halt report with clickable action options
+
+**Halt intervention UI.** When a story is halted, the action card is the primary interaction:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Story #42 — halted (REVIEWER_LOOP)                         │
+│                                                            │
+│ [plain-english summary]                                    │
+│                                                            │
+│ Last attempts:                                             │
+│  → attempt A: count-then-insert (race)                     │
+│  → attempt B: insert-then-check (violates constraint)      │
+│                                                            │
+│ Suggested resolution — pick one:                           │
+│   ◉ Use ON CONFLICT with partial unique index             │
+│   ○ Use FOR UPDATE row-lock + count                       │
+│   ○ Write my own hint ▼                                   │
+│                                                            │
+│ [ Increase budget ($5 → $8) ]                             │
+│ [ Edit spec ] [ Abandon ]                                 │
+│                                                            │
+│        [ Resume brewing with this choice → ]               │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Gate 3 review.** Screenshots with tldraw annotation tool, expected behavior alongside. Approve / request-changes / annotate per (viewport × scheme) — not per story.
+
+**Spend monitor.** Daily/weekly token spend per story, anomaly alerts when a story exceeds 2× its peer median.
+
+**Audit log.** Every violation, every halt, every human intervention with who+when+what. Forever retained.
+
+## 8. Forge integration (0.1: GitHub; GitLab/Gitea to follow)
+
+slowcook interacts with the forge through a typed `ForgeAdapter` interface (see `packages/forge-github`, future `packages/forge-gitlab`). The labels and workflow below describe the GitHub integration; semantically equivalent mechanisms exist on GitLab and Gitea.
+
+### 8.1 Labels drive the state machine
+
+| Label | Set by | Meaning |
+|---|---|---|
+| `needs-refinement` | PM or AI triage | Kicks off Phase 1 |
+| `spec-ready` | Refinement agent | Spec PR opened |
+| `tests-pending` | After spec PR merge | Phase 2 runs |
+| `brewing` | After tests PR merge | Phase 3 runs |
+| `needs-review` | Harness | Phase 4 — gates triggered |
+| `needs-human-intervention` | Harness | Halted; dashboard action required |
+| `aesthetic-sensitive` | PM (manual) | Forces Gate 3 HITL regardless of Gate 2 |
+| `blocked` | Anyone | Pauses all automation |
+
+### 8.2 Check runs on PRs
+
+Each implementation PR displays a canonical set of checks (prefix is `slowcook/`):
+
+- `slowcook/frozen-paths-untouched`
+- `slowcook/scope-compliance`
+- `slowcook/manifest-intact`
+- `slowcook/tests-integration`
+- `slowcook/tests-e2e`
+- `slowcook/mutation-audit`
+- `slowcook/coverage-floor`
+- `slowcook/tier-3-reviewer`
+- `slowcook/gate-1-mechanical`
+- `slowcook/gate-2-vision`
+- `slowcook/gate-3-human` (awaiting / approved / not-required)
+
+Branch protection on `main`: all checks green + 1 human approval.
+
+### 8.3 Self-hosted runner
+
+Consumer projects register a self-hosted GitHub Actions runner on the machine that also hosts the orchestrator daemon (`@slowcook-ai/worker`). Label-change webhooks trigger workflows that invoke the orchestrator. Orchestrator posts status back via check runs, PR comments, issue comments.
+
+Runner needs access to: local Postgres (pg-boss), MinIO (screenshot storage), and Docker (per-lane sandboxes).
+
+## 9. Tech stack
+
+| Layer | Pick | Package |
+|---|---|---|
+| Orchestrator | TypeScript, Claude Agent SDK | `@slowcook-ai/worker` |
+| Core types & logic | Pure TypeScript, no I/O | `@slowcook-ai/core` |
+| CLI | Node 20+ | `@slowcook-ai/cli` |
+| Job queue | pg-boss on Postgres | (used by worker) |
+| Worktrees | Native git worktrees per lane | (in worker) |
+| Sandboxing | Docker per lane, restricted outbound | (in worker) |
+| Stack adapter (TS) | Vitest + testcontainers; Playwright; Stryker | `@slowcook-ai/stack-ts` |
+| Forge adapter (GitHub) | GitHub REST / GraphQL | `@slowcook-ai/forge-github` |
+| Screenshot storage | MinIO (S3-compatible), deployed by consumer | (used by worker) |
+| Vision review | Claude vision API | (in worker) |
+| Dashboard | Next.js, tldraw for annotation | `@slowcook-ai/dashboard` |
+| Frozen-path enforcement | CLI + CI + CODEOWNERS | `@slowcook-ai/cli guard` |
+| Future: Python stack | Pytest + Coverage.py + mutmut | `@slowcook-ai/stack-python` |
+| Future: GitLab forge | GitLab REST | `@slowcook-ai/forge-gitlab` |
+
+## 10. Release roadmap
+
+slowcook ships incrementally. Each version is usable on its own; rewo (and any other consumer) adopts them as they land.
+
+| Version | Scope | New packages | Effort |
+|---|---|---|---|
+| **0.1** ✅ | `guard` command — frozen-paths enforcement | `@slowcook-ai/core`, `@slowcook-ai/cli` | ~1 day |
+| **0.2** | `manifest record\|verify` — prevents skip/exclude cheating | stack-ts (discovery only) | ~2 days |
+| **0.3** | `init` — scaffolds consumer `.brewing/*` + CI workflow + CODEOWNERS | (cli growth) | ~1 day |
+| **0.4** | `refine` — issue → structured spec (refinement agent) | `@slowcook-ai/forge-github` | ~3 days |
+| **0.5** | `testgen` — spec → frozen tests | (stack-ts growth) | ~2 days |
+| **0.6** | `brew` — single-lane ratchet, budget, pg-boss, halt schema | `@slowcook-ai/worker` | ~4 days |
+| **0.7** | Parallel lanes | (worker growth) | ~1 day |
+| **0.8** | Tier-1 static scan + Tier-2/Tier-3 reviewer + mutation audit + coverage floor | (worker growth) | ~2 days |
+| **0.9** | Gate 1 mechanical (UI asserts) + Gate 2 vision | (stack-ts + worker growth) | ~3 days |
+| **1.0** | HITL dashboard, end-to-end pipeline validated on rewo | `@slowcook-ai/dashboard` | ~4 days |
+
+**Total to 1.0:** ~23 days. First-useful milestone (0.1 → 0.3): ~4 days — consumers can already enforce frozen paths + manifests, and scaffold new projects.
+
+## 11. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Spec quality ceiling | Refinement agent is the highest-leverage component. Budget prompt-iteration time specifically for it. |
+| Test-gaming via new categories | Add patterns to Tier-1 scanner as discovered. Mutation audit is the backstop. |
+| Reviewer rubber-stamps | Adversarial framing + evidence-required findings + spec-blind-to-tests view. |
+| Parallel lanes cost | Measured per-story; stop a lane early if another crosses 80% green first. |
+| Token runaway in loops | Budget + halt triggers (section 6). |
+| Halt options become "just give up" | Rule: every halt must propose ≥1 concrete forked-road action. Enforced by halt-report schema. |
+| Orchestrator host SPOF | Recommend nightly off-box backup of brewing state + worktrees for any consumer self-hosting `@slowcook-ai/worker`. |
+| Green on false premise (spec wrong) | Human-gated spec PR is the sole defense. Keep that review honest; mutation audit partially helps. |
+
+## 12. What's out of scope for 1.0
+
+- Multi-repo stories (one PR spanning multiple repos)
+- Cross-service integration stories (microservices coordination)
+- Architecturally novel stories (new patterns not yet in the codebase) — route to human implementation for now
+- Database migration work — tooling for this is a separate concern
+- Non-GitHub forges (GitLab adapter lands post-1.0 as `@slowcook-ai/forge-gitlab`)
+- Non-TS stacks (Python lands post-1.0 as `@slowcook-ai/stack-python`)
+
+---
+
+This is the canonical design doc. Implementation notes per release live in the package READMEs (`packages/*/README.md`).
