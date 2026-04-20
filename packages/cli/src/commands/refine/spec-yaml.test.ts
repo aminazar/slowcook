@@ -87,17 +87,50 @@ describe("spec-yaml I/O", () => {
   });
 
   describe("nextStoryId", () => {
-    it("returns 001 on a fresh repo", () => {
-      expect(nextStoryId(repoRoot)).toBe("001");
+    it("returns 001 on a fresh repo", async () => {
+      expect(await nextStoryId(repoRoot)).toBe("001");
     });
 
-    it("increments from the highest existing id", () => {
+    it("increments from the highest id in the index", async () => {
       const idx = makeEmptyIndex();
       idx.stories["007"] = { title: "seven", status: "active" };
       idx.stories["013"] = { title: "thirteen", status: "superseded" };
       idx.stories["042"] = { title: "forty-two", status: "active" };
       writeIndex(repoRoot, idx);
-      expect(nextStoryId(repoRoot)).toBe("043");
+      expect(await nextStoryId(repoRoot)).toBe("043");
+    });
+
+    it("also considers remote branches matching slowcook/spec/story-*", async () => {
+      // Index is empty; branch has story-007 in flight.
+      const mockForge = {
+        listBranchesMatching: async (_prefix: string) =>
+          ["slowcook/spec/story-007", "some-other-branch"],
+      } as unknown as import("@slowcook-ai/core").ForgeAdapter;
+      expect(await nextStoryId(repoRoot, mockForge)).toBe("008");
+    });
+
+    it("unions index and branch ids, takes max+1", async () => {
+      const idx = makeEmptyIndex();
+      idx.stories["003"] = { title: "three", status: "active" };
+      writeIndex(repoRoot, idx);
+      const mockForge = {
+        listBranchesMatching: async (_prefix: string) =>
+          ["slowcook/spec/story-005", "slowcook/spec/story-001"],
+      } as unknown as import("@slowcook-ai/core").ForgeAdapter;
+      // max(3, 5, 1) + 1 = 6
+      expect(await nextStoryId(repoRoot, mockForge)).toBe("006");
+    });
+
+    it("falls back to index-only if the forge call fails", async () => {
+      const idx = makeEmptyIndex();
+      idx.stories["042"] = { title: "forty-two", status: "active" };
+      writeIndex(repoRoot, idx);
+      const brokenForge = {
+        listBranchesMatching: async () => {
+          throw new Error("rate limited");
+        },
+      } as unknown as import("@slowcook-ai/core").ForgeAdapter;
+      expect(await nextStoryId(repoRoot, brokenForge)).toBe("043");
     });
   });
 

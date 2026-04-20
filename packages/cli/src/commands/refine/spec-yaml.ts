@@ -13,6 +13,7 @@ import {
   type Spec,
   type SpecIndex,
   type SpecIndexEntry,
+  type ForgeAdapter,
 } from "@slowcook-ai/core";
 
 /** Where specs live, relative to repo root. */
@@ -128,12 +129,42 @@ export function listActiveSpecs(repoRoot: string): Spec[] {
   return specs;
 }
 
-/** Allocate the next unused story ID (zero-padded 3 digits). */
-export function nextStoryId(repoRoot: string): string {
+/**
+ * Allocate the next unused story ID (zero-padded 3 digits).
+ *
+ * Considers BOTH the local index (specs/_index.yaml on the checked-out branch)
+ * AND remote branches matching `slowcook/spec/story-*`. This prevents story-ID
+ * collisions when a spec PR is in flight (branch exists on remote but index on
+ * main doesn't reflect it yet) or when two refinement runs overlap.
+ *
+ * `forge` is optional so callers without a forge (e.g., local tooling) can still
+ * use the function — they just get a weaker guarantee (index-only).
+ */
+export async function nextStoryId(
+  repoRoot: string,
+  forge?: ForgeAdapter
+): Promise<string> {
   const index = readIndex(repoRoot);
-  const existing = Object.keys(index.stories).map((id) => parseInt(id, 10)).filter((n) => !isNaN(n));
-  const max = existing.length > 0 ? Math.max(...existing) : 0;
-  return String(max + 1).padStart(3, "0");
+  const fromIndex = Object.keys(index.stories)
+    .map((id) => parseInt(id, 10))
+    .filter((n) => !isNaN(n));
+
+  let fromBranches: number[] = [];
+  if (forge) {
+    try {
+      const branches = await forge.listBranchesMatching("slowcook/spec/story-");
+      fromBranches = branches
+        .map((b) => b.replace(/^slowcook\/spec\/story-/, ""))
+        .map((id) => parseInt(id, 10))
+        .filter((n) => !isNaN(n));
+    } catch {
+      // Best-effort: if the listing fails (rate limit, etc.), fall back to
+      // index-only. Collision risk returns but behaviour stays sane.
+    }
+  }
+
+  const all = [...fromIndex, ...fromBranches, 0];
+  return String(Math.max(...all) + 1).padStart(3, "0");
 }
 
 /** Public accessors for tests. */

@@ -143,6 +143,16 @@ export class GitHubAdapter implements ForgeAdapter {
     };
   }
 
+  async listBranchesMatching(prefix: string): Promise<string[]> {
+    const branches = await this.octokit.paginate(
+      this.octokit.repos.listBranches,
+      { owner: this.owner, repo: this.repo, per_page: 100 }
+    );
+    return branches
+      .map((b) => b.name)
+      .filter((name) => name.startsWith(prefix));
+  }
+
   async botUsername(): Promise<string> {
     if (this.cachedBotUsername) return this.cachedBotUsername;
     // `/user` is not accessible when auth'd with a workflow's GITHUB_TOKEN

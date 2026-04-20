@@ -1,7 +1,7 @@
 // Static and parameterized file contents written by `slowcook init`.
 // Version is bumped in lockstep with the CLI package.
 
-export const CLI_VERSION_FOR_TEMPLATES = "0.3.0";
+export const CLI_VERSION_FOR_TEMPLATES = "0.4.4";
 
 export interface TemplateParams {
   /** CODEOWNERS handle or team (e.g. "@aminazar" or "@acme/frontend"). */
@@ -144,6 +144,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+
+      - name: Install consumer deps
+        # \`manifest verify\` shells out to the consumer's own test runner
+        # (e.g. \`npx vitest list\`) which loads the project's test config.
+        # Installing node_modules ensures that config can resolve its imports.
+        run: npm ci
 
       - name: Guard — frozen paths
         env:

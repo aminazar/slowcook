@@ -110,11 +110,13 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
       await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_CONTRADICTION]);
       return { kind: "contradiction-blocked", conflicting_ids: verdict.conflicting_ids };
     }
-    // Authorized change-of-mind: post an acknowledgment and proceed
+    // Authorized change-of-mind: post an acknowledgment, clear any stale
+    // blocker label from a prior pass, and proceed.
     await ctx.forge.createIssueComment(
       ctx.issueNumber,
       contradictionCommentBody(verdict, true)
     );
+    await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_BLOCKED_CONTRADICTION);
   }
 
   const supersedes: string[] =
@@ -123,7 +125,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   // Step 2: refinement loop (single round — ask or emit based on full history)
   const comments = await ctx.forge.listIssueComments(ctx.issueNumber);
   const chat = buildChatHistory(issue, comments, supersedes);
-  const storyId = nextStoryId(ctx.repoRoot);
+  const storyId = await nextStoryId(ctx.repoRoot, ctx.forge);
 
   const agentResponse = await ctx.llm.complete({
     system: REFINEMENT_ANALYST_SYSTEM(SPEC_CHECKLIST_MD),
@@ -171,23 +173,54 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   );
   await ctx.forge.git.push(branch);
 
-  const pr = await ctx.forge.createPullRequest({
-    title: draftPrTitle(spec.story_id, spec.title),
-    body: draftPrBody({
-      storyId: spec.story_id,
-      issueNumber: ctx.issueNumber,
-      supersedes,
-    }),
-    head: branch,
-    base: ctx.baseBranch,
-    draft: true,
-    labels: ["slowcook-spec"],
-  });
+  // PR creation can fail with 403 if the org/repo setting "Allow GitHub
+  // Actions to create and approve pull requests" is off. Catch it
+  // specifically and leave the branch + spec behind with a breadcrumb
+  // comment instead of crashing — the state machine still progresses.
+  try {
+    const pr = await ctx.forge.createPullRequest({
+      title: draftPrTitle(spec.story_id, spec.title),
+      body: draftPrBody({
+        storyId: spec.story_id,
+        issueNumber: ctx.issueNumber,
+        supersedes,
+      }),
+      head: branch,
+      base: ctx.baseBranch,
+      draft: true,
+      labels: ["slowcook-spec"],
+    });
+    await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_READY]);
+    await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_NEEDS_REFINEMENT);
+    return { kind: "spec-emitted", specPath, prUrl: pr.url, prNumber: pr.number };
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 403) {
+      await ctx.forge.createIssueComment(
+        ctx.issueNumber,
+        `### slowcook · PR creation blocked
 
-  await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_READY]);
-  await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_NEEDS_REFINEMENT);
+I wrote the spec to \`${specPath.replace(ctx.repoRoot + "/", "")}\` and pushed branch \`${branch}\`, but I couldn't open the PR automatically:
 
-  return { kind: "spec-emitted", specPath, prUrl: pr.url, prNumber: pr.number };
+\`\`\`
+${(e as Error).message}
+\`\`\`
+
+**Fix:** enable **"Allow GitHub Actions to create and approve pull requests"** at:
+- Repo: \`Settings → Actions → General → Workflow permissions\`
+- Org (if it overrides the repo): \`organizations/<org>/settings/actions → Workflow permissions\`
+
+Once enabled, you can either (a) bounce the \`needs-refinement\` label to re-run me (I'll no-op on the existing branch and just open the PR), or (b) open the PR manually from the branch.
+
+Labels updated regardless of PR status.`
+      );
+      // Progress the state machine even though the PR didn't open.
+      await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_READY]);
+      await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_NEEDS_REFINEMENT);
+      return { kind: "spec-emitted", specPath, prUrl: "", prNumber: -1 };
+    }
+    throw e;
+  }
 }
 
 // ----- helpers -----

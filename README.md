@@ -7,7 +7,7 @@
 
 ## Status
 
-**0.4 — refinement agent.** First actual agent in slowcook: `slowcook refine` drives a GitHub issue toward a frozen spec through a clarifying-question loop, enforcing a ratchet on prior decisions (overlap detection, contradiction blocking, change-of-mind revocation). Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is in [`docs/DESIGN.md`](./docs/DESIGN.md).
+**0.4 — refinement agent** (polished in 0.4.4). `slowcook refine` drives a GitHub issue toward a frozen spec: one clarifying-question round per invocation, enforcing a ratchet on prior decisions (overlap detection, contradiction blocking, change-of-mind revocation with explicit `supersedes`). Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is in [`docs/DESIGN.md`](./docs/DESIGN.md).
 
 ## The idea
 

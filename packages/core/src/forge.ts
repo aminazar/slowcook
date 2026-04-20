@@ -73,4 +73,11 @@ export interface ForgeAdapter {
 
   // Identity — for distinguishing agent comments from PM comments
   botUsername(): Promise<string>;
+
+  /**
+   * List branch names with a given prefix. Used by the refinement agent to
+   * detect in-flight spec branches (from open PRs) before allocating a new
+   * story ID, avoiding collisions when multiple refinements are in progress.
+   */
+  listBranchesMatching(prefix: string): Promise<string[]>;
 }
