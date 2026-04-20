@@ -163,7 +163,77 @@ At every iteration:
 
 Violations (steps 4, 6) are stronger signals than regressions. Three consecutive violations → halt the lane; don't just revert.
 
-### 5.2 Parallel lanes
+### 5.2 Graduality and refinement feedback
+
+Graduality — the rhythm of flipping one failing test to green at a time, with a small localized diff — is a first-class concern, not a prompt-level suggestion. It has three properties:
+
+1. **No regressions** — previously-green tests stay green. Handled by the ratchet (§5.1).
+2. **Focused progress** — each iteration targets *one* specific red test.
+3. **Small, localized diffs** — the change to flip red→green is minimal.
+
+The ratchet alone gives you (1). Properties (2) and (3) require dedicated mechanisms.
+
+#### Target-test selection
+
+The orchestrator picks the next red test as the iteration's **target**, from the frozen manifest, using a simple heuristic (first red test in declared order, biased toward tests in files the agent has already touched in prior iterations). The agent receives:
+
+- The target test (primary goal)
+- The full currently-green set (invariants — must stay green)
+- The declared `allowed_paths` for this story (scope — cannot touch anything outside)
+
+An iteration is considered successful when the target flips. If the diff incidentally flips other red tests too, that's allowed but logged (see "unexpected wins" below).
+
+#### Diff-size soft cap (not hard)
+
+Each iteration has a **soft cap** on diff size — default `200 lines changed, 5 files touched`, configurable per-story in the spec. Exceeding the cap does **not** auto-reject the diff. Instead, the harness asks the implementer agent to either narrow the diff or provide a **structured justification**:
+
+```json
+{
+  "reason_category": "new_module | protocol_change | cross_cutting | refactor_needed | other",
+  "affected_scope": ["src/api/reactions/", "src/lib/ration/"],
+  "narrative": "This test requires a new ration-tracking module that didn't exist. Split across 3 files.",
+  "proposed_substories_if_split": [
+    "Add ration-tracking module (no behavior change)",
+    "Wire ration check into reactions endpoint"
+  ]
+}
+```
+
+With a justification, the diff proceeds through the normal ratchet + reviewer pipeline. An HITL event is emitted (see §7) for asynchronous human review — the brew does **not** block on it.
+
+#### The refinement feedback loop (the whole point)
+
+A big diff is not inherently a brewing failure; it is **evidence that refinement may have under-decomposed the story**. The PM reviews large-iteration events in the dashboard and marks each as one of:
+
+- **"Justified"** — the test genuinely needed a broad change. Story was correctly scoped. Logged for cap calibration.
+- **"My bad — refinement miss"** — the story should have been split. The story is halted; the over-broad diff + the agent's `proposed_substories_if_split` are returned to the Refinement Agent (§3) as training/context for re-decomposition. The substories become the inputs for a fresh pass.
+
+Every "my bad" is a learning signal. Over time:
+- The Refinement Agent's prompts accumulate counter-examples ("stories of shape X tend to produce over-broad diffs — watch for this pattern")
+- The soft cap can be calibrated per stack / per repository based on "justified" distribution
+- The rate of "my bad" events is itself a quality metric for refinement
+
+Hard caps would have forced the agent into unnatural narrowing for genuinely-broad changes, producing churn and masking the upstream decomposition problem. Soft caps surface the truth.
+
+#### Unexpected wins
+
+If an iteration flips more than just the target test (e.g., target was test A, but B and C also went green), the harness accepts the diff (green is green) but records an **unexpected-win event**. Consistent patterns of unexpected wins reveal either:
+
+- Good factoring — one change legitimately serves multiple tests (positive signal)
+- Redundant tests — several tests asserting the same thing (flag for spec review)
+- Over-broad implementation — agent is doing more than its target (reviewer concern)
+
+The Tier-2/3 reviewer inspects unexpected-win iterations with extra scrutiny.
+
+#### Prompt discipline as belt-and-braces
+
+Architectural enforcement is necessary but not sufficient by itself; the implementer agent's system prompt should also embed the expectation:
+
+> "You have been given one target test and a set of allowed paths. Make the smallest change across the fewest files that flips the target from red to green without breaking any currently-green test. Do not refactor. Do not anticipate future tests. If you believe the test genuinely requires a broader change, narrow it as far as possible, then provide a structured justification in the specified schema."
+
+Prompt + cap + justification schema together produce the right behaviour. None of the three alone is enough.
+
+### 5.3 Parallel lanes
 
 Spawn 3 agents on the same story from distinct strategies:
 
@@ -175,7 +245,7 @@ Spawn 3 agents on the same story from distinct strategies:
 
 Each in its own git worktree + Docker container. First lane to all-green wins; others terminate. Results in ~2× empirical success rate at ~3× compute cost.
 
-### 5.3 Stagnation escape
+### 5.4 Stagnation escape
 
 When `stagnation_counter ≥ 15`:
 1. Revert the lane to its last checkpoint.
@@ -183,7 +253,7 @@ When `stagnation_counter ≥ 15`:
 3. Reset stagnation counter.
 4. If stagnation occurs again after rotation → flag as `stuck`, halt for human intervention.
 
-### 5.4 Tiered reviewer agent (anti-gaming)
+### 5.5 Tiered reviewer agent (anti-gaming)
 
 | Tier | When | Cost | Sees | Focus |
 |---|---|---|---|---|
@@ -196,11 +266,11 @@ When `stagnation_counter ≥ 15`:
 
 Output is structured JSON; blockers force the harness to revert the lane's final checkpoint and re-enter brewing with the findings injected as constraints. Warnings surface in the PR. Nits are logged only.
 
-### 5.5 Periodic mutation audit
+### 5.6 Periodic mutation audit
 
 Every 10 iterations (and once on final green): harness mutates implementation code (flip bools, swap `>` for `>=`, return null from a non-null function). If the test suite still passes after a mutation → the test was trivial. Flag + escalate. This is the structural check that no agent-driven review can replace.
 
-### 5.6 Coverage floor
+### 5.7 Coverage floor
 
 Any file created or modified by the agent must reach ≥80% line coverage under the frozen tests. Catches "wrote 200 lines to pass one test; 180 are dead."
 
@@ -351,9 +421,18 @@ Standalone Next.js app (`@slowcook-ai/dashboard`). Deployed by the consumer team
 
 **Gate 3 review.** Screenshots with tldraw annotation tool, expected behavior alongside. Approve / request-changes / annotate per (viewport × scheme) — not per story.
 
+**Large-iteration review.** Non-blocking card per over-cap iteration (see §5.2). Shows diff stats, target test, agent's structured justification, and its `proposed_substories_if_split`. PM marks:
+
+- **Justified** → logged for cap calibration, brew unaffected
+- **My bad — refinement miss** → story halted, returned to refinement with the substory proposal as seed context
+
+Large-iteration review is async — reviewing takes seconds per card, and the brew continues while the card awaits disposition. Cards that remain unhandled for N days auto-tag as "justified (no response)" and a reminder fires so cap calibration isn't skewed by PM inaction.
+
 **Spend monitor.** Daily/weekly token spend per story, anomaly alerts when a story exceeds 2× its peer median.
 
-**Audit log.** Every violation, every halt, every human intervention with who+when+what. Forever retained.
+**Audit log.** Every violation, every halt, every human intervention (including large-iteration dispositions) with who+when+what. Forever retained.
+
+**Refinement feedback channel.** "My bad" dispositions feed back into the Refinement Agent (§3) as counter-example context. Over time, the refinement prompts accumulate patterns of "stories of shape X tend to produce over-broad diffs — watch for this" and catch more under-decompositions up front.
 
 ## 8. Forge integration (0.1: GitHub; GitLab/Gitea to follow)
 
@@ -426,13 +505,13 @@ slowcook ships incrementally. Each version is usable on its own; rewo (and any o
 | **0.3** | `init` — scaffolds consumer `.brewing/*` + CI workflow + CODEOWNERS | (cli growth) | ~1 day |
 | **0.4** | `refine` — issue → structured spec (refinement agent) | `@slowcook-ai/forge-github` | ~3 days |
 | **0.5** | `testgen` — spec → frozen tests | (stack-ts growth) | ~2 days |
-| **0.6** | `brew` — single-lane ratchet, budget, pg-boss, halt schema | `@slowcook-ai/worker` | ~4 days |
+| **0.6** | `brew` — single-lane ratchet, budget, pg-boss, halt schema, **graduality mechanisms (target-test selection, diff soft-cap, justification schema)** per §5.2 | `@slowcook-ai/worker` | ~5 days |
 | **0.7** | Parallel lanes | (worker growth) | ~1 day |
 | **0.8** | Tier-1 static scan + Tier-2/Tier-3 reviewer + mutation audit + coverage floor | (worker growth) | ~2 days |
 | **0.9** | Gate 1 mechanical (UI asserts) + Gate 2 vision | (stack-ts + worker growth) | ~3 days |
-| **1.0** | HITL dashboard, end-to-end pipeline validated on rewo | `@slowcook-ai/dashboard` | ~4 days |
+| **1.0** | HITL dashboard (incl. halt cards + **large-iteration cards + refinement feedback channel** per §7), end-to-end pipeline validated on rewo | `@slowcook-ai/dashboard` | ~5 days |
 
-**Total to 1.0:** ~23 days. First-useful milestone (0.1 → 0.3): ~4 days — consumers can already enforce frozen paths + manifests, and scaffold new projects.
+**Total to 1.0:** ~25 days. First-useful milestone (0.1 → 0.3): ~4 days — consumers can already enforce frozen paths + manifests, and scaffold new projects. Graduality mechanisms land with the first brew release (0.6) so they shape behavior from the first real iteration.
 
 ## 11. Risks
 
