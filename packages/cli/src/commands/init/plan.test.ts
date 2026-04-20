@@ -91,6 +91,7 @@ describe("buildPlan — fresh project", () => {
     expect(paths).toContain(".brewing/frozen-paths.json");
     expect(paths).toContain(".brewing/stack.json");
     expect(paths).toContain(".brewing/README.md");
+    expect(paths).toContain(".brewing/context.md");
     expect(paths).toContain(".brewing/manifests/.gitkeep");
     expect(paths).toContain(".github/workflows/slowcook.yml");
     expect(paths).toContain("CODEOWNERS");

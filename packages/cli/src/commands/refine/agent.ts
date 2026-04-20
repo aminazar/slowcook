@@ -22,6 +22,7 @@ import {
   nextStoryId,
   entryFromSpec,
 } from "./spec-yaml.js";
+import { buildProjectContext } from "./context.js";
 import {
   analyzeRelationship,
   contradictionCommentBody,
@@ -127,8 +128,9 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   const chat = buildChatHistory(issue, comments, supersedes);
   const storyId = await nextStoryId(ctx.repoRoot, ctx.forge);
 
+  const projectContext = buildProjectContext(ctx.repoRoot);
   const agentResponse = await ctx.llm.complete({
-    system: REFINEMENT_ANALYST_SYSTEM(SPEC_CHECKLIST_MD),
+    system: REFINEMENT_ANALYST_SYSTEM(SPEC_CHECKLIST_MD, projectContext),
     cacheSystem: true,
     model: ctx.refineModel,
     messages: chat,

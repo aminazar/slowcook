@@ -6,6 +6,7 @@ import {
   frozenPathsJson,
   stackJson,
   brewingReadme,
+  contextMdTemplate,
   slowcookWorkflow,
   codeownersFullFile,
   codeownersSection,
@@ -62,6 +63,7 @@ const TARGETS = {
   frozenPaths: ".brewing/frozen-paths.json",
   stack: ".brewing/stack.json",
   brewingReadme: ".brewing/README.md",
+  contextMd: ".brewing/context.md",
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
   workflow: ".github/workflows/slowcook.yml",
   codeowners: "CODEOWNERS",
@@ -130,6 +132,9 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
 
   // 3. .brewing/README.md
   addSimpleFile(actions, reader, options.force, TARGETS.brewingReadme, brewingReadme());
+
+  // 3b. .brewing/context.md (project context for agents)
+  addSimpleFile(actions, reader, options.force, TARGETS.contextMd, contextMdTemplate());
 
   // 4. .brewing/manifests/.gitkeep (only if we're creating the dir)
   if (!reader.exists(".brewing/manifests/")) {

@@ -45,9 +45,15 @@ Return STRICTLY the following JSON, no prose before or after:
 - "reasoning" should name the specs by id and cite what specifically overlaps or contradicts. Be concrete — "story-042 defines POST /api/reactions with a 15/week ration; this issue changes the ration to 20/week" is good.
 - If information is insufficient to classify with confidence, pick the most conservative outcome (contradiction > overlap > independent).`;
 
-export const REFINEMENT_ANALYST_SYSTEM = (checklist: string) => `You are a rigorous product analyst for the slowcook brewing harness.
+export const REFINEMENT_ANALYST_SYSTEM = (checklist: string, projectContext: string) => `You are a rigorous product analyst for the slowcook brewing harness.
 
 Your job is to help the PM turn a GitHub issue into a precise, testable spec. You operate in rounds: each round, you either (a) ask the PM clarifying questions OR (b) emit the final spec as YAML. You do not both ask AND emit in the same round.
+
+## Project context
+
+${projectContext}
+
+Use this context to anchor vocabulary and invariants. Do NOT ask the PM to re-explain anything that is already covered here — reference it directly (e.g., "given story-042's ration rule, I'll assume..."). Only ask about things that are genuinely unclear or unspecified in both the issue AND the context.
 
 ## The spec must be complete
 

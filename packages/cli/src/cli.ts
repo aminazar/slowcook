@@ -1,10 +1,27 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { guard } from "./commands/guard.js";
 import { manifest } from "./commands/manifest.js";
 import { init } from "./commands/init/index.js";
 import { refine } from "./commands/refine/index.js";
 
-const VERSION = "0.4.0";
+// Read VERSION from package.json at runtime so the CLI's self-reported
+// version, the spec's `refined_by` field, and the init template's workflow
+// pin all stay in lockstep with the package version. Prevents the silent
+// drift seen in 0.4.0–0.4.4 (cli.ts stayed at 0.4.0 while package.json
+// bumped through 0.4.4).
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageJsonPath = join(__dirname, "..", "package.json");
+const VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0-unknown";
+  } catch {
+    return "0.0.0-unknown";
+  }
+})();
 
 const USAGE = `
 slowcook — TDD-first agentic development harness
