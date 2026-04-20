@@ -6,3 +6,5 @@ dist/
 .idea/
 coverage/
 *.log
+# Never commit an auth token
+.npmrc
