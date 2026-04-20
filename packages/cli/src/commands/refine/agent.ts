@@ -35,6 +35,16 @@ export const LABEL_BLOCKED_OVERLAP = "blocked-overlap";
 export const LABEL_SPEC_READY = "spec-ready";
 export const LABEL_NEEDS_REFINEMENT = "needs-refinement";
 
+/**
+ * Branded header prepended to every clarifying-question comment so reviewers
+ * can tell at a glance that the comment is agent-authored, even though GitHub
+ * shows the author as "github-actions[bot]". The prefix `### slowcook ·` is
+ * load-bearing — the consumer workflow filters comments starting with it to
+ * avoid re-triggering the agent on its own output. Do not change this literal
+ * without updating rewo's slowcook-refine.yml `if:` condition in lockstep.
+ */
+export const BRAND_HEADER = "### slowcook · refinement agent 🍲\n\n";
+
 export interface RefineContext {
   issueNumber: number;
   repoRoot: string;
@@ -133,7 +143,10 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   });
 
   if (parsed.kind === "questions") {
-    const comment = await ctx.forge.createIssueComment(ctx.issueNumber, parsed.markdown);
+    const comment = await ctx.forge.createIssueComment(
+      ctx.issueNumber,
+      BRAND_HEADER + parsed.markdown
+    );
     return { kind: "questions-posted", commentId: comment.id };
   }
 
@@ -193,15 +206,21 @@ ${issue.body}`;
 
   // Interleave prior comments: bot comments become assistant turns, PM comments become user turns.
   // Skip the issue-level "overlap/contradiction" analysis acknowledgments by matching their headers.
+  // For the refinement-agent brand header, strip it so the LLM doesn't see its own externally-prepended
+  // branding in its prior turns (keeps context clean).
   for (const c of comments) {
     const skip =
       c.body.startsWith("### slowcook · overlap detected") ||
       c.body.startsWith("### slowcook · contradiction") ||
       c.body.startsWith("### slowcook · change-of-mind authorized");
     if (skip) continue;
+    let body = c.body;
+    if (c.is_bot && body.startsWith(BRAND_HEADER)) {
+      body = body.slice(BRAND_HEADER.length);
+    }
     messages.push({
       role: c.is_bot ? "assistant" : "user",
-      content: c.body,
+      content: body,
     });
   }
 
