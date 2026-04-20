@@ -42,16 +42,23 @@ export class AnthropicClient implements LlmClient {
         ]
       : args.system;
 
-    const response = await this.client.messages.create({
+    // Newer Claude reasoning-enabled models (Opus 4.7, Sonnet 4.5+) reject
+    // `temperature` with a 400. Only include it if the caller explicitly
+    // passed one; otherwise let the model use its own default.
+    const base = {
       model: args.model,
       max_tokens: args.maxTokens ?? 4096,
-      temperature: args.temperature ?? 0.2,
       system: systemContent as never,
       messages: args.messages.map((m) => ({
         role: m.role,
         content: m.content,
       })),
-    });
+    };
+    const response = await this.client.messages.create(
+      args.temperature !== undefined
+        ? { ...base, temperature: args.temperature }
+        : base
+    );
 
     const first = response.content[0];
     if (first && first.type === "text") return first.text;

@@ -121,7 +121,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     model: ctx.refineModel,
     messages: chat,
     maxTokens: 4096,
-    temperature: 0.2,
+    // temperature omitted — newer reasoning-enabled Claude models reject it.
   });
 
   const parsed = parseAgentOutput(agentResponse, {

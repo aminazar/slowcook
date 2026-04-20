@@ -31,7 +31,7 @@ export async function analyzeRelationship(
     model: options.model,
     messages: [{ role: "user", content: userMessage }],
     maxTokens: 1024,
-    temperature: 0,
+    // temperature omitted — newer reasoning-enabled Claude models reject it.
   });
 
   const parsed = parseVerdict(raw);
