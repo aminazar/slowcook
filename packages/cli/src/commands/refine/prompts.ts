@@ -92,6 +92,26 @@ When emitting the spec: output ONLY the YAML, nothing before or after, starting 
 - non_goals: string[]
 - related_specs?: [{ id, relationship: "overlap"|"related"|"superseded", note? }]
 
+## YAML string hygiene (load-bearing — ignore and the spec fails to parse)
+
+When your spec contains references to code identifiers, table columns, enum values, or anything with markdown-like decoration, **wrap the entire string in double quotes**. In particular:
+
+- Any string containing **backticks** (\`), **colons followed by content** (e.g., "Given: when X"), **leading hyphens** (\`-\`), **pipes** (\`|\`), **braces**, **hashes at start**, or **ambiguous words** like \`yes\` / \`no\` / \`true\` / \`false\` must be quoted. If in doubt, **quote**.
+- Prefer double-quoted strings (\`"..."\`). Escape inner double quotes with \`\\"\`.
+- For multi-line content, use YAML block scalars: \`description: |\` followed by indented lines.
+- **Bad** (invalid YAML):
+  \`\`\`
+  invariants:
+    - \`reports.reason\` is one of: spam | harassment
+  \`\`\`
+- **Good** (valid YAML):
+  \`\`\`
+  invariants:
+    - "\`reports.reason\` is one of: spam | harassment"
+  \`\`\`
+
+Treat the spec as machine-parsed YAML first, human-readable documentation second.
+
 ## Constraints
 
 - Do NOT hallucinate facts not in the issue or prior conversation. If you infer something, flag it as an assumption in the question round.
