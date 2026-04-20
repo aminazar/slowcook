@@ -249,37 +249,25 @@ function stripCodeFence(raw: string): string {
  * nothing recognisable is found.
  */
 export function extractTestIdsFromFile(filePath: string, source: string): string[] {
-  const ids: string[] = [];
-  const stack: string[] = [];
-  // Match describe("...", OR it("...", — minimal, single-quote-or-double-quote strings only
-  const re = /\b(describe|it|test)\s*\(\s*(['"])((?:\\.|[^\\])*?)\2/g;
-  // Track blocks by matching braces simply — naive but works for well-formed
-  // source. We use line-by-line depth for describes because inferring block
-  // close on a braces level requires a full parser.
-  //
-  // Simpler heuristic: treat each `describe(...)` as pushing onto the stack,
-  // and assume it stays on the stack for everything until a balanced close.
-  // For initial impl, we approximate by scanning in order and inserting
-  // markers at `});` following each opening. For the shape Vitest produces,
-  // this works in practice.
-  //
-  // To keep this minimal, use a pre-pass to find describe block ranges by
-  // brace balancing, then walk the match list in order.
+  // Strip comments and blank string-literal contents so commented-out or
+  // string-embedded `describe`/`it` don't register. Offsets are preserved
+  // so block ranges stay valid against the original source — we use the
+  // original source only to re-extract real names at matched offsets.
+  const sanitised = sanitiseForParsing(source);
 
-  const blocks = findDescribeBlocks(source);
+  const ids: string[] = [];
+  const re = /\b(describe|it|test)\s*\(\s*(['"])((?:\\.|[^\\])*?)\2/g;
+  const blocks = findDescribeBlocks(source, sanitised);
+
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) {
+  while ((m = re.exec(sanitised)) !== null) {
     const kind = m[1];
-    const name = m[3] ?? "";
     const idx = m.index;
+    const name = extractNameAtOffset(source, idx);
+    if (name === null || kind === "describe") continue;
     const describesHere = blocks
       .filter((b) => b.start <= idx && idx <= b.end)
       .map((b) => b.name);
-    if (kind === "describe") {
-      // describe itself contributes its name to the stack; skip adding it as a test id
-      continue;
-    }
-    // it / test → build id
     const parts = [filePath, ...describesHere, name];
     ids.push(parts.join(" > "));
   }
@@ -287,45 +275,95 @@ export function extractTestIdsFromFile(filePath: string, source: string): string
   if (ids.length === 0) {
     ids.push(`${filePath} > (no tests parsed — review generated file)`);
   }
-  // Deduplicate while preserving order
   return Array.from(new Set(ids));
 }
 
+function extractNameAtOffset(source: string, offset: number): string | null {
+  const re = /\b(describe|it|test)\s*\(\s*(['"])((?:\\.|[^\\])*?)\2/;
+  const m = re.exec(source.slice(offset, offset + 1000));
+  return m?.[3] ?? null;
+}
+
+/**
+ * Produce a version of the source where:
+ *   - `//` and `/* ... *\/` comments are replaced with space of equal length
+ *   - contents of string literals (single/double/template quotes) are replaced
+ *     with non-`d`/`i`/`t` filler so the regex scan can't match inside them.
+ * Offsets are preserved so block-range calculations stay valid against the
+ * original source.
+ */
+function sanitiseForParsing(src: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      // line comment — blank out to EOL (keep the newline)
+      while (i < src.length && src[i] !== "\n") {
+        out.push(" ");
+        i++;
+      }
+    } else if (c === "/" && next === "*") {
+      // block comment — blank out to matching */
+      out.push(" ", " ");
+      i += 2;
+      while (i < src.length - 1 && !(src[i] === "*" && src[i + 1] === "/")) {
+        out.push(src[i] === "\n" ? "\n" : " ");
+        i++;
+      }
+      if (i < src.length - 1) {
+        out.push(" ", " ");
+        i += 2;
+      }
+    } else if (c === '"' || c === "'" || c === "`") {
+      // string literal — keep quotes, blank contents (preserve newlines)
+      out.push(c);
+      const quote = c;
+      i++;
+      while (i < src.length && src[i] !== quote) {
+        if (src[i] === "\\" && i + 1 < src.length) {
+          out.push(" ", " ");
+          i += 2;
+        } else {
+          out.push(src[i] === "\n" ? "\n" : " ");
+          i++;
+        }
+      }
+      if (i < src.length) {
+        out.push(quote);
+        i++;
+      }
+    } else {
+      out.push(c as string);
+      i++;
+    }
+  }
+  return out.join("");
+}
+
+/**
+ * Find `describe(...)` blocks in sanitised source (comments + string contents
+ * blanked). Brace balancing is safe there — no braces inside strings or
+ * comments to confuse it. Names are re-read from the ORIGINAL source at the
+ * matched offset so the describe titles survive sanitisation.
+ */
 function findDescribeBlocks(
-  source: string
+  source: string,
+  sanitised: string
 ): Array<{ name: string; start: number; end: number }> {
   const blocks: Array<{ name: string; start: number; end: number }> = [];
   const describeRe = /\bdescribe\s*\(\s*(['"])((?:\\.|[^\\])*?)\1\s*,/g;
   let m: RegExpExecArray | null;
-  while ((m = describeRe.exec(source)) !== null) {
-    const name = m[2] ?? "";
-    // Find the opening `{` of the describe's callback body
-    const open = source.indexOf("{", m.index);
+  while ((m = describeRe.exec(sanitised)) !== null) {
+    const name = extractNameAtOffset(source, m.index) ?? "";
+    const open = sanitised.indexOf("{", m.index);
     if (open === -1) continue;
     let depth = 1;
     let i = open + 1;
-    while (i < source.length && depth > 0) {
-      const c = source[i];
-      if (c === "{") depth++;
-      else if (c === "}") depth--;
-      else if (c === "/" && source[i + 1] === "/") {
-        // line comment — skip to EOL
-        while (i < source.length && source[i] !== "\n") i++;
-      } else if (c === "/" && source[i + 1] === "*") {
-        // block comment
-        i += 2;
-        while (i < source.length - 1 && !(source[i] === "*" && source[i + 1] === "/")) i++;
-        i += 2;
-        continue;
-      } else if (c === '"' || c === "'" || c === "`") {
-        // skip string literal
-        const quote = c;
-        i++;
-        while (i < source.length && source[i] !== quote) {
-          if (source[i] === "\\") i++;
-          i++;
-        }
-      }
+    while (i < sanitised.length && depth > 0) {
+      if (sanitised[i] === "{") depth++;
+      else if (sanitised[i] === "}") depth--;
       i++;
     }
     blocks.push({ name, start: m.index, end: i });

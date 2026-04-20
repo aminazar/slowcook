@@ -1,7 +1,7 @@
 // Static and parameterized file contents written by `slowcook init`.
 // Version is bumped in lockstep with the CLI package.
 
-export const CLI_VERSION_FOR_TEMPLATES = "0.4.7";
+export const CLI_VERSION_FOR_TEMPLATES = "0.5.0";
 
 export interface TemplateParams {
   /** CODEOWNERS handle or team (e.g. "@aminazar" or "@acme/frontend"). */
@@ -37,6 +37,7 @@ export function frozenPathsJson(): string {
           ".brewing/context.md",
           ".github/workflows/slowcook.yml",
           ".github/workflows/slowcook-spec-merged.yml",
+          ".github/workflows/slowcook-testgen.yml",
         ],
         partial: {
           "package.json": {
@@ -169,6 +170,59 @@ npx --yes @slowcook-ai/cli@latest manifest verify
 5. Merge audit trail: PR number + \`override-freeze\` label + approval.
 
 Deliberately slightly inconvenient. Frozen-path changes are rare events that deserve a reviewer's eyes.
+`;
+}
+
+export function slowcookTestgenWorkflow(cliVersion: string): string {
+  return `name: slowcook testgen
+
+# Generates Vitest integration tests whenever a new spec lands on main
+# (specs/story-*.yaml touched in the push). Idempotent — skips specs that
+# already have tests. Output is a draft PR containing the new test files,
+# per-story manifests, and (if the spec supersedes others) removal of
+# the superseded stories' tests.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'specs/story-*.yaml'
+      - 'specs/_index.yaml'
+
+concurrency:
+  group: slowcook-testgen-main
+  cancel-in-progress: false
+
+env:
+  SLOWCOOK_CLI: "@slowcook-ai/cli@${cliVersion}"
+
+jobs:
+  testgen:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity for agent commits
+        run: |
+          git config user.name  "slowcook-testgen[bot]"
+          git config user.email "slowcook-testgen@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate tests
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+        run: |
+          npx --yes "$SLOWCOOK_CLI" testgen --all
 `;
 }
 

@@ -7,7 +7,7 @@
 
 ## Status
 
-**0.4 — refinement agent** (polished in 0.4.4). `slowcook refine` drives a GitHub issue toward a frozen spec: one clarifying-question round per invocation, enforcing a ratchet on prior decisions (overlap detection, contradiction blocking, change-of-mind revocation with explicit `supersedes`). Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is in [`docs/DESIGN.md`](./docs/DESIGN.md).
+**0.5 — test-gen agent.** Two agents now in the pipeline: `slowcook refine` (issue → spec) and `slowcook testgen` (merged spec → Vitest integration tests). Testgen fires automatically on push to main touching `specs/story-*.yaml`, is idempotent, respects the supersede chain (removes superseded stories' tests with auto-applied `override-freeze`), and opens a draft PR for review. Full pipeline (refinement → frozen tests → brewing → gates → HITL dashboard) is in [`docs/DESIGN.md`](./docs/DESIGN.md).
 
 ## The idea
 
@@ -98,7 +98,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for full usage.
 | 0.2 ✅ | `manifest record\|verify` — prevents test skip/exclude cheats |
 | 0.3 ✅ | `init` — scaffolds `.brewing/*` in consumer projects |
 | 0.4 ✅ | `refine` — refinement agent (issue → structured spec) |
-| 0.5 | `testgen` — test generation from spec |
+| 0.5 ✅ | `testgen` — test generation from spec |
 | 0.6 | `brew` — the ratcheted overnight loop (single lane) |
 | 0.7 | Parallel lanes |
 | 0.8 | Tiered reviewer + mutation audit |

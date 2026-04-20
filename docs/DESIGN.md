@@ -553,7 +553,8 @@ slowcook ships incrementally. Each version is usable on its own; rewo (and any o
 | **0.3** ✅ | `init` — scaffolds consumer `.brewing/*` + CI workflow + CODEOWNERS | (cli growth) | ~1 day |
 | **0.4** ✅ | `refine` — issue → structured spec + ratchet (overlap / contradiction / change-of-mind) | `@slowcook-ai/forge-github` | ~1 day |
 | **0.4.4** ✅ | polish — remote-branch-aware story ID, label cleanup on change-of-mind, graceful PR-create failure, terminology discipline prompt, consumer `npm ci` in workflow template | (cli + forge-github) | — |
-| **0.5** | `testgen` — spec → frozen tests | (stack-ts growth) | ~2 days |
+| **0.4.5–0.4.7** ✅ | VERSION drift fix (read from package.json); project-context injection for refinement (`.brewing/context.md`); label lifecycle polish (`spec-submitted` on PR open → `spec-ready` on merge); strip trailing assistant turns before LLM call | (cli) | — |
+| **0.5** ✅ | `testgen` — spec → Vitest integration tests; idempotent; on `push` to main touching `specs/story-*.yaml`; auto-applies `override-freeze` + removes superseded tests when a spec has `supersedes:` | (cli) | ~1 day |
 | **0.6** | `brew` — single-lane ratchet, budget, pg-boss, halt schema, **graduality mechanisms (target-test selection, diff soft-cap, justification schema)** per §5.2 | `@slowcook-ai/worker` | ~5 days |
 | **0.7** | Parallel lanes | (worker growth) | ~1 day |
 | **0.8** | Tier-1 static scan + Tier-2/Tier-3 reviewer + mutation audit + coverage floor | (worker growth) | ~2 days |
