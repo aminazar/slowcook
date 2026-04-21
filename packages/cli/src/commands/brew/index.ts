@@ -30,7 +30,7 @@ function parseArgs(argv: string[]): BrewArgs {
     budgetUsd: 10,
     maxIterations: 10,
     wallClockMs: 60 * 60 * 1000, // 1 hour
-    model: "claude-opus-4-7",
+    model: "claude-sonnet-4-6",
     baseBranch: "main",
   };
   for (let i = 0; i < argv.length; i++) {
@@ -78,7 +78,7 @@ Options:
   --budget-usd <n>           Token-spend cap per story (default: 10)
   --max-iterations <n>       Iteration cap (default: 10)
   --wall-clock-minutes <n>   Wall-clock cap in minutes (default: 60)
-  --model <id>               LLM model (default: claude-opus-4-7)
+  --model <id>               LLM model (default: claude-sonnet-4-6; override with --model claude-opus-4-7 for harder stories)
   --base <branch>            Base branch for PRs (default: main)
   --help, -h                 Show this help
 

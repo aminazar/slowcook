@@ -24,12 +24,23 @@ This means: **you only keep changes that advance the green set.** Make real prog
 
 ## Tools
 
-- **read_file(path)** — read a file from the worktree. Use it before editing.
-- **list_directory(path)** — see what's in a directory.
-- **write_file(path, contents)** — create or fully replace a file. Prefer reading first + writing a complete updated file.
+- **find_handler({ method, path })** — **call this FIRST for every \`api_contract\` entry in the spec.** Returns the exact handler file + function the brewing agent should edit (e.g. \`POST /api/rewos\` → \`src/app/api/rewos/route.ts\` :: \`POST\`). Saves the exploratory iteration where you'd otherwise grep for the route.
+- **outline_file(path)** — **prefer this over read_file for initial exploration.** Returns a compact outline (imports, top-level exports, signatures with line numbers) — ~200 tokens. Use this to decide whether a file is relevant before you read it fully.
+- **read_file(path)** — read a file's full contents. Only call this when you need to see inside a specific function body that outline_file flagged. Reading a file you don't need is the single biggest driver of wasted budget.
+- **list_directory(path)** — see what's in a directory. Useful when outline_file + find_handler don't give enough.
+- **write_file(path, contents)** — create or fully replace a file. Always read or outline first, then write the complete updated contents.
 - **justify_diff_overflow({ reason_category, affected_scope, narrative, proposed_substories_if_split? })** — call ONLY if your intended change must exceed the graduality soft-cap (200 lines across ≤5 files). Explain why.
 
 You do NOT run tests. Slowcook runs them after your turn and tells you the result in the next turn's prompt.
+
+## Exploration strategy (cheap first, expensive last)
+
+1. For each api_contract entry relevant to the target test, **find_handler** to locate the file.
+2. **outline_file** on each located file (and its obvious neighbours — utils, types, helpers the spec references).
+3. **read_file** only the specific files + functions the outline flagged as needing changes.
+4. **write_file** the minimum change.
+
+A human doesn't read every file in a package to fix one test; neither should you.
 
 ## Constraints
 
@@ -56,8 +67,42 @@ You do NOT run tests. Slowcook runs them after your turn and tells you the resul
 
 export const BREW_TOOLS = [
   {
+    name: "find_handler",
+    description:
+      "Resolve an API spec entry (method + path) to its concrete handler file + function. Use this FIRST for every api_contract entry in the spec — it replaces an exploratory read/list cycle. Today supports Next.js App Router (detected by `src/app/`); other frameworks return `framework: 'unknown'`. Returns JSON with { framework, file, function, exists, note? }.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        method: {
+          type: "string" as const,
+          description: "HTTP method, e.g. 'POST', 'GET', 'DELETE'.",
+        },
+        path: {
+          type: "string" as const,
+          description: "URL path, with params as `:id` or `{id}` — both are normalised (e.g. '/api/rewos/:rewo_id/reports' → 'src/app/api/rewos/[rewo_id]/reports/route.ts').",
+        },
+      },
+      required: ["method", "path"],
+    },
+  },
+  {
+    name: "outline_file",
+    description:
+      "Return a compact outline of a TypeScript/JavaScript file: imports, top-level exports, signatures with line numbers. ~200 tokens. PREFER this over read_file for initial exploration — only call read_file when the outline tells you a specific function body needs to be inspected.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: {
+          type: "string" as const,
+          description: "Repo-relative path (e.g., 'src/app/api/reactions/route.ts').",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
     name: "read_file",
-    description: "Read a file from the worktree. Returns the file's current contents as a string. Throws if the file doesn't exist.",
+    description: "Read a file's full contents. Call this AFTER outline_file tells you a specific file / function body needs to be inspected — reading files you don't need is the single biggest driver of wasted budget. Returns the full file (up to 20k chars).",
     input_schema: {
       type: "object" as const,
       properties: {

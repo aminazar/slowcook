@@ -103,6 +103,7 @@ const STAGNATION_CAP = 15;
 
 const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = {
   "claude-opus-4-7": { input: 15, output: 75 },
+  "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-sonnet-4-5": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 0.8, output: 4 },
 };
@@ -728,6 +729,20 @@ function handleToolUse(
         const txt = readFileSync(full, "utf8");
         return { content: txt.length > 20000 ? txt.slice(0, 20000) + "\n…(truncated)" : txt, is_error: false };
       }
+      case "outline_file": {
+        const p = String(input["path"] ?? "");
+        const full = resolveRepoPath(ctx, p);
+        if (!existsSync(full)) return { content: `File not found: ${p}`, is_error: true };
+        if (!statSync(full).isFile()) return { content: `Not a file: ${p}`, is_error: true };
+        const txt = readFileSync(full, "utf8");
+        return { content: outlineFile(p, txt), is_error: false };
+      }
+      case "find_handler": {
+        const method = String(input["method"] ?? "").toUpperCase();
+        const path = String(input["path"] ?? "");
+        const result = findHandler(ctx.repoRoot, method, path);
+        return { content: JSON.stringify(result, null, 2), is_error: false };
+      }
       case "list_directory": {
         const p = String(input["path"] ?? "");
         const full = resolveRepoPath(ctx, p);
@@ -756,6 +771,140 @@ function handleToolUse(
   } catch (e) {
     return { content: `Tool error: ${(e as Error).message}`, is_error: true };
   }
+}
+
+/** ------------------------- Brewing-agent focus helpers ------------------------- */
+
+/**
+ * Resolve an API route spec entry like `{ method: "POST", path: "/api/rewos" }`
+ * to the concrete handler file the brewing agent should edit. Saves the
+ * exploratory iteration where the agent greps around to find a route file.
+ *
+ * Today this supports Next.js App Router only (detected by `src/app/` in
+ * the repo root). Other frameworks fall through with `exists: false` +
+ * `framework: "unknown"` so the agent can fall back to `list_directory` /
+ * `read_file` manually. Future: detect Rails/Django/Go mux.
+ *
+ * Path-param convention: `:id` or `{id}` becomes `[id]` in the filesystem.
+ */
+export interface FindHandlerResult {
+  framework: "next-app-router" | "unknown";
+  file: string | null;
+  function: string | null;
+  exists: boolean;
+  note?: string;
+}
+
+export function findHandler(
+  repoRoot: string,
+  method: string,
+  path: string
+): FindHandlerResult {
+  if (!method || !path) {
+    return {
+      framework: "unknown",
+      file: null,
+      function: null,
+      exists: false,
+      note: "both method and path are required",
+    };
+  }
+  const appRouter = resolve(repoRoot, "src/app");
+  if (!existsSync(appRouter)) {
+    return {
+      framework: "unknown",
+      file: null,
+      function: null,
+      exists: false,
+      note: "no `src/app/` directory — framework detection failed. Use list_directory / read_file to locate the handler manually.",
+    };
+  }
+
+  // Normalise path params: `:id` or `{id}` → `[id]`.
+  const normalised = path
+    .replace(/:([a-zA-Z_][\w]*)/g, "[$1]")
+    .replace(/\{([a-zA-Z_][\w]*)\}/g, "[$1]")
+    .replace(/^\/+/, "");
+
+  const relFile = `src/app/${normalised}/route.ts`;
+  const relFileTsx = `src/app/${normalised}/route.tsx`;
+  const fullTs = resolve(repoRoot, relFile);
+  const fullTsx = resolve(repoRoot, relFileTsx);
+  const pick = existsSync(fullTs) ? relFile : existsSync(fullTsx) ? relFileTsx : relFile;
+  const exists = existsSync(fullTs) || existsSync(fullTsx);
+
+  return {
+    framework: "next-app-router",
+    file: pick,
+    function: method.toUpperCase(),
+    exists,
+    note: exists
+      ? undefined
+      : `File does not exist yet — brewing needs to create it (export async function ${method.toUpperCase()}).`,
+  };
+}
+
+/**
+ * Produce a compact "outline" of a TypeScript/JavaScript source file:
+ * imports, exports, top-level signatures, and line counts. Returns
+ * something the brewing agent can read in ~200 tokens instead of the
+ * ~5k-per-read-file that drove most of the 2026-04-21 brew spend.
+ *
+ * Heuristic-only (regex + line scan). Good enough for deciding "is the
+ * handler I need in here?" without a full AST. When the agent needs to
+ * look inside a function body, it uses `read_file` normally.
+ */
+export function outlineFile(pathHint: string, source: string): string {
+  const lines = source.split("\n");
+  const bits: string[] = [];
+  bits.push(`# outline: ${pathHint} (${lines.length} lines)`);
+
+  const imports: string[] = [];
+  const sigs: Array<{ line: number; text: string }> = [];
+  const sigPattern =
+    /^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\b[^{=;]*/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i] ?? "";
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) continue;
+
+    if (/^import\b/.test(trimmed) || /^export\s+\*\s/.test(trimmed)) {
+      // Import (or re-export) — keep the whole statement compactly.
+      imports.push(trimmed.replace(/\s+/g, " "));
+      continue;
+    }
+
+    // Only top-level declarations (indent == 0)
+    const indent = raw.length - raw.replace(/^\s*/, "").length;
+    if (indent !== 0) continue;
+
+    const m = sigPattern.exec(trimmed);
+    if (m) {
+      // Keep a single tidy line up to `{` or `=` or end-of-line
+      const sig = m[0]
+        .replace(/\s+/g, " ")
+        .replace(/\s*\{$/, "")
+        .trim();
+      sigs.push({ line: i + 1, text: sig });
+    }
+  }
+
+  if (imports.length > 0) {
+    bits.push("");
+    bits.push("## imports");
+    for (const imp of imports) bits.push(imp);
+  }
+  if (sigs.length > 0) {
+    bits.push("");
+    bits.push("## top-level declarations");
+    for (const { line, text } of sigs) bits.push(`L${line}: ${text}`);
+  }
+  if (imports.length === 0 && sigs.length === 0) {
+    bits.push("");
+    bits.push("(no imports or top-level declarations detected — use read_file if you need the body)");
+  }
+  return bits.join("\n");
 }
 
 /** ------------------------- Path helpers ------------------------- */
