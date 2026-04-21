@@ -33,7 +33,8 @@ export type HaltReason =
   | "TESTS_NEVER_GREEN"
   | "TEST_RUNNER_BROKEN"
   | "MANIFEST_DRIFT"
-  | "VIOLATION_STREAK";
+  | "VIOLATION_STREAK"
+  | "API_ERROR";
 
 export interface DiffShortstat {
   iteration: number;
@@ -203,6 +204,19 @@ export function defaultSuggestedActions(
           id: "regenerate_manifest",
           label: "Re-record the manifest",
           description: "If the test file locations are correct and vitest just re-indexed, run `slowcook manifest record --story <id>` to update the manifest to match current discovery.",
+        },
+      ];
+    case "API_ERROR":
+      return [
+        {
+          id: "inspect_api_error",
+          label: "Read the error in the halt report",
+          description: "The LLM API (or another external call the agent depends on) failed with an unexpected error. The full error is in `summary_plain_english`. Common causes: Anthropic credit balance exhausted, rate limit, transient network failure, invalid model id.",
+        },
+        {
+          id: "retry_after_fix",
+          label: "Retry once the underlying cause is resolved",
+          description: "If the error was environmental (credit, rate limit), fix it and re-trigger brew. The run was aborted cleanly — no state on disk to clean up besides the (empty) brew branch.",
         },
       ];
   }

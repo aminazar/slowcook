@@ -204,7 +204,14 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     });
   }
 
+  // Track the last iteration number outside the loop so the API_ERROR catch
+  // below knows how far we got. Any unexpected throw from an external call
+  // (Anthropic SDK, forge, etc.) surfaces as a clean halt report rather than
+  // an uncaught exception that crashes the CLI and leaves no artifact.
+  let lastIteration = 0;
+  try {
   for (let iteration = 1; iteration <= ctx.maxIterations; iteration++) {
+    lastIteration = iteration;
     console.log(`\n=== iteration ${iteration}/${ctx.maxIterations} — target: ${currentTarget} ===`);
 
     // Budget + time checks before spending
@@ -478,6 +485,24 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     if (!currentTarget) {
       break;
     }
+  }
+  } catch (e) {
+    const err = e as Error & { status?: number; error?: { error?: { message?: string } } };
+    const apiMsg =
+      err.error?.error?.message ?? err.message ?? "(unknown API error)";
+    const statusTag = err.status ? `HTTP ${err.status}: ` : "";
+    return haltFor(ctx, {
+      reason: "API_ERROR",
+      iterations: lastIteration,
+      checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+      greenCount: greenSet.size,
+      totalCount: expectedTestIds.size,
+      spendUsd,
+      iterationLogs,
+      summary:
+        `Brew aborted during iteration ${lastIteration}/${ctx.maxIterations} by an external-call failure: ${statusTag}${apiMsg.slice(0, 400)}. ` +
+        `This is not a slowcook bug in itself — the underlying service (LLM API, forge) rejected or timed out. Once the cause is resolved, re-trigger brew.`,
+    });
   }
 
   // Loop exited
