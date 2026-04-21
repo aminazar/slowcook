@@ -34,18 +34,48 @@ Emit ONLY the TypeScript test file contents. No prose before or after, no code f
 
 1. **Direct import** of the route handler(s) being tested. Example: \`import { POST } from "@/app/api/rewos/route";\`. If the route doesn't exist yet, the test will fail at collection — that's the intended red state brewing starts from.
 
-2. **Mock helpers** for every external service the handler consumes. Helpers live at \`tests/helpers/mocks/<service>.ts\` and expose intent-level options. Example:
+2. **Module-boundary mocking uses the 1-arg auto-mock form, paired with a helper call to supply the fake's behaviour.** This is the ONLY acceptable pattern; inline factory forms are mechanically rejected. Concrete example (copy this shape exactly — adapt module path and helper per the project context):
 
    \`\`\`ts
-   import { mockSupabase, resetMocks } from "@/tests/helpers/mocks";
+   import { describe, it, expect, beforeEach, vi } from "vitest";
+   import { createClient } from "@/utils/supabase/server";
+   import { mockSupabase, resetMocks } from "@tests/helpers/mocks";
+   import { POST } from "@/app/api/rewos/route";
 
-   const supabase = mockSupabase({
-     auth: { user: { id: "u1", verified: false } },
-     insert: { table: "rewos", returning: { id: "rewo1" } },
+   // Auto-mock the module at load time. No factory — just the module path.
+   // This replaces every export with a mock fn; the helper injects the
+   // return value below.
+   vi.mock("@/utils/supabase/server");
+
+   describe("POST /api/rewos", () => {
+     beforeEach(() => resetMocks());
+
+     it("returns 201 for an authenticated member", async () => {
+       // Build the fake client via the project helper — intent-level config.
+       const supabase = mockSupabase({
+         user: { id: "u1" },
+         tables: { rewos: { data: { id: "rewo1" } } },
+       });
+       // Wire it up: vi.mocked is a type-only assertion (not a forbidden construction call).
+       vi.mocked(createClient).mockReturnValue(supabase as never);
+
+       const req = new Request("http://test/api/rewos", {
+         method: "POST",
+         headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+         body: JSON.stringify({ title: "hi" }),
+       });
+       const res = await POST(req);
+       expect(res.status).toBe(201);
+     });
    });
    \`\`\`
 
-   If the project context below does NOT list a helper you need, emit the test anyway but leave a \`TODO(helper): describe shape\` comment at the top of the file listing the missing helpers. Do not write the helper body yourself — that's out of scope for this prompt. An operator will hand-author it.
+   Key rules this example illustrates:
+   - **\`vi.mock("path")\` with ONE argument** at top of file. Forbidden: \`vi.mock("path", () => ({...}))\` with a factory — slowcook's lint rejects that line on sight.
+   - **Helper supplies fake behaviour** — never inline a fake via \`vi.fn()\` or hand-built mock objects inside the test. The helper call is the one place where fake shape lives.
+   - \`vi.mocked(...)\` is a type-assertion helper (safe, permitted); \`vi.fn(...)\` is construction (forbidden in tests).
+
+   If the project context below does NOT list a helper you need, emit the test anyway but leave a \`TODO(helper): <service>\` comment at the top of the file listing the missing helpers, and use \`vi.mock("<module-path>")\` without any factory. An operator will hand-author the helper before brewing runs.
 
 3. **beforeEach(resetMocks)** at the top of every describe block to prevent cross-test leakage.
 
@@ -70,8 +100,8 @@ Emit ONLY the TypeScript test file contents. No prose before or after, no code f
 
 The test file must NOT contain any of these. Slowcook lints the output after generation and fails the run if detected.
 
-- \`vi.mock(\`  — use project helper functions instead.
-- \`vi.fn(\`   — helpers encapsulate the fakes; callers supply intent, not function bodies.
+- \`vi.mock("path", () => ({...}))\` — the **2-arg factory form**. Use \`vi.mock("path")\` (1-arg auto-mock) + helper call instead. See the example above.
+- \`vi.fn(\`   — fake-function construction in a test. Use a helper.
 - \`jest.mock(\` or \`jest.fn(\` — wrong framework, also banned for consistency.
 - \`fetch(\`   — tier-1 tests do not hit HTTP. Construct \`Request\` and pass to the handler.
 - Mock-library imports: \`from "msw"\`, \`from "nock"\`, \`from "aws-sdk-client-mock"\`, etc.

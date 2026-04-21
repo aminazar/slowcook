@@ -346,15 +346,19 @@ const TIER1_FORBIDDEN_PATTERNS: Array<{
   scan: "code" | "raw";
 }> = [
   {
-    pattern: /\bvi\.mock\s*\(/g,
-    label: "vi.mock(",
-    reason: "use project mock helpers (`mockSupabase(...)`, etc.) instead of inline vi.mock — needed so record-and-replay can swap helpers without rewriting tests",
+    // Bans the factory form: `vi.mock("path", () => ({...}))` — the
+    // 2-arg variant where an inline fake is constructed. Allows the
+    // 1-arg auto-mock form `vi.mock("path")` which is required to
+    // replace the real module so helpers can inject a fake client.
+    pattern: /\bvi\.mock\s*\(\s*['"][^'"]+['"]\s*,/g,
+    label: "vi.mock(path, factory)",
+    reason: "the 2-arg factory form constructs the fake inline. Use `vi.mock(path)` (auto-mock, no factory) to replace the module, then inject via `vi.mocked(fn).mockReturnValue(mockSupabase(...))`.",
     scan: "code",
   },
   {
     pattern: /\bvi\.fn\s*\(/g,
     label: "vi.fn(",
-    reason: "helpers encapsulate fakes; tests supply intent, not function bodies",
+    reason: "helpers encapsulate fakes; tests supply intent, not function bodies. If a legitimate spy is needed (e.g. for a callback the code calls), move it into a helper.",
     scan: "code",
   },
   {

@@ -224,14 +224,33 @@ describe("POST /api/rewos", () => {
     expect(lintTierOneTest(FILE, src)).toEqual([]);
   });
 
-  it("flags inline vi.mock", () => {
+  it("flags vi.mock WITH a factory (2-arg form, inline fake construction)", () => {
     const src = `
 import { vi } from "vitest";
 vi.mock("@/lib/supabase", () => ({ createClient: vi.fn() }));
 `;
     const violations = lintTierOneTest(FILE, src);
-    expect(violations.some((v) => v.pattern === "vi.mock(")).toBe(true);
+    expect(violations.some((v) => v.pattern === "vi.mock(path, factory)")).toBe(true);
     expect(violations.some((v) => v.pattern === "vi.fn(")).toBe(true);
+  });
+
+  it("ALLOWS vi.mock in the 1-arg auto-mock form (needed for module-boundary injection)", () => {
+    const src = `
+import { vi, describe, it, beforeEach } from "vitest";
+import { createClient } from "@/utils/supabase/server";
+import { mockSupabase, resetMocks } from "@tests/helpers/mocks";
+
+vi.mock("@/utils/supabase/server");
+
+describe("handler", () => {
+  beforeEach(() => resetMocks());
+  it("works", async () => {
+    const supabase = mockSupabase({ user: { id: "u1" } });
+    vi.mocked(createClient).mockReturnValue(supabase as never);
+  });
+});
+`;
+    expect(lintTierOneTest(FILE, src)).toEqual([]);
   });
 
   it("flags fetch() calls (tier-1 must not hit HTTP)", () => {
