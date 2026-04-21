@@ -1,6 +1,7 @@
 import {
   readFileSync,
   writeFileSync,
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -55,6 +56,12 @@ export interface BrewContext {
   frozenPaths: FrozenPaths;
   /** Where to write halt reports. */
   haltDir: string;
+  /**
+   * Optional path for the rolling iteration log. One line per loop state
+   * change (baseline, per-iter outcome, halt) so an operator can tail the
+   * file during a long brew without waiting for the CI log to flush.
+   */
+  runLogPath?: string;
 }
 
 export interface FrozenPaths {
@@ -102,6 +109,24 @@ const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = 
 
 export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   const startMs = ctx.now().getTime();
+  // Initialise the rolling run log before anything else. The first line
+  // records the parameters the brew started with, so tailing the file
+  // gives an operator the full picture without touching CI logs.
+  if (ctx.runLogPath) {
+    try {
+      mkdirSync(dirname(ctx.runLogPath), { recursive: true });
+      writeFileSync(
+        ctx.runLogPath,
+        `# slowcook brew · story-${ctx.storyId} · branch ${ctx.branchName}\n` +
+          `# budget $${ctx.budgetUsd.toFixed(2)} · max ${ctx.maxIterations} iter · model ${ctx.model}\n`,
+        "utf8"
+      );
+    } catch {
+      /* ignore — best effort */
+    }
+  }
+  appendRunLog(ctx, "START");
+
   const manifestPath = join(ctx.repoRoot, ".brewing/manifests", `story-${ctx.storyId}.json`);
   if (!existsSync(manifestPath)) {
     return haltFor(ctx, {
@@ -144,6 +169,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   const discoveredIds = new Set<string>([...greenSet, ...redSet]);
 
   console.log(`→ baseline: ${greenSet.size} green, ${redSet.size} red / ${baseline.tests.length} total`);
+  appendRunLog(
+    ctx,
+    `BASELINE  green=${greenSet.size} red=${redSet.size} total=${baseline.tests.length} story_expected=${expectedTestIds.size}`
+  );
 
   // Sanity check BEFORE declaring success: are the story's expected tests
   // actually being discovered? It's possible for `redSet.size === 0` to
@@ -213,6 +242,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   for (let iteration = 1; iteration <= ctx.maxIterations; iteration++) {
     lastIteration = iteration;
     console.log(`\n=== iteration ${iteration}/${ctx.maxIterations} — target: ${currentTarget} ===`);
+    appendRunLog(
+      ctx,
+      `ITER ${iteration}/${ctx.maxIterations} START  target=${currentTarget}  spend=$${spendUsd.toFixed(2)}/${ctx.budgetUsd.toFixed(2)}`
+    );
 
     // Budget + time checks before spending
     if (spendUsd >= ctx.budgetUsd) {
@@ -429,6 +462,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} REVERT regression  files=${diff.changedPaths.length} +${diff.linesAdded}/-${diff.linesRemoved}  broke=${regressions.length}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+      );
       continue;
     }
 
@@ -453,6 +490,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} REVERT no-progress  files=${diff.changedPaths.length} +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+      );
       continue;
     }
 
@@ -478,6 +519,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       rationale: turnResult.rationale,
     });
     priorAttempts.length = 0;
+    appendRunLog(
+      ctx,
+      `ITER ${iteration} CHECKPOINT  +${gains.length} green  total_green=${newGreen.size}/${baseline.tests.length}  files=${diff.changedPaths.length} +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+    );
 
     // Pick next target from story scope, if any remain
     const next = pickTarget(storyRedSet(), currentTarget);
@@ -510,6 +555,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     [...expectedTestIds].every((id) => greenSet.has(id));
   if (allStoryGreen) {
     await pushBranch(ctx);
+    appendRunLog(
+      ctx,
+      `SUCCESS  iterations=${iterationLogs.length}  checkpoints=${iterationLogs.filter((l) => l.outcome === "checkpoint").length}  spend=$${spendUsd.toFixed(2)}`
+    );
     return {
       kind: "success",
       iterations: iterationLogs.length,
@@ -831,6 +880,21 @@ function commitCheckpoint(
   execSync(`git -C "${ctx.repoRoot}" add -A`, { stdio: "ignore" });
   const msg = `slowcook/brew iter ${args.iteration}: +${args.gains.length} green — target ${args.target}`;
   execSync(`git -C "${ctx.repoRoot}" commit -m ${JSON.stringify(msg)}`, { stdio: "ignore" });
+  // Best-effort immediate push so operators watching GitHub see the
+  // checkpoint as it happens. `--set-upstream` is a no-op once upstream is
+  // already wired up, so this works for the first checkpoint AND subsequent
+  // ones without branching logic. Push failures (network, auth) do NOT halt
+  // the brew — the branch is still intact locally and the final halt path
+  // will try one more push at the end.
+  try {
+    execSync(
+      `git -C "${ctx.repoRoot}" push --set-upstream origin ${ctx.branchName}`,
+      { stdio: "ignore" }
+    );
+  } catch {
+    // best effort — log to runlog but don't throw
+    appendRunLog(ctx, `WARN  push after checkpoint iter ${args.iteration} failed — branch stays local until the next push attempt`);
+  }
 }
 
 async function pushBranch(ctx: BrewContext): Promise<void> {
@@ -839,6 +903,22 @@ async function pushBranch(ctx: BrewContext): Promise<void> {
     { stdio: "ignore" }
   );
   void ctx.forge;
+}
+
+/**
+ * Append a line to the rolling iteration log if one is configured. Cheap
+ * and best-effort: if the log directory wasn't initialised, or the write
+ * fails for any reason, swallow it — the brew must not crash because
+ * logging failed.
+ */
+function appendRunLog(ctx: BrewContext, line: string): void {
+  if (!ctx.runLogPath) return;
+  try {
+    const ts = ctx.now().toISOString();
+    appendFileSync(ctx.runLogPath, `${ts}  ${line}\n`, "utf8");
+  } catch {
+    /* ignore */
+  }
 }
 
 /** ------------------------- Runner + parsers ------------------------- */
@@ -960,6 +1040,10 @@ function haltFor(ctx: BrewContext, args: HaltArgs): BrewOutcome {
     `story-${ctx.storyId}-${report.halt_timestamp.replace(/[:.]/g, "-")}.json`
   );
   writeHaltReport(reportPath, report);
+  appendRunLog(
+    ctx,
+    `HALT ${args.reason}  iterations=${args.iterations}  checkpoints=${args.checkpoints}  green=${args.greenCount}/${args.totalCount}  spend=$${args.spendUsd.toFixed(2)}  report=${reportPath}`
+  );
 
   // Attempt to push partial progress (if any checkpoints exist) so the operator can see what was tried
   if (report.checkpoints_committed > 0) {

@@ -143,15 +143,26 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   const forge = new GitHubAdapter({ owner, repo, token: githubToken });
   const anthropic = new Anthropic({ apiKey: anthropicKey });
 
-  const branchName = `slowcook/brew/story-${args.storyId}-${Date.now()}`;
+  const startedAt = new Date();
+  const runTag = startedAt.toISOString().replace(/[:.]/g, "-");
+  const branchName = `slowcook/brew/story-${args.storyId}-${startedAt.getTime()}`;
   const haltDir = join(args.repoRoot, ".brewing/halts");
+  // Rolling per-iteration log. Operator can `ssh runner; tail -f` this
+  // during long brews to see progress without waiting for CI log flush.
+  const runLogPath = join(
+    args.repoRoot,
+    ".brewing/runs",
+    `story-${args.storyId}-${runTag}`,
+    "iterations.log"
+  );
 
   // Create branch before starting
   execSync(`git -C "${args.repoRoot}" checkout -b ${branchName}`, { stdio: "inherit" });
 
   console.log(`\nslowcook brew · story-${args.storyId} on ${owner}/${repo}`);
   console.log(`  budget: $${args.budgetUsd.toFixed(2)} · iterations: ${args.maxIterations} · model: ${args.model}`);
-  console.log(`  branch: ${branchName}\n`);
+  console.log(`  branch: ${branchName}`);
+  console.log(`  run log: ${runLogPath}\n`);
 
   const ctx: BrewContext = {
     repoRoot: args.repoRoot,
@@ -169,6 +180,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     allowedPaths,
     frozenPaths,
     haltDir,
+    runLogPath,
   };
 
   try {
