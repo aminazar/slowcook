@@ -23,6 +23,7 @@ export const LABEL_OVERRIDE_FREEZE = "override-freeze";
 
 export const TESTS_INTEGRATION_DIR = "tests/integration";
 export const MANIFESTS_DIR = ".brewing/manifests";
+export const MOCK_HELPERS_DIR = "tests/helpers/mocks";
 
 export interface TestgenContext {
   repoRoot: string;
@@ -66,6 +67,26 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     const projectContext = buildProjectContext(ctx.repoRoot);
     const fileContents = await generateTestFile(spec, ctx, projectContext);
     const testPath = join(TESTS_INTEGRATION_DIR, `story-${spec.story_id}.test.ts`);
+
+    // Tier-1 conformance gate: if the LLM slipped back to tier-0 habits
+    // (inline vi.mock, fetch(), etc.), we refuse to ship the file. Halts
+    // loudly here rather than quietly producing HTTP-loopback tests the
+    // brewing loop can't ratchet against. The caller can re-run with a
+    // different seed or hand-edit and re-run testgen.
+    const violations = lintTierOneTest(testPath, fileContents);
+    if (violations.length > 0) {
+      const details = violations
+        .slice(0, 10)
+        .map((v) => `  - line ${v.line}: \`${v.pattern}\` — ${v.reason}`)
+        .join("\n");
+      const more = violations.length > 10 ? `\n  - (+${violations.length - 10} more)` : "";
+      throw new Error(
+        `testgen output for story-${spec.story_id} violates tier-1 conventions (${violations.length} issue(s)):\n${details}${more}\n\n` +
+          `The LLM emitted patterns banned by docs/plans/0.7-testgen-two-tier.md §4.1-§7.3. ` +
+          `Re-run testgen with a different model/seed, or hand-edit the generated file to use project mock helpers.`
+      );
+    }
+
     const manifestIds = extractTestIdsFromFile(testPath, fileContents);
     const manifest = buildManifest({
       slowcookVersion: ctx.cliVersion,
@@ -222,6 +243,41 @@ export function buildProjectContext(repoRoot: string): string {
     bits.push("\nNo existing integration tests — this will be the first in the repo.");
   }
 
+  // List existing mock helpers so the LLM knows which to import. The
+  // helper pattern is load-bearing for the future record-and-replay swap
+  // (plans/0.7-testgen-two-tier.md §4.3). Helpers NOT listed here will
+  // surface as TODO(helper) comments in the generated test.
+  const helpersDir = join(repoRoot, MOCK_HELPERS_DIR);
+  if (existsSync(helpersDir)) {
+    const helpers = readdirSync(helpersDir)
+      .filter((f) => f.endsWith(".ts"))
+      .filter((f) => !f.endsWith(".test.ts"));
+    if (helpers.length > 0) {
+      bits.push(
+        `\n### Available mock helpers at \`${MOCK_HELPERS_DIR}/\`\n\nThe generated test MUST import from these. Do not write inline \`vi.mock\` — use these helpers instead.`
+      );
+      for (const f of helpers) {
+        const p = join(helpersDir, f);
+        try {
+          const content = readFileSync(p, "utf8");
+          // Trim to first ~50 lines so the prompt stays small
+          const excerpt = content.split("\n").slice(0, 50).join("\n");
+          bits.push(`\n#### \`${MOCK_HELPERS_DIR}/${f}\`\n\n\`\`\`ts\n${excerpt}\n\`\`\``);
+        } catch {
+          /* ignore */
+        }
+      }
+    } else {
+      bits.push(
+        `\n### Mock helpers\n\nDirectory \`${MOCK_HELPERS_DIR}/\` exists but is empty. You will likely need to emit \`TODO(helper):\` comments for any service the handler consumes, so an operator can hand-author the helpers before brewing can run.`
+      );
+    }
+  } else {
+    bits.push(
+      `\n### Mock helpers\n\nNo \`${MOCK_HELPERS_DIR}/\` directory yet — this project hasn't set up the helper pattern. Emit \`TODO(helper): <service>\` comments for each external dependency the handler calls; an operator will hand-author the helpers before brewing can run (helper auto-generation ships in a later slowcook release).`
+    );
+  }
+
   return bits.join("\n");
 }
 
@@ -249,6 +305,99 @@ function stripCodeFence(raw: string): string {
   const fence = t.match(/^```(?:typescript|ts)?\s*\n([\s\S]*)\n```$/);
   if (fence && fence[1]) return fence[1];
   return t;
+}
+
+/**
+ * Tier-1 conformance lint. Run on every generated test file before commit.
+ * Catches patterns the prompt forbids — inline `vi.mock`, `fetch(...)`,
+ * HTTP-loopback mocking libraries, and skipped tests. These slip through
+ * when the LLM reverts to habits from tier-0 (HTTP-loopback) examples.
+ *
+ * Returns an array of violations (file:line:pattern:reason); empty means
+ * the file is conformant. Caller decides whether violations halt the run
+ * or emit a warning — in 0.6.6 they halt, because a non-conformant tier-1
+ * test file defeats the whole point of the redesign.
+ *
+ * Sanitisation: string literals and comments are blanked before scanning
+ * (same approach as extractTestIdsFromFile) so \`"uses vi.mock style"\`
+ * in a JSDoc or message string doesn't trip the lint.
+ */
+export interface TierOneViolation {
+  line: number;
+  pattern: string;
+  reason: string;
+}
+
+/**
+ * Two scan modes:
+ * - \`code\`: run against sanitised source (comments + string-literal
+ *   contents blanked). Right for call-site patterns like \`vi.mock(\` —
+ *   we don't want to trip on the literal string "vi.mock" inside a
+ *   docstring or error message.
+ * - \`raw\`: run against the original source. Right for import-specifier
+ *   patterns like \`from "msw"\`, which live IN string literals by
+ *   definition. Scanning sanitised source would blank the specifier and
+ *   produce a false negative.
+ */
+const TIER1_FORBIDDEN_PATTERNS: Array<{
+  pattern: RegExp;
+  label: string;
+  reason: string;
+  scan: "code" | "raw";
+}> = [
+  {
+    pattern: /\bvi\.mock\s*\(/g,
+    label: "vi.mock(",
+    reason: "use project mock helpers (`mockSupabase(...)`, etc.) instead of inline vi.mock — needed so record-and-replay can swap helpers without rewriting tests",
+    scan: "code",
+  },
+  {
+    pattern: /\bvi\.fn\s*\(/g,
+    label: "vi.fn(",
+    reason: "helpers encapsulate fakes; tests supply intent, not function bodies",
+    scan: "code",
+  },
+  {
+    pattern: /\bjest\.(mock|fn)\s*\(/g,
+    label: "jest.mock/fn(",
+    reason: "wrong framework (use Vitest), also banned for consistency",
+    scan: "code",
+  },
+  {
+    pattern: /\bfetch\s*\(/g,
+    label: "fetch(",
+    reason: "tier-1 tests run in-process — construct a Request and pass it to the handler, do not hit HTTP",
+    scan: "code",
+  },
+  {
+    pattern: /\b(test|it)\.(skip|todo)\s*\(/g,
+    label: "test.skip/todo (or it.skip/todo)",
+    reason: "skipped tests break the manifest; use TODO(spec) comments or drop the test entirely",
+    scan: "code",
+  },
+  {
+    pattern: /^\s*import\b[\s\S]*?from\s+['"](msw|nock|aws-sdk-client-mock|@mswjs\/[^'"]+)['"]/gm,
+    label: "HTTP mock library import",
+    reason: "tier-1 mocks go through project helpers, not HTTP-level libraries",
+    scan: "raw",
+  },
+];
+
+export function lintTierOneTest(filePath: string, source: string): TierOneViolation[] {
+  void filePath;
+  const sanitised = sanitiseForParsing(source);
+  const violations: TierOneViolation[] = [];
+
+  for (const { pattern, label, reason, scan } of TIER1_FORBIDDEN_PATTERNS) {
+    const target = scan === "raw" ? source : sanitised;
+    pattern.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(target)) !== null) {
+      const line = target.slice(0, m.index).split("\n").length;
+      violations.push({ line, pattern: label, reason });
+    }
+  }
+  return violations;
 }
 
 /**
