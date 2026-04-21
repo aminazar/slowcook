@@ -212,6 +212,23 @@ describe("generateMap — stability", () => {
     }
   });
 
+  it("mapsEqual ignores slowcook_version so a CLI bump alone doesn't fail `map check`", () => {
+    const repo = mkRepo();
+    try {
+      writeSrc(
+        repo,
+        "src/app/api/rewos/route.ts",
+        `export async function POST(req: Request): Promise<Response> { void req; return new Response(); }`
+      );
+      const committed = generateMap({ repoRoot: repo, slowcookVersion: "0.6.8" });
+      const fresh = generateMap({ repoRoot: repo, slowcookVersion: "0.6.9" });
+      // Same source tree, different generator version — must be equal.
+      expect(mapsEqual(committed, fresh)).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("returns empty lists (no crash) for a repo with no src/", () => {
     const repo = mkRepo();
     try {

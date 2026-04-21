@@ -110,10 +110,24 @@ function escapeTable(s: string): string {
 }
 
 /**
- * Compare two maps for content equality (ignoring `generated_at`, which
- * changes every regen). Used by `slowcook map check`.
+ * Compare two maps for source-tree equality. Ignores all metadata that
+ * can differ between generations without the source having changed —
+ * \`generated_at\` (always different), \`slowcook_version\` (differs across
+ * CLI upgrades), \`repo_root\` (cwd-dependent). Only the scanned entities
+ * matter for staleness: routes, pages, components, helpers, types.
+ *
+ * Without this, bumping \`.brewing/slowcook-cli-version\` would force every
+ * consumer to regenerate + commit their map on the same PR — defeating
+ * the point of a one-line version bump.
  */
 export function mapsEqual(a: CodeMap, b: CodeMap): boolean {
-  const stripTime = (m: CodeMap) => ({ ...m, generated_at: "__ignored__" });
-  return JSON.stringify(stripTime(a)) === JSON.stringify(stripTime(b));
+  const canonical = (m: CodeMap) =>
+    JSON.stringify({
+      api_routes: m.api_routes,
+      pages: m.pages,
+      components: m.components,
+      helpers: m.helpers,
+      types: m.types,
+    });
+  return canonical(a) === canonical(b);
 }
