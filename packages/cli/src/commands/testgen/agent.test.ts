@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { extractTestIdsFromFile } from "./agent.js";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { extractTestIdsFromFile, buildProjectContext } from "./agent.js";
 
 const FILE = "tests/integration/story-042.test.ts";
 
@@ -130,5 +133,38 @@ describe("dupes", () => {
 `;
     const ids = extractTestIdsFromFile(FILE, src);
     expect(ids).toEqual([`${FILE} > dupes > same`]);
+  });
+});
+
+describe("buildProjectContext", () => {
+  function mkRepo(): string {
+    return mkdtempSync(join(tmpdir(), "slowcook-testgen-ctx-"));
+  }
+
+  it("includes `.brewing/context.md` contents when present", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, ".brewing"), { recursive: true });
+      writeFileSync(
+        join(repo, ".brewing", "context.md"),
+        "## Testing conventions\nUse vi.mock for external boundaries.",
+        "utf8"
+      );
+      const ctx = buildProjectContext(repo);
+      expect(ctx).toContain("Project overview (from `.brewing/context.md`)");
+      expect(ctx).toContain("Use vi.mock for external boundaries");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("omits the context.md section when the file is missing", () => {
+    const repo = mkRepo();
+    try {
+      const ctx = buildProjectContext(repo);
+      expect(ctx).not.toContain("context.md");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

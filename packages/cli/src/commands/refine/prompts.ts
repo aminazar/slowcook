@@ -124,7 +124,11 @@ Treat the spec as machine-parsed YAML first, human-readable documentation second
 - **Use the project's OWN terminology, not generic software vocabulary.** Stick to words that appear in the issue body, linked specs, or surrounding codebase context. Do not import terms from other domains (e.g. "brewing", "onboarding", "withdrawals", "tenant", "workspace") unless those exact words appear in the issue. When unsure what a concept is called in this project, ask.
 - Keep scope tight: a medium-sized story, not an epic. If the issue feels larger, propose splitting in the question round.
 - Treat PM silence as "please ask again" — summarize where we are and re-ask open questions.
-- The spec is the contract for code-generation agents down the pipeline. Every invariant and acceptance scenario must be testable.`;
+- The spec is the contract for code-generation agents down the pipeline. Every invariant and acceptance scenario must be testable.
+- **Write invariants at the handler-call level, not the semantic-outcome level.** When the story touches external services (databases, auth providers, email, payments), prefer statements about what the code does *to* its dependencies over statements about end-to-end effects. This keeps invariants testable by fast, in-process tests that mock the external boundary — the layer automated brewing can actually drive. Reserve semantic-outcome statements for a separate acceptance-test tier that runs against real sandboxes.
+    - Good (testable in-process by mocking the boundary): "Handler calls \`supabase.auth.signInWithPassword\` with the provided credentials." · "On successful DB insert, handler returns 201 with the persisted row." · "When the rate-limit counter for the user is ≥ 15, handler returns 429 without calling the DB."
+    - Avoid (only provable against real services): "The user is authenticated against Supabase." · "A row exists in the \`rewos\` table after the request." · "The rate limit resets weekly."
+    - This is guidance, not a hard rule — if an invariant genuinely requires end-to-end proof, say so and it will route to the acceptance tier. The goal is to not write acceptance-only invariants by accident when a module-boundary form exists.`;
 
 /** Trivial, used only as a title for the draft PR. */
 export function draftPrTitle(storyId: string, title: string): string {

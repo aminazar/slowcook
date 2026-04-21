@@ -15,6 +15,7 @@ import {
   type Manifest,
 } from "@slowcook-ai/core";
 import { readIndex, readSpec, SPECS_DIR } from "../refine/spec-yaml.js";
+import { readContextMd } from "../refine/context.js";
 import { TESTGEN_SYSTEM } from "./prompts.js";
 
 export const LABEL_TESTS_READY = "tests-ready";
@@ -180,14 +181,25 @@ function collectTargetSpecs(ctx: TestgenContext): Spec[] {
   return specs;
 }
 
-function buildProjectContext(repoRoot: string): string {
+export function buildProjectContext(repoRoot: string): string {
   const bits: string[] = [];
+
+  // `.brewing/context.md` is the consumer's hand-authored brewing-context
+  // doc — it describes project-specific testing conventions (which mocks
+  // to use, tier-1 vs tier-2 layering, etc.) that testgen needs to
+  // conform to. Refine already reads this file; testgen reading it too
+  // is the 0.6.5 wiring called out in plans/0.7-testgen-two-tier.md §7.
+  const contextMd = readContextMd(repoRoot);
+  if (contextMd) {
+    bits.push("### Project overview (from `.brewing/context.md`)\n");
+    bits.push(contextMd.trim());
+  }
 
   try {
     const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-    bits.push(`package.json name: ${pkg.name}`);
-    if (pkg.description) bits.push(`package.json description: ${pkg.description}`);
-    if (pkg.scripts?.test) bits.push(`test script: ${pkg.scripts.test}`);
+    bits.push(`\n### package.json\n- name: ${pkg.name}`);
+    if (pkg.description) bits.push(`- description: ${pkg.description}`);
+    if (pkg.scripts?.test) bits.push(`- test script: ${pkg.scripts.test}`);
   } catch {
     /* ignore */
   }
@@ -207,7 +219,7 @@ function buildProjectContext(repoRoot: string): string {
       }
     }
   } else {
-    bits.push("No existing integration tests — this will be the first in the repo.");
+    bits.push("\nNo existing integration tests — this will be the first in the repo.");
   }
 
   return bits.join("\n");

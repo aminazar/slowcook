@@ -39,7 +39,7 @@ export function buildProjectContext(repoRoot: string): string {
   return sections.join("\n");
 }
 
-function readContextMd(repoRoot: string): string | null {
+export function readContextMd(repoRoot: string): string | null {
   const path = join(repoRoot, ".brewing", "context.md");
   if (!existsSync(path)) return null;
   try {
