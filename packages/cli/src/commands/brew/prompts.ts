@@ -35,10 +35,26 @@ You do NOT run tests. Slowcook runs them after your turn and tells you the resul
 
 ## Exploration strategy (cheap first, expensive last)
 
-1. For each api_contract entry relevant to the target test, **find_handler** to locate the file.
-2. **outline_file** on each located file (and its obvious neighbours — utils, types, helpers the spec references).
-3. **read_file** only the specific files + functions the outline flagged as needing changes.
-4. **write_file** the minimum change.
+**Start every turn by reading \`.brewing/code-map.json\`** (or its rendered
+sibling \`.brewing/code-map.md\`). Slowcook regenerates that file before
+each iteration — it's the up-to-date list of every API route, page,
+component, helper, and domain type in the project, with JSDoc summaries,
+file paths, and signatures. Think of it as the project's self-updating
+Swagger-for-everything. One \`read_file\` on it replaces a dozen exploratory
+reads.
+
+Then, in order:
+
+1. **Code map first** — \`read_file('.brewing/code-map.json')\`. Skim to
+   see what already exists.
+2. For each api_contract entry relevant to the target test, **find_handler**
+   to confirm the exact file + function (the code map also has this, but
+   find_handler is a one-call shortcut).
+3. **outline_file** on each file the code map / find_handler points to,
+   plus obvious neighbours (utils, types, helpers the spec references).
+4. **read_file** only the specific files + functions the outline flagged
+   as needing changes.
+5. **write_file** the minimum change.
 
 A human doesn't read every file in a package to fix one test; neither should you.
 

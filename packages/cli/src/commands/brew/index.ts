@@ -105,7 +105,6 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 }
 
 export async function brew(argv: string[], cliVersion: string): Promise<void> {
-  void cliVersion;
   const args = parseArgs(argv);
 
   const anthropicKey = process.env["ANTHROPIC_API_KEY"];
@@ -181,6 +180,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     frozenPaths,
     haltDir,
     runLogPath,
+    cliVersion,
   };
 
   try {

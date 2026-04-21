@@ -33,6 +33,9 @@ import {
   type HaltReport,
   type DiffShortstat,
 } from "./halt.js";
+import { generateMap } from "../map/scan.js";
+import { writeFreshMap } from "../map/index.js";
+import { CODE_MAP_JSON_PATH, CODE_MAP_MD_PATH } from "../map/render.js";
 
 /** ------------------------- Context + options ------------------------- */
 
@@ -62,6 +65,8 @@ export interface BrewContext {
    * file during a long brew without waiting for the CI log to flush.
    */
   runLogPath?: string;
+  /** slowcook CLI version; threaded into the code map's `slowcook_version` field. */
+  cliVersion: string;
 }
 
 export interface FrozenPaths {
@@ -127,6 +132,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     }
   }
   appendRunLog(ctx, "START");
+
+  // Regenerate the code map before baseline so iteration 1's prompt can
+  // point the agent at .brewing/code-map.json. Cheap (ts-morph scan of src/).
+  regenerateCodeMap(ctx, "start");
 
   const manifestPath = join(ctx.repoRoot, ".brewing/manifests", `story-${ctx.storyId}.json`);
   if (!existsSync(manifestPath)) {
@@ -524,6 +533,9 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       ctx,
       `ITER ${iteration} CHECKPOINT  +${gains.length} green  total_green=${newGreen.size}/${baseline.tests.length}  files=${diff.changedPaths.length} +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
     );
+    // Checkpoint altered src/ — refresh the map so the next turn's agent
+    // sees current handler/component/type layout.
+    regenerateCodeMap(ctx, `after iter ${iteration}`);
 
     // Pick next target from story scope, if any remain
     const next = pickTarget(storyRedSet(), currentTarget);
@@ -1052,6 +1064,29 @@ async function pushBranch(ctx: BrewContext): Promise<void> {
     { stdio: "ignore" }
   );
   void ctx.forge;
+}
+
+/**
+ * Regenerate `.brewing/code-map.{json,md}`. Called at brew start and after
+ * every checkpoint so the agent's next turn sees an up-to-date map of API
+ * routes, pages, components, helpers, and types. Best-effort — a map
+ * generation failure (e.g. ts-morph parse error on malformed TS) is
+ * logged but does NOT halt the brew.
+ */
+function regenerateCodeMap(ctx: BrewContext, when: string): void {
+  try {
+    const fresh = generateMap({
+      repoRoot: ctx.repoRoot,
+      slowcookVersion: ctx.cliVersion,
+    });
+    writeFreshMap(ctx.repoRoot, CODE_MAP_JSON_PATH, CODE_MAP_MD_PATH, fresh);
+    appendRunLog(
+      ctx,
+      `CODEMAP regenerated (${when})  routes=${fresh.api_routes.length} components=${fresh.components.length} helpers=${fresh.helpers.length} types=${fresh.types.length}`
+    );
+  } catch (e) {
+    appendRunLog(ctx, `CODEMAP regenerate FAILED (${when}): ${(e as Error).message.slice(0, 200)}`);
+  }
 }
 
 /**
