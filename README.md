@@ -99,7 +99,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for full usage.
 | 0.3 ✅ | `init` — scaffolds `.brewing/*` in consumer projects |
 | 0.4 ✅ | `refine` — refinement agent (issue → structured spec) |
 | 0.5 ✅ | `testgen` — test generation from spec |
-| 0.6 | `brew` — the ratcheted overnight loop (single lane) |
+| 0.6 ✅ | `brew` — the ratcheted implementation loop (single lane) |
 | 0.7 | Parallel lanes |
 | 0.8 | Tiered reviewer + mutation audit |
 | 0.9 | Gate 1 (mechanical) + Gate 2 (vision) |

@@ -9,6 +9,7 @@ import { refine } from "./commands/refine/index.js";
 import { onSpecMerged } from "./commands/on-spec-merged/index.js";
 import { testgen } from "./commands/testgen/index.js";
 import { catchup } from "./commands/catchup/index.js";
+import { brew } from "./commands/brew/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -38,6 +39,7 @@ Usage:
   slowcook on-spec-merged --pr <number> [--cwd <path>]
   slowcook testgen [--spec <id>] [--all] [--cwd <path>]
   slowcook catchup [--dry-run] [--cwd <path>]
+  slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
   slowcook version
   slowcook help
 
@@ -49,9 +51,10 @@ Commands available in ${VERSION}:
   on-spec-merged     Transition source-issue labels after a spec PR merges.
   testgen            Generate Vitest integration tests from merged specs.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
+  brew               Ratcheted implementation loop: flip red tests to green for one story.
 
 Coming in later versions:
-  brew, review, dashboard
+  review, dashboard
 
 Docs: https://github.com/aminazar/slowcook
 `;
@@ -81,6 +84,9 @@ async function main(): Promise<void> {
       return;
     case "catchup":
       await catchup(args.slice(1), VERSION);
+      return;
+    case "brew":
+      await brew(args.slice(1), VERSION);
       return;
     case "version":
     case "--version":
