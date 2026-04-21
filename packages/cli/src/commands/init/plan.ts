@@ -7,6 +7,7 @@ import {
   stackJson,
   brewingReadme,
   contextMdTemplate,
+  slowcookCliVersionFile,
   slowcookWorkflow,
   slowcookSpecMergedWorkflow,
   slowcookTestgenWorkflow,
@@ -14,6 +15,7 @@ import {
   codeownersSection,
   gitkeep,
   CLI_VERSION_FOR_TEMPLATES,
+  SLOWCOOK_CLI_VERSION_FILE,
   SLOWCOOK_CODEOWNERS_MARKER_BEGIN,
   SLOWCOOK_CODEOWNERS_MARKER_END,
   type TemplateParams,
@@ -66,6 +68,7 @@ const TARGETS = {
   stack: ".brewing/stack.json",
   brewingReadme: ".brewing/README.md",
   contextMd: ".brewing/context.md",
+  cliVersion: SLOWCOOK_CLI_VERSION_FILE,
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
   workflow: ".github/workflows/slowcook.yml",
   specMergedWorkflow: ".github/workflows/slowcook-spec-merged.yml",
@@ -139,6 +142,17 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
 
   // 3b. .brewing/context.md (project context for agents)
   addSimpleFile(actions, reader, options.force, TARGETS.contextMd, contextMdTemplate());
+
+  // 3c. .brewing/slowcook-cli-version — single-source-of-truth pin file.
+  // Workflows resolve $SLOWCOOK_CLI from this at run time, so bumping the
+  // version is a one-file edit rather than N workflow sed-edits.
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.cliVersion,
+    slowcookCliVersionFile(cliVersion)
+  );
 
   // 4. .brewing/manifests/.gitkeep (only if we're creating the dir)
   if (!reader.exists(".brewing/manifests/")) {

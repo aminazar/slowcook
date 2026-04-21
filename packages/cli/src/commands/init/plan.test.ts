@@ -130,7 +130,22 @@ describe("buildPlan — fresh project", () => {
     }
   });
 
-  it("pins the CI workflow to the supplied cliVersion", () => {
+  it("writes the cliVersion into .brewing/slowcook-cli-version (the single-source-of-truth pin)", () => {
+    const reader = mkReader({ "package.json": JSON.stringify(MIN_PKG) });
+    const plan = buildPlan(reader, {
+      cwd: "/repo",
+      owner: "@u",
+      force: false,
+      cliVersion: "0.7.0",
+    });
+    const pin = plan.actions.find((a) => a.path === ".brewing/slowcook-cli-version");
+    expect(pin).toBeDefined();
+    if (pin && "contents" in pin) {
+      expect(pin.contents.trim()).toBe("0.7.0");
+    }
+  });
+
+  it("CI workflow reads from the pin file (no inline version), and map check runs", () => {
     const reader = mkReader({ "package.json": JSON.stringify(MIN_PKG) });
     const plan = buildPlan(reader, {
       cwd: "/repo",
@@ -141,7 +156,12 @@ describe("buildPlan — fresh project", () => {
     const wf = plan.actions.find((a) => a.path === ".github/workflows/slowcook.yml");
     expect(wf).toBeDefined();
     if (wf && "contents" in wf) {
-      expect(wf.contents).toContain("@slowcook-ai/cli@0.7.0");
+      // Workflow must NOT carry an inline pin (prevents drift vs the file)
+      expect(wf.contents).not.toContain("@slowcook-ai/cli@0.7.0");
+      // Workflow must read from the pin file
+      expect(wf.contents).toContain("cat .brewing/slowcook-cli-version");
+      // Workflow must run map check (0.6.9 adds the code-map gate)
+      expect(wf.contents).toContain("map check");
     }
   });
 });

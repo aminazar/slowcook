@@ -1,7 +1,29 @@
 // Static and parameterized file contents written by `slowcook init`.
 // Version is bumped in lockstep with the CLI package.
 
-export const CLI_VERSION_FOR_TEMPLATES = "0.6.1";
+export const CLI_VERSION_FOR_TEMPLATES = "0.6.9";
+
+/**
+ * Path of the single-source-of-truth CLI pin file. Every workflow reads
+ * from this at run time so a version bump is a one-file edit, not
+ * N files × sed. Bump deliberately via a PR.
+ */
+export const SLOWCOOK_CLI_VERSION_FILE = ".brewing/slowcook-cli-version";
+
+export function slowcookCliVersionFile(cliVersion: string): string {
+  return cliVersion + "\n";
+}
+
+/**
+ * Shared GitHub Actions step that resolves the SLOWCOOK_CLI env var from
+ * the pin file. Must come AFTER actions/checkout@v4 in every workflow.
+ * Emitted as a string so the three workflow templates below can compose
+ * it identically and drift-free.
+ */
+const RESOLVE_PIN_STEP = `      - name: Resolve slowcook CLI pin
+        # Single source of truth: .brewing/slowcook-cli-version. Bump by
+        # editing that one file; every workflow picks it up at run time.
+        run: echo "SLOWCOOK_CLI=@slowcook-ai/cli@$(cat .brewing/slowcook-cli-version | tr -d '[:space:]')" >> $GITHUB_ENV`;
 
 export interface TemplateParams {
   /** CODEOWNERS handle or team (e.g. "@aminazar" or "@acme/frontend"). */
@@ -174,6 +196,7 @@ Deliberately slightly inconvenient. Frozen-path changes are rare events that des
 }
 
 export function slowcookTestgenWorkflow(cliVersion: string): string {
+  void cliVersion;
   return `name: slowcook testgen
 
 # Generates Vitest integration tests whenever a new spec lands on main
@@ -193,9 +216,6 @@ concurrency:
   group: slowcook-testgen-main
   cancel-in-progress: false
 
-env:
-  SLOWCOOK_CLI: "@slowcook-ai/cli@${cliVersion}"
-
 jobs:
   testgen:
     runs-on: ubuntu-latest
@@ -206,6 +226,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
 
       - name: Configure git identity for agent commits
         run: |
@@ -227,6 +249,7 @@ jobs:
 }
 
 export function slowcookSpecMergedWorkflow(cliVersion: string): string {
+  void cliVersion;
   return `name: slowcook — spec merged
 
 # Transitions source-issue labels from \`spec-submitted\` → \`spec-ready\` when
@@ -235,9 +258,6 @@ export function slowcookSpecMergedWorkflow(cliVersion: string): string {
 on:
   pull_request:
     types: [closed]
-
-env:
-  SLOWCOOK_CLI: "@slowcook-ai/cli@${cliVersion}"
 
 jobs:
   transition:
@@ -254,6 +274,8 @@ jobs:
         with:
           ref: \${{ github.event.pull_request.merge_commit_sha }}
 
+${RESOLVE_PIN_STEP}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -267,6 +289,7 @@ jobs:
 }
 
 export function slowcookWorkflow(cliVersion: string): string {
+  void cliVersion;
   return `name: slowcook
 
 on:
@@ -277,10 +300,6 @@ concurrency:
   group: slowcook-\${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Pin CLI version for reproducibility; bump deliberately via a PR.
-env:
-  SLOWCOOK_CLI: "@slowcook-ai/cli@${cliVersion}"
-
 jobs:
   check:
     name: slowcook checks
@@ -289,6 +308,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
 
       - uses: actions/setup-node@v4
         with:
@@ -315,6 +336,12 @@ jobs:
 
       - name: Manifest — verify discoverable tests
         run: npx --yes "$SLOWCOOK_CLI" manifest verify
+
+      - name: Code map — check it's up to date
+        # Fails if the committed .brewing/code-map.{json,md} differs from a
+        # fresh regeneration. Fix by running \`npx slowcook map generate\`
+        # locally, commit the result, and push.
+        run: npx --yes "$SLOWCOOK_CLI" map check
 `;
 }
 
