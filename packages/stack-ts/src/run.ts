@@ -3,6 +3,7 @@
 // is cheap and used on every manifest verify.
 
 import { execSync } from "node:child_process";
+import { relative as pathRelative, isAbsolute } from "node:path";
 import type { TestEntry } from "@slowcook-ai/core";
 import type { StackConfig } from "./stack-config.js";
 
@@ -63,7 +64,7 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
         exit_code: code,
         stdout_bytes: stdout.length,
       });
-      const parsed = parseVitestJson(stdout, suite.run_command);
+      const parsed = parseVitestJson(stdout, suite.run_command, { cwd: options.cwd });
       if (parsed.length === 0 && code !== 0) {
         errors.push(
           `[${suiteName}] exit ${code}, no parsable JSON. First 400 chars of stderr: ${stderr.slice(0, 400)}`
@@ -123,7 +124,11 @@ function defaultExec(
  * (e.g., dev-dep warnings, --reporter output splatter) so we look for the
  * first `{` and try to parse from there.
  */
-export function parseVitestJson(stdout: string, runCommand: string): TestResult[] {
+export function parseVitestJson(
+  stdout: string,
+  runCommand: string,
+  options?: { cwd?: string }
+): TestResult[] {
   void runCommand;
   const firstBrace = stdout.indexOf("{");
   if (firstBrace === -1) return [];
@@ -158,7 +163,7 @@ export function parseVitestJson(stdout: string, runCommand: string): TestResult[
   };
   const out: TestResult[] = [];
   for (const fileResult of root.testResults ?? []) {
-    const file = relativiseFile(fileResult.name ?? "");
+    const file = relativiseFile(fileResult.name ?? "", options?.cwd);
     for (const a of fileResult.assertionResults ?? []) {
       const status = normaliseStatus(a.status);
       const id = buildTestId(file, a);
@@ -203,13 +208,27 @@ function buildTestId(
   return [file, ...chain].join(" > ");
 }
 
-/** Convert absolute paths to repo-relative; assumes tests run from cwd at run time. */
-function relativiseFile(name: string): string {
+/**
+ * Convert absolute paths to repo-relative. Prefer `path.relative(cwd, name)`
+ * when cwd is provided — this is the only reliable way to get a path that
+ * matches how testgen/manifest store test file IDs. Fall back to regex
+ * anchors only when cwd is unknown (older callers).
+ *
+ * The regex fallback intentionally excludes `app/` as an anchor: on some
+ * runners (e.g., GitHub Actions on Contabo) the workspace lives under
+ * `/home/runner/actions-runner/_work/app/app/...`, and anchoring on `app/`
+ * produced `app/app/tests/...` instead of `tests/...`.
+ */
+function relativiseFile(name: string, cwd?: string): string {
   if (!name) return "(unknown)";
-  // If already relative, keep as-is
-  if (!name.startsWith("/")) return name;
-  // Find the last "tests/" or "src/" or "packages/" as the anchor
-  const m = name.match(/\/((?:tests|src|packages|app)\/.*)$/);
+  if (!isAbsolute(name)) return name;
+  if (cwd) {
+    const rel = pathRelative(cwd, name);
+    // path.relative may produce "../..." if cwd is outside the file tree —
+    // only trust it if it stays inside cwd.
+    if (rel && !rel.startsWith("..")) return rel;
+  }
+  const m = name.match(/\/((?:tests|src|packages)\/.*)$/);
   if (m && m[1]) return m[1];
   return name;
 }

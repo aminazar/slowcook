@@ -110,6 +110,37 @@ describe("parseVitestJson", () => {
     const tests = parseVitestJson(weird, "npx vitest run");
     expect(tests[0]?.status).toBe("errored");
   });
+
+  it("uses cwd to compute repo-relative file paths when provided", () => {
+    const input = JSON.stringify({
+      testResults: [
+        {
+          name: "/home/runner/work/app/app/tests/integration/story-001.test.ts",
+          assertionResults: [{ fullName: "x > y", status: "passed" }],
+        },
+      ],
+    });
+    const tests = parseVitestJson(input, "npx vitest run", {
+      cwd: "/home/runner/work/app/app",
+    });
+    // Regression: without cwd, the old regex matched the first `/app/` and
+    // produced `app/app/tests/integration/...`. With cwd we get the true
+    // repo-relative path that matches what testgen writes into manifests.
+    expect(tests[0]?.file).toBe("tests/integration/story-001.test.ts");
+  });
+
+  it("falls back to anchor regex when cwd is not provided", () => {
+    const input = JSON.stringify({
+      testResults: [
+        {
+          name: "/abs/repo/tests/integration/story-001.test.ts",
+          assertionResults: [{ fullName: "x > y", status: "passed" }],
+        },
+      ],
+    });
+    const tests = parseVitestJson(input, "npx vitest run");
+    expect(tests[0]?.file).toBe("tests/integration/story-001.test.ts");
+  });
 });
 
 describe("runTests", () => {
