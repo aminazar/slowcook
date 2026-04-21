@@ -1,7 +1,7 @@
 // Static and parameterized file contents written by `slowcook init`.
 // Version is bumped in lockstep with the CLI package.
 
-export const CLI_VERSION_FOR_TEMPLATES = "0.6.0";
+export const CLI_VERSION_FOR_TEMPLATES = "0.6.1";
 
 export interface TemplateParams {
   /** CODEOWNERS handle or team (e.g. "@aminazar" or "@acme/frontend"). */

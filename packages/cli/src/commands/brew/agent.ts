@@ -141,8 +141,32 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   let redSet = new Set(
     baseline.tests.filter((t) => t.status !== "passed").map((t) => t.id)
   );
+  const discoveredIds = new Set<string>([...greenSet, ...redSet]);
 
   console.log(`→ baseline: ${greenSet.size} green, ${redSet.size} red / ${baseline.tests.length} total`);
+
+  // Sanity check BEFORE declaring success: are the story's expected tests
+  // actually being discovered? It's possible for `redSet.size === 0` to
+  // mean "everything vitest found passed" while the story's tests are
+  // completely absent (vitest include pattern doesn't cover them, etc.).
+  const undiscoveredStoryTests = [...expectedTestIds].filter(
+    (id) => !discoveredIds.has(id)
+  );
+  if (undiscoveredStoryTests.length > 0) {
+    return haltFor(ctx, {
+      reason: "MANIFEST_DRIFT",
+      iterations: 0,
+      checkpoints: 0,
+      greenCount: greenSet.size,
+      totalCount: expectedTestIds.size,
+      spendUsd: 0,
+      summary:
+        `Story manifest lists ${expectedTestIds.size} test(s) but vitest discovered only ${discoveredIds.size} test(s) in this run — ${undiscoveredStoryTests.length} of the story's tests are invisible to the runner. ` +
+        `First missing: \`${undiscoveredStoryTests[0]}\`. ` +
+        `Most common cause: \`vitest.config.ts\`'s \`include\` pattern doesn't cover the test files' path (e.g., only \`src/**/*.test.ts\` but tests live under \`tests/integration/\`). ` +
+        `Fix the include pattern and re-run.`,
+    });
+  }
 
   if (redSet.size === 0) {
     return {

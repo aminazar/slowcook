@@ -32,6 +32,7 @@ export type HaltReason =
   | "WALL_CLOCK"
   | "TESTS_NEVER_GREEN"
   | "TEST_RUNNER_BROKEN"
+  | "MANIFEST_DRIFT"
   | "VIOLATION_STREAK";
 
 export interface DiffShortstat {
@@ -189,6 +190,19 @@ export function defaultSuggestedActions(
           id: "review_agent_behaviour",
           label: "Review agent tool usage",
           description: "Agent produced multiple scope/frozen-path violations in a row. May indicate prompt drift or a model regression.",
+        },
+      ];
+    case "MANIFEST_DRIFT":
+      return [
+        {
+          id: "check_test_discovery",
+          label: "Fix test discovery so the story's tests are actually run",
+          description: "The story's manifest lists tests that vitest can't discover. Most common cause: vitest.config.ts `include` pattern doesn't cover the test files' path (e.g., only `src/**/*.test.ts` but tests live at `tests/integration/`). Expand the include pattern, or move the tests.",
+        },
+        {
+          id: "regenerate_manifest",
+          label: "Re-record the manifest",
+          description: "If the test file locations are correct and vitest just re-indexed, run `slowcook manifest record --story <id>` to update the manifest to match current discovery.",
         },
       ];
   }
