@@ -5,6 +5,7 @@ import {
   mkdirSync,
   rmSync,
   readdirSync,
+  statSync,
 } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import YAML from "yaml";
@@ -65,7 +66,7 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
 
   for (const spec of specs) {
     const projectContext = buildProjectContext(ctx.repoRoot);
-    const fileContents = await generateTestFile(spec, ctx, projectContext);
+    const bundle = await generateTestBundle(spec, ctx, projectContext);
     const testPath = join(TESTS_INTEGRATION_DIR, `story-${spec.story_id}.test.ts`);
 
     // Tier-1 conformance gate: if the LLM slipped back to tier-0 habits
@@ -73,7 +74,7 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     // loudly here rather than quietly producing HTTP-loopback tests the
     // brewing loop can't ratchet against. The caller can re-run with a
     // different seed or hand-edit and re-run testgen.
-    const violations = lintTierOneTest(testPath, fileContents);
+    const violations = lintTierOneTest(testPath, bundle.testContent);
     if (violations.length > 0) {
       const details = violations
         .slice(0, 10)
@@ -87,7 +88,17 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       );
     }
 
-    const manifestIds = extractTestIdsFromFile(testPath, fileContents);
+    // De-dupe stubs + helpers: skip anything whose target file exists and
+    // isn't a @slowcook-stub (for stubs) or isn't empty (for helpers). This
+    // lets testgen re-run safely without clobbering in-progress impls.
+    const stubsToWrite = bundle.stubs.filter((s) =>
+      shouldWriteStub(ctx.repoRoot, s.path)
+    );
+    const helpersToWrite = bundle.helpers.filter((h) =>
+      shouldWriteHelper(ctx.repoRoot, h.path)
+    );
+
+    const manifestIds = extractTestIdsFromFile(testPath, bundle.testContent);
     const manifest = buildManifest({
       slowcookVersion: ctx.cliVersion,
       storyId: spec.story_id,
@@ -95,7 +106,14 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       suites: [{ suite: "backend", command: "npx vitest list", test_count: manifestIds.length }],
       now: ctx.now,
     });
-    generated.push({ spec, testPath, fileContents, manifest });
+    generated.push({
+      spec,
+      testPath,
+      fileContents: bundle.testContent,
+      manifest,
+      stubs: stubsToWrite,
+      helpers: helpersToWrite,
+    });
 
     for (const superseded of spec.supersedes) {
       toRemove.push(superseded);
@@ -107,6 +125,12 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     writeFileAt(ctx.repoRoot, g.testPath, g.fileContents);
     const manifestPath = join(MANIFESTS_DIR, `story-${g.spec.story_id}.json`);
     writeFileAt(ctx.repoRoot, manifestPath, JSON.stringify(g.manifest, null, 2) + "\n");
+    for (const stub of g.stubs) {
+      writeFileAt(ctx.repoRoot, stub.path, stub.contents);
+    }
+    for (const helper of g.helpers) {
+      writeFileAt(ctx.repoRoot, helper.path, helper.contents);
+    }
   }
   const actuallyRemoved: string[] = [];
   for (const id of toRemove) {
@@ -122,6 +146,8 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
   for (const g of generated) {
     await ctx.forge.git.stage(g.testPath);
     await ctx.forge.git.stage(join(MANIFESTS_DIR, `story-${g.spec.story_id}.json`));
+    for (const stub of g.stubs) await ctx.forge.git.stage(stub.path);
+    for (const helper of g.helpers) await ctx.forge.git.stage(helper.path);
   }
   for (const id of actuallyRemoved) {
     await ctx.forge.git.stage(join(TESTS_INTEGRATION_DIR, `story-${id}.test.ts`));
@@ -179,6 +205,40 @@ interface GeneratedArtifact {
   testPath: string;
   fileContents: string;
   manifest: Manifest;
+  stubs: Array<{ path: string; contents: string }>;
+  helpers: Array<{ path: string; contents: string }>;
+}
+
+/**
+ * Decide whether to write a stub file. Write when:
+ *  - The target doesn't exist — most common case, new story.
+ *  - The target exists but is itself a @slowcook-stub (marker on line 1).
+ *    Lets testgen re-runs refresh stubs as spec evolves.
+ * Skip when:
+ *  - The target exists and has real implementation (no stub marker).
+ *    Could be a brownfield consumer where the route already exists, or
+ *    brewing has already replaced the stub body. Either way, don't clobber.
+ */
+function shouldWriteStub(repoRoot: string, path: string): boolean {
+  const full = join(repoRoot, path);
+  if (!existsSync(full)) return true;
+  try {
+    const first = readFileSync(full, "utf8").split("\n")[0] ?? "";
+    return first.includes("@slowcook-stub");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decide whether to write a helper file. Write when the target doesn't
+ * exist. Never clobber an existing helper — the consumer may have
+ * hand-customised it, and the generated version would lose those edits.
+ * Operator can delete the file and re-run testgen to get a fresh
+ * auto-generated helper.
+ */
+function shouldWriteHelper(repoRoot: string, path: string): boolean {
+  return !existsSync(join(repoRoot, path));
 }
 
 function collectTargetSpecs(ctx: TestgenContext): Spec[] {
@@ -243,10 +303,27 @@ export function buildProjectContext(repoRoot: string): string {
     bits.push("\nNo existing integration tests — this will be the first in the repo.");
   }
 
+  // List existing API route files so the LLM knows NOT to emit a <stub>
+  // block for them. (A route that already exists has a real impl; stubbing
+  // over it would clobber production code. The consumer may also have
+  // brownfield code that pre-existed slowcook adoption — listed here so
+  // testgen respects what's there.)
+  const appDir = join(repoRoot, "src", "app");
+  if (existsSync(appDir)) {
+    const routes = listAppRouterFiles(appDir).sort();
+    if (routes.length > 0) {
+      bits.push(
+        `\n### Existing API route files (under src/app/)\n\nThese already exist — do NOT emit a \`<stub>\` block for any of them. If the test imports from one of these, assume the route file exists and skip stub generation.`
+      );
+      for (const r of routes.slice(0, 50)) bits.push(`- \`${r}\``);
+      if (routes.length > 50) bits.push(`- … (${routes.length - 50} more)`);
+    }
+  }
+
   // List existing mock helpers so the LLM knows which to import. The
   // helper pattern is load-bearing for the future record-and-replay swap
   // (plans/0.7-testgen-two-tier.md §4.3). Helpers NOT listed here will
-  // surface as TODO(helper) comments in the generated test.
+  // be auto-generated by testgen B2 as <helper> blocks.
   const helpersDir = join(repoRoot, MOCK_HELPERS_DIR);
   if (existsSync(helpersDir)) {
     const helpers = readdirSync(helpersDir)
@@ -274,37 +351,135 @@ export function buildProjectContext(repoRoot: string): string {
     }
   } else {
     bits.push(
-      `\n### Mock helpers\n\nNo \`${MOCK_HELPERS_DIR}/\` directory yet — this project hasn't set up the helper pattern. Emit \`TODO(helper): <service>\` comments for each external dependency the handler calls; an operator will hand-author the helpers before brewing can run (helper auto-generation ships in a later slowcook release).`
+      `\n### Mock helpers\n\nNo \`${MOCK_HELPERS_DIR}/\` directory yet — this project hasn't set up the helper pattern. Emit a \`<helper>\` block for each external dependency the handler calls, matching the helper-file shape in the system prompt. Also emit a \`<helper path="${MOCK_HELPERS_DIR}/index.ts">\` barrel re-exporting your new helpers.`
     );
   }
 
   return bits.join("\n");
 }
 
-async function generateTestFile(
+/**
+ * Walk src/app/ and return every route file path (repo-relative) that
+ * Next.js App Router treats as an endpoint. We surface these to the
+ * testgen LLM so it doesn't emit a <stub> for a file that already
+ * exists.
+ */
+function listAppRouterFiles(appDir: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      const full = join(dir, name);
+      let stat;
+      try {
+        stat = statSync(full);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) walk(full);
+      else if (stat.isFile() && /^(route|page)\.(ts|tsx)$/.test(name)) {
+        // Return repo-relative path. Parent dirs up to "src/app" are derivable
+        // from appDir; we trim appDir and prefix "src/app".
+        const rel = full.slice(full.indexOf("src/app"));
+        out.push(rel);
+      }
+    }
+  };
+  walk(appDir);
+  return out;
+}
+
+/**
+ * Phase B2 (0.7.0) testgen output: one test file, zero-or-more route stubs,
+ * zero-or-more mock helpers. The LLM emits these as XML-tagged blocks
+ * (see TESTGEN_SYSTEM for the exact format); slowcook parses, de-duplicates
+ * against existing files, and writes only what's new.
+ */
+export interface TestgenBundle {
+  testContent: string;
+  stubs: Array<{ path: string; contents: string }>;
+  helpers: Array<{ path: string; contents: string }>;
+}
+
+async function generateTestBundle(
   spec: Spec,
   ctx: TestgenContext,
   projectContext: string
-): Promise<string> {
+): Promise<TestgenBundle> {
   const systemPrompt = TESTGEN_SYSTEM(projectContext);
-  const userMessage = `Here is the spec YAML. Generate the Vitest integration test file:\n\n\`\`\`yaml\n${YAML.stringify(spec)}\n\`\`\``;
+  const userMessage = `Here is the spec YAML. Generate the tier-1 test bundle (test file + any needed stubs + any needed helpers):\n\n\`\`\`yaml\n${YAML.stringify(spec)}\n\`\`\``;
 
   const raw = await ctx.llm.complete({
     system: systemPrompt,
     cacheSystem: true,
     model: ctx.model,
     messages: [{ role: "user", content: userMessage }],
-    maxTokens: 8192,
+    maxTokens: 16384,
   });
 
-  return stripCodeFence(raw);
+  return parseTestgenBundle(raw, spec.story_id);
 }
 
-function stripCodeFence(raw: string): string {
+/**
+ * Parse XML-tagged multi-artifact output into a TestgenBundle.
+ *
+ * Accepted shape (from the prompt):
+ *   <test_file>...</test_file>
+ *   <stub path="src/app/api/foo/route.ts">...</stub>   (zero or more)
+ *   <helper path="tests/helpers/mocks/bar.ts">...</helper>  (zero or more)
+ *
+ * Tolerant of code-fenced output: if the LLM wraps the whole thing in
+ * ```, we strip it. If a block's contents are themselves code-fenced,
+ * we strip those too — tier-1 test / helper / stub files are raw TS.
+ *
+ * Throws if `<test_file>` is missing or empty — that's the one mandatory
+ * artifact.
+ */
+export function parseTestgenBundle(raw: string, storyId: string): TestgenBundle {
+  const trimmed = raw.trim();
+  // Strip outer code fence if the LLM wrapped everything
+  const outerFenceMatch = trimmed.match(/^```[a-z]*\s*\n([\s\S]*)\n```$/);
+  const body = outerFenceMatch && outerFenceMatch[1] ? outerFenceMatch[1] : trimmed;
+
+  const testMatch = body.match(/<test_file>([\s\S]*?)<\/test_file>/);
+  if (!testMatch || !testMatch[1]) {
+    throw new Error(
+      `testgen: LLM output for story-${storyId} missing a <test_file> block. ` +
+        `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
+    );
+  }
+  const testContent = stripInnerFence(testMatch[1]);
+
+  const stubs: Array<{ path: string; contents: string }> = [];
+  const stubRe = /<stub\s+path="([^"]+)">([\s\S]*?)<\/stub>/g;
+  let m: RegExpExecArray | null;
+  while ((m = stubRe.exec(body)) !== null) {
+    const p = m[1] ?? "";
+    const c = m[2] ?? "";
+    if (p && c.trim()) stubs.push({ path: p, contents: stripInnerFence(c) });
+  }
+
+  const helpers: Array<{ path: string; contents: string }> = [];
+  const helperRe = /<helper\s+path="([^"]+)">([\s\S]*?)<\/helper>/g;
+  while ((m = helperRe.exec(body)) !== null) {
+    const p = m[1] ?? "";
+    const c = m[2] ?? "";
+    if (p && c.trim()) helpers.push({ path: p, contents: stripInnerFence(c) });
+  }
+
+  return { testContent, stubs, helpers };
+}
+
+function stripInnerFence(raw: string): string {
   const t = raw.trim();
-  const fence = t.match(/^```(?:typescript|ts)?\s*\n([\s\S]*)\n```$/);
+  const fence = t.match(/^```(?:typescript|ts|tsx)?\s*\n([\s\S]*)\n```$/);
   if (fence && fence[1]) return fence[1];
-  return t;
+  return t + "\n"; // ensure trailing newline for file writes
 }
 
 /**
@@ -571,6 +746,31 @@ function buildPrBody(args: {
       `- \`story-${g.spec.story_id}\` — *${g.spec.title}* — ${manifestCount} test(s) in \`${g.testPath}\``
     );
   }
+
+  const allStubs = args.generated.flatMap((g) => g.stubs);
+  if (allStubs.length > 0) {
+    sections.push("");
+    sections.push("## Generated stubs (route files)");
+    sections.push(
+      "Minimal throwing route files so tier-1 tests can collect. Each carries an \`@slowcook-stub\` marker on line 1. **Brewing will replace these bodies** with the real implementation across its iterations. Reviewer check: correct file path + export signature + \`@slowcook-stub\` marker present. If the signature is wrong the whole PR is wrong — flag it now."
+    );
+    for (const s of allStubs) {
+      sections.push(`- \`${s.path}\``);
+    }
+  }
+
+  const allHelpers = args.generated.flatMap((g) => g.helpers);
+  if (allHelpers.length > 0) {
+    sections.push("");
+    sections.push("## Generated mock helpers");
+    sections.push(
+      "Signature-asserting fakes for external services the handlers consume. **Three load-bearing properties**: (1) calling the real module's exported function with wrong args throws loudly (catches the class of bug where tests pass via mock-arg-ignoring but production crashes); (2) every chained method pushes to \`client.calls\` so tests assert against that instead of poking \`vi.fn\` internals; (3) config is intent-level (\`user\`, \`tables\`) not implementation-level (\`return_value_for_from\`). Reviewer check: the \`realShaped*\` wrapper exists AND matches the real module's signature from \`src/\`."
+    );
+    for (const h of allHelpers) {
+      sections.push(`- \`${h.path}\``);
+    }
+  }
+
   if (args.removedStoryIds.length > 0) {
     sections.push("");
     sections.push("## Tests removed (supersede chain)");

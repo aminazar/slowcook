@@ -6,6 +6,7 @@ import {
   extractTestIdsFromFile,
   buildProjectContext,
   lintTierOneTest,
+  parseTestgenBundle,
 } from "./agent.js";
 
 const FILE = "tests/integration/story-042.test.ts";
@@ -296,5 +297,100 @@ const tip = \`example: fetch("http://localhost:3000")\`;
 it("passes", () => { expect(msg).toContain("vi.mock"); });
 `;
     expect(lintTierOneTest(FILE, src)).toEqual([]);
+  });
+});
+
+describe("parseTestgenBundle — multi-artifact LLM output", () => {
+  it("parses test-file-only output (no stubs, no helpers)", () => {
+    const raw = `
+<test_file>
+import { describe, it } from "vitest";
+describe("x", () => { it("y", () => {}); });
+</test_file>
+`;
+    const b = parseTestgenBundle(raw, "042");
+    expect(b.testContent).toContain("describe");
+    expect(b.stubs).toEqual([]);
+    expect(b.helpers).toEqual([]);
+  });
+
+  it("parses test + stub + helper bundle with paths", () => {
+    const raw = `
+<test_file>
+import { GET } from "@/app/api/foo/route";
+</test_file>
+
+<stub path="src/app/api/foo/route.ts">
+// @slowcook-stub story-042
+export async function GET(): Promise<Response> { return new Response(); }
+</stub>
+
+<helper path="tests/helpers/mocks/foo.ts">
+import { vi } from "vitest";
+export function mockFoo() { return {}; }
+</helper>
+`;
+    const b = parseTestgenBundle(raw, "042");
+    expect(b.testContent).toContain(`from "@/app/api/foo/route"`);
+    expect(b.stubs).toHaveLength(1);
+    expect(b.stubs[0]?.path).toBe("src/app/api/foo/route.ts");
+    expect(b.stubs[0]?.contents).toContain("@slowcook-stub");
+    expect(b.helpers).toHaveLength(1);
+    expect(b.helpers[0]?.path).toBe("tests/helpers/mocks/foo.ts");
+    expect(b.helpers[0]?.contents).toContain("mockFoo");
+  });
+
+  it("parses multiple stubs and multiple helpers", () => {
+    const raw = `
+<test_file>test</test_file>
+<stub path="a/route.ts">alpha</stub>
+<stub path="b/route.ts">beta</stub>
+<helper path="tests/helpers/mocks/x.ts">hx</helper>
+<helper path="tests/helpers/mocks/y.ts">hy</helper>
+`;
+    const b = parseTestgenBundle(raw, "042");
+    expect(b.stubs.map((s) => s.path)).toEqual(["a/route.ts", "b/route.ts"]);
+    expect(b.helpers.map((h) => h.path)).toEqual([
+      "tests/helpers/mocks/x.ts",
+      "tests/helpers/mocks/y.ts",
+    ]);
+  });
+
+  it("strips an outer markdown code fence if the LLM wraps everything", () => {
+    const raw = "```\n<test_file>inside</test_file>\n```";
+    expect(parseTestgenBundle(raw, "042").testContent).toContain("inside");
+  });
+
+  it("strips inner TS code fences on each block", () => {
+    const raw = `
+<test_file>
+\`\`\`ts
+import { it } from "vitest";
+\`\`\`
+</test_file>
+`;
+    expect(parseTestgenBundle(raw, "042").testContent.trim()).toBe(
+      'import { it } from "vitest";'
+    );
+  });
+
+  it("throws when <test_file> block is missing", () => {
+    expect(() => parseTestgenBundle("no tags here", "042")).toThrow(
+      /missing a <test_file>/
+    );
+  });
+
+  it("ignores empty <stub> or <helper> blocks (doesn't add entries)", () => {
+    const raw = `
+<test_file>t</test_file>
+<stub path="empty.ts">
+</stub>
+<helper path="also-empty.ts">
+
+</helper>
+`;
+    const b = parseTestgenBundle(raw, "042");
+    expect(b.stubs).toEqual([]);
+    expect(b.helpers).toEqual([]);
   });
 });

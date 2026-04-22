@@ -6,6 +6,20 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.0 — Phase 2: testgen auto-generates stubs + helpers
+
+Closes the two remaining manual touchpoints from the story-005 run. Testgen now emits a **bundle** — test file plus any needed route stubs plus any needed mock helpers — instead of just a test file.
+
+- LLM output format is XML-tagged: `<test_file>`, `<stub path="...">`, `<helper path="...">`. Slowcook parses, writes each block, skips files that already exist (for stubs, unless they're still marked `@slowcook-stub` — those are re-generatable).
+- Project-context enrichment: `buildProjectContext` now lists existing API routes under `src/app/**` so the LLM knows NOT to stub them, on top of the existing helper listing.
+- `TESTGEN_SYSTEM` prompt rewritten with three concrete shape specs (test file, stub file, helper file) + reviewer guidance embedded in each. Helper spec pins the three non-negotiable properties: signature assertion (`realShaped*Wrapper` throwing on wrong args), call recording (`client.calls`), intent-level config.
+- PR body gains "Generated stubs" and "Generated helpers" sections with reviewer checks: correct path + signature for stubs, asserting-wrapper present for helpers.
+- `shouldWriteStub` — re-runs refresh stubs (detects `@slowcook-stub` marker on line 1) but won't clobber production impl.
+- `shouldWriteHelper` — never clobbers an existing helper; operator deletes + re-runs to refresh.
+- `parseTestgenBundle` — robust to outer markdown fences + inner per-block TS fences + empty conditional blocks. +7 unit tests.
+
+Net effect for a future fresh story (like the `PATCH /api/profiles/me` issue pending on rewo): issue → refine → spec merged → **testgen now produces test + stub + helper together**, no human hand-authoring → brew → auto-PR. Same "merge one PR, review one PR" shape we unlocked for story-005, minus the manual workarounds.
+
 ## 0.7.0 — Phase 1B: stack-agnostic refactor
 
 Mirror of Phase 1 for the stack adapter. `stackJson` (which hardcodes Vitest + TS/npm assumptions) moved from CLI to `@slowcook-ai/stack-ts` as `getTsStackConfig(params)`. `@slowcook-ai/stack-ts` also gains `getTsStackFrozenFiles()` (returns `vitest.config.*`) and `STACK_ID = "typescript"`. CLI imports + composes.
