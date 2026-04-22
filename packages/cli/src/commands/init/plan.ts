@@ -4,7 +4,6 @@
 
 import {
   frozenPathsJson,
-  stackJson,
   brewingReadme,
   contextMdTemplate,
   slowcookCliVersionFile,
@@ -19,6 +18,7 @@ import {
   type TemplateParams,
 } from "./templates.js";
 import { getGitHubCiArtifacts } from "@slowcook-ai/forge-github";
+import { getTsStackConfig } from "@slowcook-ai/stack-ts";
 
 export interface PackageJson {
   dependencies?: Record<string, string>;
@@ -132,7 +132,13 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
   addSimpleFile(actions, reader, options.force, TARGETS.frozenPaths, frozenPathsJson());
 
   // 2. .brewing/stack.json
-  addSimpleFile(actions, reader, options.force, TARGETS.stack, stackJson(tmplParams));
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.stack,
+    getTsStackConfig({ hasPlaywright: tmplParams.hasPlaywright })
+  );
 
   // 3. .brewing/README.md
   addSimpleFile(actions, reader, options.force, TARGETS.brewingReadme, brewingReadme());

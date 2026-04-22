@@ -6,6 +6,12 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.0 — Phase 1B: stack-agnostic refactor
+
+Mirror of Phase 1 for the stack adapter. `stackJson` (which hardcodes Vitest + TS/npm assumptions) moved from CLI to `@slowcook-ai/stack-ts` as `getTsStackConfig(params)`. `@slowcook-ai/stack-ts` also gains `getTsStackFrozenFiles()` (returns `vitest.config.*`) and `STACK_ID = "typescript"`. CLI imports + composes.
+
+Version jump: `@slowcook-ai/stack-ts 0.6.2 → 0.7.0`. Byte-identical output for TS/Vitest consumers; CLI is now stack-neutral modulo the `frozen-paths.json` composition which is still hardcoded but doesn't reference stack-specific paths today. When Python/Go adapters land they implement their own equivalents.
+
 ## 0.7.0 — Phase 1: forge-agnostic refactor (pay the debt)
 
 First phase of the 0.7.0 bundle (per `docs/plans/0.7-roadmap-to-brownfield-cooker.md`). Addresses the tech debt I (the LLM) borrowed across 0.3 → 0.6.14: four GitHub-Actions workflow templates living in `@slowcook-ai/cli` despite slowcook's forge-agnostic pledge. This release moves them to `@slowcook-ai/forge-github` where they belong, so CLI stays neutral and future forges (GitLab, Gitea) can bring their own dialect.

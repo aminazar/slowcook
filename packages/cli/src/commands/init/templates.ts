@@ -73,41 +73,6 @@ export function frozenPathsJson(): string {
   );
 }
 
-export function stackJson(params: TemplateParams): string {
-  const doc =
-    "Project-level stack configuration consumed by slowcook (@slowcook-ai/stack-ts). " +
-    "Tells the harness how to discover and run tests. Only include suites that are " +
-    "actually runnable — slowcook refuses to record an incomplete manifest." +
-    (params.hasPlaywright
-      ? " (Playwright detected in package.json; slowcook's playwright discovery is not yet " +
-        "implemented, so the e2e suite is intentionally omitted. Add it back post-upgrade.)"
-      : "");
-
-  return (
-    JSON.stringify(
-      {
-        $schema: "./stack.schema.json",
-        $doc: doc,
-        language: "typescript",
-        package_manager: "npm",
-        test: {
-          backend: {
-            runner: "vitest",
-            run_command: "npx vitest run",
-            discover_command: "npx vitest list",
-            reporter_format: "vitest-list-lines",
-          },
-        },
-        lint: {
-          lint_command: "npm run lint",
-          typecheck_command: "npm run typecheck",
-        },
-      },
-      null,
-      2
-    ) + "\n"
-  );
-}
 
 export function contextMdTemplate(): string {
   return `# Project context for slowcook agents
