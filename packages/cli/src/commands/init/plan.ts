@@ -8,10 +8,6 @@ import {
   brewingReadme,
   contextMdTemplate,
   slowcookCliVersionFile,
-  slowcookWorkflow,
-  slowcookSpecMergedWorkflow,
-  slowcookTestgenWorkflow,
-  slowcookBrewAutoWorkflow,
   preCommitHook,
   codeownersFullFile,
   codeownersSection,
@@ -22,6 +18,7 @@ import {
   SLOWCOOK_CODEOWNERS_MARKER_END,
   type TemplateParams,
 } from "./templates.js";
+import { getGitHubCiArtifacts } from "@slowcook-ai/forge-github";
 
 export interface PackageJson {
   dependencies?: Record<string, string>;
@@ -72,10 +69,6 @@ const TARGETS = {
   contextMd: ".brewing/context.md",
   cliVersion: SLOWCOOK_CLI_VERSION_FILE,
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
-  workflow: ".github/workflows/slowcook.yml",
-  specMergedWorkflow: ".github/workflows/slowcook-spec-merged.yml",
-  testgenWorkflow: ".github/workflows/slowcook-testgen.yml",
-  brewAutoWorkflow: ".github/workflows/slowcook-brew-auto.yml",
   preCommitHook: ".githooks/pre-commit",
   codeowners: "CODEOWNERS",
   packageJson: "package.json",
@@ -163,44 +156,12 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
     actions.push({ kind: "create", path: TARGETS.manifestsGitkeep, contents: gitkeep() });
   }
 
-  // 5. .github/workflows/slowcook.yml
-  addSimpleFile(
-    actions,
-    reader,
-    options.force,
-    TARGETS.workflow,
-    slowcookWorkflow(cliVersion)
-  );
-
-  // 5b. .github/workflows/slowcook-spec-merged.yml
-  addSimpleFile(
-    actions,
-    reader,
-    options.force,
-    TARGETS.specMergedWorkflow,
-    slowcookSpecMergedWorkflow(cliVersion)
-  );
-
-  // 5c. .github/workflows/slowcook-testgen.yml
-  addSimpleFile(
-    actions,
-    reader,
-    options.force,
-    TARGETS.testgenWorkflow,
-    slowcookTestgenWorkflow(cliVersion)
-  );
-
-  // 5d. .github/workflows/slowcook-brew-auto.yml — auto-trigger brew when a
-  // tests PR merges. Consumers who want humans-in-the-loop before every brew
-  // can delete this file; `slowcook-brew.yml` (workflow_dispatch) is the
-  // manual alternative.
-  addSimpleFile(
-    actions,
-    reader,
-    options.force,
-    TARGETS.brewAutoWorkflow,
-    slowcookBrewAutoWorkflow()
-  );
+  // 5. CI workflows are provided by the forge adapter. Today only GitHub
+  // is wired; future forges (GitLab, Gitea) supply their own via a
+  // similar static export. See packages/forge-github/src/templates.ts.
+  for (const artifact of getGitHubCiArtifacts({ cliVersion })) {
+    addSimpleFile(actions, reader, options.force, artifact.path, artifact.contents);
+  }
 
   // 5e. .githooks/pre-commit — forces code-map regen on src/ commits.
   // Activation per clone: `git config core.hooksPath .githooks`. Without

@@ -6,6 +6,29 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.0 — Phase 1: forge-agnostic refactor (pay the debt)
+
+First phase of the 0.7.0 bundle (per `docs/plans/0.7-roadmap-to-brownfield-cooker.md`). Addresses the tech debt I (the LLM) borrowed across 0.3 → 0.6.14: four GitHub-Actions workflow templates living in `@slowcook-ai/cli` despite slowcook's forge-agnostic pledge. This release moves them to `@slowcook-ai/forge-github` where they belong, so CLI stays neutral and future forges (GitLab, Gitea) can bring their own dialect.
+
+**Package version jumps (breaking in principle; no-op for current consumers):**
+
+- `@slowcook-ai/forge-github@0.5.0 → 0.7.0` — new exports: `getGitHubCiArtifacts({ cliVersion })`, `FORGE_ID`, and the `CiArtifact` type. All four GHA workflow templates (`slowcook.yml`, `slowcook-spec-merged.yml`, `slowcook-testgen.yml`, `slowcook-brew-auto.yml`) now originate here.
+- `@slowcook-ai/cli@0.6.14 → 0.7.0` — init now imports from forge-github; the four workflow-emitting functions are deleted from `packages/cli/src/commands/init/templates.ts`. Init's action list is unchanged from a consumer's perspective — same file paths, same contents.
+
+**Not moved (still in CLI or other packages):**
+
+- `preCommitHook` (forge-neutral; about slowcook CLI, not GitHub API).
+- `CODEOWNERS` template (cross-forge-ish; revisit later).
+- Stack-specific things like `stackJson`, `vitest.config.ts` scaffold — these stay in CLI for now; stack-agnostic refactor is Phase 1B of 0.7.0 (separate commit).
+
+**What's next in the 0.7.0 bundle:**
+
+- Phase 1B — stack-agnostic refactor (`StackAdapter.getInitArtifacts()`).
+- Phase 2 — Testgen Phase B2: auto-generate helpers + route stubs.
+- Phase 3 — Tier-2 acceptance scaffolding (discovery, workflow, sandbox harness).
+- Phase 4 — Recorder + scrubber, fixtures dir convention.
+- Phase 5 — R&R swap: tier-1 helpers become fixture-backed.
+
 ## 0.6.14 — Pre-commit hook forces code-map freshness
 
 Closes the recurring stale-map PR-CI loop. The 0.6.9 `slowcook map check` gate caught staleness on the PR — but by then the author had already committed, pushed, and was watching CI fail. The fix was always a manual regen + fixup commit. Over 0.6.10-0.6.13 this happened repeatedly.
