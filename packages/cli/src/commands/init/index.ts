@@ -2,6 +2,7 @@ import {
   existsSync,
   readFileSync,
   writeFileSync,
+  chmodSync,
   mkdirSync,
 } from "node:fs";
 import { dirname, resolve, relative, isAbsolute } from "node:path";
@@ -127,6 +128,11 @@ function applyAction(cwd: string, a: FileAction): void {
       ? a.contents
       : "";
   writeFileSync(full, contents, "utf8");
+  // Git hooks (under .githooks/) must be executable or git silently
+  // ignores them. Any file under .githooks/ gets +x on write.
+  if (a.path.startsWith(".githooks/")) {
+    chmodSync(full, 0o755);
+  }
 }
 
 export async function init(argv: string[], cliVersion: string): Promise<void> {
@@ -193,13 +199,22 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
   console.log();
   console.log("Next steps:");
   console.log(
-    `  1. Review .brewing/frozen-paths.json — add/remove directories to match your repo.`
+    `  1. Activate the slowcook pre-commit hook (one time, per clone):`
+  );
+  console.log(
+    `       git config core.hooksPath .githooks`
+  );
+  console.log(
+    `     Keeps .brewing/code-map.* fresh on every src/ commit so PRs don't fail map-check.`
+  );
+  console.log(
+    `  2. Review .brewing/frozen-paths.json — add/remove directories to match your repo.`
   );
   if (owner === "@TODO-OWNER") {
-    console.log(`  2. Replace @TODO-OWNER in CODEOWNERS with your GitHub handle/team.`);
+    console.log(`  3. Replace @TODO-OWNER in CODEOWNERS with your GitHub handle/team.`);
   }
   console.log(
-    `  ${owner === "@TODO-OWNER" ? "3." : "2."} Run \`slowcook manifest record\` once your test set is stable.`
+    `  ${owner === "@TODO-OWNER" ? "4." : "3."} Run \`slowcook manifest record\` once your test set is stable.`
   );
   console.log(
     `  ${owner === "@TODO-OWNER" ? "4." : "3."} Commit and open a PR; slowcook CI will run on it.`

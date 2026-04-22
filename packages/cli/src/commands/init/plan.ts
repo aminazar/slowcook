@@ -12,6 +12,7 @@ import {
   slowcookSpecMergedWorkflow,
   slowcookTestgenWorkflow,
   slowcookBrewAutoWorkflow,
+  preCommitHook,
   codeownersFullFile,
   codeownersSection,
   gitkeep,
@@ -75,6 +76,7 @@ const TARGETS = {
   specMergedWorkflow: ".github/workflows/slowcook-spec-merged.yml",
   testgenWorkflow: ".github/workflows/slowcook-testgen.yml",
   brewAutoWorkflow: ".github/workflows/slowcook-brew-auto.yml",
+  preCommitHook: ".githooks/pre-commit",
   codeowners: "CODEOWNERS",
   packageJson: "package.json",
 };
@@ -198,6 +200,19 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
     options.force,
     TARGETS.brewAutoWorkflow,
     slowcookBrewAutoWorkflow()
+  );
+
+  // 5e. .githooks/pre-commit — forces code-map regen on src/ commits.
+  // Activation per clone: `git config core.hooksPath .githooks`. Without
+  // this hook, contributors hit the stale-map CI failure on every PR
+  // that touches src/ and have to rebase-fixup. Generated file is
+  // executable; init writes the mode below.
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.preCommitHook,
+    preCommitHook()
   );
 
   // 6. CODEOWNERS — special case (append if exists without our markers)

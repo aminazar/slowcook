@@ -175,12 +175,23 @@ Consumer-side configuration for [slowcook](https://github.com/aminazar/slowcook)
 | \`stack.json\` | How slowcook invokes tests / coverage / lint for this project |
 | \`manifests/\` | Per-story test manifests; populated by \`slowcook manifest record\` |
 
+## One-time setup per clone
+
+After \`git clone\`, activate the slowcook pre-commit hook so the code map stays in lockstep with \`src/\` on every commit:
+
+\`\`\`bash
+git config core.hooksPath .githooks
+\`\`\`
+
+Without this, commits touching \`src/**/*.{ts,tsx}\` land with a stale \`.brewing/code-map.*\` and \`slowcook map check\` fails the PR. Bypass with \`git commit --no-verify\` if ever needed.
+
 ## Running slowcook locally
 
 \`\`\`bash
 npx --yes @slowcook-ai/cli@latest guard --base origin/main --head HEAD
 npx --yes @slowcook-ai/cli@latest manifest record
 npx --yes @slowcook-ai/cli@latest manifest verify
+npx --yes @slowcook-ai/cli@latest map generate    # refresh .brewing/code-map.*
 \`\`\`
 
 ## When you legitimately need to modify a frozen path
@@ -430,4 +441,53 @@ ${codeownersSection(params)}`;
 
 export function gitkeep(): string {
   return "";
+}
+
+/**
+ * Committable git pre-commit hook that forces `.brewing/code-map.*` to
+ * stay in lockstep with `src/` on every commit. Without this, contributors
+ * (especially LLM agents) hit the stale-map CI failure repeatedly because
+ * the `slowcook map check` gate only catches staleness AFTER the commit.
+ *
+ * Activation is a one-time per-clone `git config core.hooksPath .githooks`
+ * — we can't set it from init because it's a local-clone concern. The
+ * generated `.brewing/README.md` documents the one-liner.
+ */
+export function preCommitHook(): string {
+  return `#!/usr/bin/env bash
+# slowcook pre-commit hook
+#
+# Keeps .brewing/code-map.{json,md} in lockstep with src/ so you never
+# push a PR that fails \`slowcook map check\` on something you already
+# had in your working tree.
+#
+# Activate once per clone:
+#   git config core.hooksPath .githooks
+#
+# Bypass temporarily:  git commit --no-verify
+
+set -eu
+
+PIN_FILE=".brewing/slowcook-cli-version"
+if [ ! -f "$PIN_FILE" ]; then
+  echo "slowcook pre-commit: missing $PIN_FILE, skipping map regen" >&2
+  exit 0
+fi
+CLI_PIN="$(tr -d '[:space:]' < "$PIN_FILE")"
+
+STAGED_SRC=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^src/.*\\.(ts|tsx)$' || true)
+if [ -z "$STAGED_SRC" ]; then
+  exit 0
+fi
+
+echo "slowcook pre-commit: regenerating code map (staged src/ changes detected)" >&2
+if ! npx --yes "@slowcook-ai/cli@$CLI_PIN" map generate >/dev/null 2>&1; then
+  echo "slowcook pre-commit: map generate FAILED — commit aborted. Run 'npx slowcook map generate' manually to see the error." >&2
+  exit 1
+fi
+
+git add .brewing/code-map.json .brewing/code-map.md
+
+exit 0
+`;
 }
