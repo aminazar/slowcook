@@ -74,6 +74,7 @@ Emit ONLY the TypeScript test file contents. No prose before or after, no code f
    - **\`vi.mock("path")\` with ONE argument** at top of file. Forbidden: \`vi.mock("path", () => ({...}))\` with a factory — slowcook's lint rejects that line on sight.
    - **Helper supplies fake behaviour** — never inline a fake via \`vi.fn()\` or hand-built mock objects inside the test. The helper call is the one place where fake shape lives.
    - \`vi.mocked(...)\` is a type-assertion helper (safe, permitted); \`vi.fn(...)\` is construction (forbidden in tests).
+   - **Prefer \`.mockImplementation(signatureAssertingWrapper(helper))\` over \`.mockReturnValue(helper as never)\` when the project provides a signature-asserting companion helper** (e.g. rewo's \`realShapedCreateClient\`). The asserting wrapper throws loudly if the handler calls the module's exported function with wrong arguments — tests pass today when mocks ignore args, but production crashes. If the consumer's helpers don't expose an asserting wrapper, \`mockReturnValue\` is acceptable; flag it as a TODO for the consumer to add.
 
    If the project context below does NOT list a helper you need, emit the test anyway but leave a \`TODO(helper): <service>\` comment at the top of the file listing the missing helpers, and use \`vi.mock("<module-path>")\` without any factory. An operator will hand-author the helper before brewing runs.
 
