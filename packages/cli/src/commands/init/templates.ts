@@ -288,6 +288,62 @@ ${RESOLVE_PIN_STEP}
 `;
 }
 
+export function slowcookBrewAutoWorkflow(): string {
+  return `name: slowcook brew — auto on tests merged
+
+# Auto-triggers the \`slowcook-brew\` workflow when a tests PR (label
+# \`slowcook-tests\`) merges to main. Extracts the story id(s) from the
+# PR title and fires one brew run per story. Sonnet 4.6 default keeps
+# cost around $0.05–$0.50 per story; \`slowcook-brew.yml\`'s concurrency
+# rules serialize runs per story.
+#
+# Manual dispatch of \`slowcook-brew.yml\` remains available for explicit
+# re-runs and for stories that need a non-default model/budget.
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  trigger:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'slowcook-tests')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Extract story ids from PR title
+        id: parse
+        env:
+          TITLE: \${{ github.event.pull_request.title }}
+        run: |
+          set -eu
+          IDS=$(printf '%s\\n' "$TITLE" | grep -oE 'story-[0-9]+' | sed 's/story-//' | sort -u | tr '\\n' ' ' || true)
+          if [ -z "$IDS" ]; then
+            echo "::notice::No story ids found in PR title '$TITLE' — skipping auto-brew."
+          fi
+          echo "story_ids=$IDS" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch brew per story
+        if: steps.parse.outputs.story_ids != ''
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          for id in \${{ steps.parse.outputs.story_ids }}; do
+            echo "Dispatching slowcook-brew.yml for story-$id"
+            gh workflow run slowcook-brew.yml \\
+              --repo \${{ github.repository }} \\
+              -f story_id=$id \\
+              -f budget_usd=10 \\
+              -f max_iterations=10 \\
+              -f model=claude-sonnet-4-6
+          done
+`;
+}
+
 export function slowcookWorkflow(cliVersion: string): string {
   void cliVersion;
   return `name: slowcook

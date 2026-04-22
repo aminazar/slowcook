@@ -11,6 +11,7 @@ import {
   slowcookWorkflow,
   slowcookSpecMergedWorkflow,
   slowcookTestgenWorkflow,
+  slowcookBrewAutoWorkflow,
   codeownersFullFile,
   codeownersSection,
   gitkeep,
@@ -73,6 +74,7 @@ const TARGETS = {
   workflow: ".github/workflows/slowcook.yml",
   specMergedWorkflow: ".github/workflows/slowcook-spec-merged.yml",
   testgenWorkflow: ".github/workflows/slowcook-testgen.yml",
+  brewAutoWorkflow: ".github/workflows/slowcook-brew-auto.yml",
   codeowners: "CODEOWNERS",
   packageJson: "package.json",
 };
@@ -184,6 +186,18 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
     options.force,
     TARGETS.testgenWorkflow,
     slowcookTestgenWorkflow(cliVersion)
+  );
+
+  // 5d. .github/workflows/slowcook-brew-auto.yml — auto-trigger brew when a
+  // tests PR merges. Consumers who want humans-in-the-loop before every brew
+  // can delete this file; `slowcook-brew.yml` (workflow_dispatch) is the
+  // manual alternative.
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.brewAutoWorkflow,
+    slowcookBrewAutoWorkflow()
   );
 
   // 6. CODEOWNERS — special case (append if exists without our markers)
