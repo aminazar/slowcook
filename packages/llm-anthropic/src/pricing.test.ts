@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { costMarker, parseCostMarkers, costUsdForUsage } from "./llm.js";
+import { costMarker, parseCostMarkers, costUsdForUsage } from "./pricing.js";
 
 describe("costMarker", () => {
   it("renders the required fields", () => {
@@ -92,7 +92,6 @@ describe("costUsdForUsage", () => {
       cacheReadTokens: 0,
       cacheCreateTokens: 0,
     });
-    // 1M input tokens × $3/M = $3
     expect(cost).toBeCloseTo(3);
   });
 
@@ -103,7 +102,6 @@ describe("costUsdForUsage", () => {
       cacheReadTokens: 1_000_000,
       cacheCreateTokens: 0,
     });
-    // 1M cache-read tokens × $3/M × 0.1 = $0.30
     expect(cost).toBeCloseTo(0.3);
   });
 
@@ -114,7 +112,6 @@ describe("costUsdForUsage", () => {
       cacheReadTokens: 0,
       cacheCreateTokens: 1_000_000,
     });
-    // 1M cache-create tokens × $3/M × 1.25 = $3.75
     expect(cost).toBeCloseTo(3.75);
   });
 

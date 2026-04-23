@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/cli",
-  "version": "0.7.21",
+  "version": "0.8.0",
   "description": "CLI for the slowcook brewing harness",
   "license": "MIT",
   "author": "aminazar",
@@ -42,6 +42,7 @@
     "@slowcook-ai/core": "workspace:^",
     "@slowcook-ai/stack-ts": "workspace:^",
     "@slowcook-ai/forge-github": "workspace:^",
+    "@slowcook-ai/llm-anthropic": "workspace:^",
     "@anthropic-ai/sdk": "^0.32.1",
     "@octokit/rest": "^21.0.2",
     "ts-morph": "^24.0.0",

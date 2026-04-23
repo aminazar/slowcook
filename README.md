@@ -11,7 +11,7 @@
 
 **First fully-autonomous UI shipment on rewo landed via PR #61 (2026-04-23).** Issue #47 / story-006 traversed refine → testgen (handler + UI bundles) → brew (1 iter, $0.21) after the observability arc (0.7.13 → 0.7.16) taught us to listen to the agent's own diagnosis. 0.7.17 addresses the two residual gaps the shipment exposed (page-integration + schema).
 
-Published packages (latest on npm): `cli@0.7.21`, `core@0.7.1`, `stack-ts@0.7.16`, `forge-github@0.7.12`.
+Published packages (latest on npm): `cli@0.8.0`, `core@0.8.0`, `stack-ts@0.7.16`, `forge-github@0.7.12`, `llm-anthropic@0.8.0`.
 
 The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md); the active roadmap is [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 

@@ -6,6 +6,47 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.8.0 — LLM adapter refactor: `@slowcook-ai/llm-anthropic` extracted
+
+New workspace package `@slowcook-ai/llm-anthropic` carrying the Anthropic `LlmClient` implementation + Anthropic-specific cost accounting (`PRICING_PER_M_TOKENS`, `costUsdForUsage`, `costMarker`, `parseCostMarkers`). The `LlmClient` interface itself moves to `@slowcook-ai/core` so agents can depend on the shape without dragging in a specific provider's SDK.
+
+### Why
+
+The CLI's `refine/llm.ts` accumulated the Anthropic SDK, the `LlmClient` interface, the pricing table, and the cost-marker plumbing in one file. That worked while there was only one provider, but (a) made swapping providers a source-edit rather than a package-boundary change, and (b) forced everyone importing the interface to transitively depend on `@anthropic-ai/sdk`. 0.8 cleanly decouples those.
+
+User framing (2026-04-23): *"not asking for IMPLEMENTATION for other llm models, I am asking for ABSTRACTION that enables DECOUPLING."*
+
+### What changed
+
+- **New package `@slowcook-ai/llm-anthropic@0.8.0`** — first publish. Exports `AnthropicClient` + cost helpers. Depends on `@slowcook-ai/core` + `@anthropic-ai/sdk`.
+- **`@slowcook-ai/core@0.8.0`** — gains `LlmClient`, `LlmMessage`, `LlmRequest`, `LlmResponse`, `LlmUsage` types (from `packages/core/src/llm.ts`). Additive export; no breaking change.
+- **`@slowcook-ai/cli@0.8.0`** — `packages/cli/src/commands/refine/llm.ts` becomes a thin re-export shim so existing call sites (`from "../refine/llm.js"`) keep working unchanged. Adds `@slowcook-ai/llm-anthropic` as a dependency.
+
+### What DIDN'T change
+
+- **Brew's tool-use path.** Brew imports `@anthropic-ai/sdk` directly for `Anthropic.Messages.Tool` / `ToolUseBlock` / `ToolResultBlockParam` / cache_control. That surface is Anthropic-specific and hasn't been generalised yet — a provider-agnostic tool-use interface is a larger design exercise for 0.9+. Brew continues to import the SDK directly as a documented temporary boundary.
+- **Behaviour.** Same models, same prompts, same costs, same output. Pure package split.
+- **Consumer commands.** `slowcook init`, `refine`, `testgen`, `brew`, `dispatch` — identical CLI surface.
+
+### Publish order
+
+1. `@slowcook-ai/core@0.8.0` — additive interface export.
+2. `@slowcook-ai/llm-anthropic@0.8.0` — first publish. Depends on core.
+3. `@slowcook-ai/cli@0.8.0` — depends on both.
+
+`prepublishOnly: tsc -b` on all three guarantees fresh `dist/` per the build-before-publish rule.
+
+### Measurable scope
+
+- **220 tests green** across all packages (+13 pricing tests moved to llm-anthropic; 0 net loss).
+- Full plan doc: [`docs/plans/0.8-llm-adapter-refactor.md`](./docs/plans/0.8-llm-adapter-refactor.md).
+
+### What this unlocks
+
+A second provider becomes an additive package (`@slowcook-ai/llm-openai`, say) — not a refactor of the CLI. Pricing is now per-provider data, not a central registry. Cost markers stay uniform across providers.
+
+---
+
 ## 0.7.21 — Styling presence assertions + fake-timers correction
 
 Two fixes pulled from the story-005 dogfood post-mortem (2026-04-23):

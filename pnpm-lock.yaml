@@ -32,6 +32,9 @@ importers:
       '@slowcook-ai/forge-github':
         specifier: workspace:^
         version: link:../forge-github
+      '@slowcook-ai/llm-anthropic':
+        specifier: workspace:^
+        version: link:../llm-anthropic
       '@slowcook-ai/stack-ts':
         specifier: workspace:^
         version: link:../stack-ts
@@ -52,6 +55,15 @@ importers:
       '@octokit/rest':
         specifier: ^21.0.2
         version: 21.1.1
+      '@slowcook-ai/core':
+        specifier: workspace:^
+        version: link:../core
+
+  packages/llm-anthropic:
+    dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.32.1
+        version: 0.32.1
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core

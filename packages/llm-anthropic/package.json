@@ -1,25 +1,27 @@
 {
-  "name": "@slowcook-ai/core",
+  "name": "@slowcook-ai/llm-anthropic",
   "version": "0.8.0",
-  "description": "Core types and logic for the slowcook brewing harness",
+  "description": "Anthropic (Claude) LlmClient adapter for slowcook — implements the core LlmClient interface + provider-specific pricing",
   "license": "MIT",
   "author": "aminazar",
   "repository": {
     "type": "git",
     "url": "https://github.com/aminazar/slowcook.git",
-    "directory": "packages/core"
+    "directory": "packages/llm-anthropic"
   },
-  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/core#readme",
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/llm-anthropic#readme",
   "bugs": {
     "url": "https://github.com/aminazar/slowcook/issues"
   },
   "keywords": [
+    "slowcook",
+    "anthropic",
+    "claude",
+    "llm",
+    "adapter",
     "tdd",
     "ai",
-    "agents",
-    "testing",
-    "brewing",
-    "slowcook"
+    "agents"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -36,11 +38,18 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "tsc -b"
   },
+  "dependencies": {
+    "@slowcook-ai/core": "workspace:^",
+    "@anthropic-ai/sdk": "^0.32.1"
+  },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

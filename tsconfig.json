@@ -4,6 +4,7 @@
     { "path": "./packages/core" },
     { "path": "./packages/stack-ts" },
     { "path": "./packages/forge-github" },
+    { "path": "./packages/llm-anthropic" },
     { "path": "./packages/cli" }
   ]
 }
