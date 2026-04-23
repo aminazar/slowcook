@@ -8,6 +8,7 @@ import {
   lintTierOneTest,
   parseTestgenBundle,
   extractDdlColumnsFromInvariants,
+  extractDdlColumnsFromSpec,
   buildSchemaAssertionTestContent,
   buildPageLinkTestContent,
 } from "./agent.js";
@@ -520,6 +521,76 @@ describe("extractDdlColumnsFromInvariants", () => {
 
   it("returns [] when no DDL shape is present", () => {
     expect(extractDdlColumnsFromInvariants(["just prose", "and more"])).toEqual([]);
+  });
+
+  it("0.7.18: matches `table.column` when a DDL keyword is in the same string (story-005 shape)", () => {
+    expect(
+      extractDdlColumnsFromInvariants([
+        "`profiles.handle` column exists, is unique, and is populated for every profile (backfill migration part of this story)",
+      ])
+    ).toEqual(["handle"]);
+  });
+
+  it("0.7.18: skips incidental `table.column` prose without any DDL keyword", () => {
+    expect(
+      extractDdlColumnsFromInvariants([
+        "viewer session includes `profiles.handle` for routing",
+      ])
+    ).toEqual([]);
+  });
+});
+
+describe("extractDdlColumnsFromSpec — 0.7.18 field coverage", () => {
+  const base = {
+    story_id: "005",
+    title: "x",
+    invariants: [],
+    preconditions: [],
+    acceptance_scenarios: [],
+    api_contracts: [],
+    ui_behavior: {},
+    non_goals: [],
+    supersedes: [],
+    source_issue: "#47",
+  } as unknown as import("@slowcook-ai/core").Spec;
+
+  it("pulls columns from invariants", () => {
+    const spec = {
+      ...base,
+      invariants: ["Migration adds `profiles.handle_confirmed boolean not null`"],
+    } as unknown as import("@slowcook-ai/core").Spec;
+    expect(extractDdlColumnsFromSpec(spec)).toEqual(["handle_confirmed"]);
+  });
+
+  it("pulls columns from preconditions (story-005 shape)", () => {
+    const spec = {
+      ...base,
+      preconditions: [
+        "`profiles.handle` column exists, is unique, and is populated for every profile (backfill migration part of this story)",
+      ],
+    } as unknown as import("@slowcook-ai/core").Spec;
+    expect(extractDdlColumnsFromSpec(spec)).toEqual(["handle"]);
+  });
+
+  it("pulls columns from acceptance_scenarios", () => {
+    const spec = {
+      ...base,
+      acceptance_scenarios: [
+        "Given a migration has been applied that adds `profiles.handle` and backfills it",
+      ],
+    } as unknown as import("@slowcook-ai/core").Spec;
+    expect(extractDdlColumnsFromSpec(spec)).toEqual(["handle"]);
+  });
+
+  it("dedupes across fields", () => {
+    const spec = {
+      ...base,
+      invariants: ["Migration adds `profiles.handle`"],
+      preconditions: [
+        "`profiles.handle` column exists after the backfill migration",
+      ],
+    } as unknown as import("@slowcook-ai/core").Spec;
+    expect(extractDdlColumnsFromSpec(spec)).toEqual(["handle"]);
   });
 });
 

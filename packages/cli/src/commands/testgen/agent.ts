@@ -692,11 +692,11 @@ async function generateTestBundle(
 
   const modeInstruction: Record<TestgenMode, string> = {
     "full":
-      "Generate BOTH the handler tier-1 test bundle (`<test_file>` + any `<stub>` + any `<helper>`) AND the UI tier-1 bundle (`<ui_test_file>` + any `<ui_stub>`). This story has both API and UI scope.",
+      "Generate BOTH the handler tier-1 test bundle (`<test_file>` + any `<stub>` + any `<helper>`) AND the UI tier-1 bundle (`<ui_test_file>` + any `<ui_stub>`). This story has both API and UI scope. ALSO emit a `<page_link>` block since the story has UI.",
     "handler-only":
-      "Generate the handler tier-1 test bundle (`<test_file>` + any `<stub>` + any `<helper>`). This story has no `ui_behavior`, so do NOT emit `<ui_test_file>` or `<ui_stub>` blocks.",
+      "Generate the handler tier-1 test bundle (`<test_file>` + any `<stub>` + any `<helper>`). This story has no `ui_behavior`, so do NOT emit `<ui_test_file>` or `<ui_stub>` blocks. Do NOT emit `<page_link>` — no page to link.",
     "ui-only":
-      "Handler tests already exist for this story. Emit ONLY the UI tier-1 bundle: `<ui_test_file>` + any `<ui_stub>` blocks needed to make the UI tests collect. Do NOT emit `<test_file>`, `<stub>`, or `<helper>` blocks — those artifacts are already on disk and should not be regenerated.",
+      "Handler tests already exist for this story. Emit the UI tier-1 bundle (`<ui_test_file>` + any `<ui_stub>` blocks needed to make the UI tests collect) AND a `<page_link>` block naming the page file + component. Do NOT emit `<test_file>`, `<stub>`, or `<helper>` blocks — those artifacts are already on disk and should not be regenerated.",
   };
 
   const userMessage =
@@ -834,48 +834,89 @@ function stripInnerFence(raw: string): string {
 // ----------------- 0.7.17: pipeline-gap assertions -----------------
 
 /**
- * Extract column names from DDL-shaped invariants so
+ * Extract column names from DDL-shaped strings so
  * `buildSchemaAssertionTestContent` can assert each column ends up in
- * `supabase/migrations/`. Deliberately narrow:
+ * `supabase/migrations/`. Two matching paths:
  *
- *  - Handles "Migration adds `profiles.handle_confirmed ...`"
- *  - Handles "Migration adds `profiles.handle_changed_at timestamptz`"
- *  - Handles "add column handle_confirmed boolean"
- *  - Handles "alter table profiles add column handle text"
+ *  - **Explicit DDL phrasing** — matches regardless of other context:
+ *      - "Migration adds `profiles.handle_confirmed ...`"
+ *      - "adds `profiles.handle_changed_at timestamptz`"
+ *      - "alter table profiles add column handle text"
+ *      - "add column handle boolean"
  *
- * Returns unique column names (deduped, original order). Empty array means
- * the spec's invariants don't describe DDL — caller skips schema assertion.
+ *  - **Table.column references near a migration keyword** — catches the
+ *    shape story-005 used where DDL intent lives in `preconditions`:
+ *      - "`profiles.handle` column exists, is unique, and is populated for
+ *         every profile (backfill migration part of this story)"
+ *    Guarded on a migration/backfill/alter keyword IN THE SAME STRING so
+ *    unrelated `profiles.handle` references in prose don't trigger.
+ *
+ * Returns unique column names (deduped, original order).
  *
  * Intentionally lax on TABLE name: rewo has exactly one mutated table per
  * story so far (`profiles`); if/when that stops holding, we can either
  * tighten the regex or include table names in the test assertions.
  */
-export function extractDdlColumnsFromInvariants(invariants: string[]): string[] {
+export function extractDdlColumnsFromStrings(strings: string[]): string[] {
   const cols: string[] = [];
   const seen = new Set<string>();
-  for (const raw of invariants) {
+  const push = (name: string | undefined): void => {
+    const n = name?.toLowerCase();
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      cols.push(n);
+    }
+  };
+  for (const raw of strings) {
     const text = raw || "";
-    // "Migration adds `profiles.handle_confirmed boolean ...`"
+    // Path 1: "Migration adds `table.column ...`" or "adds `table.column ...`"
     const re1 = /\b(?:migration\s+adds?|adds?)\s+`?[\w]+\.([a-z_][a-z0-9_]*)\b/gi;
     let m: RegExpExecArray | null;
-    while ((m = re1.exec(text)) !== null) {
-      const name = m[1]?.toLowerCase();
-      if (name && !seen.has(name)) {
-        seen.add(name);
-        cols.push(name);
-      }
-    }
-    // "add column handle boolean" / "ALTER TABLE ... ADD COLUMN ... handle"
+    while ((m = re1.exec(text)) !== null) push(m[1]);
+
+    // Path 1: "add column column_name ..."
     const re2 = /\badd\s+column\s+`?([a-z_][a-z0-9_]*)\b/gi;
-    while ((m = re2.exec(text)) !== null) {
-      const name = m[1]?.toLowerCase();
-      if (name && !seen.has(name)) {
-        seen.add(name);
-        cols.push(name);
-      }
+    while ((m = re2.exec(text)) !== null) push(m[1]);
+
+    // Path 2: `table.column` references, but ONLY when the same string also
+    // carries a DDL intent keyword (migration / backfill / alter table).
+    // Avoids matching every incidental `profiles.id` reference in prose.
+    const hasDdlKeyword =
+      /\b(?:migration|backfill(?:s|ed|ing)?|alter\s+table|add\s+column|not\s+null|unique(?:\s+constraint)?)\b/i.test(
+        text
+      );
+    if (hasDdlKeyword) {
+      const re3 = /`[\w]+\.([a-z_][a-z0-9_]*)`/g;
+      while ((m = re3.exec(text)) !== null) push(m[1]);
     }
   }
   return cols;
+}
+
+/**
+ * @deprecated since 0.7.18 — use `extractDdlColumnsFromSpec` which also
+ * scans `preconditions`. Kept as a thin shim so older tests / callers
+ * don't break at import time.
+ */
+export function extractDdlColumnsFromInvariants(invariants: string[]): string[] {
+  return extractDdlColumnsFromStrings(invariants);
+}
+
+/**
+ * Scan every spec field that commonly carries DDL intent. `invariants`
+ * covers the explicit "Migration adds..." shape (story-006); `preconditions`
+ * covers the implicit "column exists, is unique, and is populated" shape
+ * with the migration keyword (story-005). Acceptance scenarios can also
+ * mention DDL ("Given a migration has been applied that adds...") so we
+ * include those too.
+ */
+export function extractDdlColumnsFromSpec(spec: Spec): string[] {
+  const invariants = Array.isArray(spec.invariants) ? spec.invariants : [];
+  const preconditions = Array.isArray(spec.preconditions) ? spec.preconditions : [];
+  const scenarios = Array.isArray(spec.acceptance_scenarios)
+    ? spec.acceptance_scenarios
+    : [];
+  return extractDdlColumnsFromStrings([...invariants, ...preconditions, ...scenarios]);
 }
 
 /**
@@ -889,8 +930,7 @@ export function extractDdlColumnsFromInvariants(invariants: string[]): string[] 
 export function buildSchemaAssertionTestContent(
   spec: Spec
 ): { path: string; contents: string } | null {
-  const invariants = Array.isArray(spec.invariants) ? spec.invariants : [];
-  const columns = extractDdlColumnsFromInvariants(invariants);
+  const columns = extractDdlColumnsFromSpec(spec);
   if (columns.length === 0) return null;
 
   const path = join(TESTS_SCHEMA_DIR, `story-${spec.story_id}.test.ts`);

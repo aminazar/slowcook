@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.18 — Schema assertion widens to preconditions + acceptance_scenarios
+
+Dogfood of 0.7.17 on rewo story-005 (2026-04-23 ~20:47 UTC) caught the schema assertion MISSING the column the spec described. Diagnosis:
+
+- Story-005's DDL signal lives in `preconditions`, not `invariants`: `` "`profiles.handle` column exists, is unique, and is populated for every profile (backfill migration part of this story)" ``.
+- 0.7.17's `extractDdlColumnsFromInvariants` only scanned `spec.invariants` and only matched the explicit `Migration adds …` phrasing. Story-005 used the implicit shape — the scanner walked past it.
+
+**Fix:**
+- Renamed `extractDdlColumnsFromInvariants` → `extractDdlColumnsFromStrings` (operates on arbitrary strings); added `extractDdlColumnsFromSpec(spec)` that scans `invariants + preconditions + acceptance_scenarios` in one pass. Kept a shim for the old name so existing callers don't break.
+- Widened the regex with a second matching path: any `` `table.column` `` reference counts as DDL intent **when the same string also carries a migration keyword** (`migration`, `backfill`, `alter table`, `add column`, `not null`, `unique`). Avoids false positives on incidental `profiles.id` prose references.
+- Mode-instruction for testgen's LLM now explicitly names `<page_link>` in both `full` and `ui-only` modes (empirically the 0.7.17 LLM emitted it anyway, but the instruction was ambiguous).
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.7.17 → 0.7.18` — `extractDdlColumns*` + mode-instruction text.
+- No other package changes.
+
+---
+
 ## 0.7.17 — Pipeline-gap static assertions (page-link + schema)
 
 Closes two recurring gaps where the autonomous pipeline shipped green while the feature was invisible to the user. Both hit on rewo story-005/006 on 2026-04-23; the hand-patches to recover are the "why this release exists" evidence.
