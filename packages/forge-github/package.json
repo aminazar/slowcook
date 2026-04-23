@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/forge-github",
-  "version": "0.7.10",
+  "version": "0.7.11",
   "description": "GitHub ForgeAdapter implementation for slowcook",
   "license": "MIT",
   "author": "aminazar",

@@ -24,6 +24,7 @@ export const LABEL_TESTS_READY = "tests-ready";
 export const LABEL_OVERRIDE_FREEZE = "override-freeze";
 
 export const TESTS_INTEGRATION_DIR = "tests/integration";
+export const TESTS_SCHEMA_DIR = "tests/schema";
 export const MANIFESTS_DIR = ".brewing/manifests";
 export const MOCK_HELPERS_DIR = "tests/helpers/mocks";
 
@@ -144,9 +145,28 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       mode !== "handler-only" && bundle.uiTestContent
         ? extractTestIdsFromFile(uiTestPath, bundle.uiTestContent)
         : [];
+
+    // 0.7.17: deterministic pipeline-gap assertion files. Both are
+    // idempotent — regenerate on each testgen run so changes to the spec
+    // refresh the assertions. Brewing iterates against them like any
+    // other tier-1 test.
+    const extraTestFiles: Array<{ path: string; contents: string }> = [];
+    if (bundle.pageLink) {
+      extraTestFiles.push(buildPageLinkTestContent(spec, bundle.pageLink));
+    }
+    const schemaArtifact = buildSchemaAssertionTestContent(spec);
+    if (schemaArtifact) {
+      extraTestFiles.push(schemaArtifact);
+    }
+
+    const extraIds = extraTestFiles.flatMap((f) =>
+      extractTestIdsFromFile(f.path, f.contents).map((id) => ({ id, file: f.path }))
+    );
+
     const manifestTests = [
       ...handlerIds.map((id) => ({ id, file: testPath })),
       ...uiIds.map((id) => ({ id, file: uiTestPath })),
+      ...extraIds,
     ];
     const manifest = buildManifest({
       slowcookVersion: ctx.cliVersion,
@@ -168,6 +188,7 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       uiTestPath: mode === "handler-only" ? "" : uiTestPath,
       uiFileContents: mode === "handler-only" ? "" : bundle.uiTestContent,
       uiStubs: uiStubsToWrite,
+      extraTestFiles,
     });
 
     for (const superseded of spec.supersedes) {
@@ -194,6 +215,9 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     for (const stub of g.uiStubs) {
       writeFileAt(ctx.repoRoot, stub.path, stub.contents);
     }
+    for (const extra of g.extraTestFiles) {
+      writeFileAt(ctx.repoRoot, extra.path, extra.contents);
+    }
   }
   const actuallyRemoved: string[] = [];
   for (const id of toRemove) {
@@ -213,6 +237,7 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     for (const helper of g.helpers) await ctx.forge.git.stage(helper.path);
     if (g.uiTestPath) await ctx.forge.git.stage(g.uiTestPath);
     for (const stub of g.uiStubs) await ctx.forge.git.stage(stub.path);
+    for (const extra of g.extraTestFiles) await ctx.forge.git.stage(extra.path);
   }
   for (const id of actuallyRemoved) {
     await ctx.forge.git.stage(join(TESTS_INTEGRATION_DIR, `story-${id}.test.ts`));
@@ -254,6 +279,9 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       const fileParts: string[] = [];
       if (g.testPath) fileParts.push(`\`${g.testPath}\``);
       if (g.uiTestPath) fileParts.push(`\`${g.uiTestPath}\``);
+      for (const extra of g.extraTestFiles) {
+        fileParts.push(`\`${extra.path}\``);
+      }
       const modeNote =
         g.mode === "ui-only"
           ? " *(UI tests only — handler tests already merged)*"
@@ -323,6 +351,14 @@ interface GeneratedArtifact {
   /** UI test file contents — empty string when mode is "handler-only" */
   uiFileContents: string;
   uiStubs: Array<{ path: string; contents: string }>;
+  /**
+   * Extra deterministic tier-1 test files emitted by 0.7.17 — today that's
+   * the page-link assertion (when bundle.pageLink is present) and the
+   * schema-migration assertion (when spec invariants describe DDL). Kept
+   * as a generic list so future gap-assertions slot in without churning
+   * the shape of GeneratedArtifact each time.
+   */
+  extraTestFiles: Array<{ path: string; contents: string }>;
 }
 
 /**
@@ -393,7 +429,17 @@ function collectTargetSpecs(ctx: TestgenContext): TargetSpec[] {
     try {
       spec = readSpec(ctx.repoRoot, id);
     } catch {
-      // spec file missing despite being in index — skip
+      // Spec file missing. With --all this is "index references a deleted
+      // spec" — silently skip so the batch continues. With an explicit
+      // --spec <id> this is a typo'd operator command; throwing is the
+      // right feedback. Silent no-op (pre-0.7.17) masked the story-005
+      // dogfood failure on 2026-04-23.
+      if (ctx.specId) {
+        throw new Error(
+          `No spec found for story id '${id}' (looked at specs/story-${id}.yaml). ` +
+          `Pass --spec with the bare id (e.g. --spec 005) or without the 'story-' prefix.`
+        );
+      }
       continue;
     }
 
@@ -608,6 +654,15 @@ function listAppRouterFiles(appDir: string): string[] {
  * (see TESTGEN_SYSTEM for the exact format); slowcook parses, de-duplicates
  * against existing files, and writes only what's new.
  */
+export interface PageLinkHint {
+  /** Page file the story's UI lives on (Next.js App Router). */
+  page: string;
+  /** Component name the page must import + mount. */
+  component: string;
+  /** Import specifier (e.g. "@/components/profile/ProfileEditForm"). */
+  importFrom: string;
+}
+
 export interface TestgenBundle {
   /** Handler test file content. Empty string when mode is `"ui-only"`. */
   testContent: string;
@@ -617,6 +672,14 @@ export interface TestgenBundle {
   uiTestContent: string;
   /** UI component stubs — React/TSX files under src/components/ or src/app/**\/*.tsx. */
   uiStubs: Array<{ path: string; contents: string }>;
+  /**
+   * Optional page-link hint — when present, testgen templates a static
+   * assertion that asserts the named page file imports AND mounts the
+   * named component. Catches the "tests green but page doesn't render the
+   * component" class of gap (rewo story-006, 2026-04-23). See
+   * docs/plans/0.7.17-pipeline-gap-assertions.md §1.
+   */
+  pageLink: PageLinkHint | null;
 }
 
 async function generateTestBundle(
@@ -733,7 +796,32 @@ export function parseTestgenBundle(
     if (p && c.trim()) uiStubs.push({ path: p, contents: stripInnerFence(c) });
   }
 
-  return { testContent, stubs, helpers, uiTestContent, uiStubs };
+  // <page_link> — single optional block. Form:
+  //   <page_link>
+  //     <page>src/app/(main)/profile/page.tsx</page>
+  //     <component>ProfileEditForm</component>
+  //     <import_from>@/components/profile/ProfileEditForm</import_from>
+  //   </page_link>
+  // When present, testgen deterministically templates an assertion file
+  // from it. Absent = story has no page-integration concern (e.g. pure
+  // handler story; or the spec didn't describe a route).
+  let pageLink: PageLinkHint | null = null;
+  const pageLinkMatch = body.match(/<page_link>([\s\S]*?)<\/page_link>/);
+  if (pageLinkMatch && pageLinkMatch[1]) {
+    const inner = pageLinkMatch[1];
+    const page = inner.match(/<page>\s*([^<\s][^<]*?)\s*<\/page>/)?.[1]?.trim();
+    const component = inner
+      .match(/<component>\s*([^<\s][^<]*?)\s*<\/component>/)?.[1]
+      ?.trim();
+    const importFrom = inner
+      .match(/<import_from>\s*([^<\s][^<]*?)\s*<\/import_from>/)?.[1]
+      ?.trim();
+    if (page && component && importFrom) {
+      pageLink = { page, component, importFrom };
+    }
+  }
+
+  return { testContent, stubs, helpers, uiTestContent, uiStubs, pageLink };
 }
 
 function stripInnerFence(raw: string): string {
@@ -741,6 +829,162 @@ function stripInnerFence(raw: string): string {
   const fence = t.match(/^```(?:typescript|ts|tsx)?\s*\n([\s\S]*)\n```$/);
   if (fence && fence[1]) return fence[1];
   return t + "\n"; // ensure trailing newline for file writes
+}
+
+// ----------------- 0.7.17: pipeline-gap assertions -----------------
+
+/**
+ * Extract column names from DDL-shaped invariants so
+ * `buildSchemaAssertionTestContent` can assert each column ends up in
+ * `supabase/migrations/`. Deliberately narrow:
+ *
+ *  - Handles "Migration adds `profiles.handle_confirmed ...`"
+ *  - Handles "Migration adds `profiles.handle_changed_at timestamptz`"
+ *  - Handles "add column handle_confirmed boolean"
+ *  - Handles "alter table profiles add column handle text"
+ *
+ * Returns unique column names (deduped, original order). Empty array means
+ * the spec's invariants don't describe DDL — caller skips schema assertion.
+ *
+ * Intentionally lax on TABLE name: rewo has exactly one mutated table per
+ * story so far (`profiles`); if/when that stops holding, we can either
+ * tighten the regex or include table names in the test assertions.
+ */
+export function extractDdlColumnsFromInvariants(invariants: string[]): string[] {
+  const cols: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of invariants) {
+    const text = raw || "";
+    // "Migration adds `profiles.handle_confirmed boolean ...`"
+    const re1 = /\b(?:migration\s+adds?|adds?)\s+`?[\w]+\.([a-z_][a-z0-9_]*)\b/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re1.exec(text)) !== null) {
+      const name = m[1]?.toLowerCase();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        cols.push(name);
+      }
+    }
+    // "add column handle boolean" / "ALTER TABLE ... ADD COLUMN ... handle"
+    const re2 = /\badd\s+column\s+`?([a-z_][a-z0-9_]*)\b/gi;
+    while ((m = re2.exec(text)) !== null) {
+      const name = m[1]?.toLowerCase();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        cols.push(name);
+      }
+    }
+  }
+  return cols;
+}
+
+/**
+ * Produce the `tests/schema/story-N.test.ts` file contents, or null when
+ * the spec doesn't describe DDL (no invariants matched). The test reads
+ * `supabase/migrations/*.sql` and asserts each column mentioned in the
+ * invariants appears in some migration's `alter table ... add column ...`
+ * statement. Shallow — doesn't check TYPE or NOT NULL — but catches the
+ * "forgot to write the migration entirely" case that bit story-005/006.
+ */
+export function buildSchemaAssertionTestContent(
+  spec: Spec
+): { path: string; contents: string } | null {
+  const invariants = Array.isArray(spec.invariants) ? spec.invariants : [];
+  const columns = extractDdlColumnsFromInvariants(invariants);
+  if (columns.length === 0) return null;
+
+  const path = join(TESTS_SCHEMA_DIR, `story-${spec.story_id}.test.ts`);
+  const columnChecks = columns
+    .map(
+      (c) =>
+        `  it("migration adds column ${c}", () => {\n` +
+        `    expect(sql).toMatch(/\\badd\\s+column\\s+[\`\"']?${c}\\b/i);\n` +
+        `  });`
+    )
+    .join("\n\n");
+
+  const contents =
+    `// slowcook 0.7.17 schema assertion — story-${spec.story_id}\n` +
+    `//\n` +
+    `// Auto-emitted by testgen when spec invariants describe DDL. Ensures\n` +
+    `// supabase/migrations/ actually contains an \`add column\` statement for\n` +
+    `// every column the spec names. Catches the pipeline-gap where handler\n` +
+    `// tests mock the DB and ship green without the migration ever landing\n` +
+    `// (rewo story-005/006, 2026-04-23). Regenerate by re-running testgen.\n` +
+    `\n` +
+    `import { describe, it, expect } from "vitest";\n` +
+    `import { readdirSync, readFileSync, existsSync } from "node:fs";\n` +
+    `import { join } from "node:path";\n` +
+    `\n` +
+    `describe("story-${spec.story_id} schema migration", () => {\n` +
+    `  const dir = "supabase/migrations";\n` +
+    `  const sql = existsSync(dir)\n` +
+    `    ? readdirSync(dir)\n` +
+    `        .filter((f) => f.endsWith(".sql"))\n` +
+    `        .map((f) => readFileSync(join(dir, f), "utf8"))\n` +
+    `        .join("\\n")\n` +
+    `    : "";\n` +
+    `\n` +
+    columnChecks +
+    `\n` +
+    `});\n`;
+
+  return { path, contents };
+}
+
+/**
+ * Produce the `tests/integration/story-N-page.test.ts` file contents from
+ * a `<page_link>` hint. Asserts both IMPORT (so the page file references
+ * the component) and JSX USAGE (so it actually mounts it) — an unused
+ * import is as broken as a missing one.
+ */
+export function buildPageLinkTestContent(
+  spec: Spec,
+  hint: PageLinkHint
+): { path: string; contents: string } {
+  const path = join(TESTS_INTEGRATION_DIR, `story-${spec.story_id}-page.test.ts`);
+  const { page, component, importFrom } = hint;
+
+  // Escape import path for regex — user-controlled (testgen LLM output).
+  const importFromEscaped = importFrom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const componentEscaped = component.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const contents =
+    `// slowcook 0.7.17 page-link assertion — story-${spec.story_id}\n` +
+    `//\n` +
+    `// Auto-emitted by testgen when the UI bundle carries a <page_link>\n` +
+    `// hint. Asserts the story's page file imports AND mounts the component\n` +
+    `// the tier-1 UI tests exercise — tier-1 tests render the component\n` +
+    `// directly, so a page that never wires the component still passes\n` +
+    `// tier-1. Catches the rewo story-006 integration gap (2026-04-23).\n` +
+    `\n` +
+    `import { describe, it, expect } from "vitest";\n` +
+    `import { readFileSync, existsSync } from "node:fs";\n` +
+    `\n` +
+    `describe("story-${spec.story_id} page integration", () => {\n` +
+    `  const page = ${JSON.stringify(page)};\n` +
+    `  const component = ${JSON.stringify(component)};\n` +
+    `\n` +
+    `  it("page file exists", () => {\n` +
+    `    expect(existsSync(page)).toBe(true);\n` +
+    `  });\n` +
+    `\n` +
+    `  it("imports " + component + " from " + ${JSON.stringify(importFrom)}, () => {\n` +
+    `    const src = existsSync(page) ? readFileSync(page, "utf8") : "";\n` +
+    `    const importRe = new RegExp(\n` +
+    `      "import\\\\s+(?:\\\\w+|\\\\{[^}]*\\\\b" + ${JSON.stringify(componentEscaped)} + "\\\\b[^}]*\\\\})" +\n` +
+    `      "\\\\s+from\\\\s+[\\\"']" + ${JSON.stringify(importFromEscaped)} + "[\\\"']"\n` +
+    `    );\n` +
+    `    expect(src).toMatch(importRe);\n` +
+    `  });\n` +
+    `\n` +
+    `  it("mounts <" + component + " /> in the rendered tree", () => {\n` +
+    `    const src = existsSync(page) ? readFileSync(page, "utf8") : "";\n` +
+    `    expect(src).toMatch(new RegExp("<\\\\s*" + ${JSON.stringify(componentEscaped)} + "\\\\b"));\n` +
+    `  });\n` +
+    `});\n`;
+
+  return { path, contents };
 }
 
 /**

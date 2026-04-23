@@ -241,6 +241,17 @@ on:
     paths:
       - 'specs/story-*.yaml'
       - 'specs/_index.yaml'
+  # Manual trigger for ad-hoc re-runs (retry after transient failure, or
+  # target a single story while siblings are intentionally handler-only).
+  # Empty input = \`testgen --all\`; a non-empty value runs \`--spec <id>\`.
+  # Accepts either the bare id ("005") or the prefixed form ("story-005") —
+  # the CLI normalises a leading "story-" since 0.7.17.
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Story id to target (e.g. 005 or story-005). Empty = all active specs."
+        required: false
+        default: ""
 
 concurrency:
   group: slowcook-testgen-main
@@ -273,8 +284,13 @@ ${RESOLVE_PIN_STEP}
           ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           SLOWCOOK_DEBUG: "1"
+          SPEC_INPUT: \${{ inputs.spec }}
         run: |
-          npx --yes "$SLOWCOOK_CLI" testgen --all
+          if [ -n "$SPEC_INPUT" ]; then
+            npx --yes "$SLOWCOOK_CLI" testgen --spec "$SPEC_INPUT"
+          else
+            npx --yes "$SLOWCOOK_CLI" testgen --all
+          fi
 `;
 }
 

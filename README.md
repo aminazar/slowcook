@@ -7,9 +7,11 @@
 
 ## Status
 
-**0.7.7 — tier-1 UI + end-to-end audit trail.** The pipeline runs end-to-end: `slowcook refine` (issue → spec) → `slowcook testgen` (spec → tests + stubs + helpers + UI tests + UI stubs) → `slowcook brew` (ratcheted implementation loop). Each transition posts an audit-trail comment on the source GitHub issue; stories with `ui_behavior` get React component tests + component stubs alongside handler tests. PR-gate runs `vitest` so broken tests fail the PR that introduces them.
+**0.7.17 — pipeline closes its own integration gaps.** The pipeline runs end-to-end: `slowcook refine` (issue → spec) → `slowcook testgen` (spec → handler + UI tests + stubs + helpers + **page-link + schema static assertions**) → `slowcook brew` (ratcheted implementation loop, now fluent in editing Next.js pages + writing SQL migrations). Each transition posts an audit-trail comment on the source GitHub issue. Stories with `ui_behavior` get page-integration assertions so a test suite can't go green while the page forgets to mount the component; stories whose invariants describe DDL get schema assertions so migrations can't silently be skipped.
 
-Published packages (latest on npm): `cli@0.7.7`, `core@0.7.1`, `stack-ts@0.7.5`, `forge-github@0.7.6`.
+**First fully-autonomous UI shipment on rewo landed via PR #61 (2026-04-23).** Issue #47 / story-006 traversed refine → testgen (handler + UI bundles) → brew (1 iter, $0.21) after the observability arc (0.7.13 → 0.7.16) taught us to listen to the agent's own diagnosis. 0.7.17 addresses the two residual gaps the shipment exposed (page-integration + schema).
+
+Published packages (latest on npm): `cli@0.7.17`, `core@0.7.1`, `stack-ts@0.7.16`, `forge-github@0.7.11`.
 
 The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md); the active roadmap is [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 

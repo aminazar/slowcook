@@ -7,7 +7,12 @@ import {
   buildProjectContext,
   lintTierOneTest,
   parseTestgenBundle,
+  extractDdlColumnsFromInvariants,
+  buildSchemaAssertionTestContent,
+  buildPageLinkTestContent,
 } from "./agent.js";
+import type { Spec } from "@slowcook-ai/core";
+import { normalizeSpecId } from "./index.js";
 
 const FILE = "tests/integration/story-042.test.ts";
 
@@ -446,5 +451,131 @@ import { renderWithProviders } from "@tests/helpers/render";</ui_test_file>
     expect(b.stubs).toEqual([]);
     expect(b.helpers).toEqual([]);
     expect(b.uiStubs).toEqual([]);
+  });
+
+  it("parses a <page_link> block when present", () => {
+    const raw = `
+<test_file>t</test_file>
+<page_link>
+  <page>src/app/(main)/profile/page.tsx</page>
+  <component>ProfileEditForm</component>
+  <import_from>@/components/profile/ProfileEditForm</import_from>
+</page_link>
+`;
+    const b = parseTestgenBundle(raw, "042");
+    expect(b.pageLink).toEqual({
+      page: "src/app/(main)/profile/page.tsx",
+      component: "ProfileEditForm",
+      importFrom: "@/components/profile/ProfileEditForm",
+    });
+  });
+
+  it("returns pageLink=null when the block is missing or malformed", () => {
+    expect(parseTestgenBundle(`<test_file>t</test_file>`, "042").pageLink).toBeNull();
+    const missingFields = `<test_file>t</test_file>
+<page_link><page>x</page></page_link>`;
+    expect(parseTestgenBundle(missingFields, "042").pageLink).toBeNull();
+  });
+});
+
+// ----------------------------------------------------------------
+// 0.7.17 — pipeline-gap assertions
+// ----------------------------------------------------------------
+
+describe("normalizeSpecId — 0.7.17 --spec input fix", () => {
+  it("strips leading story- prefix", () => {
+    expect(normalizeSpecId("story-005")).toBe("005");
+    expect(normalizeSpecId("Story-005")).toBe("005");
+  });
+
+  it("leaves bare ids untouched", () => {
+    expect(normalizeSpecId("005")).toBe("005");
+    expect(normalizeSpecId("abc")).toBe("abc");
+  });
+});
+
+describe("extractDdlColumnsFromInvariants", () => {
+  it("extracts `Migration adds profiles.foo ...` shape", () => {
+    const cols = extractDdlColumnsFromInvariants([
+      "Migration adds `profiles.handle_confirmed boolean not null default false`",
+      "Migration adds `profiles.handle_changed_at timestamptz` (nullable)",
+    ]);
+    expect(cols).toEqual(["handle_confirmed", "handle_changed_at"]);
+  });
+
+  it("extracts `add column foo bar` shape", () => {
+    const cols = extractDdlColumnsFromInvariants([
+      "alter table profiles add column handle text",
+    ]);
+    expect(cols).toEqual(["handle"]);
+  });
+
+  it("dedupes across invariants", () => {
+    const cols = extractDdlColumnsFromInvariants([
+      "Migration adds `profiles.foo boolean`",
+      "alter table profiles add column foo text",
+    ]);
+    expect(cols).toEqual(["foo"]);
+  });
+
+  it("returns [] when no DDL shape is present", () => {
+    expect(extractDdlColumnsFromInvariants(["just prose", "and more"])).toEqual([]);
+  });
+});
+
+describe("buildSchemaAssertionTestContent", () => {
+  const base = {
+    story_id: "006",
+    title: "x",
+    invariants: [],
+    acceptance_scenarios: [],
+    api_contracts: [],
+    ui_behavior: {},
+    non_goals: [],
+    supersedes: [],
+    source_issue: "#47",
+  } as unknown as Spec;
+
+  it("returns null when the spec has no DDL invariants", () => {
+    expect(buildSchemaAssertionTestContent(base)).toBeNull();
+  });
+
+  it("produces a test file with one it() per extracted column", () => {
+    const spec = {
+      ...base,
+      invariants: [
+        "Migration adds `profiles.handle_confirmed boolean not null default false`",
+        "Migration adds `profiles.handle_changed_at timestamptz`",
+      ],
+    } as unknown as Spec;
+    const r = buildSchemaAssertionTestContent(spec);
+    expect(r).not.toBeNull();
+    expect(r!.path).toBe("tests/schema/story-006.test.ts");
+    expect(r!.contents).toContain('it("migration adds column handle_confirmed"');
+    expect(r!.contents).toContain('it("migration adds column handle_changed_at"');
+    expect(r!.contents).toContain("supabase/migrations");
+  });
+});
+
+describe("buildPageLinkTestContent", () => {
+  const spec = { story_id: "006" } as unknown as Spec;
+  const hint = {
+    page: "src/app/(main)/profile/page.tsx",
+    component: "ProfileEditForm",
+    importFrom: "@/components/profile/ProfileEditForm",
+  };
+
+  it("writes the page path + component into the test file", () => {
+    const r = buildPageLinkTestContent(spec, hint);
+    expect(r.path).toBe("tests/integration/story-006-page.test.ts");
+    expect(r.contents).toContain('"src/app/(main)/profile/page.tsx"');
+    expect(r.contents).toContain('"ProfileEditForm"');
+    expect(r.contents).toContain("page integration");
+  });
+
+  it("asserts both import + JSX mount", () => {
+    const r = buildPageLinkTestContent(spec, hint);
+    expect(r.contents).toContain("imports ");
+    expect(r.contents).toContain("mounts <");
   });
 });

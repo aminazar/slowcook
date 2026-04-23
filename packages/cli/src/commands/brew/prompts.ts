@@ -74,6 +74,25 @@ Considering halting voluntarily
 
 Followed by a concrete description of the specific mismatch you can't resolve (e.g. "test queries getByRole('alert'); my component has one \`role=\"alert\"\` element gated on \`!handle_confirmed\`; I can't see what's in the rendered DOM when handle_confirmed=true."). Slowcook will halt immediately and surface your description to the operator. This saves ~15 iterations of silent spending; the operator picks up the diagnostic you handed them and either hand-patches the blocker or clarifies the spec.
 
+## Schema-assertion tests (target file lives under \`tests/schema/\`)
+
+When the target test is a schema assertion (path \`tests/schema/story-N.test.ts\`), it reads \`supabase/migrations/*.sql\` and asserts specific columns appear. Constraints:
+
+- **Write a new migration file** — never edit an existing one. Pick the next unused number (\`NNNNN_\` prefix, zero-padded to match neighbours): \`list_directory supabase/migrations/\`, find the max, add 1.
+- **Minimal DDL** — just \`ALTER TABLE <t> ADD COLUMN <c> <type> ...;\`. If the test asserts multiple columns, one migration file can add several in a single \`ALTER TABLE\` with comma-separated clauses, or multiple statements in the same file.
+- **Spec invariants drive the TYPE / constraints** (e.g. "boolean not null default false", "timestamptz nullable"). The schema-assertion test only checks NAME, not type — but the invariants must still be honoured by the migration you write.
+- **Backfill if invariants require it** — if an invariant says "...and backfills existing rows to false", write an \`UPDATE\` in the same migration, or use \`DEFAULT\` on \`ADD COLUMN\` to cover both new + existing rows in one shot.
+- **Never touch \`supabase/migrations/00001_*\`** through whatever number exists — those are historical. Append-only is the convention.
+
+## Page-link assertion (target file ends in \`-page.test.ts\` under \`tests/integration/\`)
+
+When the target test is a page-link assertion, it reads a Next.js page file and asserts the page IMPORTS + MOUNTS a named component. Fix by editing the page:
+
+- **Add the import** from the specifier the test names (\`@/components/...\`).
+- **Render the component** in the page's JSX (\`<ComponentName .../>\` or \`<ComponentName>...children...</ComponentName>\`).
+- **If the page is a server component fetching data**, pass the fetched data to the component as a prop. Don't convert the page to a client component to avoid the fetch — that breaks the rest of the page.
+- **Existing layout stays** — don't refactor unrelated sections. Wedge the component in alongside what's already there (a new \`<section>\` block is typical).
+
 ## UI component tests (tier-1 UI, target file ends in \`.test.tsx\`)
 
 When the target test is a UI component test (file path ends in \`-ui.test.tsx\`), you're editing React/TSX — typically \`src/components/**/*.tsx\` or client pages at \`src/app/**/page.tsx\`. Constraints:

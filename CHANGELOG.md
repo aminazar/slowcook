@@ -6,6 +6,50 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.17 — Pipeline-gap static assertions (page-link + schema)
+
+Closes two recurring gaps where the autonomous pipeline shipped green while the feature was invisible to the user. Both hit on rewo story-005/006 on 2026-04-23; the hand-patches to recover are the "why this release exists" evidence.
+
+### Gap 1 — page-to-component wiring
+
+Tier-1 UI tests render the component directly (`renderWithProviders(<ProfileEditForm .../>)`), so a page that never imports the component still passes tier-1. On rewo story-006, `ProfileEditForm` shipped + tested + merged, but `src/app/(main)/profile/page.tsx` never mounted it. User navigated to `/profile` → blank section.
+
+**Fix:** testgen now parses an optional `<page_link>` block from the LLM bundle:
+
+```
+<page_link>
+  <page>src/app/(main)/profile/page.tsx</page>
+  <component>ProfileEditForm</component>
+  <import_from>@/components/profile/ProfileEditForm</import_from>
+</page_link>
+```
+
+When present, it deterministically templates `tests/integration/story-N-page.test.ts` asserting the named page file imports AND mounts the component via regex. Brew's iteration closes the test by editing the page — allowed-paths already covers `src/app/**/*.tsx`, and brew's prompt now has a dedicated "Page-link assertion" section.
+
+### Gap 2 — DB migrations
+
+Handler tests mock the DB via `mockSupabase`; tier-0 acceptance is HTTP-loopback with seed fixtures. No pipeline stage interacts with a real schema. Story-005 and story-006 each described required DDL in their spec invariants (`Migration adds profiles.handle_confirmed boolean not null default false`, etc.) — neither migration ever landed. User's `/profile` query returned `null` and the form didn't render until the migrations were hand-written.
+
+**Fix:** testgen deterministically scans `spec.invariants` for DDL keywords (`Migration adds`, `alter table … add column`) and emits `tests/schema/story-N.test.ts`. The test reads every `.sql` in `supabase/migrations/` and asserts each named column appears in an `add column` statement. No LLM cost — the scan + template is mechanical. Brew's prompt now carries a "Schema-assertion tests" section instructing the agent to append a new numbered migration file. Allowed-paths needed no change (`supabase/migrations/**` was never frozen).
+
+### Drive-by fixes (same release)
+
+- **`--spec story-005` no longer silently no-ops.** The CLI normalises a leading `story-` prefix before path lookups (`readSpec`, `handlerTestPathFor`) and throws — instead of silently skipping — when `--spec <id>` names a non-existent spec. Tripped this on the story-005 dogfood run the same day.
+- **`slowcook-testgen.yml` template accepts `workflow_dispatch.inputs.spec`.** Empty = `--all`; non-empty = `--spec <id>`. Brings the template into parity with rewo's 2026-04-23 divergence.
+- **Brew prompt gains two new "target-test-class" sections.** Schema-assertion tests and page-link assertions each get their own short guide so the agent knows the right file-class to edit (new migration under `supabase/migrations/`; existing page under `src/app/`).
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.7.15 → 0.7.17` — testgen agent + prompts + CLI args + brew prompt.
+- **`@slowcook-ai/forge-github`**: `0.7.10 → 0.7.11` — testgen workflow template.
+- No `core` / `stack-ts` changes.
+
+### Detailed plan doc
+
+`docs/plans/0.7.17-pipeline-gap-assertions.md` — enumerates the two-gap theory, the acceptance cases, and the dogfood validation plan.
+
+---
+
 ## 0.7.16 — UI testing helpers: auto-cleanup between tests (identified by brew agent)
 
 Silent bug in Phase A (0.7.5) render helper. The scaffolded \`tests/helpers/render.tsx\` wrapped \`@testing-library/react\`'s \`render\` but didn't register \`afterEach(cleanup)\`. Result: components from a prior test linger in jsdom's DOM; the next test's \`getByRole / queryByRole\` sees stale elements. Manifests as "the assertion doesn't match the code" false-positive failures across tests that render the same component with different props.

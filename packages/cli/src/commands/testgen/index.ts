@@ -25,7 +25,7 @@ function parseArgs(argv: string[]): TestgenArgs {
     const arg = argv[i];
     const next = argv[i + 1];
     if (arg === "--spec" && next) {
-      args.specId = next;
+      args.specId = normalizeSpecId(next);
       i++;
     } else if (arg === "--all") {
       args.all = true;
@@ -90,6 +90,18 @@ Exit codes:
   0   outcome reached (PR opened, or nothing to generate)
   2   script error (bad args, missing env, network failure)
 `);
+}
+
+/**
+ * Accept `--spec 005`, `--spec story-005`, or `--spec Story-005` and return
+ * the bare id (`005`). Upstream `readSpec` / `handlerTestPathFor` prepend
+ * `story-` themselves, so passing the prefixed form silently mismatches
+ * everything and testgen no-ops. Normalising at the arg boundary means the
+ * operator's mental model ("story-005") matches the file on disk without a
+ * trap between the two. See docs/plans/0.7.17-pipeline-gap-assertions.md §2a.
+ */
+export function normalizeSpecId(raw: string): string {
+  return raw.replace(/^story-/i, "");
 }
 
 function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {

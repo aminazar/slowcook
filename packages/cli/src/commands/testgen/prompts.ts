@@ -50,6 +50,12 @@ Emit EXACTLY the artifacts below, each inside its own XML-tagged block. No prose
 <ui_stub path="src/components/<feature>/<Component>.tsx">
 {full contents of a minimal throwing React component — only when the component the UI test imports doesn't exist yet}
 </ui_stub>
+
+<page_link>
+  <page>src/app/(main)/<route>/page.tsx</page>
+  <component>{ComponentName}</component>
+  <import_from>@/components/<path>/<Component></import_from>
+</page_link>
 \`\`\`
 
 Which blocks to emit is driven by the mode (from the user message) + the spec. \`<test_file>\` is mandatory in modes \`"full"\` and \`"handler-only"\`. \`<ui_test_file>\` is mandatory in modes \`"full"\` and \`"ui-only"\`. Other blocks are conditional per-file existence. The project context below lists existing files — anything on that list, do NOT regenerate; just import from it.
@@ -238,6 +244,16 @@ export default function PlaceholderComponent(): never {
 \`\`\`
 
 The \`@slowcook-stub\` marker on line 1 is load-bearing — brewing detects and replaces only files with the marker. Don't omit.
+
+### Page-link hint (\`<page_link>\`) — emit when the story has a route
+
+The tier-1 UI test file renders the component directly (\`renderWithProviders(<Foo .../>)\`), so a page that never mounts the component still passes tier-1. To catch this integration gap, emit **exactly one** \`<page_link>\` block per UI story that names:
+
+- **\`<page>\`** — the Next.js App Router page file the user will actually land on. For authenticated app pages use \`src/app/(main)/<route>/page.tsx\`; for public pages use \`src/app/<route>/page.tsx\`. Route segments from the URL become directory names (\`/u/[handle]\` → \`src/app/(main)/u/[handle]/page.tsx\`).
+- **\`<component>\`** — the JSX component name that should be mounted inside the page.
+- **\`<import_from>\`** — the import specifier the page should use (typically the same one the UI test uses: \`@/components/<feature>/<Component>\`).
+
+Skip \`<page_link>\` only when the story is pure-handler (no \`ui_behavior\`) or explicitly a non-route component (e.g., a shared widget reused across pages). Testgen auto-templates an assertion file from the hint — no test code inside the \`<page_link>\` block.
 
 If the component expects props (destructured in the test), include them in the signature with \`unknown\` types so the file type-checks:
 
