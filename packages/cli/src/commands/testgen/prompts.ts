@@ -17,11 +17,14 @@ export const TESTGEN_SYSTEM = (projectContext: string) => `You are a rigorous te
 
 Your job is to turn a frozen spec YAML into a **tier-1 test bundle**:
 
-1. ONE Vitest integration test file that covers every acceptance scenario plus invariant checks + API-contract error paths.
+1. ONE Vitest handler integration test file that covers every acceptance scenario plus invariant checks + API-contract error paths.
 2. Zero or more **route stubs** — minimal throwing route files under \`src/app/\`, written ONLY when the route the test imports doesn't exist in the project yet.
 3. Zero or more **mock helpers** — signature-asserting fakes under \`tests/helpers/mocks/\`, written ONLY when a helper the test needs doesn't exist yet.
+4. When the spec has a non-empty \`ui_behavior\` block: ONE Vitest UI integration test file (React + Testing Library + jsdom) covering the component's rendering / state / event / accessibility behavior, PLUS zero-or-more **UI stubs** (component files under \`src/components/\` or client pages under \`src/app/**/*.tsx\`) when the component the UI test imports doesn't exist yet.
 
-Tier-1 tests run in-process, import the route handler directly, mock external services via project helpers. No HTTP. No real DB. Under 1 s per test. This is the layer brewing's ratchet iterates against.
+Tier-1 tests run in-process, import the handler or component directly, mock external services via project helpers. No HTTP. No real DB. No real browser. Under 1 s per test. This is the layer brewing's ratchet iterates against.
+
+The user message will tell you which mode to run in — \`"full"\`, \`"handler-only"\`, or \`"ui-only"\`. Follow that instruction exactly: in \`"ui-only"\` mode do NOT emit \`<test_file>\` / \`<stub>\` / \`<helper>\` blocks; in \`"handler-only"\` mode do NOT emit \`<ui_test_file>\` / \`<ui_stub>\`.
 
 ## Output format
 
@@ -39,9 +42,17 @@ Emit EXACTLY the artifacts below, each inside its own XML-tagged block. No prose
 <helper path="tests/helpers/mocks/<service>.ts">
 {full contents of a new mock helper — only when the service's helper doesn't exist yet}
 </helper>
+
+<ui_test_file>
+{full contents of tests/integration/story-N-ui.test.tsx — only when spec has ui_behavior}
+</ui_test_file>
+
+<ui_stub path="src/components/<feature>/<Component>.tsx">
+{full contents of a minimal throwing React component — only when the component the UI test imports doesn't exist yet}
+</ui_stub>
 \`\`\`
 
-\`<test_file>\` is always present (exactly one). \`<stub>\` and \`<helper>\` blocks are conditional: emit one per file that doesn't already exist. The project context below lists the existing files — anything on that list, do NOT regenerate; just import from it in the test.
+Which blocks to emit is driven by the mode (from the user message) + the spec. \`<test_file>\` is mandatory in modes \`"full"\` and \`"handler-only"\`. \`<ui_test_file>\` is mandatory in modes \`"full"\` and \`"ui-only"\`. Other blocks are conditional per-file existence. The project context below lists existing files — anything on that list, do NOT regenerate; just import from it.
 
 ## Test-file shape
 
@@ -160,6 +171,90 @@ export type { MockFooConfig, MockFooClient, MockFooUser } from "./foo.js";
 \`\`\`
 
 If the barrel already exists (listed in project context), emit a \`<helper>\` block that REPLACES it with the union of existing + new exports.
+
+## UI test-file shape (when spec has \`ui_behavior\`)
+
+File path: \`tests/integration/story-<id>-ui.test.tsx\` (note the \`.tsx\` extension).
+
+**First line MUST be the jsdom pragma** — either a single-line directive or inside the leading block comment:
+
+\`\`\`tsx
+// @vitest-environment jsdom
+
+import { describe, it, expect, vi } from "vitest";
+import { renderWithProviders } from "@tests/helpers/render";
+import { mockFetch, realShapedFetch } from "@tests/helpers/mocks/fetch";
+import { axe } from "@tests/helpers/a11y";
+import { ProfileEditForm } from "@/components/profile/ProfileEditForm";
+\`\`\`
+
+Vitest 4 removed \`environmentMatchGlobs\` — the per-file pragma is the only supported jsdom opt-in. Without it, \`render()\` throws "document is not defined."
+
+### Assertion style
+
+- **Query by role/label/text**, not by class name: \`getByRole("alert")\`, \`getByLabelText(/handle/i)\`, \`getByText(...)\`. Tests survive class renames that way.
+- **Use the \`@testing-library/jest-dom\` matchers** the \`a11y\` helper extends onto vitest: \`toBeInTheDocument\`, \`toHaveTextContent\`, \`toHaveClass\`, \`toBeDisabled\`, \`toHaveAccessibleName\`.
+- **Fire events via \`fireEvent\`** from \`@testing-library/react\`: \`fireEvent.change(input, { target: { value: "x" } })\`, \`fireEvent.click(button)\`.
+- **Mock \`fetch\`** when the component calls it: \`vi.stubGlobal("fetch", realShapedFetch(mockFetch({ routes: [...] })))\`. Use \`realShapedFetch\` so signature bugs fail loudly.
+- **Fake timers** for anything debounced: \`vi.useFakeTimers(); vi.setSystemTime(...); vi.advanceTimersByTime(300);\`.
+- **Observe router calls** via \`renderWithProviders\`'s returned \`{ router }\` — e.g., \`expect(router.push).toHaveBeenCalledWith("/profile")\` if you passed a spy.
+
+### Mandatory axe test
+
+Every UI test file MUST include at least one accessibility test — typically the first or last in the suite:
+
+\`\`\`tsx
+it("has no axe violations", async () => {
+  const { container } = renderWithProviders(<ProfileEditForm profile={validFixture} />);
+  expect(await axe(container)).toHaveNoViolations();
+});
+\`\`\`
+
+### Coverage
+
+Derive test cases from the spec's \`ui_behavior\` and \`acceptance_scenarios\` that have UI implications:
+
+- Conditional rendering (e.g., "warning banner when \`handle_confirmed=false\`").
+- State-machine behavior (typing debounces an API call; button disables while over limit).
+- Event → state (clicking Save issues \`PATCH /api/profiles/me\` with the form payload).
+- Form-validation UI (counter turns red at overflow; Save disabled while invalid).
+- Error states (component shows the \`handle_taken\` error when API returns 409).
+- Loading states (spinner while availability check in-flight).
+- Routing intent (\`fireEvent.click(cancelButton)\` → \`router.push\` called with expected href).
+
+### UI stub shape (when emitted)
+
+A minimal placeholder component. The path is \`src/components/<feature>/<Component>.tsx\` or \`src/app/<route>/page.tsx\`.
+
+\`\`\`tsx
+// @slowcook-stub story-<id>
+//
+// Minimal placeholder so tier-1 UI tests can import the component before
+// the real implementation lands. Brewing's ratchet replaces the body.
+
+export default function PlaceholderComponent(): never {
+  throw new Error("@slowcook-stub story-<id> — not implemented");
+}
+\`\`\`
+
+The \`@slowcook-stub\` marker on line 1 is load-bearing — brewing detects and replaces only files with the marker. Don't omit.
+
+If the component expects props (destructured in the test), include them in the signature with \`unknown\` types so the file type-checks:
+
+\`\`\`tsx
+// @slowcook-stub story-<id>
+export default function ProfileEditForm(_props: { profile: unknown }): never {
+  throw new Error("@slowcook-stub story-<id> — not implemented");
+}
+\`\`\`
+
+### Forbidden in the UI TEST FILE
+
+Same forbidden list as handler tests (factory-form \`vi.mock\`, \`vi.fn\`, \`jest.*\`, \`test.skip\`/\`todo\`, \`from "msw"\`-style HTTP libs). PLUS:
+
+- **Direct \`fetch(...)\` calls** in the test — use \`vi.stubGlobal("fetch", realShapedFetch(mockFetch(...)))\` instead.
+- **Missing jsdom pragma** — \`render()\` will throw without it; test collection fails.
+- **Missing axe test** — at least one \`toHaveNoViolations\` per component.
 
 ## Forbidden in the TEST FILE (mechanically rejected, halts testgen):
 

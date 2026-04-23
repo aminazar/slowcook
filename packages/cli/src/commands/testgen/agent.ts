@@ -26,6 +26,23 @@ export const TESTS_INTEGRATION_DIR = "tests/integration";
 export const MANIFESTS_DIR = ".brewing/manifests";
 export const MOCK_HELPERS_DIR = "tests/helpers/mocks";
 
+/**
+ * Which artifacts testgen should emit for a given spec. Computed per-spec
+ * based on what already exists on disk + whether the spec has `ui_behavior`:
+ *
+ * - `"full"` — neither handler tests nor UI tests exist; emit both (plus
+ *   any needed stubs + helpers).
+ * - `"handler-only"` — spec has no `ui_behavior`; handler tests don't exist.
+ *   Emit handler test + handler stubs + helpers. This is 0.7.0 behavior.
+ * - `"ui-only"` — handler tests already exist; spec has `ui_behavior`; UI
+ *   tests are missing. Emit ONLY UI test + UI stubs. Use-case: 0.7.5 adoption
+ *   on a brownfield story where the backend was built before UI tests existed.
+ *
+ * Mode is inferred by `collectTargetSpecs`; the LLM is told which mode it's
+ * in via the user message so it emits only what's needed.
+ */
+export type TestgenMode = "full" | "handler-only" | "ui-only";
+
 export interface TestgenContext {
   repoRoot: string;
   forge: ForgeAdapter;
@@ -55,8 +72,8 @@ export type TestgenOutcome =
  * citing the supersede chain in the PR body for auditability).
  */
 export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
-  const specs = collectTargetSpecs(ctx);
-  if (specs.length === 0) {
+  const targets = collectTargetSpecs(ctx);
+  if (targets.length === 0) {
     return { kind: "nothing-to-generate", reason: "no active specs without tests" };
   }
 
@@ -64,28 +81,30 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
   const generated: GeneratedArtifact[] = [];
   const toRemove: string[] = [];
 
-  for (const spec of specs) {
+  for (const { spec, mode } of targets) {
     const projectContext = buildProjectContext(ctx.repoRoot);
-    const bundle = await generateTestBundle(spec, ctx, projectContext);
-    const testPath = join(TESTS_INTEGRATION_DIR, `story-${spec.story_id}.test.ts`);
+    const bundle = await generateTestBundle(spec, ctx, projectContext, mode);
+    const testPath = handlerTestPathFor(spec.story_id);
+    const uiTestPath = uiTestPathFor(spec.story_id);
 
-    // Tier-1 conformance gate: if the LLM slipped back to tier-0 habits
-    // (inline vi.mock, fetch(), etc.), we refuse to ship the file. Halts
-    // loudly here rather than quietly producing HTTP-loopback tests the
-    // brewing loop can't ratchet against. The caller can re-run with a
-    // different seed or hand-edit and re-run testgen.
-    const violations = lintTierOneTest(testPath, bundle.testContent);
-    if (violations.length > 0) {
-      const details = violations
-        .slice(0, 10)
-        .map((v) => `  - line ${v.line}: \`${v.pattern}\` — ${v.reason}`)
-        .join("\n");
-      const more = violations.length > 10 ? `\n  - (+${violations.length - 10} more)` : "";
-      throw new Error(
-        `testgen output for story-${spec.story_id} violates tier-1 conventions (${violations.length} issue(s)):\n${details}${more}\n\n` +
-          `The LLM emitted patterns banned by docs/plans/0.7-testgen-two-tier.md §4.1-§7.3. ` +
-          `Re-run testgen with a different model/seed, or hand-edit the generated file to use project mock helpers.`
-      );
+    // Tier-1 conformance gate for handler tests (run only when mode emits one).
+    // Halts loudly if the LLM slipped back to tier-0 habits (inline vi.mock,
+    // fetch(), etc.) rather than quietly producing HTTP-loopback tests the
+    // brewing loop can't ratchet against.
+    if (mode !== "ui-only" && bundle.testContent) {
+      const violations = lintTierOneTest(testPath, bundle.testContent);
+      if (violations.length > 0) {
+        const details = violations
+          .slice(0, 10)
+          .map((v) => `  - line ${v.line}: \`${v.pattern}\` — ${v.reason}`)
+          .join("\n");
+        const more = violations.length > 10 ? `\n  - (+${violations.length - 10} more)` : "";
+        throw new Error(
+          `testgen output for story-${spec.story_id} violates tier-1 conventions (${violations.length} issue(s)):\n${details}${more}\n\n` +
+            `The LLM emitted patterns banned by docs/plans/0.7-testgen-two-tier.md §4.1-§7.3. ` +
+            `Re-run testgen with a different model/seed, or hand-edit the generated file to use project mock helpers.`
+        );
+      }
     }
 
     // De-dupe stubs + helpers: skip anything whose target file exists and
@@ -97,22 +116,46 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     const helpersToWrite = bundle.helpers.filter((h) =>
       shouldWriteHelper(ctx.repoRoot, h.path)
     );
+    const uiStubsToWrite = bundle.uiStubs.filter((s) =>
+      shouldWriteStub(ctx.repoRoot, s.path)
+    );
 
-    const manifestIds = extractTestIdsFromFile(testPath, bundle.testContent);
+    // Manifest: combine handler + UI test IDs. When mode is "ui-only" the
+    // handler manifest already exists on disk — for simplicity we still
+    // rewrite it here with the combined shape, preserving the handler IDs
+    // by re-extracting from the existing file.
+    const handlerIds =
+      mode === "ui-only"
+        ? extractTestIdsFromExistingFile(ctx.repoRoot, testPath)
+        : extractTestIdsFromFile(testPath, bundle.testContent);
+    const uiIds =
+      mode !== "handler-only" && bundle.uiTestContent
+        ? extractTestIdsFromFile(uiTestPath, bundle.uiTestContent)
+        : [];
+    const manifestTests = [
+      ...handlerIds.map((id) => ({ id, file: testPath })),
+      ...uiIds.map((id) => ({ id, file: uiTestPath })),
+    ];
     const manifest = buildManifest({
       slowcookVersion: ctx.cliVersion,
       storyId: spec.story_id,
-      tests: manifestIds.map((id) => ({ id, file: testPath })),
-      suites: [{ suite: "backend", command: "npx vitest list", test_count: manifestIds.length }],
+      tests: manifestTests,
+      suites: [
+        { suite: "backend", command: "npx vitest list", test_count: manifestTests.length },
+      ],
       now: ctx.now,
     });
     generated.push({
       spec,
-      testPath,
-      fileContents: bundle.testContent,
+      mode,
+      testPath: mode === "ui-only" ? "" : testPath,
+      fileContents: mode === "ui-only" ? "" : bundle.testContent,
       manifest,
       stubs: stubsToWrite,
       helpers: helpersToWrite,
+      uiTestPath: mode === "handler-only" ? "" : uiTestPath,
+      uiFileContents: mode === "handler-only" ? "" : bundle.uiTestContent,
+      uiStubs: uiStubsToWrite,
     });
 
     for (const superseded of spec.supersedes) {
@@ -122,7 +165,9 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
 
   // Apply to disk: write new, delete superseded
   for (const g of generated) {
-    writeFileAt(ctx.repoRoot, g.testPath, g.fileContents);
+    if (g.testPath && g.fileContents) {
+      writeFileAt(ctx.repoRoot, g.testPath, g.fileContents);
+    }
     const manifestPath = join(MANIFESTS_DIR, `story-${g.spec.story_id}.json`);
     writeFileAt(ctx.repoRoot, manifestPath, JSON.stringify(g.manifest, null, 2) + "\n");
     for (const stub of g.stubs) {
@@ -130,6 +175,12 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     }
     for (const helper of g.helpers) {
       writeFileAt(ctx.repoRoot, helper.path, helper.contents);
+    }
+    if (g.uiTestPath && g.uiFileContents) {
+      writeFileAt(ctx.repoRoot, g.uiTestPath, g.uiFileContents);
+    }
+    for (const stub of g.uiStubs) {
+      writeFileAt(ctx.repoRoot, stub.path, stub.contents);
     }
   }
   const actuallyRemoved: string[] = [];
@@ -144,10 +195,12 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
   // Git: branch, stage, commit, push
   await ctx.forge.git.createBranch(ctx.branchName);
   for (const g of generated) {
-    await ctx.forge.git.stage(g.testPath);
+    if (g.testPath) await ctx.forge.git.stage(g.testPath);
     await ctx.forge.git.stage(join(MANIFESTS_DIR, `story-${g.spec.story_id}.json`));
     for (const stub of g.stubs) await ctx.forge.git.stage(stub.path);
     for (const helper of g.helpers) await ctx.forge.git.stage(helper.path);
+    if (g.uiTestPath) await ctx.forge.git.stage(g.uiTestPath);
+    for (const stub of g.uiStubs) await ctx.forge.git.stage(stub.path);
   }
   for (const id of actuallyRemoved) {
     await ctx.forge.git.stage(join(TESTS_INTEGRATION_DIR, `story-${id}.test.ts`));
@@ -186,9 +239,18 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       const src = g.spec.source_issue?.match(/^#?(\d+)$/)?.[1];
       if (!src) continue;
       const testCount = g.manifest.tests.length;
+      const fileParts: string[] = [];
+      if (g.testPath) fileParts.push(`\`${g.testPath}\``);
+      if (g.uiTestPath) fileParts.push(`\`${g.uiTestPath}\``);
+      const modeNote =
+        g.mode === "ui-only"
+          ? " *(UI tests only — handler tests already merged)*"
+          : g.mode === "full"
+          ? " *(handler + UI tests)*"
+          : "";
       const body =
         `### slowcook · tests opened\n\n` +
-        `[PR #${pr.number}](${pr.url}) — \`story-${g.spec.story_id}\`, ${testCount} test(s) in \`${g.testPath}\`.\n\n` +
+        `[PR #${pr.number}](${pr.url}) — \`story-${g.spec.story_id}\`, ${testCount} test(s) in ${fileParts.join(" + ")}${modeNote}.\n\n` +
         `Review the test shape + stubs, merge when ready. Merge triggers \`slowcook-brew-auto\`.\n\n` +
         `---\n*Generated by \`slowcook testgen\`.*`;
       try {
@@ -221,11 +283,19 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
 
 interface GeneratedArtifact {
   spec: Spec;
+  mode: TestgenMode;
+  /** Handler test file path — empty string when mode is "ui-only" */
   testPath: string;
+  /** Handler test file contents — empty string when mode is "ui-only" */
   fileContents: string;
   manifest: Manifest;
   stubs: Array<{ path: string; contents: string }>;
   helpers: Array<{ path: string; contents: string }>;
+  /** UI test file path — empty string when mode is "handler-only" */
+  uiTestPath: string;
+  /** UI test file contents — empty string when mode is "handler-only" */
+  uiFileContents: string;
+  uiStubs: Array<{ path: string; contents: string }>;
 }
 
 /**
@@ -260,25 +330,65 @@ function shouldWriteHelper(repoRoot: string, path: string): boolean {
   return !existsSync(join(repoRoot, path));
 }
 
-function collectTargetSpecs(ctx: TestgenContext): Spec[] {
+export interface TargetSpec {
+  spec: Spec;
+  mode: TestgenMode;
+}
+
+function handlerTestPathFor(storyId: string): string {
+  return join(TESTS_INTEGRATION_DIR, `story-${storyId}.test.ts`);
+}
+
+function uiTestPathFor(storyId: string): string {
+  return join(TESTS_INTEGRATION_DIR, `story-${storyId}-ui.test.tsx`);
+}
+
+function specHasUiBehavior(spec: Spec): boolean {
+  return !!spec.ui_behavior && Object.keys(spec.ui_behavior).length > 0;
+}
+
+function collectTargetSpecs(ctx: TestgenContext): TargetSpec[] {
   const index = readIndex(ctx.repoRoot);
   const all = Object.entries(index.stories)
     .filter(([, entry]) => entry.status === "active")
     .map(([id]) => id);
 
   const targetIds = ctx.specId ? [ctx.specId] : all;
-  const specs: Spec[] = [];
+  const targets: TargetSpec[] = [];
 
   for (const id of targetIds) {
-    const testPath = join(ctx.repoRoot, TESTS_INTEGRATION_DIR, `story-${id}.test.ts`);
-    if (existsSync(testPath) && !ctx.specId) continue; // skip specs already tested, unless explicit --spec
+    const handlerTestAbs = join(ctx.repoRoot, handlerTestPathFor(id));
+    const uiTestAbs = join(ctx.repoRoot, uiTestPathFor(id));
+    const handlerExists = existsSync(handlerTestAbs);
+    const uiExists = existsSync(uiTestAbs);
+
+    let spec: Spec;
     try {
-      specs.push(readSpec(ctx.repoRoot, id));
+      spec = readSpec(ctx.repoRoot, id);
     } catch {
       // spec file missing despite being in index — skip
+      continue;
     }
+
+    const hasUi = specHasUiBehavior(spec);
+    const needsHandler = !handlerExists;
+    const needsUi = hasUi && !uiExists;
+
+    if (!needsHandler && !needsUi) {
+      // Already has everything — skip unless explicit --spec requests it
+      if (!ctx.specId) continue;
+      // With --spec, we still skip if nothing's missing; there's nothing to do.
+      continue;
+    }
+
+    const mode: TestgenMode =
+      needsHandler && needsUi ? "full" :
+      needsHandler ? "handler-only" :
+      "ui-only";
+
+    targets.push({ spec, mode });
   }
-  return specs;
+  return targets;
 }
 
 export function buildProjectContext(repoRoot: string): string {
@@ -339,6 +449,22 @@ export function buildProjectContext(repoRoot: string): string {
     }
   }
 
+  // List existing React components + client-side pages so the LLM knows
+  // NOT to emit a <ui_stub> block for a component that already exists.
+  // Components live at src/components/**; client pages live at
+  // src/app/**/page.tsx (or layout.tsx, though we don't usually brew layouts).
+  const componentsDir = join(repoRoot, "src", "components");
+  const pagesUnderApp = existsSync(appDir) ? listReactComponents(appDir) : [];
+  const libComponents = existsSync(componentsDir) ? listReactComponents(componentsDir) : [];
+  const allComponents = [...libComponents, ...pagesUnderApp].sort();
+  if (allComponents.length > 0) {
+    bits.push(
+      `\n### Existing React component / page files (tsx)\n\nThese already exist — do NOT emit a \`<ui_stub>\` block for any of them. If a UI test imports one of these, assume it's real code and skip stub generation.`
+    );
+    for (const c of allComponents.slice(0, 50)) bits.push(`- \`${c}\``);
+    if (allComponents.length > 50) bits.push(`- … (${allComponents.length - 50} more)`);
+  }
+
   // List existing mock helpers so the LLM knows which to import. The
   // helper pattern is load-bearing for the future record-and-replay swap
   // (plans/0.7-testgen-two-tier.md §4.3). Helpers NOT listed here will
@@ -383,6 +509,42 @@ export function buildProjectContext(repoRoot: string): string {
  * testgen LLM so it doesn't emit a <stub> for a file that already
  * exists.
  */
+/**
+ * Walk a React directory and return every `.tsx` file's repo-relative
+ * path. Used to surface existing components + client pages so testgen
+ * doesn't emit <ui_stub> blocks for files that already have real
+ * implementations.
+ */
+function listReactComponents(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(d);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const full = join(d, name);
+      let stat;
+      try {
+        stat = statSync(full);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) walk(full);
+      else if (stat.isFile() && name.endsWith(".tsx") && !name.endsWith(".test.tsx")) {
+        const srcIdx = full.indexOf("src/");
+        const rel = srcIdx >= 0 ? full.slice(srcIdx) : full;
+        out.push(rel);
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
+
 function listAppRouterFiles(appDir: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -420,18 +582,36 @@ function listAppRouterFiles(appDir: string): string[] {
  * against existing files, and writes only what's new.
  */
 export interface TestgenBundle {
+  /** Handler test file content. Empty string when mode is `"ui-only"`. */
   testContent: string;
   stubs: Array<{ path: string; contents: string }>;
   helpers: Array<{ path: string; contents: string }>;
+  /** UI component test file content (tier-1 UI). Empty string when mode is `"handler-only"`. */
+  uiTestContent: string;
+  /** UI component stubs — React/TSX files under src/components/ or src/app/**\/*.tsx. */
+  uiStubs: Array<{ path: string; contents: string }>;
 }
 
 async function generateTestBundle(
   spec: Spec,
   ctx: TestgenContext,
-  projectContext: string
+  projectContext: string,
+  mode: TestgenMode
 ): Promise<TestgenBundle> {
   const systemPrompt = TESTGEN_SYSTEM(projectContext);
-  const userMessage = `Here is the spec YAML. Generate the tier-1 test bundle (test file + any needed stubs + any needed helpers):\n\n\`\`\`yaml\n${YAML.stringify(spec)}\n\`\`\``;
+
+  const modeInstruction: Record<TestgenMode, string> = {
+    "full":
+      "Generate BOTH the handler tier-1 test bundle (`<test_file>` + any `<stub>` + any `<helper>`) AND the UI tier-1 bundle (`<ui_test_file>` + any `<ui_stub>`). This story has both API and UI scope.",
+    "handler-only":
+      "Generate the handler tier-1 test bundle (`<test_file>` + any `<stub>` + any `<helper>`). This story has no `ui_behavior`, so do NOT emit `<ui_test_file>` or `<ui_stub>` blocks.",
+    "ui-only":
+      "Handler tests already exist for this story. Emit ONLY the UI tier-1 bundle: `<ui_test_file>` + any `<ui_stub>` blocks needed to make the UI tests collect. Do NOT emit `<test_file>`, `<stub>`, or `<helper>` blocks — those artifacts are already on disk and should not be regenerated.",
+  };
+
+  const userMessage =
+    `${modeInstruction[mode]}\n\n` +
+    `Here is the spec YAML:\n\n\`\`\`yaml\n${YAML.stringify(spec)}\n\`\`\``;
 
   const raw = await ctx.llm.complete({
     system: systemPrompt,
@@ -441,38 +621,59 @@ async function generateTestBundle(
     maxTokens: 16384,
   });
 
-  return parseTestgenBundle(raw, spec.story_id);
+  return parseTestgenBundle(raw, spec.story_id, mode);
 }
 
 /**
  * Parse XML-tagged multi-artifact output into a TestgenBundle.
  *
  * Accepted shape (from the prompt):
- *   <test_file>...</test_file>
- *   <stub path="src/app/api/foo/route.ts">...</stub>   (zero or more)
- *   <helper path="tests/helpers/mocks/bar.ts">...</helper>  (zero or more)
+ *   <test_file>...</test_file>                    — required unless mode="ui-only"
+ *   <stub path="src/app/api/foo/route.ts">...</stub>         (zero or more)
+ *   <helper path="tests/helpers/mocks/bar.ts">...</helper>   (zero or more)
+ *   <ui_test_file>...</ui_test_file>              — required when mode="ui-only" or "full" with UI
+ *   <ui_stub path="src/components/foo.tsx">...</ui_stub>     (zero or more)
+ *
+ * Mode semantics (0.7.7+):
+ * - `"handler-only"` — `<test_file>` required; `<ui_test_file>` ignored if present.
+ * - `"ui-only"` — `<ui_test_file>` required; `<test_file>` ignored if present.
+ * - `"full"` — both `<test_file>` required AND `<ui_test_file>` required.
  *
  * Tolerant of code-fenced output: if the LLM wraps the whole thing in
  * ```, we strip it. If a block's contents are themselves code-fenced,
- * we strip those too — tier-1 test / helper / stub files are raw TS.
- *
- * Throws if `<test_file>` is missing or empty — that's the one mandatory
- * artifact.
+ * we strip those too — tier-1 test / helper / stub / UI files are raw TS/TSX.
  */
-export function parseTestgenBundle(raw: string, storyId: string): TestgenBundle {
+export function parseTestgenBundle(
+  raw: string,
+  storyId: string,
+  mode: TestgenMode = "handler-only"
+): TestgenBundle {
   const trimmed = raw.trim();
   // Strip outer code fence if the LLM wrapped everything
   const outerFenceMatch = trimmed.match(/^```[a-z]*\s*\n([\s\S]*)\n```$/);
   const body = outerFenceMatch && outerFenceMatch[1] ? outerFenceMatch[1] : trimmed;
 
+  const handlerRequired = mode !== "ui-only";
+  const uiRequired = mode !== "handler-only";
+
   const testMatch = body.match(/<test_file>([\s\S]*?)<\/test_file>/);
-  if (!testMatch || !testMatch[1]) {
+  if (handlerRequired && (!testMatch || !testMatch[1])) {
     throw new Error(
-      `testgen: LLM output for story-${storyId} missing a <test_file> block. ` +
+      `testgen: LLM output for story-${storyId} missing a <test_file> block (mode=${mode}). ` +
         `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
     );
   }
-  const testContent = stripInnerFence(testMatch[1]);
+  const testContent = testMatch && testMatch[1] ? stripInnerFence(testMatch[1]) : "";
+
+  const uiTestMatch = body.match(/<ui_test_file>([\s\S]*?)<\/ui_test_file>/);
+  if (uiRequired && (!uiTestMatch || !uiTestMatch[1])) {
+    throw new Error(
+      `testgen: LLM output for story-${storyId} missing a <ui_test_file> block (mode=${mode}). ` +
+        `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
+    );
+  }
+  const uiTestContent =
+    uiTestMatch && uiTestMatch[1] ? stripInnerFence(uiTestMatch[1]) : "";
 
   const stubs: Array<{ path: string; contents: string }> = [];
   const stubRe = /<stub\s+path="([^"]+)">([\s\S]*?)<\/stub>/g;
@@ -491,7 +692,15 @@ export function parseTestgenBundle(raw: string, storyId: string): TestgenBundle 
     if (p && c.trim()) helpers.push({ path: p, contents: stripInnerFence(c) });
   }
 
-  return { testContent, stubs, helpers };
+  const uiStubs: Array<{ path: string; contents: string }> = [];
+  const uiStubRe = /<ui_stub\s+path="([^"]+)">([\s\S]*?)<\/ui_stub>/g;
+  while ((m = uiStubRe.exec(body)) !== null) {
+    const p = m[1] ?? "";
+    const c = m[2] ?? "";
+    if (p && c.trim()) uiStubs.push({ path: p, contents: stripInnerFence(c) });
+  }
+
+  return { testContent, stubs, helpers, uiTestContent, uiStubs };
 }
 
 function stripInnerFence(raw: string): string {
@@ -608,6 +817,26 @@ export function lintTierOneTest(filePath: string, source: string): TierOneViolat
  * Robust against typical usage; falls back to a single synthetic entry if
  * nothing recognisable is found.
  */
+/**
+ * Read an existing test file from disk and extract its test IDs. Thin
+ * wrapper around extractTestIdsFromFile for the "ui-only" code path where
+ * the handler test already exists and we need its IDs to preserve in the
+ * rewritten combined manifest.
+ */
+export function extractTestIdsFromExistingFile(
+  repoRoot: string,
+  filePath: string
+): string[] {
+  const abs = join(repoRoot, filePath);
+  if (!existsSync(abs)) return [];
+  try {
+    const source = readFileSync(abs, "utf8");
+    return extractTestIdsFromFile(filePath, source);
+  } catch {
+    return [];
+  }
+}
+
 export function extractTestIdsFromFile(filePath: string, source: string): string[] {
   // Strip comments and blank string-literal contents so commented-out or
   // string-embedded `describe`/`it` don't register. Offsets are preserved
@@ -761,9 +990,25 @@ function buildPrBody(args: {
   sections.push("## Tests added");
   for (const g of args.generated) {
     const manifestCount = g.manifest.tests.length;
+    const parts: string[] = [];
+    if (g.testPath) parts.push(`\`${g.testPath}\``);
+    if (g.uiTestPath) parts.push(`\`${g.uiTestPath}\``);
+    const modeTag = g.mode === "ui-only" ? " *(ui-only mode — handler tests already present)*" : g.mode === "full" ? " *(handler + UI)*" : "";
     sections.push(
-      `- \`story-${g.spec.story_id}\` — *${g.spec.title}* — ${manifestCount} test(s) in \`${g.testPath}\``
+      `- \`story-${g.spec.story_id}\` — *${g.spec.title}* — ${manifestCount} test(s) in ${parts.join(" + ")}${modeTag}`
     );
+  }
+
+  const allUiStubs = args.generated.flatMap((g) => g.uiStubs);
+  if (allUiStubs.length > 0) {
+    sections.push("");
+    sections.push("## Generated UI stubs (React components / pages)");
+    sections.push(
+      "Minimal placeholder components so tier-1 UI tests can collect. Each carries an \`@slowcook-stub\` marker on line 1. **Brewing will replace these bodies** with the real component implementation. Reviewer check: correct file path + default export present + \`@slowcook-stub\` marker intact. Signature-wrong = PR-wrong — flag it now."
+    );
+    for (const s of allUiStubs) {
+      sections.push(`- \`${s.path}\``);
+    }
   }
 
   const allStubs = args.generated.flatMap((g) => g.stubs);

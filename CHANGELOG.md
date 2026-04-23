@@ -6,6 +6,37 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.7 — Testgen Phases B + C: UI test bundle + brew UI-aware + Vitest 4 pragma fix
+
+Completes the 0.7.5 bundle ([detailed plan](docs/plans/0.7.5-tier-1-ui.md)): Phase A helpers shipped in 0.7.5; Phases B (testgen UI emission) + C (brew UI-aware prompt) land here, alongside a small post-init text fix.
+
+**Phase B — testgen emits UI tier-1 bundle.**
+
+- New `TestgenMode` union: `"full"` | `"handler-only"` | `"ui-only"`. `collectTargetSpecs` infers the mode per spec based on what already exists on disk: handler test missing → `"handler-only"` or `"full"`; handler present but UI missing and spec has `ui_behavior` → `"ui-only"`. Unlocks the brownfield case — apply UI tests retroactively to a story whose handler was built pre-0.7.5.
+- `parseTestgenBundle` gains two new block kinds: `<ui_test_file>` (the `.tsx` test body) and `<ui_stub path="…">` (React component stubs). Signature extended with an optional `mode` parameter that gates which blocks are required; callers passing no mode get `"handler-only"` (back-compat with pre-0.7.7).
+- `TESTGEN_SYSTEM` prompt gets a full UI test-file shape spec: jsdom pragma on line 1 (Vitest 4 dropped `environmentMatchGlobs`), import conventions for `renderWithProviders` / `mockFetch` / `realShapedFetch` / `axe`, mandatory axe test per component, derived coverage from `ui_behavior` + `acceptance_scenarios`, UI stub shape with `@slowcook-stub` marker. The user message tells the LLM which mode it's running in.
+- `buildProjectContext` now also lists existing `src/components/**/*.tsx` + client `src/app/**/page.tsx` so the LLM doesn't emit `<ui_stub>` blocks for real components.
+- PR body + audit-trail comment mention UI tests + stubs separately when present, and tag `"ui-only"` mode explicitly.
+- `+4 unit tests` for the new parser behavior (full-mode bundle parse; ui-only mode requires `<ui_test_file>`; handler-required + UI-required in full mode; empty UI stubs ignored). 118 cli tests total.
+
+**Phase C — brew is UI-aware.**
+
+- `BREW_SYSTEM` prompt gains a "UI component tests" section: how `.test.tsx` targets differ (edit `src/components/` or client pages at `src/app/**/*.tsx`), the `@slowcook-stub` replace-me pattern, that helpers under `tests/helpers/` are fixed infra, how `vi.stubGlobal("fetch", …)` works in tier-1 UI, axe invariants, `"use client"` directive requirement, props inferred from test usage.
+- `allowedPaths` remains empty (permissive default) — UI paths under `src/` were already writable; the prompt just makes the expectation explicit to the agent.
+
+**Post-init text fix.**
+
+Older 0.7.5/0.7.6 `slowcook init` told consumers to add `environmentMatchGlobs: [["**/*.test.tsx", "jsdom"]]` to their `vitest.config.ts`. That option was removed in Vitest 4. The output now instructs: add `.tsx` to `test.include` + add a per-file `// @vitest-environment jsdom` pragma. Testgen prompts testgen-emitted UI test files to include the pragma.
+
+**Version jumps:**
+
+- `@slowcook-ai/cli 0.7.6 → 0.7.7`
+- `@slowcook-ai/core`, `@slowcook-ai/stack-ts`, `@slowcook-ai/forge-github` — unchanged.
+
+**Adoption:** bump pin to 0.7.7. On the next refine → testgen → brew cycle with a spec that has `ui_behavior`, the pipeline produces handler tests + UI tests + handler stub + component stub; brew then ratchets both into real code.
+
+**Brownfield specifically:** story-006 on rewo currently has handler tests + handler impl but no UI. With 0.7.7, re-running testgen on story-006 detects the missing UI test, emits `"ui-only"` mode (handler tests untouched), emits a component stub + UI test file; brew fills in the component.
+
 ## 0.7.6 — Re-publish 0.7.4 + 0.7.5 with correct dist/ (fixes stale-build release)
 
 **Process bug fix.** 0.7.4 (forge-github workflow templates `slowcook-tests-merged.yml` + `slowcook-brew-merged.yml`) and 0.7.5 (cli Phase A init integration for the UI testing helpers) were both published with **stale `dist/` folders** — the `src/` was correct, versions bumped, but I forgot to run `pnpm build` before publish. Result: both packages made it to npm with the previous version's compiled output.

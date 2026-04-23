@@ -380,7 +380,57 @@ import { it } from "vitest";
     );
   });
 
-  it("ignores empty <stub> or <helper> blocks (doesn't add entries)", () => {
+  it("parses a full bundle with UI test + UI stub (mode: full)", () => {
+    // String-concat `vitest-environment` so the pragma isn't picked up by
+    // vitest's parser when scanning THIS test file's contents.
+    const pragmaComment = "// @" + "vitest-environment jsdom";
+    const raw = `
+<test_file>import { POST } from "@/app/api/foo/route";</test_file>
+<stub path="src/app/api/foo/route.ts">// @slowcook-stub story-042
+export async function POST(): Promise<Response> { return new Response(); }</stub>
+<ui_test_file>${pragmaComment}
+import { renderWithProviders } from "@tests/helpers/render";</ui_test_file>
+<ui_stub path="src/components/foo/Form.tsx">// @slowcook-stub story-042
+export default function Form(): never { throw new Error("stub"); }</ui_stub>
+`;
+    const b = parseTestgenBundle(raw, "042", "full");
+    expect(b.testContent).toContain(`from "@/app/api/foo/route"`);
+    expect(b.stubs).toHaveLength(1);
+    expect(b.uiTestContent).toContain("renderWithProviders");
+    expect(b.uiStubs).toHaveLength(1);
+    expect(b.uiStubs[0]?.path).toBe("src/components/foo/Form.tsx");
+  });
+
+  it("throws when <ui_test_file> is missing in ui-only mode", () => {
+    const raw = `<test_file>handler stays here</test_file>`;
+    expect(() => parseTestgenBundle(raw, "042", "ui-only")).toThrow(
+      /missing a <ui_test_file>/
+    );
+  });
+
+  it("does not require <test_file> in ui-only mode", () => {
+    const pragmaComment = "// @" + "vitest-environment jsdom";
+    const raw = `
+<ui_test_file>${pragmaComment}
+import { renderWithProviders } from "@tests/helpers/render";</ui_test_file>
+`;
+    const b = parseTestgenBundle(raw, "042", "ui-only");
+    expect(b.testContent).toBe("");
+    expect(b.uiTestContent).toContain("renderWithProviders");
+  });
+
+  it("requires BOTH handler and UI in full mode", () => {
+    const handlerOnly = `<test_file>handler</test_file>`;
+    expect(() => parseTestgenBundle(handlerOnly, "042", "full")).toThrow(
+      /missing a <ui_test_file>/
+    );
+    const uiOnly = `<ui_test_file>ui</ui_test_file>`;
+    expect(() => parseTestgenBundle(uiOnly, "042", "full")).toThrow(
+      /missing a <test_file>/
+    );
+  });
+
+  it("ignores empty <stub>, <helper>, or <ui_stub> blocks", () => {
     const raw = `
 <test_file>t</test_file>
 <stub path="empty.ts">
@@ -388,9 +438,13 @@ import { it } from "vitest";
 <helper path="also-empty.ts">
 
 </helper>
+<ui_stub path="blank.tsx">
+
+</ui_stub>
 `;
     const b = parseTestgenBundle(raw, "042");
     expect(b.stubs).toEqual([]);
     expect(b.helpers).toEqual([]);
+    expect(b.uiStubs).toEqual([]);
   });
 });

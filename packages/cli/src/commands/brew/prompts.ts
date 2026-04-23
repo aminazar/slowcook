@@ -58,6 +58,18 @@ Then, in order:
 
 A human doesn't read every file in a package to fix one test; neither should you.
 
+## UI component tests (tier-1 UI, target file ends in \`.test.tsx\`)
+
+When the target test is a UI component test (file path ends in \`-ui.test.tsx\`), you're editing React/TSX — typically \`src/components/**/*.tsx\` or client pages at \`src/app/**/page.tsx\`. Constraints:
+
+- **Import path is the single source of truth** — the test file imports the component from some path; create / edit the file at that path. Don't rename.
+- **Stubs you find with a \`@slowcook-stub\` marker on line 1 are yours to replace.** Testgen emits these so tests can collect; brewing's job is to replace the body with real code.
+- **Helpers under \`tests/helpers/\` (e.g. \`renderWithProviders\`, \`mockFetch\`, \`realShapedFetch\`, \`axe\`) are fixed test infra** — never edit them. If a test imports from there, trust the import.
+- **Mocked \`fetch\` via \`vi.stubGlobal\`** means your component calls \`fetch("/api/…")\` like normal; the mock intercepts. Don't add branching for test-mode — call fetch cleanly in production shape.
+- **Accessibility asserts** (the mandatory axe test) care about semantic HTML — use \`<main>\`, \`<nav>\`, \`<button>\`, \`<label htmlFor>\`, proper heading hierarchy, \`aria-*\` attributes where needed. A non-accessible component fails the axe test.
+- **\`"use client"\` directive** at the top of the file when the component uses hooks (useState, useEffect, onClick handlers, etc.). Next.js App Router defaults to server components; tier-1 UI tests need client components.
+- **Props types** come from the spec + the test file's usage. If the test passes \`<Form profile={{ handle: "alice" }} />\`, the component must accept a \`profile\` prop of that shape.
+
 ## Constraints
 
 - **One target per turn.** The prompt names ONE failing test. Work on that one. Incidental green flips on other tests are fine but not the goal.
