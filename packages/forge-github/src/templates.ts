@@ -56,7 +56,12 @@ ${RESOLVE_PIN_STEP}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+      # setup-node's \`cache: npm\` used to be set here but was removed
+      # in 0.7.18-era (see rewo CI incident 2026-04-23): it captured
+      # \`~/.npm/_npx\` along with the npm cache, and the _npx paths
+      # restore with relative \`../../..\` prefixes that tar can't mkdir,
+      # spamming ~55k log lines per run with zero speedup for the
+      # \`npx --yes\` pattern this workflow uses.
 
       - name: Install consumer deps
         # \`manifest verify\` shells out to the consumer's own test runner

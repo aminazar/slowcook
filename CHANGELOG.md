@@ -6,6 +6,18 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.19 — forge-github template drops `cache: npm` from slowcook.yml
+
+Consumer CI incident on rewo (2026-04-23, ~21:00 UTC). `actions/setup-node@v4` with `cache: npm` captured `~/.npm/_npx` alongside the intended `~/.npm/_cacache`. On restore, `tar` couldn't mkdir the relative `../../..` paths `_npx` stored → **55k+ lines of "Cannot mkdir: No such file or directory" per CI run**.
+
+`npx --yes "$SLOWCOOK_CLI"` downloads fresh each run regardless of whether the `_npx` cache is primed; the `cache: npm` option was saving state that hurt restore without ever helping runtime. Dropping it costs ~20 seconds per CI run (re-running `npm ci` cold) and saves 55k log lines.
+
+Template change in `packages/forge-github/src/templates.ts` slowcook-checks workflow. Consumers should also clear existing broken caches via `gh cache delete --all` and drop the option from any pre-existing workflow copies (rewo did both).
+
+**`@slowcook-ai/forge-github`**: `0.7.11 → 0.7.12`. No cli/core/stack-ts changes.
+
+---
+
 ## 0.7.18 — Schema assertion widens to preconditions + acceptance_scenarios
 
 Dogfood of 0.7.17 on rewo story-005 (2026-04-23 ~20:47 UTC) caught the schema assertion MISSING the column the spec described. Diagnosis:
