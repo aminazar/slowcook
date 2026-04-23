@@ -86,14 +86,23 @@ ${RESOLVE_PIN_STEP}
         run: npx --yes "$SLOWCOOK_CLI" map check
 
       - name: Run tests
-        # Execute the project's test suite on every PR. Without this step,
-        # a broken test file passes the slowcook gate (guard/manifest/map)
-        # and goes silently red on main. Observed on rewo story-005: 11
-        # tests sat broken on main between brew-merge and the story-006
-        # diagnosis because no PR-time step ran vitest. The consumer's
-        # \`npm test\` script is the contract; projects that gate heavy
-        # tests on an env var (ACCEPTANCE=1, INTEGRATION=1, etc.) should
-        # \`describe.skipIf\` those so \`npm test\` stays default-fast in CI.
+        # Execute the project's test suite on every PR — EXCEPT testgen
+        # PRs, whose newly-emitted tests are red-by-design (they import
+        # stubs that throw, meant to be brewed green). Gating on the
+        # \`slowcook-tests\` label: testgen adds it, brew PRs don't have
+        # it, human PRs don't have it, so this only skips where the red
+        # is expected. Caught on rewo PR #56 where a 37-UI-test testgen
+        # PR legitimately failed this gate by design.
+        #
+        # Without this step, a broken test file passes the slowcook gate
+        # (guard/manifest/map) and goes silently red on main. Observed on
+        # rewo story-005: 11 tests sat broken on main between brew-merge
+        # and the story-006 diagnosis because no PR-time step ran vitest.
+        # The consumer's \`npm test\` script is the contract; projects that
+        # gate heavy tests on an env var (ACCEPTANCE=1, INTEGRATION=1, etc.)
+        # should \`describe.skipIf\` those so \`npm test\` stays default-fast
+        # in CI.
+        if: "!contains(github.event.pull_request.labels.*.name, 'slowcook-tests')"
         run: npm test
 `;
 }

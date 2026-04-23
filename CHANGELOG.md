@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.10 — Brew PR-open visibility + skip Run-tests on testgen PRs
+
+Two unrelated small fixes surfaced by rewo story-006 UI brew run:
+
+**1. Brew halted with 1 checkpoint but silently failed to open a PR.** Root cause in `haltFor()`: the call was fire-and-forget (`openBrewPullRequest(...).catch(() => {})`) and not awaited. Any error path in forge.createPullRequest got swallowed; the `appendRunLog` WARN inside the inner try/catch landed AFTER the run log was rescued to halts/, so operators had no trace. Fix: `haltFor` is now `async`, `openBrewPullRequest` is awaited, an outer try/catch prints `WARN PR open path threw: ...` to stderr + appends `HALT_PR_OPEN_FAILED` to the iter log. Errors surface loudly, in sequence with everything else.
+
+**2. Run-tests step on PR gate skips testgen PRs.** Rewo PR #56 failed the 0.7.3 PR-gate's `Run tests` step because its new UI tests import component stubs that throw by design (the whole TDD-first invariant). Labels: testgen PRs have `slowcook-tests`; brew PRs have `slowcook-brew`; human PRs have neither. The workflow template now gates the step on `!contains(labels, 'slowcook-tests')` — testgen PRs skip, brew + human PRs still run.
+
+- Observed impact: PR #56 merged with UNSTABLE status (branch protection was off on rewo). After 0.7.10, the step won't even run on testgen PRs, so CI stays green where it should.
+- Brew PRs stay gated — by then all tests should be green, and a red here would be a genuine regression.
+
+**Version jumps:**
+
+- `@slowcook-ai/cli 0.7.9 → 0.7.10` (haltFor async + visible PR-open error path)
+- `@slowcook-ai/forge-github 0.7.6 → 0.7.10` (workflow template's `Run tests` step gets the label gate)
+- core/stack-ts unchanged.
+
+131 cli tests still green.
+
 ## 0.7.9 — Cost stats + pipeline-total aggregator
 
 Every agent (refine / testgen / brew) now records its Anthropic spend on the source issue's comment trail as a hidden HTML marker, and `on-brew-merged` sums them into a pipeline-total line on the "shipped 🎉" comment. Makes each issue self-describing: anyone reading the comment trail can see exactly what the autonomous pipeline cost to ship that story.

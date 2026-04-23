@@ -1314,7 +1314,7 @@ interface HaltArgs {
   iterationLogs?: IterationLog[];
 }
 
-function haltFor(ctx: BrewContext, args: HaltArgs): BrewOutcome {
+async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
   const iterationDiffs = (args.iterationLogs ?? []).map<IterationDiff>((l) => ({
     iteration: l.iteration,
     target_test_id: l.target_test_id,
@@ -1383,21 +1383,32 @@ function haltFor(ctx: BrewContext, args: HaltArgs): BrewOutcome {
     } catch {
       // best effort
     }
-    // Open a draft PR so the partial progress has a review surface. Skipping
-    // when checkpoints_committed === 0 because there's literally nothing to
-    // review — the branch is the baseline.
-    openBrewPullRequest(ctx, {
-      kind: "halted",
-      iterationsRun: args.iterations,
-      checkpointsCommitted: args.checkpoints,
-      greenCount: args.greenCount,
-      totalCount: args.totalCount,
-      spendUsd: args.spendUsd,
-      iterationLogs: args.iterationLogs ?? [],
-      haltReport: report,
-    }).catch(() => {
-      /* best effort — the halt is already recorded; PR failure shouldn't cascade */
-    });
+    // Open a draft PR so the partial progress has a review surface.
+    // Skipping when checkpoints_committed === 0 because there's literally
+    // nothing to review — the branch is the baseline.
+    //
+    // Awaited (not fire-and-forget) so any failure is logged BEFORE the
+    // run log is rescued to halts/; otherwise the WARN line lands after
+    // the artifact is copied and the operator has no trail.
+    try {
+      await openBrewPullRequest(ctx, {
+        kind: "halted",
+        iterationsRun: args.iterations,
+        checkpointsCommitted: args.checkpoints,
+        greenCount: args.greenCount,
+        totalCount: args.totalCount,
+        spendUsd: args.spendUsd,
+        iterationLogs: args.iterationLogs ?? [],
+        haltReport: report,
+      });
+    } catch (e) {
+      // Shouldn't happen — openBrewPullRequest's own try/catch swallows
+      // forge errors and logs WARN. But if something further up throws
+      // (e.g. bad args), surface it visibly so it's not lost.
+      const msg = (e as Error).message.slice(0, 300);
+      console.error(`\nWARN  PR open path threw: ${msg}\n  Branch ${ctx.branchName} is pushed; open a PR manually.`);
+      appendRunLog(ctx, `HALT_PR_OPEN_FAILED ${msg}`);
+    }
   }
 
   // Post comment to the source issue if present
