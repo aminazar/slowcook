@@ -11,6 +11,8 @@ import {
   extractDdlColumnsFromSpec,
   buildSchemaAssertionTestContent,
   buildPageLinkTestContent,
+  buildStylingPresenceTestContent,
+  resolveImportToSourcePath,
 } from "./agent.js";
 import type { Spec } from "@slowcook-ai/core";
 import { normalizeSpecId } from "./index.js";
@@ -648,6 +650,39 @@ describe("buildPageLinkTestContent", () => {
     const r = buildPageLinkTestContent(spec, hint);
     expect(r.contents).toContain("imports ");
     expect(r.contents).toContain("mounts <");
+  });
+
+  it("0.7.21: resolveImportToSourcePath maps @/ alias to src/", () => {
+    expect(resolveImportToSourcePath("@/components/profile/ProfileEditForm")).toBe(
+      "src/components/profile/ProfileEditForm.tsx"
+    );
+    expect(resolveImportToSourcePath("@/components/members/MemberReactionsPage")).toBe(
+      "src/components/members/MemberReactionsPage.tsx"
+    );
+    // Already has an extension — keep it.
+    expect(resolveImportToSourcePath("@/lib/util.ts")).toBe("src/lib/util.ts");
+    // No @/ prefix — pass through with extension appended.
+    expect(resolveImportToSourcePath("relative/path")).toBe("relative/path.tsx");
+  });
+
+  it("0.7.21: buildStylingPresenceTestContent emits static source-scan assertions", () => {
+    const spec = { story_id: "006" } as unknown as import("@slowcook-ai/core").Spec;
+    const hint = {
+      page: "src/app/(main)/profile/page.tsx",
+      component: "ProfileEditForm",
+      importFrom: "@/components/profile/ProfileEditForm",
+    };
+    const r = buildStylingPresenceTestContent(spec, hint);
+    expect(r.path).toBe("tests/integration/story-006-styling.test.ts");
+    expect(r.contents).toContain('"src/components/profile/ProfileEditForm.tsx"');
+    expect(r.contents).toContain("component file exists");
+    expect(r.contents).toContain("uses className attributes");
+    expect(r.contents).toContain("design-token family");
+    // No rendering — pure source scan. Shouldn't import renderWithProviders.
+    expect(r.contents).not.toContain("renderWithProviders");
+    // String broken up so Vitest's parser doesn't treat it as a real
+    // per-file pragma and try to load jsdom for this assertion.
+    expect(r.contents).not.toContain("@vitest" + "-environment jsdom");
   });
 
   it("0.7.19: it() names are STATIC string literals so manifest extraction matches vitest runtime", () => {

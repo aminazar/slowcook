@@ -153,6 +153,11 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     const extraTestFiles: Array<{ path: string; contents: string }> = [];
     if (bundle.pageLink) {
       extraTestFiles.push(buildPageLinkTestContent(spec, bundle.pageLink));
+      // 0.7.21: styling presence assertion piggybacks on the page-link
+      // hint since both key off the same component. Separate test file
+      // (static source scan, no render) so it runs regardless of jsdom
+      // setup or test-suite timer conventions.
+      extraTestFiles.push(buildStylingPresenceTestContent(spec, bundle.pageLink));
     }
     const schemaArtifact = buildSchemaAssertionTestContent(spec);
     if (schemaArtifact) {
@@ -967,6 +972,81 @@ export function buildSchemaAssertionTestContent(
     `\n` +
     columnChecks +
     `\n` +
+    `});\n`;
+
+  return { path, contents };
+}
+
+/**
+ * Resolve an `@/…` import specifier back to a repo-relative source file.
+ * Mirrors Next.js / tsconfig's default alias (`@/*` → `src/*`). Falls
+ * back to the raw path if the specifier isn't prefixed.
+ */
+export function resolveImportToSourcePath(importFrom: string): string {
+  let rel = importFrom.startsWith("@/") ? `src/${importFrom.slice(2)}` : importFrom;
+  if (!/\.(tsx?|jsx?)$/.test(rel)) rel += ".tsx";
+  return rel;
+}
+
+/**
+ * Produce `tests/integration/story-N-styling.test.ts` from a `<page_link>`
+ * hint. Asserts the component file has visible styling attention —
+ * **presence** checks, not pixel-perfect visual regression:
+ *
+ *  1. At least 4 `className=` occurrences. Raw unstyled HTML has 0-1;
+ *     a real styled component has many.
+ *  2. At least one Tailwind-shaped class name (`bg-`, `text-`, `border-`,
+ *     `rounded`, `px-`, etc.) so the component is using the project's
+ *     design-token family, not just scattered arbitrary classes.
+ *
+ * Doesn't couple tests to specific tokens (brew can choose `bg-coral`,
+ * `bg-primary`, whatever the project uses). Catches the "zero-className
+ * raw HTML" failure mode observed on rewo story-005/006 (2026-04-23,
+ * two consecutive brews shipping unstyled components). See memory
+ * `project_styling_gap_in_pipeline.md`.
+ *
+ * Static source-file scan — no render, no jsdom, no fixture required.
+ * Same pattern as `buildPageLinkTestContent` / `buildSchemaAssertionTestContent`.
+ */
+export function buildStylingPresenceTestContent(
+  spec: Spec,
+  hint: PageLinkHint
+): { path: string; contents: string } {
+  const path = join(
+    TESTS_INTEGRATION_DIR,
+    `story-${spec.story_id}-styling.test.ts`
+  );
+  const componentPath = resolveImportToSourcePath(hint.importFrom);
+
+  const contents =
+    `// slowcook 0.7.21 styling presence assertion — story-${spec.story_id}\n` +
+    `//\n` +
+    `// Tier-1 UI tests use role/label/text selectors that pass on unstyled\n` +
+    `// HTML. This static assertion catches the "zero-className raw markup"\n` +
+    `// failure mode directly: checks the component source file for visible\n` +
+    `// styling attention (className attributes + Tailwind-shaped class names).\n` +
+    `// Doesn't couple to specific tokens — brew can choose whatever the\n` +
+    `// project's design-token family uses.\n` +
+    `\n` +
+    `import { describe, it, expect } from "vitest";\n` +
+    `import { readFileSync, existsSync } from "node:fs";\n` +
+    `\n` +
+    `describe("story-${spec.story_id} styling presence", () => {\n` +
+    `  const componentPath = ${JSON.stringify(componentPath)};\n` +
+    `  const src = existsSync(componentPath) ? readFileSync(componentPath, "utf8") : "";\n` +
+    `\n` +
+    `  it("component file exists", () => {\n` +
+    `    expect(existsSync(componentPath)).toBe(true);\n` +
+    `  });\n` +
+    `\n` +
+    `  it("uses className attributes on rendered elements", () => {\n` +
+    `    const matches = src.match(/\\bclassName=/g) ?? [];\n` +
+    `    expect(matches.length).toBeGreaterThanOrEqual(4);\n` +
+    `  });\n` +
+    `\n` +
+    `  it("uses the project's design-token family (Tailwind-shaped classes)", () => {\n` +
+    `    expect(src).toMatch(/\\b(?:bg-|text-|border-|rounded|px-|py-|space-y-|flex|grid|mt-|mb-|gap-)\\S+/);\n` +
+    `  });\n` +
     `});\n`;
 
   return { path, contents };

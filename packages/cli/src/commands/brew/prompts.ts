@@ -84,6 +84,15 @@ When the target test is a schema assertion (path \`tests/schema/story-N.test.ts\
 - **Backfill if invariants require it** — if an invariant says "...and backfills existing rows to false", write an \`UPDATE\` in the same migration, or use \`DEFAULT\` on \`ADD COLUMN\` to cover both new + existing rows in one shot.
 - **Never touch \`supabase/migrations/00001_*\`** through whatever number exists — those are historical. Append-only is the convention.
 
+## Styling presence (target file ends in \`-styling.test.ts\` under \`tests/integration/\`)
+
+When the target test is a styling presence assertion, it reads the component source file and checks for:
+
+- At least 4 \`className=\` occurrences (raw unstyled HTML has 0-1; a real styled component has many).
+- At least one class from the project's design-token family (\`bg-\`, \`text-\`, \`border-\`, \`rounded\`, \`px-\`, \`py-\`, \`space-y-\`, \`flex\`, \`grid\`, \`mt-\`, \`mb-\`, \`gap-\`).
+
+Close it by adding Tailwind classes to the component file named in the test. Don't hand-pick arbitrary classes — read \`.brewing/context.md\`'s "Visual conventions" section (design tokens + reusable patterns) and use those. If context.md is silent on styling, imitate neighbouring files in \`src/components/\` / \`src/app/(main)/\`. The test doesn't care WHICH classes — it cares that you made the effort.
+
 ## Page-link assertion (target file ends in \`-page.test.ts\` under \`tests/integration/\`)
 
 When the target test is a page-link assertion, it reads a Next.js page file and asserts the page IMPORTS + MOUNTS a named component. Fix by editing the page:

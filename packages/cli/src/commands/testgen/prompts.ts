@@ -202,7 +202,7 @@ Vitest 4 removed \`environmentMatchGlobs\` — the per-file pragma is the only s
 - **Use the \`@testing-library/jest-dom\` matchers** the \`a11y\` helper extends onto vitest: \`toBeInTheDocument\`, \`toHaveTextContent\`, \`toHaveClass\`, \`toBeDisabled\`, \`toHaveAccessibleName\`.
 - **Fire events via \`fireEvent\`** from \`@testing-library/react\`: \`fireEvent.change(input, { target: { value: "x" } })\`, \`fireEvent.click(button)\`.
 - **Mock \`fetch\`** when the component calls it: \`vi.stubGlobal("fetch", realShapedFetch(mockFetch({ routes: [...] })))\`. Use \`realShapedFetch\` so signature bugs fail loudly.
-- **Fake timers** for anything debounced: \`vi.useFakeTimers(); vi.setSystemTime(...); vi.advanceTimersByTime(300);\`.
+- **Default to real timers at the describe level.** Flip to \`vi.useFakeTimers()\` ONLY inside the specific \`it()\` that exercises a debounce / interval / setTimeout path, and ALWAYS follow with \`await vi.advanceTimersByTimeAsync(ms)\` + \`vi.useRealTimers()\` before the test body ends. **NEVER** declare \`vi.useFakeTimers()\` in a shared \`beforeEach\` — Vitest v4 fakes \`queueMicrotask\` by default, so \`await fetch(...)\` promises never resolve under fake timers and \`findByText\` times out silently at 5s. This is the #1 cause of "brew halts on fetch-dependent UI tests it can't fix because tests/ is frozen" (rewo story-005, 2026-04-23).
 - **Observe router calls** via \`renderWithProviders\`'s returned \`{ router }\` — e.g., \`expect(router.push).toHaveBeenCalledWith("/profile")\` if you passed a spy.
 
 ### Mandatory axe test

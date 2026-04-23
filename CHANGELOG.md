@@ -6,6 +6,40 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.21 — Styling presence assertions + fake-timers correction
+
+Two fixes pulled from the story-005 dogfood post-mortem (2026-04-23):
+
+### 1. Styling presence assertions (the proper structural fix)
+
+0.7.20 leaned on prompt steering for visual conventions. User pushback: why don't we add styling tests? Right answer. Prompt steering is a soft signal; a test is a hard one. Added a third deterministic tier-1 assertion file — joins page-link (0.7.17) and schema (0.7.18):
+
+**`tests/integration/story-N-styling.test.ts`** — static source-file scan of the component named in `<page_link>`. Three assertions:
+
+1. Component file exists.
+2. At least 4 `className=` occurrences (raw unstyled HTML has 0-1; a real styled component has many).
+3. At least one class from the project's design-token family (`bg-|text-|border-|rounded|px-|py-|space-y-|flex|grid|mt-|mb-|gap-`).
+
+**Presence** checks, not pixel-perfect visual regression. Doesn't couple to specific tokens — brew can pick `bg-coral`, `bg-primary`, whatever the consumer's design system uses. No jsdom, no fixture required. Closes the "brew ships zero-className components" failure mode directly at the measured-signal level.
+
+Brew's prompt gains a corresponding section telling the agent that when the target is a `-styling.test.ts`, the fix is to add Tailwind classes (reading `.brewing/context.md`'s Visual conventions section for the specific tokens, or imitating neighbouring files if context.md is silent).
+
+### 2. Fake-timers correction in testgen prompt
+
+Testgen's UI-test prompt previously said "Fake timers for anything debounced". The LLM read this as permission to declare `vi.useFakeTimers()` in a shared `beforeEach`. Vitest v4 fakes `queueMicrotask` by default → `await fetch(...)` promises never resolve → `findByText` times out at 5s.
+
+Observed on rewo story-005: 6 of 11 UI tests timed out; brew halted `AGENT_STALLED_NO_EDITS` after 2 consecutive zero-edit iters because `tests/` is frozen — brew couldn't fix the buggy test file. (Brew's report was accurate: 80 green was real; the 6 reds were structurally unreachable.)
+
+**Fix:** tighter guidance in `TESTGEN_SYSTEM` — default to real timers at the describe level; flip to fake timers ONLY inside the specific `it()` that needs them; always `await vi.advanceTimersByTimeAsync(ms)` + `vi.useRealTimers()` before the test body ends. Never in shared `beforeEach`.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.7.20 → 0.7.21`.
+- 157 tests (+2 new regression guards).
+- No other package changes.
+
+---
+
 ## 0.7.20 — brew prompt: steer toward project visual conventions
 
 Third recurring gap class (after page-integration + schema): brew shipping zero-className components because tier-1 tests don't assert visual style. Observed twice on rewo on 2026-04-23 (story-006 ProfileEditForm shipped via PR #61, story-005 MemberReactionsPage shipped via PR #66). Both components were functionally correct, axe-clean, tests-green — and visually unusable. User restyled both by hand.
