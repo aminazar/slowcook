@@ -8,3 +8,8 @@ coverage/
 *.log
 # Never commit an auth token
 .npmrc
+
+# Playwright test output (from dogfood runs that leak into the repo root)
+/test-results/
+/playwright-report/
+/playwright/.cache/
