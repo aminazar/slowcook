@@ -151,13 +151,33 @@ The biggest missing piece from both DESIGN.md and the prior roadmap: brew only p
 - **UI helpers** analogous to `mockSupabase`: a shared render helper that sets up a reasonable default (router, query client, auth state) and a `mockFetch` helper with the same signature-asserting pattern (`realShapedFetch`) for handlers the component calls.
 - **Stub generation extension.** For each UI story, testgen emits a component stub (`export default function PlaceholderComponent() { throw new Error('@slowcook-stub'); }`) alongside the test file so the test collects.
 - **Testgen prompt** gets a UI-shape spec similar to the tier-1 handler shape — render, fire events, assert on DOM.
+- **Accessibility built in.** `jest-axe` runs against every rendered component in the tier-1 UI suite. Catches contrast, ARIA, heading-hierarchy, label-for-input mismatches at PR time, before acceptance ever spins up. Low cost, high leverage — a11y bugs compound if not caught early.
 
-Deliberately NOT in 0.7.5 scope:
-- Visual/pixel assertions (that's Gate 1 + Gate 2 in 0.9).
-- Screenshot capture (that's 0.8).
-- CSS-level taste calls (that's Gate 3 in 0.9, via GitHub comments).
+### 0.7.5 — What tier-1 UI actually covers (not "does the component exist")
 
-Tier-1 UI covers *functional correctness* of the component — the stuff that's AI-judgeable from the DOM alone.
+With jsdom + Testing Library + `jest-axe`, tier-1 UI covers most of `ui_behavior`'s substance cheaply (<1s/test). Examples, each a realistic test for rewo story-006's profile-edit form:
+
+| Category | Example assertion |
+|---|---|
+| **Conditional rendering** | "warning banner renders when `handle_confirmed=false`" |
+| **State-machine behavior** | "typing in handle field triggers debounced `/api/profiles/handle-available` call at 300ms" |
+| **Event → state** | "clicking Save calls `PATCH /api/profiles/me` with the current form state" |
+| **Form-validation UI** | "bio counter turns red at 161 chars; Save button disables" |
+| **Accessibility** | "no axe violations (contrast, ARIA, heading hierarchy, label-for)" |
+| **Semantic structure** | "emoji picker opens as a dialog with the right ARIA role" |
+| **Error states** | "shows 'handle taken' error when API returns 409" |
+| **Loading states** | "shows spinner while availability check is in-flight" |
+| **Routing intent** | "clicking Cancel calls `router.push('/profile')`" |
+
+What tier-1 UI **can't** check — deferred to acceptance + screenshots + gates:
+- Real CSS layout (jsdom's layout engine is approximate; flex/grid compute differently).
+- Pixel-level: centering, spacing, actual color values.
+- Tap-target sizes ≥44px (needs real layout).
+- Viewport behavior (mobile-dark vs desktop-light — jsdom has no viewports).
+- Animation smoothness, sheet-transition behavior.
+- Brand / aesthetic taste calls.
+
+**Tier-1 UI catches the functional substance of `ui_behavior`; tier-2 + Gates 1/2/3 catch the visual substance and the real-sandbox substance.** Most UI regressions are functional, so tier-1 UI is where the bulk of the coverage lives — cheap to run on every PR.
 
 ### 0.7.5 — Interaction with context.md
 
@@ -179,7 +199,7 @@ Adds the structural backstop against mock drift that 0.6.13's opt-in assertions 
 
 - **Discovery.** `stack-ts.discover.ts` extended to know about `tests/acceptance/`. Default vitest include pattern unchanged; acceptance runs via a distinct command gated by `ACCEPTANCE=1`.
 - **Runner harness — new stack-adapter responsibility.** `stack-ts` (or a future stack-acceptance adapter) knows how to spawn the real sandbox for the consumer: `supabase start` for the Supabase stack, `next dev` for Next.js. Pluggable so other stacks can opt in.
-- **`slowcook-acceptance.yml` workflow template.** Lives in `@slowcook-ai/forge-github` (thanks to 0.7's refactor). Runs nightly + on-demand. Installs the stack sandbox, runs `ACCEPTANCE=1 npx vitest tests/acceptance`, uploads captured fixtures as artifact.
+- **`slowcook-acceptance.yml` workflow template.** Lives in `@slowcook-ai/forge-github` (thanks to 0.7's refactor). Runs **on every brew PR (pre-merge gate) + nightly against main**. Installs the stack sandbox, runs `ACCEPTANCE=1 npx vitest tests/acceptance`, drives Playwright for UI stories, uploads captured fixtures and screenshots as artifact. Why per-PR: acceptance's job is real-sandbox mock-drift detection — if it's only nightly, drift ships to main before being caught. Cost per run is minutes (sandbox spin-up + Playwright); acceptable for the safety net it provides.
 - **Recorder.** Wrapper around external-service clients that intercepts every request → response pair. Shape of output: `tests/fixtures/<story-id>/<service>/<request-hash>.json`. Hash is stable across request body reorderings. Generated fixtures are committable alongside tests.
 - **Scrubber.** Pre-write pass that replaces volatile fields with placeholders per a service-specific config in the stack adapter. Defaults are loud: scrub every UUID/email/bearer/timestamp unless allow-listed. CI refuses to accept a PR where a fixture contains a pattern matching `[a-f0-9]{8}-[a-f0-9]{4}-...` etc. without a placeholder.
 - **Staleness gate.** New CLI command `slowcook fixtures check`, added to the CI workflow. Fails PR if the newest fixture under `tests/fixtures/<story-id>/` is older than `N` days (default 14), unless a `@fixtures-frozen <reason>` marker is present in the story's spec. Forces periodic re-record to surface drift.
