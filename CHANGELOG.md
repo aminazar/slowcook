@@ -6,6 +6,31 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.4 — Audit-trail comments on source issue
+
+Stitches the pipeline into a single readable thread per source issue. Today refine posts comments (overlap / follow-up / clarifications / spec submitted) but after that the issue goes quiet while testgen, brew, and merges happen on separate PRs. This release plugs the three gaps:
+
+**New in CLI:**
+
+- **testgen** now posts an audit-trail comment on each spec's `source_issue` when the tests PR opens: *"tests: PR #N opened (story-M, K tests)."* Best-effort; doesn't fail the testgen run on a bad comment post.
+- **brew** now posts on success-PR-open (halt path already posts): *"brew opened (SUCCESS): PR #P — X/Y green, $Z, I iterations."* Only on `success` outcomes; `halted` continues to post the existing halt report.
+- **on-spec-merged** now also posts a transition comment alongside the existing label swap: *"spec: PR #N merged — testgen triggers automatically."*
+- **on-tests-merged** — **new command**. Mirrors on-spec-merged. Listens for `slowcook-tests` PR merges; resolves each story's source issue via the manifest + spec; posts *"tests: PR #N merged — brew-auto triggers automatically."*
+- **on-brew-merged** — **new command**. Final pipeline-transition comment. Infers story-id from the brew branch name, looks up the spec's source_issue, posts the closing *"shipped 🎉"* comment with a summary of the whole trail.
+
+**New in forge-github:**
+
+- `getGitHubCiArtifacts()` now emits two new workflow templates: `slowcook-tests-merged.yml` and `slowcook-brew-merged.yml`. Each fires on `pull_request.closed` gated by the relevant slowcook label and calls the corresponding CLI command. Pairs with the existing `slowcook-spec-merged.yml`.
+
+**Version jumps:**
+
+- `@slowcook-ai/cli 0.7.3 → 0.7.4`
+- `@slowcook-ai/forge-github 0.7.3 → 0.7.4` (paired publish for the new workflow templates)
+
+Adoption: bump the pin to 0.7.4, then `slowcook init --force` to regenerate workflows (or hand-add the two new YAMLs from the template output). Existing consumers get the CLI-side comments automatically on the next refine / testgen / brew run.
+
+114 cli tests still green; no schema or behaviour changes for existing flows beyond the added comments.
+
 ## 0.7.3 — PR-gate runs the tests
 
 Surfaced by rewo story-006's diagnosis: story-005's 11 tier-1 tests sat red on main for ~24h between its brew-merge and the next story's attempt, undetected. Root cause — the `slowcook checks` workflow does frozen-path guard + manifest verify + code-map check but **never actually runs vitest**. A broken test file passes the PR gate.

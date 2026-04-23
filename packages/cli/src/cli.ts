@@ -7,6 +7,8 @@ import { manifest } from "./commands/manifest.js";
 import { init } from "./commands/init/index.js";
 import { refine } from "./commands/refine/index.js";
 import { onSpecMerged } from "./commands/on-spec-merged/index.js";
+import { onTestsMerged } from "./commands/on-tests-merged/index.js";
+import { onBrewMerged } from "./commands/on-brew-merged/index.js";
 import { testgen } from "./commands/testgen/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
@@ -38,6 +40,8 @@ Usage:
   slowcook manifest verify [--stack-config <path>] [--manifest <path>] [--story <id>]
   slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]
   slowcook on-spec-merged --pr <number> [--cwd <path>]
+  slowcook on-tests-merged --pr <number> [--cwd <path>]
+  slowcook on-brew-merged --pr <number> [--cwd <path>]
   slowcook testgen [--spec <id>] [--all] [--cwd <path>]
   slowcook catchup [--dry-run] [--cwd <path>]
   slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
@@ -50,7 +54,9 @@ Commands available in ${VERSION}:
   guard              Check for frozen-path violations between two git refs.
   manifest           Record or verify the set of discoverable tests.
   refine             Drive a GitHub issue toward a frozen spec (refinement agent).
-  on-spec-merged     Transition source-issue labels after a spec PR merges.
+  on-spec-merged     Transition source-issue labels + post audit-trail comment after a spec PR merges.
+  on-tests-merged    Post audit-trail comment after a tests PR merges.
+  on-brew-merged     Post final "shipped" audit-trail comment after a brew PR merges.
   testgen            Generate Vitest integration tests from merged specs.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
@@ -81,6 +87,12 @@ async function main(): Promise<void> {
       return;
     case "on-spec-merged":
       await onSpecMerged(args.slice(1));
+      return;
+    case "on-tests-merged":
+      await onTestsMerged(args.slice(1));
+      return;
+    case "on-brew-merged":
+      await onBrewMerged(args.slice(1));
       return;
     case "testgen":
       await testgen(args.slice(1), VERSION);

@@ -137,6 +137,86 @@ ${RESOLVE_PIN_STEP}
 `;
 }
 
+function slowcookTestsMergedWorkflow(): string {
+  return `name: slowcook — tests merged
+
+# Posts an audit-trail comment on each story's source issue when the
+# tests PR merges, noting that brew-auto takes over next. Pairs with
+# slowcook-spec-merged and slowcook-brew-merged.
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  comment:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'slowcook-tests')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event.pull_request.merge_commit_sha }}
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Post audit-trail comment
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes "$SLOWCOOK_CLI" on-tests-merged --pr \${{ github.event.pull_request.number }}
+`;
+}
+
+function slowcookBrewMergedWorkflow(): string {
+  return `name: slowcook — brew merged
+
+# Posts the final "shipped" audit-trail comment on each story's source
+# issue when the brew PR merges. Completes the pipeline trail:
+# refine → spec-merged → testgen → tests-merged → brew → HERE.
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  comment:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'slowcook-brew')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event.pull_request.merge_commit_sha }}
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Post audit-trail comment
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes "$SLOWCOOK_CLI" on-brew-merged --pr \${{ github.event.pull_request.number }}
+`;
+}
+
 function slowcookTestgenWorkflow(): string {
   return `name: slowcook testgen
 
@@ -252,6 +332,8 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
   return [
     { path: ".github/workflows/slowcook.yml", contents: slowcookWorkflow() },
     { path: ".github/workflows/slowcook-spec-merged.yml", contents: slowcookSpecMergedWorkflow() },
+    { path: ".github/workflows/slowcook-tests-merged.yml", contents: slowcookTestsMergedWorkflow() },
+    { path: ".github/workflows/slowcook-brew-merged.yml", contents: slowcookBrewMergedWorkflow() },
     { path: ".github/workflows/slowcook-testgen.yml", contents: slowcookTestgenWorkflow() },
     { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
   ];

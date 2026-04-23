@@ -1,17 +1,19 @@
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
 import { Octokit } from "@octokit/rest";
 
 /**
  * Called from a workflow that fires on `pull_request.closed` with
- * `merged == true` and the `slowcook-spec` label. Finds the spec file(s)
- * added by the merged PR, extracts each spec's `source_issue`, and
- * transitions that issue's label from `spec-submitted` to `spec-ready`.
+ * `merged == true` and the `slowcook-tests` label. Finds the manifest
+ * file(s) added by the merged PR, reads each story's spec, and posts
+ * an audit-trail comment on the source_issue noting that tests merged
+ * and brew-auto triggers next.
  *
- * Idempotent: safe to re-run. Missing labels are silently skipped (404s
- * tolerated).
+ * Idempotent-safe: re-running double-posts comments but nothing destructive.
+ * Pairs with on-spec-merged (previous transition) and the not-yet-existent
+ * on-brew-merged (next transition).
  */
 
 interface Args {
@@ -56,15 +58,16 @@ function parseArgs(argv: string[]): Args {
 
 function printHelp(): void {
   console.log(`
-slowcook on-spec-merged — transition source-issue labels after a spec PR merges
+slowcook on-tests-merged — post audit-trail comment after a tests PR merges
 
 Typically called from a GitHub Actions workflow listening for
-pull_request.closed events on PRs labeled 'slowcook-spec'. Finds the spec
-files in the merged PR, reads each spec's source_issue, and transitions
-that issue's label from 'spec-submitted' to 'spec-ready'.
+pull_request.closed events on PRs labeled 'slowcook-tests'. Finds the
+manifest files in the merged PR, resolves each story's source_issue
+via the corresponding spec YAML, and posts a comment noting that the
+tests merged and \`slowcook-brew-auto\` triggers next.
 
 Usage:
-  slowcook on-spec-merged --pr <number> [options]
+  slowcook on-tests-merged --pr <number> [options]
 
 Options:
   --pr <number>    PR number (required)
@@ -77,7 +80,7 @@ Environment:
   GITHUB_TOKEN  (required)  Token with issues:write + pull-requests:read
 
 Exit codes:
-  0   transitions applied (or nothing to do)
+  0   comments posted (or nothing to do)
   2   script error
 `);
 }
@@ -97,7 +100,7 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
   return null;
 }
 
-export async function onSpecMerged(argv: string[]): Promise<void> {
+export async function onTestsMerged(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
 
   const token = process.env["GITHUB_TOKEN"];
@@ -130,86 +133,57 @@ export async function onSpecMerged(argv: string[]): Promise<void> {
     per_page: 100,
   });
 
-  // 2. Find spec YAML files (specs/story-NNN.yaml) that were added in this PR
-  const specFiles = (files as Array<{ status: string; filename: string }>)
+  // 2. Find manifest files that were added/modified
+  const manifestFiles = (files as Array<{ status: string; filename: string }>)
     .filter((f) => f.status === "added" || f.status === "modified")
     .map((f) => f.filename)
-    .filter((name) => /^specs\/story-\d+\.yaml$/.test(name));
+    .filter((name) => /^\.brewing\/manifests\/story-\d+\.json$/.test(name));
 
-  if (specFiles.length === 0) {
-    console.log(`No spec files in PR #${args.prNumber}. Nothing to transition.`);
+  if (manifestFiles.length === 0) {
+    console.log(`No story manifests in PR #${args.prNumber}. Nothing to post.`);
     return;
   }
 
-  // 3. For each spec file, read source_issue from the on-disk content and
-  //    transition that issue's labels. The workflow checks out post-merge,
-  //    so the files live at cwd/specs/story-NNN.yaml on main.
-  const issuesToTransition: Array<{ issue: number; storyId: string }> = [];
-  for (const specPath of specFiles) {
+  // 3. Resolve story_id + source_issue from each manifest's matching spec.
+  //    Manifest file names embed the story id; specs live at specs/story-N.yaml.
+  const toComment: Array<{ issue: number; storyId: string }> = [];
+  for (const manifestPath of manifestFiles) {
+    const m = manifestPath.match(/story-(\d+)\.json$/);
+    const storyId = m && m[1] ? m[1] : null;
+    if (!storyId) continue;
+    const specPath = join(args.repoRoot, "specs", `story-${storyId}.yaml`);
+    if (!existsSync(specPath)) {
+      console.log(`  skip story-${storyId}: spec not found at ${specPath}`);
+      continue;
+    }
     try {
-      const full = join(args.repoRoot, specPath);
-      const doc = YAML.parse(readFileSync(full, "utf8")) as {
-        story_id?: string;
+      const doc = YAML.parse(readFileSync(specPath, "utf8")) as {
         source_issue?: string;
       };
       if (!doc.source_issue) {
-        console.log(`  skip ${specPath}: no source_issue field`);
+        console.log(`  skip story-${storyId}: spec has no source_issue`);
         continue;
       }
-      const m = doc.source_issue.match(/^#?(\d+)$/);
-      if (!m || !m[1]) {
+      const issueMatch = doc.source_issue.match(/^#?(\d+)$/);
+      if (!issueMatch || !issueMatch[1]) {
         console.log(
-          `  skip ${specPath}: source_issue '${doc.source_issue}' not a numeric issue reference`
+          `  skip story-${storyId}: source_issue '${doc.source_issue}' not numeric`
         );
         continue;
       }
-      issuesToTransition.push({
-        issue: parseInt(m[1], 10),
-        storyId: doc.story_id ?? "?",
-      });
+      toComment.push({ issue: parseInt(issueMatch[1], 10), storyId });
     } catch (e) {
-      console.log(`  skip ${specPath}: ${(e as Error).message}`);
+      console.log(`  skip story-${storyId}: ${(e as Error).message}`);
     }
   }
 
-  for (const { issue, storyId } of issuesToTransition) {
-    console.log(`Transitioning #${issue} (story-${storyId}): spec-submitted → spec-ready`);
-    try {
-      await octokit.issues.addLabels({
-        owner,
-        repo,
-        issue_number: issue,
-        labels: ["spec-ready"],
-      });
-    } catch (e) {
-      console.error(
-        `  failed to add spec-ready on #${issue}: ${(e as Error).message}`
-      );
-    }
-    try {
-      await octokit.issues.removeLabel({
-        owner,
-        repo,
-        issue_number: issue,
-        name: "spec-submitted",
-      });
-    } catch (e) {
-      const status = (e as { status?: number }).status;
-      if (status !== 404) {
-        console.error(
-          `  failed to remove spec-submitted on #${issue}: ${(e as Error).message}`
-        );
-      }
-    }
-
-    // Audit-trail comment so the issue thread records the spec-merge
-    // transition. testgen will post the next transition when it opens
-    // the tests PR.
+  for (const { issue, storyId } of toComment) {
+    console.log(`Posting tests-merged comment on #${issue} (story-${storyId})`);
     const body =
-      `### slowcook · spec merged\n\n` +
+      `### slowcook · tests merged\n\n` +
       `[PR #${args.prNumber}](https://github.com/${owner}/${repo}/pull/${args.prNumber}) merged — ` +
-      `\`story-${storyId}\` is now the active spec. \`slowcook-testgen\` triggers automatically.\n\n` +
-      `---\n*Generated by \`slowcook on-spec-merged\`.*`;
+      `\`story-${storyId}\` tests are frozen. \`slowcook-brew-auto\` triggers automatically; the brew agent will open an implementation PR when it's green.\n\n` +
+      `---\n*Generated by \`slowcook on-tests-merged\`.*`;
     try {
       await octokit.issues.createComment({
         owner,
@@ -219,12 +193,12 @@ export async function onSpecMerged(argv: string[]): Promise<void> {
       });
     } catch (e) {
       console.error(
-        `  failed to post audit-trail comment on #${issue}: ${(e as Error).message}`
+        `  failed to post comment on #${issue}: ${(e as Error).message}`
       );
     }
   }
 
   console.log(
-    `Done — transitioned ${issuesToTransition.length} issue(s) on PR #${args.prNumber}.`
+    `Done — posted ${toComment.length} comment(s) for PR #${args.prNumber}.`
   );
 }
