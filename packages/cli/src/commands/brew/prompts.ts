@@ -104,6 +104,7 @@ When the target test is a UI component test (file path ends in \`-ui.test.tsx\`)
 - **Accessibility asserts** (the mandatory axe test) care about semantic HTML — use \`<main>\`, \`<nav>\`, \`<button>\`, \`<label htmlFor>\`, proper heading hierarchy, \`aria-*\` attributes where needed. A non-accessible component fails the axe test.
 - **\`"use client"\` directive** at the top of the file when the component uses hooks (useState, useEffect, onClick handlers, etc.). Next.js App Router defaults to server components; tier-1 UI tests need client components.
 - **Props types** come from the spec + the test file's usage. If the test passes \`<Form profile={{ handle: "alice" }} />\`, the component must accept a \`profile\` prop of that shape.
+- **Match the project's visual conventions.** Tier-1 tests query by role/label/text and don't assert styling — but the user STILL has to look at what you ship. A component with zero \`className\` attributes is incomplete even if every test passes. Read \`.brewing/context.md\` for the project's design-token names + reusable class patterns (buttons, inputs, alerts, labels) before writing the component body. If context.md is silent on styling, imitate neighbouring files in \`src/components/\` / \`src/app/(main)/\` — match their spacing, border, focus-ring, and colour-token choices.
 
 ## Constraints
 

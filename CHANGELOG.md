@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.20 — brew prompt: steer toward project visual conventions
+
+Third recurring gap class (after page-integration + schema): brew shipping zero-className components because tier-1 tests don't assert visual style. Observed twice on rewo on 2026-04-23 (story-006 ProfileEditForm shipped via PR #61, story-005 MemberReactionsPage shipped via PR #66). Both components were functionally correct, axe-clean, tests-green — and visually unusable. User restyled both by hand.
+
+**Fix:** the "UI component tests" section of brew's prompt gains a bullet:
+
+> Match the project's visual conventions. Tier-1 tests query by role/label/text and don't assert styling — but the user STILL has to look at what you ship. A component with zero `className` attributes is incomplete even if every test passes. Read `.brewing/context.md` for the project's design-token names + reusable class patterns (buttons, inputs, alerts, labels) before writing the component body. If context.md is silent on styling, imitate neighbouring files in `src/components/` / `src/app/(main)/` — match their spacing, border, focus-ring, and colour-token choices.
+
+The consumer-side of this is a "Visual conventions" section in `.brewing/context.md` listing the project's design tokens + reusable patterns. Rewo's was updated manually (commit 05d4f91); other consumers should add one.
+
+**Why this might not be enough:** prompt steering is a soft signal. The hard signal is still "tests pass." If brew is rushed or fighting a red test, it may ignore styling guidance. The durable answer is **tier-2 screenshot review** (slowcook 0.8) — Playwright screenshot + LLM "does this look like the rest of the app?" gate. Until then, steering is the cheapest available correction.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.7.19 → 0.7.20` — one bullet in `packages/cli/src/commands/brew/prompts.ts`.
+- No other package changes.
+
+---
+
 ## 0.7.19 — page-link test names are static literals; forge-github drops `cache: npm`
 
 ### cli: static test-name literals in page-link assertion
