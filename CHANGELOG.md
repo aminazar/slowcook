@@ -6,6 +6,49 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.9.0 — Tier-2 acceptance runner: Playwright scaffolds + workflow
+
+Adds the runner + templates for tier-2 acceptance tests. Catches the gap class tier-1 can't: "feature works end-to-end against real Supabase + real Next." First slice of the three-release 0.9 track (see [`docs/plans/0.9-tier-2-acceptance.md`](./docs/plans/0.9-tier-2-acceptance.md)).
+
+### What ships in 0.9.0
+
+- **`slowcook-acceptance.yml` workflow** (via `@slowcook-ai/forge-github@0.9.0`): fires on brew PRs + nightly cron + manual dispatch. Runs Playwright against a real dev server + real staging Supabase. Skips cleanly with a notice if `ACCEPTANCE_SUPABASE_URL` / `ACCEPTANCE_SUPABASE_KEY` secrets aren't set — lets consumers adopt tier-2 gradually. Uploads Playwright report as artifact on failure.
+- **Stack config extensions** (via `@slowcook-ai/stack-ts@0.9.0`):
+  - `.brewing/stack.json` now declares an `acceptance` test suite with Playwright runner
+  - `playwright.config.ts`, `playwright.config.mjs`, `playwright.config.js` added to frozen files
+  - `tests/acceptance/` added to frozen directories — brew can't silently rewrite tier-2 specs
+  - New scaffold helpers:
+    - `getPlaywrightConfig()` — minimal chromium-only Playwright config scaffold
+    - `getAcceptanceSandboxHelper()` — `tests/acceptance/_setup/sandbox.ts` re-exports `test`/`expect` so consumer tests converge on one import path
+    - `getAcceptanceEnvExample()` — `.env.acceptance.example` template
+
+### What DOESN'T ship in 0.9.0 (see 0.9.1 / 0.9.2)
+
+- **Recorder + scrubber + fixture staleness** — 0.9.1. Tier-2 in 0.9.0 hits live Supabase with hand-seeded data; flakiness is a known-known until fixtures replace live calls.
+- **Screenshot capture + MinIO storage** — 0.9.2. 0.9.0 uses GHA artifact for report bundles; 0.9.2 promotes to persistent storage.
+- **Testgen for tier-2** — deferred to 0.11 (needs the recorder first).
+- **Gates 1/2/3** — 0.10 (they GRADE inputs 0.9 captures).
+
+### Consumer adoption
+
+Consumers that run `slowcook init` after the 0.9.0 release get the scaffolds automatically. Existing consumers can:
+
+1. Add the workflow template manually, or re-init.
+2. Provide staging Supabase credentials as GitHub Actions secrets (`ACCEPTANCE_SUPABASE_URL`, `ACCEPTANCE_SUPABASE_KEY`, optional `ACCEPTANCE_TEST_EMAIL` / `ACCEPTANCE_TEST_HANDLE`).
+3. Author first acceptance test at `tests/acceptance/story-N.spec.ts` — Playwright's standard API.
+
+Workflow no-ops silently without secrets — safe to commit the template before wiring credentials.
+
+### Measurable scope
+
+- **`@slowcook-ai/stack-ts`**: `0.7.16 → 0.9.0` — acceptance suite in stack config; Playwright-config / sandbox / env-example scaffold helpers; frozen paths extended.
+- **`@slowcook-ai/forge-github`**: `0.7.12 → 0.9.0` — new `slowcook-acceptance.yml` template, registered in `getGitHubCiArtifacts`.
+- **`@slowcook-ai/cli`**: `0.8.0 → 0.9.0` — re-pulls the new stack-ts + forge-github templates through `slowcook init`. No CLI-surface change.
+- `core` + `llm-anthropic` unchanged at `0.8.0`.
+- 220 tests green.
+
+---
+
 ## 0.8.0 — LLM adapter refactor: `@slowcook-ai/llm-anthropic` extracted
 
 New workspace package `@slowcook-ai/llm-anthropic` carrying the Anthropic `LlmClient` implementation + Anthropic-specific cost accounting (`PRICING_PER_M_TOKENS`, `costUsdForUsage`, `costMarker`, `parseCostMarkers`). The `LlmClient` interface itself moves to `@slowcook-ai/core` so agents can depend on the shape without dragging in a specific provider's SDK.

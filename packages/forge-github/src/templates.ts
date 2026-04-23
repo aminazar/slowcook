@@ -352,6 +352,110 @@ jobs:
 `;
 }
 
+function slowcookAcceptanceWorkflow(): string {
+  return `name: slowcook acceptance (tier-2)
+
+# Runs Playwright acceptance tests against a real sandbox. Fires on
+# brew PRs + nightly on main. Requires ACCEPTANCE_* secrets to point
+# at a STAGING Supabase project (never prod). If those aren't set,
+# the job skips with a notice instead of failing — lets consumers
+# adopt tier-2 gradually.
+#
+# Added in slowcook 0.9.0. See docs/plans/0.9-tier-2-acceptance.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    # Nightly against main — catches drift between PR runs
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: slowcook-acceptance-\${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    name: tier-2 acceptance
+    # Run on every brew PR (label \`slowcook-brew\`), testgen PRs are SKIPPED
+    # (their tests are red-by-design). Also runs on the scheduled nightly
+    # and on manual dispatch.
+    if: >-
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'slowcook-brew'))
+      || github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for acceptance credentials
+        id: creds
+        env:
+          URL: \${{ secrets.ACCEPTANCE_SUPABASE_URL }}
+          KEY: \${{ secrets.ACCEPTANCE_SUPABASE_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::notice::ACCEPTANCE_SUPABASE_URL / ACCEPTANCE_SUPABASE_KEY not set — skipping tier-2. See docs/plans/0.9-tier-2-acceptance.md for setup."
+            echo "has_creds=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_creds=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install consumer deps
+        if: steps.creds.outputs.has_creds == 'true'
+        run: npm ci
+
+      - name: Install Playwright browsers
+        if: steps.creds.outputs.has_creds == 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Write .env.acceptance from secrets
+        if: steps.creds.outputs.has_creds == 'true'
+        env:
+          URL: \${{ secrets.ACCEPTANCE_SUPABASE_URL }}
+          KEY: \${{ secrets.ACCEPTANCE_SUPABASE_KEY }}
+          EMAIL: \${{ secrets.ACCEPTANCE_TEST_EMAIL }}
+          HANDLE: \${{ secrets.ACCEPTANCE_TEST_HANDLE }}
+        run: |
+          {
+            echo "BASE_URL=http://localhost:3000"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$URL"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=$KEY"
+            echo "ACCEPTANCE_TEST_EMAIL=\${EMAIL:-test-acceptance@example.com}"
+            echo "ACCEPTANCE_TEST_HANDLE=\${HANDLE:-acceptance_user}"
+          } > .env.acceptance
+
+      - name: Run acceptance tests
+        if: steps.creds.outputs.has_creds == 'true'
+        env:
+          ACCEPTANCE: "1"
+        run: npx playwright test
+
+      - name: Upload Playwright artifacts on failure
+        if: always() && steps.creds.outputs.has_creds == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-\${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 30
+`;
+}
+
 /**
  * All CI artifacts this forge provides. Init writes each entry; the
  * `executable` flag is respected so hook files are chmod 0755.
@@ -366,6 +470,7 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-brew-merged.yml", contents: slowcookBrewMergedWorkflow() },
     { path: ".github/workflows/slowcook-testgen.yml", contents: slowcookTestgenWorkflow() },
     { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
+    { path: ".github/workflows/slowcook-acceptance.yml", contents: slowcookAcceptanceWorkflow() },
   ];
 }
 

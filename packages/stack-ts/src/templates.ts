@@ -45,6 +45,16 @@ export function getTsStackConfig(params: TsStackInitParams): string {
             discover_command: "npx vitest list",
             reporter_format: "vitest-list-lines",
           },
+          // 0.9.0+ — tier-2 acceptance suite. Runs Playwright against a
+          // real Next.js dev server + real Supabase. Gated on ACCEPTANCE=1
+          // so local `npm test` stays fast (handler tier-1 + UI tier-1
+          // only). CI acceptance workflow sets the env var.
+          acceptance: {
+            runner: "playwright",
+            run_command: "ACCEPTANCE=1 npx playwright test",
+            discover_command: "npx playwright test --list",
+            reporter_format: "playwright-list",
+          },
         },
         lint: {
           lint_command: "npm run lint",
@@ -62,7 +72,115 @@ export function getTsStackConfig(params: TsStackInitParams): string {
  * Composed with the forge adapter's and core's own frozen paths at init time.
  */
 export function getTsStackFrozenFiles(): string[] {
-  return ["vitest.config.ts", "vitest.config.mjs", "vitest.config.js"];
+  return [
+    "vitest.config.ts",
+    "vitest.config.mjs",
+    "vitest.config.js",
+    "playwright.config.ts",
+    "playwright.config.mjs",
+    "playwright.config.js",
+  ];
+}
+
+/**
+ * Tier-2 frozen DIRECTORIES — acceptance tests are frozen the same way
+ * tests/integration is. Emitted by 0.9.0 init so brew can't silently
+ * rewrite acceptance specs.
+ */
+export function getTsStackFrozenDirectories(): string[] {
+  return ["tests/acceptance/"];
+}
+
+/**
+ * Playwright config scaffold emitted by `slowcook init` (0.9.0+).
+ * Minimal — chromium-only, no video, screenshot on failure.
+ * Consumers customise by adding projects / reporters post-init.
+ * Marker on line 1 lets `init --force` detect whether the file is
+ * still the scaffold vs hand-edited by the consumer.
+ */
+export function getPlaywrightConfig(): string {
+  return `// @slowcook-one-time-scaffold 0.9.0 — tier-2 acceptance harness
+//
+// Minimal Playwright config for tier-2 acceptance tests. Adjust freely;
+// slowcook's only requirement is that \`npx playwright test\` runs the
+// suite under \`tests/acceptance/**\`. See docs/plans/0.9-tier-2-acceptance.md
+// for the broader design.
+
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./tests/acceptance",
+  timeout: 30_000,
+  fullyParallel: false, // acceptance tests may share fixtures; parallelize cautiously
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? "list" : "line",
+  use: {
+    baseURL: process.env.BASE_URL ?? "http://localhost:3000",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
+  projects: [
+    {
+      name: "chromium-desktop",
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
+  webServer: process.env.ACCEPTANCE_SKIP_WEBSERVER
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: process.env.BASE_URL ?? "http://localhost:3000",
+        reuseExistingServer: !process.env.CI,
+        timeout: 60_000,
+      },
+});
+`;
+}
+
+/**
+ * Sandbox helper emitted as \`tests/acceptance/_setup/sandbox.ts\` so
+ * acceptance tests can boot a full stack (Next + Supabase local) without
+ * per-test boilerplate. The marker on line 1 makes it safe for
+ * \`init --force\` to refresh without clobbering consumer customisations.
+ */
+export function getAcceptanceSandboxHelper(): string {
+  return `// @slowcook-one-time-scaffold 0.9.0 — tier-2 sandbox helper
+//
+// Boots a Next dev server + points Playwright at it. Supabase URL +
+// anon key are read from .env.acceptance (consumer provides; points at
+// a staging project, NEVER prod). See docs/plans/0.9-tier-2-acceptance.md.
+
+import { test as base } from "@playwright/test";
+
+export const test = base.extend<{}>({
+  // Consumers extend this with per-test fixtures (authenticated page, seeded
+  // rewo id, etc.). Slowcook's scaffold just re-exports \`test\` so imports
+  // converge on one path: \`import { test, expect } from "@tests/acceptance/_setup/sandbox"\`.
+});
+
+export { expect } from "@playwright/test";
+`;
+}
+
+/**
+ * .env.acceptance.example scaffold — makes explicit what the consumer
+ * must configure for tier-2 runs without leaking real values.
+ */
+export function getAcceptanceEnvExample(): string {
+  return `# Acceptance test env vars. Copy to .env.acceptance and fill in values
+# from a STAGING Supabase project (never prod).
+
+# Next app base URL (dev server; Playwright's webServer config boots this)
+BASE_URL=http://localhost:3000
+
+# Supabase project credentials — anon key only; service-role stays out
+NEXT_PUBLIC_SUPABASE_URL=https://<staging-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=<anon-key>
+
+# Pre-seeded test user (acceptance tests don't sign up; use a known account)
+ACCEPTANCE_TEST_EMAIL=test-acceptance@example.com
+ACCEPTANCE_TEST_HANDLE=acceptance_user
+`;
 }
 
 /**
