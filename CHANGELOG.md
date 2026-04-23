@@ -6,6 +6,31 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.15 — Brew log richness + diagnostic fixes
+
+Surfaced by the 0.7.14 test run on rewo story-006 UI:
+- Agent halted via \`AGENT_STALLED_NO_EDITS\` (Fix 4 worked — saved \$5/run).
+- But rationale was **empty** on both halted iterations. Operator couldn't see what the agent was thinking.
+- CI log showed only \`ITER N/M START\` + \`HALT\` lines — no visibility into what the agent did during the turn.
+
+Three fixes:
+
+**1. Capture rationale on tool-loop-cap exit.** Previously rationale was only set when the model produced a text-only completion block (i.e., stopped calling tools). If the agent hit the 12-round tool-loop cap without ever going text-only, rationale stayed empty — the halt report had nothing to show. Now we track \`latestTextBlock\` across all rounds; if the cap hits with no text-only completion, fall back to the last text we saw with a prefix noting what happened. Halt report always has diagnostic content.
+
+**2. Per-turn tool-call trace.** Every tool call in \`runTurn\` now appends to a \`toolCallTrace\` array. After the turn, appended to the iter log as \`ITER N TOOLS K/N calls: outline_file(path), read_file(path), ...\`. Reveals the agent's exploration pattern on a stuck turn — the difference between "agent did nothing" and "agent spent 12 rounds exploring without ever editing." \`summarizeToolInput()\` helper keeps the line compact (no JSON payloads, just the relevant path/method).
+
+**3. \`appendRunLog\` for every iteration outcome.** Added missing log lines for:
+- \`NO-EDITS\` case (0 tool edits) — shows spend_delta + consecutive_no_edits + stagnation counters
+- \`REJECT frozen-path\` — which frozen path, with spend
+- \`REJECT scope-violation\` — which outside-allowed path
+- \`REJECT overflow\` — lines × files vs caps, note that agent didn't justify
+
+Combined with 0.7.13's appendRunLog-to-stdout mirror, every iteration now produces at least one informative line in CI logs.
+
+**Expected impact on the rewo story-006 re-run:** operator sees the agent's exploration pattern (outline_file, read_file calls) within each stuck iteration — can diagnose whether the agent is reading the wrong files, re-reading the same files, or genuinely looking at the right place but not committing.
+
+**Version:** \`@slowcook-ai/cli 0.7.14 → 0.7.15\`. 136 cli tests still green. No API-contract changes.
+
 ## 0.7.14 — Brew analysis-paralysis fixes (4 leverage points)
 
 User report after two stuck brew runs on rewo story-006 UI (\$3.39 + \$5.48 total, 0 of 11 remaining UI tests turned green): "what's your plan to avoid analysis paralysis on the DOM?"

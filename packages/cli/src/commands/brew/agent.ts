@@ -354,6 +354,16 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       stagnation += 1;
       consecutiveNoEdits += 1;
 
+      // Log the no-edits event so CI stdout shows the stall live.
+      // Without this, the dominant-pattern stall (agent reasoning but
+      // never calling a tool) looks identical in logs to a fast
+      // successful turn — only the spend-delta on the NEXT iter's
+      // START line reveals tokens were burned.
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} NO-EDITS  (agent made no tool calls this turn)  spend_delta=$${turnResult.spendDelta.toFixed(2)}  consecutive_no_edits=${consecutiveNoEdits}  stagnation=${stagnation}/${STAGNATION_CAP}`
+      );
+
       // Fix 3 (0.7.14): voluntary-halt escape hatch. If the agent's
       // rationale ends with "Considering halting voluntarily" the model
       // has self-reported that it can't make progress — halt immediately
@@ -432,6 +442,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} REJECT frozen-path  ${frozenHit}  (also touched ${diff.changedPaths.length - 1} other file(s))  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+      );
       continue;
     }
 
@@ -461,6 +475,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} REJECT scope-violation  ${scopeHit}  (outside allowed_paths)  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+      );
       continue;
     }
 
@@ -486,6 +504,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} REJECT overflow  ${diff.linesTotal} lines × ${diff.changedPaths.length} files (caps: ${DIFF_LINE_CAP}×${DIFF_FILE_CAP})  — agent didn't call justify_diff_overflow  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+      );
       continue;
     }
 
@@ -740,6 +762,18 @@ async function runTurn(
 
   const filesTouched = new Set<string>();
   let rationale = "";
+  /** 0.7.15: fallback rationale — the most recent text block from any
+   * round. Previously rationale was only captured on text-only
+   * completion; when the agent hit the 12-round tool-loop cap without
+   * emitting a text-only response, rationale stayed empty and the halt
+   * report was diagnostic-blind. Now we track the last text across all
+   * rounds so the operator always has something to read. */
+  let latestTextBlock = "";
+  /** 0.7.15: per-turn tool-call trace for the iter log. Gives the
+   * operator visibility into what the agent is DOING on a stuck turn —
+   * not just "no edits." Previously only write_file calls were
+   * observable via filesTouched; now every tool call is logged. */
+  const toolCallTrace: string[] = [];
   let overflowJustification: TurnResult["overflowJustification"];
   let spendDelta = 0;
 
@@ -768,25 +802,33 @@ async function runTurn(
     });
     spendDelta += costUsdForResponse(response, ctx.model);
 
-    // Capture the assistant turn + any final text
+    // Capture the assistant turn + any text (for the latest-text fallback)
     messages.push({ role: "assistant", content: response.content });
+
+    const textInThisRound = response.content
+      .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n")
+      .trim();
+    if (textInThisRound) {
+      latestTextBlock = textInThisRound.slice(0, 2000);
+    }
 
     const toolBlocks = response.content.filter(
       (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
     );
     if (toolBlocks.length === 0) {
-      // Text-only ending → extract rationale
-      const text = response.content
-        .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n")
-        .trim();
-      rationale = text.slice(0, 2000);
+      // Text-only ending → this is the real rationale
+      rationale = textInThisRound.slice(0, 2000);
       break;
     }
 
     const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
     for (const tool of toolBlocks) {
+      // 0.7.15: trace every tool call so "no-edits" iterations aren't
+      // silent in the log — operator sees what the agent explored.
+      const inputSummary = summarizeToolInput(tool);
+      toolCallTrace.push(`${tool.name}${inputSummary}`);
       const result = handleToolUse(ctx, tool);
       if (tool.name === "write_file") {
         const input = tool.input as { path?: string };
@@ -806,6 +848,27 @@ async function runTurn(
     messages.push({ role: "user", content: toolResults });
 
     if (response.stop_reason !== "tool_use") break;
+  }
+
+  // If we hit the tool-round cap without a text-only completion, fall
+  // back to the latest text we saw. Better than an empty rationale —
+  // the operator at least knows what the agent was thinking before it
+  // got stuck in exploration.
+  if (!rationale && latestTextBlock) {
+    rationale = `[no text-only completion within ${12} tool rounds; last text from exploration:]\n\n${latestTextBlock}`;
+  }
+
+  // Log the tool-call trace so the iter log shows exploration patterns.
+  // Trimmed + head-only to avoid flooding the log on long turns.
+  if (toolCallTrace.length > 0) {
+    const trimmed =
+      toolCallTrace.length > 20
+        ? [...toolCallTrace.slice(0, 20), `… (+${toolCallTrace.length - 20} more)`]
+        : toolCallTrace;
+    appendRunLog(
+      ctx,
+      `ITER ${args.iteration} TOOLS  ${trimmed.length}/${toolCallTrace.length} calls: ${trimmed.join(", ")}`
+    );
   }
 
   return {
@@ -1341,6 +1404,38 @@ function runTestSuite(ctx: BrewContext): RunResult {
  * the turn prompt to surface vitest's actual failure output for the
  * current target test (and optionally for other red tests).
  */
+/**
+ * 0.7.15: compact one-line summary of a tool-use block's input for
+ * logging. Keeps the per-turn tool trace readable — no JSON payload
+ * dumps, just the operation + the relevant path/name/method.
+ */
+function summarizeToolInput(tool: {
+  name: string;
+  input: unknown;
+}): string {
+  const input = tool.input as Record<string, unknown>;
+  const pick = (keys: string[]): string => {
+    for (const k of keys) {
+      const v = input[k];
+      if (typeof v === "string" && v) return `(${k}=${v.slice(0, 80)})`;
+    }
+    return "";
+  };
+  switch (tool.name) {
+    case "find_handler":
+      return `(${input.method ?? "?"} ${input.path ?? "?"})`;
+    case "outline_file":
+    case "read_file":
+    case "write_file":
+    case "list_directory":
+      return pick(["path"]);
+    case "justify_diff_overflow":
+      return pick(["reason_category"]);
+    default:
+      return "";
+  }
+}
+
 function buildFailureMap(
   tests: Array<{ id: string; status: string; failure_message?: string }>
 ): Map<string, string> {
