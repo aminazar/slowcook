@@ -14,6 +14,7 @@ import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
+import { fixtures } from "./commands/fixtures/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -48,6 +49,7 @@ Usage:
   slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
   slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
   slowcook dispatch <step> [inputs...]
+  slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook version
   slowcook help
 
@@ -111,6 +113,9 @@ async function main(): Promise<void> {
       return;
     case "dispatch":
       await dispatch(args.slice(1));
+      return;
+    case "fixtures":
+      await fixtures(args.slice(1));
       return;
     case "version":
     case "--version":

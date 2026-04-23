@@ -6,6 +6,51 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.9.1 — Recorder + scrubber + fixture staleness
+
+Second slice of the 0.9 track. Makes tier-2 tests deterministic: record real service calls once, replay them offline on every CI run. Catches secret-leak-into-committed-fixtures at the registry level.
+
+### New package `@slowcook-ai/recorder@0.9.1`
+
+- **`createRecordingFetch({storyId, service, mode?})`** — wraps a `fetch`-compatible function with three modes:
+  - `record` — call the real service, save request + response (scrubbed) to `tests/fixtures/<story>/<service>/<hash>.json`
+  - `replay` — match request by stable hash, return fixture; error if no match
+  - `passthrough` — unchanged fetch (default)
+  Mode auto-selected from env: `SLOWCOOK_RECORD=1` / `SLOWCOOK_REPLAY=1` / unset.
+- **`hashRequest({method, url, body?})`** — 12-char hex hash. Order-insensitive for query params and body keys; value-sensitive for everything else.
+- **`scrub(value, config?)`** — replaces UUIDs, ISO timestamps, emails, JWTs, Supabase keys (`sbp_`/`sb_`), Bearer tokens with placeholders. Configurable via `{ allowList, custom, skip }`.
+- **`detectUnscrubbed(value, config?)`** — returns patterns still present in a value. Empty = clean.
+- **`findStaleFixtures({maxAgeDays?, storyId?})`** — scans fixture files' `recorded_at` field, returns fixtures older than threshold. Default 14 days.
+
+### New CLI command `slowcook fixtures check`
+
+Added to `@slowcook-ai/cli@0.9.1`. Runs in CI to fail PRs where:
+- Fixtures are stale (older than `--max-age-days`, default 14)
+- Fixtures contain unscrubbed patterns (leaked secrets, PII, volatile timestamps)
+
+Honours a per-story exemption: if a spec contains a `@fixtures-frozen <reason>` marker, the story's staleness check is skipped. The scrub guard always runs.
+
+### Consumer adoption
+
+Consumers integrate by passing `createRecordingFetch({...})` into their Supabase client factory:
+
+```ts
+import { createRecordingFetch } from "@slowcook-ai/recorder";
+const recording = createRecordingFetch({ storyId: "005", service: "supabase" });
+const supabase = createClient(url, key, { global: { fetch: recording } });
+```
+
+Then run acceptance tests once with `SLOWCOOK_RECORD=1` to capture fixtures, commit them, and subsequent CI runs use `SLOWCOOK_REPLAY=1` to stay offline + deterministic.
+
+### Measurable scope
+
+- **New package**: `@slowcook-ai/recorder@0.9.1` — 4 source files (hash, scrub, fetch-recorder, staleness) + 3 test files. First publish.
+- **`@slowcook-ai/cli`**: `0.9.0 → 0.9.1` — new `fixtures check` subcommand; adds `@slowcook-ai/recorder` as dependency.
+- 268 tests green across 6 packages (+24 new recorder tests).
+- Full plan: [`docs/plans/0.9-tier-2-acceptance.md`](./docs/plans/0.9-tier-2-acceptance.md) §0.9.1.
+
+---
+
 ## 0.9.0 — Tier-2 acceptance runner: Playwright scaffolds + workflow
 
 Adds the runner + templates for tier-2 acceptance tests. Catches the gap class tier-1 can't: "feature works end-to-end against real Supabase + real Next." First slice of the three-release 0.9 track (see [`docs/plans/0.9-tier-2-acceptance.md`](./docs/plans/0.9-tier-2-acceptance.md)).

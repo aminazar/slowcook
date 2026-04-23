@@ -1,0 +1,50 @@
+{
+  "name": "@slowcook-ai/recorder",
+  "version": "0.9.1",
+  "description": "Record/replay + scrubbing for slowcook tier-2 acceptance tests — wraps fetch to intercept external service calls, persists JSON fixtures, serves replays offline",
+  "license": "MIT",
+  "author": "aminazar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aminazar/slowcook.git",
+    "directory": "packages/recorder"
+  },
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/recorder#readme",
+  "bugs": {
+    "url": "https://github.com/aminazar/slowcook/issues"
+  },
+  "keywords": [
+    "slowcook",
+    "recorder",
+    "replay",
+    "vcr",
+    "fixtures",
+    "testing",
+    "acceptance"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

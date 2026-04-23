@@ -10,6 +10,7 @@
     { "path": "../core" },
     { "path": "../stack-ts" },
     { "path": "../forge-github" },
-    { "path": "../llm-anthropic" }
+    { "path": "../llm-anthropic" },
+    { "path": "../recorder" }
   ]
 }

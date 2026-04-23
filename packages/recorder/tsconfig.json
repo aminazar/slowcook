@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // Recorder wraps `fetch` so it needs DOM lib types for
+    // RequestInfo / HeadersInit / Response. Node 20+ has these at
+    // runtime; TypeScript just needs the type declarations.
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "dist"]
+}

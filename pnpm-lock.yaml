@@ -35,6 +35,9 @@ importers:
       '@slowcook-ai/llm-anthropic':
         specifier: workspace:^
         version: link:../llm-anthropic
+      '@slowcook-ai/recorder':
+        specifier: workspace:^
+        version: link:../recorder
       '@slowcook-ai/stack-ts':
         specifier: workspace:^
         version: link:../stack-ts
@@ -67,6 +70,8 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+
+  packages/recorder: {}
 
   packages/stack-ts:
     dependencies:
