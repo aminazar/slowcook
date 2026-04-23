@@ -6,6 +6,42 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.16 — UI testing helpers: auto-cleanup between tests (identified by brew agent)
+
+Silent bug in Phase A (0.7.5) render helper. The scaffolded \`tests/helpers/render.tsx\` wrapped \`@testing-library/react\`'s \`render\` but didn't register \`afterEach(cleanup)\`. Result: components from a prior test linger in jsdom's DOM; the next test's \`getByRole / queryByRole\` sees stale elements. Manifests as "the assertion doesn't match the code" false-positive failures across tests that render the same component with different props.
+
+**Diagnosed by the brew agent** on rewo story-006 UI (2026-04-23):
+
+> "Maybe the issue is that the story-006-ui.test.tsx file itself uses beforeEach / afterEach but doesn't call cleanup(). In React Testing Library, cleanup should be called after each test to unmount components. In Vitest, by default, @testing-library/react auto-cleanup might not be configured."
+
+Observed during the rationale capture added in 0.7.15 (the agent burned 12 tool rounds reading test infra — previously invisible; now the \`ITER N TOOLS\` trace made the reasoning legible).
+
+**Measurable impact on rewo:**
+
+- Before fix: 10 / 21 story-006 UI tests passing
+- After fix: 20 / 21 passing (+10 unmasked by cleanup)
+
+The one remaining red test is a genuine component gap (avatar emoji picker renders multiple buttons matching a regex the test expects to match one) — actually-brewable signal now that the DOM-leak noise is gone.
+
+**Fix:**
+
+\`stack-ts\` \`renderHelper()\` template now includes:
+
+\`\`\`tsx
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+afterEach(() => { cleanup(); });
+\`\`\`
+
+Registered at module-top level, so any test file importing \`renderWithProviders\` gets cleanup automatically for every test in that file.
+
+**Version jump:** \`@slowcook-ai/stack-ts 0.7.11 → 0.7.16\`. CLI / core / forge-github unchanged.
+
+**Adoption (existing consumers):**
+
+Same choice as 0.7.11 — hand-edit \`tests/helpers/render.tsx\` to add the three lines above, OR \`slowcook init --force\` regenerates all helpers from 0.7.16. Rewo takes the hand-edit route per the same override-freeze pattern.
+
 ## 0.7.15 — Brew log richness + diagnostic fixes
 
 Surfaced by the 0.7.14 test run on rewo story-006 UI:

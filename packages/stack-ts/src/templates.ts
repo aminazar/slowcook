@@ -108,7 +108,7 @@ export function getTsUiDevDependencies(): Record<string, string> {
 }
 
 function renderHelper(): string {
-  return `// @slowcook-one-time-scaffold UI tier-1 helper (0.7.5)
+  return `// @slowcook-one-time-scaffold UI tier-1 helper (0.7.5, cleanup wiring 0.7.16)
 //
 // Wraps @testing-library/react's render with the providers tier-1 UI
 // tests need: mocked Next.js router, optional query client, optional
@@ -117,7 +117,26 @@ function renderHelper(): string {
 // here as the project grows (keep the options shape extensible).
 
 import type { ReactElement } from "react";
-import { render, type RenderOptions, type RenderResult } from "@testing-library/react";
+import {
+  render,
+  cleanup,
+  type RenderOptions,
+  type RenderResult,
+} from "@testing-library/react";
+import { afterEach } from "vitest";
+
+// Auto-unmount rendered components between tests. Registered at module
+// load so any test file importing renderWithProviders gets cleanup
+// automatically; prevents DOM state from a prior test leaking into the
+// next \`getByRole(...)\` query. Without this, multiple tests in the
+// same file that render the same component see each other's DOM —
+// e.g., a warning banner from one test lingers into a later test that
+// expects it to NOT be present. Identified by the brew agent as the
+// root cause of the "warning shouldn't render when handle_confirmed=true"
+// paralysis on rewo story-006 (2026-04-23).
+afterEach(() => {
+  cleanup();
+});
 
 export interface RenderWithProvidersOptions extends Omit<RenderOptions, "wrapper"> {
   /** Caller's Next.js router overrides, merged with sensible defaults. */
