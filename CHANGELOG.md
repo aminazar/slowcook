@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.6 — Re-publish 0.7.4 + 0.7.5 with correct dist/ (fixes stale-build release)
+
+**Process bug fix.** 0.7.4 (forge-github workflow templates `slowcook-tests-merged.yml` + `slowcook-brew-merged.yml`) and 0.7.5 (cli Phase A init integration for the UI testing helpers) were both published with **stale `dist/` folders** — the `src/` was correct, versions bumped, but I forgot to run `pnpm build` before publish. Result: both packages made it to npm with the previous version's compiled output.
+
+Effect on consumers:
+- **`forge-github@0.7.4`** published with 0.7.3's `dist/`. Fresh `slowcook init` did NOT emit the two new merge-audit workflows. Rewo was spared because PR #53 hand-copied the files; other consumers would have missed them.
+- **`cli@0.7.5`** published with 0.7.4's `dist/`. Fresh `slowcook init` did NOT emit the Phase A UI testing helpers. Nobody adopted yet so impact was zero.
+
+**Fix:**
+- Both packages rebuilt and republished as `0.7.6`.
+- `stack-ts@0.7.5` was published correctly (I did `pnpm --filter @slowcook-ai/stack-ts build` that session); unchanged. `core@0.7.1` unchanged.
+- No code or API changes — pure repackage.
+
+**Discipline lesson (documented in a new memory):** when version-bumping in a TypeScript workspace that publishes from `dist/`, `pnpm build` is mandatory before `pnpm publish`. Typecheck + test pass against `src/` but publish packages `dist/`. Fix-forward plan: add a `prepublishOnly` script to each package's `package.json` that runs `pnpm build` automatically so this can't happen again.
+
 ## 0.7.5 — Tier-1 UI testing helpers (Phase A: scaffolding)
 
 Phase A of the 0.7.5 bundle per [`docs/plans/0.7.5-tier-1-ui.md`](docs/plans/0.7.5-tier-1-ui.md). Ships the consumer-side infrastructure that tier-1 UI tests will depend on, ahead of the testgen + brew changes (Phase B + C) that make agents emit and produce UI code.

@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/cli",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "CLI for the slowcook brewing harness",
   "license": "MIT",
   "author": "aminazar",
@@ -35,7 +35,8 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
   },
   "dependencies": {
     "@slowcook-ai/core": "workspace:^",

@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/forge-github",
-  "version": "0.7.4",
+  "version": "0.7.6",
   "description": "GitHub ForgeAdapter implementation for slowcook",
   "license": "MIT",
   "author": "aminazar",
@@ -27,7 +27,8 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
   },
   "dependencies": {
     "@slowcook-ai/core": "workspace:^",
