@@ -6,6 +6,33 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.14 — Brew analysis-paralysis fixes (4 leverage points)
+
+User report after two stuck brew runs on rewo story-006 UI (\$3.39 + \$5.48 total, 0 of 11 remaining UI tests turned green): "what's your plan to avoid analysis paralysis on the DOM?"
+
+Root cause identified: brew's turn prompt tells the agent which tests are green/red by ID, but not what the failures actually looked like. When a vitest UI assertion fails with *"expected no \`role=alert\`; Received: \`<div role=\"alert\" ... />\`"*, the agent sees only "this test ID is red." It then reasons abstractly about its own code (*"line 47 says \`!handle_confirmed && ...\` — shouldn't render"*) and can't reconcile with the test's verdict. Paralysis.
+
+Four fixes in ascending leverage:
+
+**Fix 1 (biggest lever): pipe test failure messages into the turn prompt.** Brew's test runner already captures \`failure_message\` per test (up to 500 chars of the vitest assertion output including the \`Received:\` payload). \`runTurn\` now passes the target test's failure message + 5 peripheral red failures into a new prompt section \`### Why the target failed last run\`. Agent reads the actual DOM snippet vitest saw → can't hide from ground truth. Failure-message lookup map (\`failureMessagesByTestId\`) seeded from baseline + refreshed after every iteration's test run.
+
+**Fix 2: prompt addition for diagnostic probing.** \`BREW_SYSTEM\` gains a new "When you're stuck" section teaching the agent:
+- Read the \`Received:\` payload FIRST, before re-inspecting your own code
+- If still unclear, insert \`console.log(screen.debug())\` OR a \`data-testid="probe-iter-N"\` attribute as a **one-iteration diagnostic**. The ratchet reverts it; the NEXT prompt's failure message will show the DOM output.
+- Specific anti-pattern called out: *"the code LOOKS like it shouldn't render X, but the test says X is in the document"* — almost always means another element matches the same selector, not a JSX evaluation bug.
+
+**Fix 3: voluntary-halt escape hatch.** \`BREW_SYSTEM\` instructs the agent: if stuck 3+ iterations on the same target, end rationale with \`"Considering halting voluntarily"\` + a concrete description of the mismatch. Ratchet detects the string (case-insensitive regex) on a no-edits iteration + halts immediately with new halt reason \`AGENT_SELF_REPORTED_STUCK\` + the description in the halt report. Saves ~15 iterations of silent spend.
+
+**Fix 4: early-halt on 2 consecutive zero-edit iterations.** Mechanical safety-net when the agent goes silent (produces no tool calls despite burning context tokens). New halt reason \`AGENT_STALLED_NO_EDITS\`. Previously iters 14+15 of the second story-006 UI run were zero-edit burns worth ~\$0.60; this halt catches after the second zero-edit iter.
+
+Both new halt reasons get suggested-actions entries in \`defaultSuggestedActions()\`.
+
+**Deferred to later: Fix 5.** A \`render_and_debug(component_path, props)\` tool that spawns a vitest helper + returns the rendered DOM directly. Higher leverage than Fixes 1-2 but significantly more work. Memory saved at \`project_brew_render_debug_tool.md\` — revisit if 1-4 don't resolve residual paralysis.
+
+**Version:** \`@slowcook-ai/cli 0.7.13 → 0.7.14\`. 136 cli tests still green (no API-contract changes).
+
+**Expected impact on a re-run of story-006 UI brew:** the stuck test was \`does NOT show the auto-assigned warning when handle_confirmed=true\`. With Fix 1, the agent will see vitest's \`Received:\` payload identifying WHICH element has \`role=alert\` in the rendered DOM. With Fix 2's prompt guidance, if the payload doesn't suffice, it'll probe. With Fix 3, if still stuck, it self-reports after 3 iters instead of 15. Fix 4 catches any residual silent-agent pathology.
+
 ## 0.7.13 — Brew iteration log mirrors to stdout (visible in CI)
 
 User reported: "what do you see in the brew log? why don't I see better output in the GitHub Actions output? just iterations, nothing about progress."

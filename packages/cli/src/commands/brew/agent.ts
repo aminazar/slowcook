@@ -171,6 +171,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     });
   }
 
+  // Fix 1 (0.7.14): keep a lookup of failure messages per test id so
+  // each iteration's turn prompt can include the target test's failure
+  // output. Seeds from baseline; refreshes after each test run below.
+  let failureMessagesByTestId: Map<string, string> = buildFailureMap(baseline.tests);
   let greenSet = new Set(
     baseline.tests.filter((t) => t.status === "passed").map((t) => t.id)
   );
@@ -223,6 +227,11 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
 
   let spendUsd = 0;
   let stagnation = 0;
+  /** How many consecutive iterations produced zero file edits. Resets on
+   * any iteration with files_touched > 0 (regardless of outcome). The
+   * agent going silent for 2+ turns signals analysis paralysis — more
+   * iterations won't recover, so halt early and save budget. */
+  let consecutiveNoEdits = 0;
   const iterationLogs: IterationLog[] = [];
   const priorAttempts: Array<{
     iteration: number;
@@ -299,10 +308,23 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // Snapshot before turn (for revert)
     const snapshot = snapshotAllowedPaths(ctx);
 
-    // Run one agent turn
+    // Run one agent turn. Fix 1 (0.7.14): include the target test's
+    // failure message + a few peripheral ones so the agent sees ground
+    // truth instead of having to reason abstractly.
+    const targetFailureMessage = failureMessagesByTestId.get(currentTarget);
+    const otherStoryFailures = [...redSet]
+      .filter((t) => t !== currentTarget && expectedTestIds.has(t))
+      .slice(0, 5)
+      .map((id) => ({
+        test_id: id,
+        message: failureMessagesByTestId.get(id) ?? "(no failure message captured)",
+      }));
+
     const turnResult = await runTurn(ctx, {
       iteration,
       target: currentTarget,
+      targetFailureMessage,
+      otherFailureMessages: otherStoryFailures,
       greenList: [...greenSet],
       redList: [...redSet],
       priorAttempts,
@@ -330,8 +352,60 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: [],
       });
       stagnation += 1;
+      consecutiveNoEdits += 1;
+
+      // Fix 3 (0.7.14): voluntary-halt escape hatch. If the agent's
+      // rationale ends with "Considering halting voluntarily" the model
+      // has self-reported that it can't make progress — halt immediately
+      // with a diagnostic reason rather than burning more budget.
+      const selfReportStuck = /considering\s+halting\s+voluntarily/i.test(
+        turnResult.rationale
+      );
+      if (selfReportStuck) {
+        appendRunLog(
+          ctx,
+          `ITER ${iteration} AGENT_SELF_REPORTED_STUCK — halting early (rationale contains 'Considering halting voluntarily')`
+        );
+        return haltFor(ctx, {
+          reason: "AGENT_SELF_REPORTED_STUCK",
+          iterations: iteration,
+          checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+          greenCount: greenSet.size,
+          totalCount: expectedTestIds.size,
+          spendUsd,
+          iterationLogs,
+          summary: `Agent voluntarily halted on iter ${iteration} — rationale contained 'Considering halting voluntarily'. Target: ${currentTarget}. Full rationale in last_agent_rationale describes the specific mismatch it couldn't resolve.`,
+        });
+      }
+
+      // Fix 4 (0.7.14): two consecutive zero-edit iterations → halt.
+      // Model spent context tokens reasoning but never emitted a tool
+      // call. Further iterations won't spontaneously produce useful
+      // output; surface the stall instead of paying for it.
+      if (consecutiveNoEdits >= 2) {
+        appendRunLog(
+          ctx,
+          `ITER ${iteration} AGENT_STALLED_NO_EDITS — halting after ${consecutiveNoEdits} consecutive zero-edit iterations`
+        );
+        return haltFor(ctx, {
+          reason: "AGENT_STALLED_NO_EDITS",
+          iterations: iteration,
+          checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+          greenCount: greenSet.size,
+          totalCount: expectedTestIds.size,
+          spendUsd,
+          iterationLogs,
+          summary: `Agent went silent for ${consecutiveNoEdits} consecutive iterations (no tool-use edits despite burning context tokens) on target: ${currentTarget}. Not a productive pattern — halting early to preserve budget.`,
+        });
+      }
       continue;
     }
+
+    // Reset the no-edits counter whenever the agent emitted anything,
+    // even if later stages revert for other reasons (frozen-path, overflow,
+    // regression, no-progress). The counter tracks "did the agent actually
+    // produce tool calls," not "did the iteration succeed."
+    consecutiveNoEdits = 0;
 
     // Constraint checks on the applied diff
     const diff = computeDiff(snapshot);
@@ -441,6 +515,12 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         summary: `Test runner broke mid-brew after iteration ${iteration}. Error: ${result.error ?? "(unknown)"}.`,
       });
     }
+
+    // 0.7.14 Fix 1: refresh failure-message map from the latest run so
+    // the next iteration's turn prompt has up-to-date `Received:` payloads.
+    // (Survives revert-to-snapshot — the MAP is memoised, not the test
+    // runtime state.)
+    failureMessagesByTestId = buildFailureMap(result.tests);
 
     const newGreen = new Set(
       result.tests.filter((t) => t.status === "passed").map((t) => t.id)
@@ -621,6 +701,10 @@ async function runTurn(
   args: {
     iteration: number;
     target: string;
+    /** 0.7.14 Fix 1: vitest failure message for the target test. */
+    targetFailureMessage?: string;
+    /** 0.7.14 Fix 1: failure messages for other red story tests (peripheral vision). */
+    otherFailureMessages?: Array<{ test_id: string; message: string }>;
     greenList: string[];
     redList: string[];
     priorAttempts: Array<{
@@ -650,6 +734,8 @@ async function runTurn(
     budget_spent_usd: args.spendUsd,
     budget_cap_usd: ctx.budgetUsd,
     previous_attempts: args.priorAttempts.slice(-3),
+    target_failure_message: args.targetFailureMessage,
+    other_failure_messages: args.otherFailureMessages,
   });
 
   const filesTouched = new Set<string>();
@@ -1248,6 +1334,23 @@ function appendRunLog(ctx: BrewContext, line: string): void {
 
 function runTestSuite(ctx: BrewContext): RunResult {
   return runTests(ctx.stackConfig, { cwd: ctx.repoRoot });
+}
+
+/**
+ * Build a test-id → failure-message lookup from a RunResult. Used by
+ * the turn prompt to surface vitest's actual failure output for the
+ * current target test (and optionally for other red tests).
+ */
+function buildFailureMap(
+  tests: Array<{ id: string; status: string; failure_message?: string }>
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const t of tests) {
+    if (t.status !== "passed" && t.failure_message) {
+      map.set(t.id, t.failure_message);
+    }
+  }
+  return map;
 }
 
 /** ------------------------- Target selection ------------------------- */

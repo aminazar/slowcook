@@ -36,7 +36,10 @@ export type HaltReason =
   | "TEST_RUNNER_BROKEN"
   | "MANIFEST_DRIFT"
   | "VIOLATION_STREAK"
-  | "API_ERROR";
+  | "API_ERROR"
+  // 0.7.14 additions: early-halt to preserve budget when agent is stuck.
+  | "AGENT_STALLED_NO_EDITS"
+  | "AGENT_SELF_REPORTED_STUCK";
 
 export interface IterationDiff {
   iteration: number;
@@ -261,6 +264,32 @@ export function defaultSuggestedActions(
           id: "retry_after_fix",
           label: "Retry once the underlying cause is resolved",
           description: "If the error was environmental (credit, rate limit), fix it and re-trigger brew. The run was aborted cleanly — no state on disk to clean up besides the (empty) brew branch.",
+        },
+      ];
+    case "AGENT_STALLED_NO_EDITS":
+      return [
+        {
+          id: "inspect_last_rationale",
+          label: "Read the agent's last rationale in the halt report",
+          description: "Agent went silent — produced no tool-use edits for 2+ consecutive iterations despite burning context tokens. Often signals the model decided it's stuck but didn't surface it. The halt report's `last_agent_rationale` + the iteration_diffs show what the agent was reasoning about.",
+        },
+        {
+          id: "hand_patch_or_different_target",
+          label: "Hand-patch the blocker or choose a different target test",
+          description: "If the agent's rationale hints at a specific mismatch (e.g., 'test expects X but component renders Y'), hand-patch that difference + re-run. Otherwise split the target test into smaller assertions so progress is more incremental.",
+        },
+      ];
+    case "AGENT_SELF_REPORTED_STUCK":
+      return [
+        {
+          id: "read_self_reported_reason",
+          label: "Read the agent's self-reported stuck reason",
+          description: "Agent voluntarily halted via the 'Considering halting voluntarily' escape hatch. Its rationale describes a specific mismatch it couldn't resolve — that's your diagnostic starting point.",
+        },
+        {
+          id: "clarify_spec_or_hand_patch",
+          label: "Clarify the spec + add context, or hand-patch",
+          description: "If the agent's described mismatch is a genuine spec ambiguity, add detail and re-run. If it's a concrete bug the agent can't see (test assertion vs component output), hand-patch and let brew continue on the remaining red.",
         },
       ];
   }

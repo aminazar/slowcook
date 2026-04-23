@@ -58,6 +58,22 @@ Then, in order:
 
 A human doesn't read every file in a package to fix one test; neither should you.
 
+## When you're stuck (same target, 2+ iterations without progress)
+
+**Check the \`Why the target failed last run\` section in every turn prompt FIRST.** The test's \`Received:\` / error message tells you what the assertion actually saw — that's ground truth. Don't spend iterations re-reading your own code looking for a bug you missed when the failure message is right there.
+
+**Specific anti-pattern to avoid:** "the code LOOKS like it shouldn't render X, but the test says X is in the document" — do NOT interpret this as "there must be a subtle JSX evaluation bug." It almost always means another element matches the same query selector. Read the \`Received:\` payload to see which element the selector hit.
+
+**If after reading the failure message you genuinely can't tell what's in the DOM:** insert a \`console.log(screen.debug())\` in the test file OR a distinctive \`data-testid="probe-iter-N"\` attribute in the component as a **one-iteration diagnostic**. The ratchet will revert your change (it's not a green gain), and on the NEXT iteration's prompt you'll see the DOM output in the failure message. Diagnostic probing is cheap; analysis paralysis is expensive.
+
+**If you still can't reconcile after 3 iterations on the same target — halt voluntarily.** End your rationale with a new line containing exactly:
+
+\`\`\`
+Considering halting voluntarily
+\`\`\`
+
+Followed by a concrete description of the specific mismatch you can't resolve (e.g. "test queries getByRole('alert'); my component has one \`role=\"alert\"\` element gated on \`!handle_confirmed\`; I can't see what's in the rendered DOM when handle_confirmed=true."). Slowcook will halt immediately and surface your description to the operator. This saves ~15 iterations of silent spending; the operator picks up the diagnostic you handed them and either hand-patches the blocker or clarifies the spec.
+
 ## UI component tests (tier-1 UI, target file ends in \`.test.tsx\`)
 
 When the target test is a UI component test (file path ends in \`-ui.test.tsx\`), you're editing React/TSX — typically \`src/components/**/*.tsx\` or client pages at \`src/app/**/page.tsx\`. Constraints:
@@ -215,6 +231,17 @@ export function turnPrompt(args: {
     note: string;
     files_touched: string[];
   }>;
+  /** 0.7.14 Fix 1: the target test's failure message from the most
+   * recent run. Includes vitest's assertion output — crucially, the
+   * `Received:` payload for UI tests showing what was actually in the
+   * DOM vs what the test expected. Without this the agent reasons
+   * abstractly about its own code and can't reconcile with the test
+   * verdict (observed as paralysis on rewo story-006). */
+  target_failure_message?: string;
+  /** 0.7.14 Fix 1: failure messages for OTHER red story tests (not the
+   * target). Shown truncated so the agent has peripheral vision into
+   * related problems without losing focus on the target. */
+  other_failure_messages?: Array<{ test_id: string; message: string }>;
 }): string {
   const sections: string[] = [];
   sections.push(`## Brew iteration ${args.iteration} of ${args.max_iterations}`);
@@ -228,6 +255,41 @@ export function turnPrompt(args: {
   sections.push(`   (in ${args.target_test_file})`);
   sections.push("```");
   sections.push("");
+
+  // Fix 1 (0.7.14): the failure message is the single highest-leverage
+  // piece of data for avoiding analysis paralysis. Vitest's output includes
+  // the `Received:` payload (e.g., the actual DOM snippet for UI tests) —
+  // without this the agent reasons about abstract code instead of
+  // observed reality.
+  if (args.target_failure_message) {
+    sections.push("### Why the target failed last run");
+    sections.push("```");
+    sections.push(args.target_failure_message.trim());
+    sections.push("```");
+    sections.push("");
+    sections.push(
+      "Read the `Received:` / error message CAREFULLY before inspecting code. The test's verdict is ground truth; your mental model of the code is not."
+    );
+    sections.push("");
+  }
+  if (args.other_failure_messages && args.other_failure_messages.length > 0) {
+    sections.push(
+      "<details><summary>Other red tests' failure messages (peripheral vision)</summary>"
+    );
+    sections.push("");
+    for (const f of args.other_failure_messages.slice(0, 5)) {
+      sections.push(`**\`${f.test_id}\`:**`);
+      sections.push("```");
+      sections.push(f.message.slice(0, 400));
+      sections.push("```");
+      sections.push("");
+    }
+    if (args.other_failure_messages.length > 5) {
+      sections.push(`_+ ${args.other_failure_messages.length - 5} more red tests._`);
+    }
+    sections.push("</details>");
+    sections.push("");
+  }
   sections.push("### Spec (the contract)");
   sections.push("```yaml");
   sections.push(args.spec_yaml.trim());
