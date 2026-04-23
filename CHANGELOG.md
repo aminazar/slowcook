@@ -6,6 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.2 — Brew halt diagnostics: full iteration history + fix cost sign bug + rescue run log on zero-checkpoint halts
+
+Surfaced by rewo story-006's first brew run: halted with `ITERATION_CAP` after 10 iters / 0 checkpoints, and the halt report was nearly useless for diagnosis — only the last 3 iter diffs survived, and the spend was reported as **negative** ($-1.89). Without per-iteration data for iters 1–7, and with the rolling run log lost (it's only pushed to the brew branch on checkpoint), there was no way to see *what the agent tried and why each edit failed*.
+
+**Fixes:**
+
+- **Cost sign bug in `costUsdForResponse`** — the effective-input formula was subtracting `cache_read_input_tokens` and `cache_creation_input_tokens` from `input_tokens` on the (wrong) assumption they were a subset. They're separate counters; the API already reports `input_tokens` as new-input-only. When cache tokens dominated, effective input went negative → spend reported negative. Removed the subtraction.
+- **Halt report now includes ALL iteration diffs** (`iteration_diffs` field), replacing the old `last_three_diffs`. `IterationDiff` carries `target_test_id`, `files_touched` (list), `note`, `broken_tests` (for regressions), `spend_delta_usd`, and optional `rationale` per iteration. No data loss on halts with >3 iters.
+- **Regressions surface broken-test names in the markdown comment** — `iter 4: reverted-regression — 1f/+23/-5 — broke: story-005/handle-auto-assignment, story-003/unverified-can-post (+3 more)`. Makes cross-story assertion clashes obvious at a glance without downloading the JSON.
+- **Smart pagination in the markdown renderer** — halts with ≤15 iters render in full; longer halts show first 5 + last 5 with a gap marker citing the JSON for the rest. The full list is always in the JSON artifact.
+- **Run log rescued to halts/ dir** — on halt, the rolling `.brewing/runs/<ts>/iterations.log` is copied to `.brewing/halts/story-<id>-<ts>.log`, which means CI's halt-artifact upload (`path: .brewing/halts/`) captures it even when zero checkpoints prevented a branch push.
+- **Per-iter run-log lines enriched** — revert lines now include the first 3 file paths touched and (for regressions) the first 3 broken test IDs, so `tail -f iterations.log` during a live brew tells you what's happening without downloading the JSON at the end.
+
+**No schema migration needed for consumers** — halt JSON is a private diagnostic artifact; nothing else reads it. The renamed/extended field is additive from the operator's perspective.
+
+**Version jumps:**
+
+- `@slowcook-ai/cli 0.7.1 → 0.7.2`
+- No other packages touched (halt types live in CLI).
+
+114 cli tests still green. The next halt on any story — but especially the rewo story-006 re-run — should produce a report where the "why" of each failed iteration is legible.
+
 ## 0.7.1 — Refine agent: `follow_up` category + GitHub-native issue references
 
 Surfaced by rewo issue #47, which was (correctly) recognized as touching the same domain as story-005 but (incorrectly) flagged as `overlap` because story-005's `non_goals` listed the fields #47 was requesting. The agent was treating a prior non-goal as evidence of overlap — logically the opposite of what non-goals mean. Non-goals are deliberate deferrals ("this WILL be a story, just not this one"); a later issue that fulfills them is the INTENDED follow-up, not duplication.

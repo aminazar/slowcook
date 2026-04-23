@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   statSync,
+  copyFileSync,
 } from "node:fs";
 import { join, resolve, relative, isAbsolute, dirname } from "node:path";
 import { execSync } from "node:child_process";
@@ -31,7 +32,7 @@ import {
   defaultSuggestedActions,
   type HaltReason,
   type HaltReport,
-  type DiffShortstat,
+  type IterationDiff,
 } from "./halt.js";
 import { generateMap } from "../map/scan.js";
 import { writeFreshMap } from "../map/index.js";
@@ -474,7 +475,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       stagnation += 1;
       appendRunLog(
         ctx,
-        `ITER ${iteration} REVERT regression  files=${diff.changedPaths.length} +${diff.linesAdded}/-${diff.linesRemoved}  broke=${regressions.length}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+        `ITER ${iteration} REVERT regression  files=[${diff.changedPaths.slice(0, 3).join(",")}${diff.changedPaths.length > 3 ? "+" + (diff.changedPaths.length - 3) : ""}] +${diff.linesAdded}/-${diff.linesRemoved}  broke=${regressions.length} [${regressions.slice(0, 3).join(" | ")}${regressions.length > 3 ? " | +" + (regressions.length - 3) : ""}]  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
     }
@@ -502,7 +503,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       stagnation += 1;
       appendRunLog(
         ctx,
-        `ITER ${iteration} REVERT no-progress  files=${diff.changedPaths.length} +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+        `ITER ${iteration} REVERT no-progress  files=[${diff.changedPaths.slice(0, 3).join(",")}${diff.changedPaths.length > 3 ? "+" + (diff.changedPaths.length - 3) : ""}] +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
     }
@@ -1257,10 +1258,11 @@ function costUsdForResponse(
     | undefined;
   const cacheRead = usage?.cache_read_input_tokens ?? 0;
   const cacheCreate = usage?.cache_creation_input_tokens ?? 0;
-  // Anthropic caching: cache reads are ~10% of input; cache creates are ~125%.
-  // We approximate — exact pricing depends on model, but this is within ~20%.
-  const effectiveInput =
-    (input - cacheRead - cacheCreate) + cacheRead * 0.1 + cacheCreate * 1.25;
+  // Anthropic's API reports `input_tokens` as new-input only (excludes cache tokens);
+  // `cache_read_input_tokens` and `cache_creation_input_tokens` are separate counters.
+  // Cache reads bill at ~10% of input; cache writes at ~125%. Prior versions subtracted
+  // them from `input` on the assumption they were a subset — producing negative costs.
+  const effectiveInput = input + cacheRead * 0.1 + cacheCreate * 1.25;
   return (effectiveInput / 1_000_000) * pricing.input + (output / 1_000_000) * pricing.output;
 }
 
@@ -1288,22 +1290,19 @@ interface HaltArgs {
 }
 
 function haltFor(ctx: BrewContext, args: HaltArgs): BrewOutcome {
-  const last3 = (args.iterationLogs ?? [])
-    .slice(-3)
-    .map<DiffShortstat>((l) => ({
-      iteration: l.iteration,
-      files_changed: l.files_touched.length,
-      lines_added: l.lines_added,
-      lines_removed: l.lines_removed,
-      outcome:
-        l.outcome === "checkpoint"
-          ? "checkpoint"
-          : l.outcome === "reverted-regression"
-            ? "reverted-regression"
-            : l.outcome === "rejected-overflow"
-              ? "rejected-overflow"
-              : "reverted-no-progress",
-    }));
+  const iterationDiffs = (args.iterationLogs ?? []).map<IterationDiff>((l) => ({
+    iteration: l.iteration,
+    target_test_id: l.target_test_id,
+    files_changed: l.files_touched.length,
+    files_touched: l.files_touched,
+    lines_added: l.lines_added,
+    lines_removed: l.lines_removed,
+    outcome: l.outcome,
+    note: l.note,
+    broken_tests: l.broken_tests,
+    spend_delta_usd: l.spend_delta_usd,
+    rationale: l.rationale && l.rationale.length > 0 ? l.rationale : undefined,
+  }));
   const lastRationale = (args.iterationLogs ?? []).slice(-1)[0]?.rationale;
 
   const report: HaltReport = {
@@ -1318,7 +1317,7 @@ function haltFor(ctx: BrewContext, args: HaltArgs): BrewOutcome {
     budget_usd: ctx.budgetUsd,
     model: ctx.model,
     summary_plain_english: args.summary,
-    last_three_diffs: last3.length > 0 ? last3 : undefined,
+    iteration_diffs: iterationDiffs.length > 0 ? iterationDiffs : undefined,
     last_agent_rationale: lastRationale,
     suggested_actions: defaultSuggestedActions(args.reason, {
       budget_usd: ctx.budgetUsd,
@@ -1335,6 +1334,19 @@ function haltFor(ctx: BrewContext, args: HaltArgs): BrewOutcome {
     ctx,
     `HALT ${args.reason}  iterations=${args.iterations}  checkpoints=${args.checkpoints}  green=${args.greenCount}/${args.totalCount}  spend=$${args.spendUsd.toFixed(2)}  report=${reportPath}`
   );
+
+  // Copy the rolling run log into the halts/ directory so CI's
+  // halt-artifact upload (which is pointed at .brewing/halts/) captures it.
+  // Without this, halts with 0 checkpoints leave no diagnostic trail off the
+  // runner — the log only gets pushed to the brew branch on checkpoint push.
+  if (ctx.runLogPath && existsSync(ctx.runLogPath)) {
+    try {
+      const logDest = reportPath.replace(/\.json$/, ".log");
+      copyFileSync(ctx.runLogPath, logDest);
+    } catch {
+      /* best effort */
+    }
+  }
 
   // Attempt to push partial progress (if any checkpoints exist) so the operator can see what was tried
   if (report.checkpoints_committed > 0) {

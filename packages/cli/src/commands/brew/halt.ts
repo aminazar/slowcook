@@ -18,7 +18,9 @@ export interface HaltReport {
   budget_usd: number;
   model: string;
   summary_plain_english: string;
-  last_three_diffs?: DiffShortstat[];
+  /** Full per-iteration diffs. Carries every iteration brewing ran, not just the last few,
+   * so post-hoc diagnosis of a stuck loop doesn't lose iters 1..N-3. */
+  iteration_diffs?: IterationDiff[];
   last_agent_rationale?: string;
   /** Suggested human actions. At least one MUST be present — if not, it's a halt-logic bug. */
   suggested_actions: SuggestedAction[];
@@ -36,12 +38,26 @@ export type HaltReason =
   | "VIOLATION_STREAK"
   | "API_ERROR";
 
-export interface DiffShortstat {
+export interface IterationDiff {
   iteration: number;
+  target_test_id: string;
   files_changed: number;
+  files_touched: string[];
   lines_added: number;
   lines_removed: number;
-  outcome: "checkpoint" | "reverted-regression" | "reverted-no-progress" | "rejected-overflow";
+  outcome:
+    | "checkpoint"
+    | "reverted-regression"
+    | "reverted-no-progress"
+    | "rejected-overflow"
+    | "rejected-frozen-path"
+    | "test-runner-broken";
+  note: string;
+  /** For `reverted-regression` outcomes: the previously-green tests this iter broke.
+   * Load-bearing for diagnosing assertion contradictions across stories. */
+  broken_tests?: string[];
+  spend_delta_usd?: number;
+  rationale?: string;
 }
 
 export interface SuggestedAction {
@@ -72,13 +88,31 @@ export function haltReportToMarkdown(report: HaltReport): string {
   lines.push("");
   lines.push("#### What happened");
   lines.push(report.summary_plain_english);
-  if (report.last_three_diffs && report.last_three_diffs.length > 0) {
+  if (report.iteration_diffs && report.iteration_diffs.length > 0) {
     lines.push("");
-    lines.push("#### Last iterations");
-    for (const d of report.last_three_diffs) {
-      lines.push(
-        `- iter ${d.iteration}: ${d.outcome} — ${d.files_changed}f/+${d.lines_added}/-${d.lines_removed}`
-      );
+    lines.push("#### Iterations");
+    // For long halts, show first 5 + last 5 with a gap marker; for short halts, show everything.
+    // The full array is still in the JSON — the markdown is just for humans skimming the comment.
+    const diffs = report.iteration_diffs;
+    const toRender: Array<IterationDiff | "gap"> =
+      diffs.length <= 15
+        ? diffs
+        : [...diffs.slice(0, 5), "gap" as const, ...diffs.slice(-5)];
+    for (const entry of toRender) {
+      if (entry === "gap") {
+        lines.push(`- _… ${diffs.length - 10} iteration(s) elided; full list in the halt JSON_`);
+        continue;
+      }
+      const d = entry;
+      let line = `- iter ${d.iteration}: \`${d.outcome}\` — ${d.files_changed}f/+${d.lines_added}/-${d.lines_removed}`;
+      if (d.outcome === "reverted-regression" && d.broken_tests && d.broken_tests.length > 0) {
+        const shown = d.broken_tests.slice(0, 3).map((t) => `\`${t}\``).join(", ");
+        const more = d.broken_tests.length > 3 ? ` (+${d.broken_tests.length - 3} more)` : "";
+        line += ` — broke: ${shown}${more}`;
+      } else if (d.note && d.outcome !== "checkpoint") {
+        line += ` — ${d.note}`;
+      }
+      lines.push(line);
     }
   }
   if (report.last_agent_rationale) {
