@@ -6,6 +6,33 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.11 — Wire jest-dom matchers into the UI tier-1 a11y helper
+
+**Silent-bug fix.** The 0.7.5 Phase A helper scaffolding shipped with a missing one-liner that made every UI test using a jest-dom matcher (toBeInTheDocument, toHaveTextContent, toHaveClass, toBeDisabled, toBeVisible, toHaveAccessibleName, …) fail with a misleading:
+
+```
+Error: Invalid Chai property: toBeInTheDocument
+```
+
+Root cause: `tests/helpers/a11y.ts` only did `expect.extend(toHaveNoViolations)` for jest-axe, never `import "@testing-library/jest-dom/vitest"` for the DOM matchers. The jest-dom devDep was installed correctly, just never wired into `expect`.
+
+**Blast radius observed on rewo.** First UI brew run (story-006 UI, 37 tests, $3.39 spent) halted with the brew agent stuck in analysis paralysis: 16 tests "failed" with the misleading Chai error; agent read each one as "my component renders this element wrongly," re-inspected its correct code, couldn't reconcile, gave up editing by iter 9. Without this fix, every UI brew run would hit the same wall.
+
+**Fix.** `stack-ts` `a11yHelper()` template now includes `import "@testing-library/jest-dom/vitest"` as a side-effect import above the jest-axe wiring. Auto-extends vitest's `expect` and registers TypeScript augmentations (no per-test `///<reference>` needed).
+
+**Version jump:**
+
+- `@slowcook-ai/stack-ts 0.7.5 → 0.7.11` (template change only; no API surface change)
+- `@slowcook-ai/cli`, `@slowcook-ai/core`, `@slowcook-ai/forge-github` unchanged at 0.7.10 / 0.7.1 / 0.7.10 respectively.
+
+**Adoption (existing consumers):**
+
+Option A — hand-edit `tests/helpers/a11y.ts` to add the one-line import above the existing `import { axe as axeCore, toHaveNoViolations } from "jest-axe";`. Single-line change; `tests/helpers/` is a frozen-path directory so needs `override-freeze` label on the PR.
+
+Option B — `npx @slowcook-ai/cli@latest init --force` regenerates all helpers from the 0.7.11 template; clobbers any consumer customisations.
+
+131 cli tests still green (no CLI change); template change verified by the rewo smoke test `phase-a-smoke.test.tsx` once the matcher wiring lands.
+
 ## 0.7.10 — Brew PR-open visibility + skip Run-tests on testgen PRs
 
 Two unrelated small fixes surfaced by rewo story-006 UI brew run:
