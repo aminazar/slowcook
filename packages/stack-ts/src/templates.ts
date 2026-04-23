@@ -163,6 +163,66 @@ export { expect } from "@playwright/test";
 }
 
 /**
+ * Screenshot capture helper emitted at \`tests/acceptance/_setup/screenshots.ts\`
+ * (0.9.2+). Wraps Playwright's page.screenshot() with slowcook's viewport×
+ * scheme matrix and a stable path convention: \`test-results/screenshots/
+ * story-<id>/<viewport>-<scheme>.png\`. CI uploads this directory as an
+ * artifact; 0.9.2.x promotes to MinIO storage for retention.
+ *
+ * Keep the matrix minimal — desktop-light, mobile-light, mobile-dark.
+ * Consumers extend via the \`overrides\` arg per-story if their spec's
+ * ui_behavior describes more viewports.
+ */
+export function getAcceptanceScreenshotHelper(): string {
+  return `// @slowcook-one-time-scaffold 0.9.2 — tier-2 screenshot capture
+//
+// Per-viewport × color-scheme screenshots for tier-2 acceptance. Outputs
+// land at test-results/screenshots/story-<id>/<viewport>-<scheme>.png;
+// Playwright's default test-results/ is already in .gitignore.
+// Gate 1/2/3 (slowcook 0.10) will consume these for AI vision review.
+
+import type { Page } from "@playwright/test";
+
+export interface ScreenshotMatrix {
+  viewport: { width: number; height: number };
+  scheme: "light" | "dark";
+  name: string;
+}
+
+/** Default matrix. Override per-story when the spec's ui_behavior calls for more. */
+export const DEFAULT_MATRIX: ScreenshotMatrix[] = [
+  { name: "desktop-light", viewport: { width: 1440, height: 900 }, scheme: "light" },
+  { name: "mobile-light", viewport: { width: 390, height: 844 }, scheme: "light" },
+  { name: "mobile-dark", viewport: { width: 390, height: 844 }, scheme: "dark" },
+];
+
+export interface CaptureOptions {
+  page: Page;
+  storyId: string;
+  /** Override the default matrix — e.g., if the spec only describes one viewport. */
+  matrix?: ScreenshotMatrix[];
+}
+
+export async function captureScreenshots(options: CaptureOptions): Promise<string[]> {
+  const matrix = options.matrix ?? DEFAULT_MATRIX;
+  const paths: string[] = [];
+  for (const m of matrix) {
+    await options.page.setViewportSize(m.viewport);
+    await options.page.emulateMedia({ colorScheme: m.scheme });
+    // Small settling wait so the colour-scheme transition commits before
+    // we snap. Playwright doesn't have a \`wait for media-query to apply\`
+    // primitive; 50ms is more than enough in practice.
+    await options.page.waitForTimeout(50);
+    const path = \`test-results/screenshots/story-\${options.storyId}/\${m.name}.png\`;
+    await options.page.screenshot({ path, fullPage: true });
+    paths.push(path);
+  }
+  return paths;
+}
+`;
+}
+
+/**
  * .env.acceptance.example scaffold — makes explicit what the consumer
  * must configure for tier-2 runs without leaking real values.
  */

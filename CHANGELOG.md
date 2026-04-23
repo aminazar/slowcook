@@ -6,6 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.9.2 — Screenshot capture helper (tier-2 matrix)
+
+Third slice of the 0.9 track. Ships the helper that captures per-viewport × colour-scheme screenshots during tier-2 runs — the inputs Gate 1/2/3 (0.10) will consume.
+
+### New helper in `@slowcook-ai/stack-ts@0.9.2`
+
+- **`getAcceptanceScreenshotHelper()`** — emits `tests/acceptance/_setup/screenshots.ts` template.
+- **`captureScreenshots({page, storyId, matrix?})`** — iterates `DEFAULT_MATRIX` (desktop-light 1440×900, mobile-light 390×844, mobile-dark 390×844 with `prefers-color-scheme: dark`). Outputs to `test-results/screenshots/story-<id>/<viewport>-<scheme>.png`. Consumers extend the matrix per-story.
+- Playwright's default `test-results/` dir is already in `.gitignore` and uploaded as artifact on failure by the 0.9.0 workflow — no new CI wiring needed.
+
+### What's NOT in 0.9.2
+
+- **MinIO storage** — deferred. GHA artifacts (30-day retention) are sufficient until Gate 1/2/3 needs longer retention.
+- **Init-plan wiring** — the helper is exported but `slowcook init` doesn't emit it yet. Consumers hand-copy from `getAcceptanceScreenshotHelper()` output or wait for a future `init` refresh. No blocker for rewo (already hand-scaffolded).
+
+### Measurable scope
+
+- **`@slowcook-ai/stack-ts`**: `0.9.0 → 0.9.2` — one new template function.
+- Full plan: [`docs/plans/0.9-tier-2-acceptance.md`](./docs/plans/0.9-tier-2-acceptance.md) §0.9.2.
+
+---
+
 ## 0.9.1 — Recorder + scrubber + fixture staleness
 
 Second slice of the 0.9 track. Makes tier-2 tests deterministic: record real service calls once, replay them offline on every CI run. Catches secret-leak-into-committed-fixtures at the registry level.
