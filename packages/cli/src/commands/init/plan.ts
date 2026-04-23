@@ -18,7 +18,11 @@ import {
   type TemplateParams,
 } from "./templates.js";
 import { getGitHubCiArtifacts } from "@slowcook-ai/forge-github";
-import { getTsStackConfig } from "@slowcook-ai/stack-ts";
+import {
+  getTsStackConfig,
+  getTsUiTestingHelpers,
+  getTsUiDevDependencies,
+} from "@slowcook-ai/stack-ts";
 
 export interface PackageJson {
   dependencies?: Record<string, string>;
@@ -166,6 +170,18 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
   // is wired; future forges (GitLab, Gitea) supply their own via a
   // similar static export. See packages/forge-github/src/templates.ts.
   for (const artifact of getGitHubCiArtifacts({ cliVersion })) {
+    addSimpleFile(actions, reader, options.force, artifact.path, artifact.contents);
+  }
+
+  // 5d. Tier-1 UI testing helpers (0.7.5+). One-time-per-repo render /
+  // fetch / a11y utilities that UI tests import. Each file has a
+  // `@slowcook-one-time-scaffold` marker on line 1 — init --force
+  // overwrites only when the marker is still present (preserves
+  // consumer customisations). Consumer must add the devDependencies
+  // listed in `getTsUiDevDependencies()` + route .tsx tests to jsdom
+  // via vitest.config.ts `environmentMatchGlobs`; init prints both
+  // as post-run instructions since slowcook doesn't own those files.
+  for (const artifact of getTsUiTestingHelpers()) {
     addSimpleFile(actions, reader, options.force, artifact.path, artifact.contents);
   }
 

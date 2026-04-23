@@ -6,6 +6,33 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.5 — Tier-1 UI testing helpers (Phase A: scaffolding)
+
+Phase A of the 0.7.5 bundle per [`docs/plans/0.7.5-tier-1-ui.md`](docs/plans/0.7.5-tier-1-ui.md). Ships the consumer-side infrastructure that tier-1 UI tests will depend on, ahead of the testgen + brew changes (Phase B + C) that make agents emit and produce UI code.
+
+**New in `@slowcook-ai/stack-ts`:**
+
+- `getTsUiTestingHelpers()` — returns three helper files emitted by `slowcook init`:
+  - `tests/helpers/render.tsx` — `renderWithProviders(ui, options?)` wraps `@testing-library/react`'s `render` with a mock Next.js router provider. Tests override the router via `options.router` to observe navigation calls.
+  - `tests/helpers/mocks/fetch.ts` — `mockFetch(config)` returns a `vi.fn` matching URL patterns to canned responses with call-recording; `realShapedFetch(client)` is the signature-asserting wrapper analogous to `realShapedCreateClient` — throws if handler code calls fetch with a wrong-shaped first arg.
+  - `tests/helpers/a11y.ts` — re-exports `jest-axe`'s `axe` + wires `toHaveNoViolations` as a global vitest matcher via `expect.extend`. TypeScript declaration-merging makes the matcher type-check without per-test `///<reference>` directives.
+- `getTsUiDevDependencies()` — advisory list of npm packages the helpers import from: `@testing-library/react ^16.0.0`, `@testing-library/jest-dom ^6.0.0`, `jest-axe ^9.0.0`, `@types/jest-axe ^3.5.0`. Surfaced by init as post-run instructions since slowcook doesn't modify consumer `package.json` directly.
+
+**New in `@slowcook-ai/cli`:**
+
+- `slowcook init` now emits the three helper files alongside existing artifacts. Each helper has a `// @slowcook-one-time-scaffold` marker on line 1 — consumer customisations are preserved on subsequent runs unless `--force` is passed.
+- Post-init output adds a "UI testing (tier-1, 0.7.5+)" section with the devDependency install command and the `vitest.config.ts` `environmentMatchGlobs` snippet consumers need to add (routing `.tsx` tests to jsdom). Slowcook can't patch `vitest.config.ts` directly — it's consumer-owned, and post-init frozen by stack-ts's frozen-files contribution.
+
+**Version jumps:**
+
+- `@slowcook-ai/stack-ts 0.7.0 → 0.7.5` (new `getTsUiTestingHelpers()` + `getTsUiDevDependencies()` exports)
+- `@slowcook-ai/cli 0.7.4 → 0.7.5` (init consumes the new helpers + prints post-run advice)
+- `@slowcook-ai/core`, `@slowcook-ai/forge-github` unchanged.
+
+**Adoption:** bump pin to 0.7.5, run `slowcook init` (non-force, safe) — new consumers get the helpers on first init; existing consumers see "create" actions for the three helper files alongside whatever else they have. Then install devDeps per the post-init prompt and add the `environmentMatchGlobs` line to `vitest.config.ts`. Phase B (testgen emission) + Phase C (brew `allowed_paths`) arrive in subsequent 0.7.5 releases — nothing from Phase A changes behaviour until the helpers are imported by an actual UI test.
+
+114 cli tests still green (init plan tests don't assert on specific action counts; resilient to additions).
+
 ## 0.7.4 — Audit-trail comments on source issue
 
 Stitches the pipeline into a single readable thread per source issue. Today refine posts comments (overlap / follow-up / clarifications / spec submitted) but after that the issue goes quiet while testgen, brew, and merges happen on separate PRs. This release plugs the three gaps:

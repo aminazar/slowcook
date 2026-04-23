@@ -8,6 +8,7 @@ import {
 import { dirname, resolve, relative, isAbsolute } from "node:path";
 import { execSync } from "node:child_process";
 import { buildPlan, InitError, type FileAction, type FileReader } from "./plan.js";
+import { getTsUiDevDependencies } from "@slowcook-ai/stack-ts";
 
 interface InitArgs {
   cwd: string;
@@ -219,4 +220,25 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
   console.log(
     `  ${owner === "@TODO-OWNER" ? "4." : "3."} Commit and open a PR; slowcook CI will run on it.`
   );
+
+  // UI tier-1 helpers: slowcook can't patch package.json or vitest.config.ts
+  // directly (consumer-owned files that may have custom edits), so surface
+  // the required devDeps and vitest env hint as post-run instructions.
+  const uiDeps = getTsUiDevDependencies();
+  const depList = Object.entries(uiDeps)
+    .map(([name, version]) => `${name}@${version}`)
+    .join(" ");
+  console.log();
+  console.log("UI testing (tier-1, 0.7.5+):");
+  console.log(`  • devDependencies (add to package.json, then \`npm install\`):`);
+  console.log(`      npm install -D ${depList}`);
+  console.log(`  • vitest.config.ts — route .tsx tests to jsdom so React components can render:`);
+  console.log(`      test: {`);
+  console.log(`        environmentMatchGlobs: [["**/*.test.tsx", "jsdom"]],`);
+  console.log(`        // … your existing include/setupFiles stay unchanged`);
+  console.log(`      }`);
+  console.log(`  • Helpers at tests/helpers/{render.tsx,mocks/fetch.ts,a11y.ts} are scaffolded`);
+  console.log(`    with a \`@slowcook-one-time-scaffold\` marker; safe to customise, but note that`);
+  console.log(`    \`slowcook init --force\` will overwrite them. Delete the marker to flag the file`);
+  console.log(`    as consumer-owned if/when a future-proof guard lands.`);
 }
