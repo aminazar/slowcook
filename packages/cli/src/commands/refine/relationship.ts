@@ -20,12 +20,24 @@ export interface RelationshipOptions {
   model: string;
 }
 
+export interface RelationshipResult {
+  verdict: RelationshipVerdict;
+  costUsd: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreateTokens: number;
+  };
+  model: string;
+}
+
 export async function analyzeRelationship(
   input: RelationshipInput,
   options: RelationshipOptions
-): Promise<RelationshipVerdict> {
+): Promise<RelationshipResult> {
   const userMessage = buildUserMessage(input);
-  const raw = await options.llm.complete({
+  const response = await options.llm.complete({
     system: RELATIONSHIP_ANALYST_SYSTEM,
     cacheSystem: true,
     model: options.model,
@@ -34,8 +46,12 @@ export async function analyzeRelationship(
     // temperature omitted — newer reasoning-enabled Claude models reject it.
   });
 
-  const parsed = parseVerdict(raw);
-  return parsed;
+  return {
+    verdict: parseVerdict(response.text),
+    costUsd: response.costUsd,
+    usage: response.usage,
+    model: response.model,
+  };
 }
 
 function buildUserMessage(input: RelationshipInput): string {

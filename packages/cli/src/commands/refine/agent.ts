@@ -1,6 +1,7 @@
 import YAML from "yaml";
 import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
+import { costMarker } from "./llm.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -89,17 +90,37 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
 
   // Step 1: relationship analysis
   const existingSpecs = listActiveSpecs(ctx.repoRoot);
-  const verdict: RelationshipVerdict = await analyzeRelationship(
+  const relationshipResult = await analyzeRelationship(
     { issueTitle: issue.title, issueBody: issue.body, activeSpecs: existingSpecs },
     { llm: ctx.llm, model: ctx.relationshipModel }
   );
+  const verdict: RelationshipVerdict = relationshipResult.verdict;
 
   const hasChangeOfMind = issue.labels.includes(LABEL_CHANGE_OF_MIND);
 
+  // Accumulate cost across all LLM calls in this refine invocation so the
+  // final comment posted carries the full round cost. Relationship analysis
+  // + refinement call are the two calls.
+  let roundCostUsd = relationshipResult.costUsd;
+  let totalTokensIn = relationshipResult.usage.inputTokens;
+  let totalTokensOut = relationshipResult.usage.outputTokens;
+  let totalCacheRead = relationshipResult.usage.cacheReadTokens;
+  let totalCacheCreate = relationshipResult.usage.cacheCreateTokens;
+
   if (verdict.kind === "overlap") {
+    const marker = costMarker({
+      agent: "refine",
+      usd: roundCostUsd,
+      tokensIn: totalTokensIn,
+      tokensOut: totalTokensOut,
+      cacheRead: totalCacheRead,
+      cacheCreate: totalCacheCreate,
+      model: ctx.relationshipModel,
+      round: "relationship-overlap",
+    });
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      overlapCommentBody(verdict, existingSpecs)
+      overlapCommentBody(verdict, existingSpecs) + "\n\n" + marker
     );
     await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_OVERLAP]);
     return { kind: "overlap-flagged", conflicting_ids: verdict.conflicting_ids };
@@ -108,22 +129,31 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   if (verdict.kind === "follow_up") {
     // Info only — refinement continues. Post the comment so the PM can see
     // the agent noted the relationship + will cite it in related_specs.
-    // If we've already posted one for this issue, skip (dedup handled
-    // elsewhere in the agent's comment-seen logic).
     await ctx.forge.createIssueComment(
       ctx.issueNumber,
       followUpCommentBody(verdict, existingSpecs)
     );
     // Intentionally no label — follow_up is not a blocker. Refinement
     // continues below. The resulting spec's `related_specs` field will
-    // cite the predecessors.
+    // cite the predecessors. Cost for this relationship call rolls into
+    // the final refinement comment's marker.
   }
 
   if (verdict.kind === "contradiction") {
     if (!hasChangeOfMind) {
+      const marker = costMarker({
+        agent: "refine",
+        usd: roundCostUsd,
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        cacheRead: totalCacheRead,
+        cacheCreate: totalCacheCreate,
+        model: ctx.relationshipModel,
+        round: "relationship-contradiction",
+      });
       await ctx.forge.createIssueComment(
         ctx.issueNumber,
-        contradictionCommentBody(verdict, false, existingSpecs)
+        contradictionCommentBody(verdict, false, existingSpecs) + "\n\n" + marker
       );
       await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_CONTRADICTION]);
       return { kind: "contradiction-blocked", conflicting_ids: verdict.conflicting_ids };
@@ -155,7 +185,13 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     // temperature omitted — newer reasoning-enabled Claude models reject it.
   });
 
-  const parsed = parseAgentOutput(agentResponse, {
+  roundCostUsd += agentResponse.costUsd;
+  totalTokensIn += agentResponse.usage.inputTokens;
+  totalTokensOut += agentResponse.usage.outputTokens;
+  totalCacheRead += agentResponse.usage.cacheReadTokens;
+  totalCacheCreate += agentResponse.usage.cacheCreateTokens;
+
+  const parsed = parseAgentOutput(agentResponse.text, {
     storyId,
     issueNumber: ctx.issueNumber,
     createdAt: ctx.now.toISOString(),
@@ -163,10 +199,21 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     supersedes,
   });
 
+  const refineCostMarker = costMarker({
+    agent: "refine",
+    usd: roundCostUsd,
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
+    cacheRead: totalCacheRead,
+    cacheCreate: totalCacheCreate,
+    model: ctx.refineModel,
+    round: parsed.kind === "questions" ? "questions" : "spec",
+  });
+
   if (parsed.kind === "questions") {
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      BRAND_HEADER + parsed.markdown
+      BRAND_HEADER + parsed.markdown + "\n\n" + refineCostMarker
     );
     return { kind: "questions-posted", commentId: comment.id };
   }
@@ -211,6 +258,19 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     });
     await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_SPEC_SUBMITTED]);
     await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_NEEDS_REFINEMENT);
+
+    // Post a cost-carrying comment so the pipeline-total aggregator can
+    // see refine's spend alongside testgen's + brew's at the end. Best-effort.
+    try {
+      await ctx.forge.createIssueComment(
+        ctx.issueNumber,
+        `### slowcook · spec submitted\n\n` +
+          `Spec \`story-${spec.story_id}\` opened at [PR #${pr.number}](${pr.url}). Merge to trigger \`slowcook-testgen\`.\n\n` +
+          refineCostMarker
+      );
+    } catch {
+      /* best effort */
+    }
     return { kind: "spec-emitted", specPath, prUrl: pr.url, prNumber: pr.number };
   } catch (e) {
     const status = (e as { status?: number }).status;

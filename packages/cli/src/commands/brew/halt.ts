@@ -129,6 +129,16 @@ export function haltReportToMarkdown(report: HaltReport): string {
   lines.push(
     `_Report stored at \`.brewing/halts/story-${report.story_id}-${report.halt_timestamp.replace(/[:.]/g, "-")}.json\`_`
   );
+  // Hidden cost marker for the pipeline-total aggregator on
+  // on-brew-merged. Hidden because we don't want to duplicate the spend
+  // number the human-facing Spend: line already shows, but the aggregator
+  // wants structured access.
+  lines.push("");
+  lines.push(
+    `<!-- slowcook:cost agent=brew usd=${report.tokens_spent_usd.toFixed(4)}` +
+      ` iterations=${report.iterations_run} checkpoints=${report.checkpoints_committed}` +
+      ` model=${report.model} halted=${report.halt_reason} -->`
+  );
   return lines.join("\n");
 }
 

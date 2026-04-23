@@ -6,6 +6,60 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.9 — Cost stats + pipeline-total aggregator
+
+Every agent (refine / testgen / brew) now records its Anthropic spend on the source issue's comment trail as a hidden HTML marker, and `on-brew-merged` sums them into a pipeline-total line on the "shipped 🎉" comment. Makes each issue self-describing: anyone reading the comment trail can see exactly what the autonomous pipeline cost to ship that story.
+
+**What humans see on the source issue:**
+
+```
+slowcook · tests opened
+[PR #56] — story-006, 37 tests in tests/integration/story-006-ui.test.tsx. Testgen cost: $0.0823.
+
+slowcook · brew opened (SUCCESS)
+[PR #57] — story-006, 37/37 green across 4 checkpoints / 6 iterations, $0.41 spent.
+
+slowcook · shipped 🎉
+[PR #57] merged — story-006 is now on main.
+
+Pipeline cost:
+- refine (3 runs): $0.0471
+- testgen: $0.0823
+- brew: $0.4112
+- Total: $0.5406
+
+Pipeline trail:
+...
+```
+
+**Under the hood** (hidden from rendered markdown, visible in comment source):
+
+```
+<!-- slowcook:cost agent=refine usd=0.0234 tokens_in=1823 tokens_out=567 cache_read=14900 cache_create=0 model=claude-sonnet-4-6 round=questions -->
+<!-- slowcook:cost agent=testgen usd=0.0823 tokens_in=4231 tokens_out=8123 cache_read=21000 cache_create=5600 model=claude-sonnet-4-6 -->
+<!-- slowcook:cost agent=brew usd=0.4112 iterations=6 checkpoints=4 model=claude-sonnet-4-6 -->
+```
+
+Aggregator walks issue comments via GitHub's REST API, parses markers via regex, groups by agent, sums.
+
+**What changed in CLI:**
+
+- `refine/llm.ts` — `LlmClient.complete` now returns `{ text, usage, costUsd, model }` instead of a bare string. Anthropic impl normalizes the SDK's usage counters into the `LlmUsage` shape (inputTokens/outputTokens/cacheReadTokens/cacheCreateTokens). `costUsdForUsage(model, usage)` pure helper lives in the same file.
+- `costMarker(...)` + `parseCostMarkers(body)` — shared helpers that emit / read the hidden HTML markers. Covered by 13 new unit tests.
+- **refine** accumulates cost across the relationship call + the refinement call; embeds a marker in every comment it posts (questions, overlap-blocker, contradiction-blocker, spec-submitted).
+- **testgen** embeds a marker per source-issue comment, one per spec.
+- **brew** embeds a marker in both success and halt comments. Uses the existing spend tracker (no new cost math).
+- **on-brew-merged** aggregates all three agents' markers from the source issue's comment trail and appends a `**Pipeline cost:**` block to the shipped comment.
+
+**Prep for 0.8 LLM adapter refactor:** the `LlmClient` signature + pricing table now live behind one interface (`refine/llm.ts`). 0.8 lifts this into `@slowcook-ai/core/llm` + `@slowcook-ai/llm-anthropic` as part of the decoupling work. No breaking changes in this release — pure additive.
+
+**Version jumps:**
+
+- `@slowcook-ai/cli 0.7.7 → 0.7.9` (skipping 0.7.8; reserved for the separate Run-tests-on-testgen-PR fix in `feedback_build_before_publish` territory)
+- Other packages unchanged.
+
+131 cli tests green (+13 new for cost markers + pricing).
+
 ## 0.7.7 — Testgen Phases B + C: UI test bundle + brew UI-aware + Vitest 4 pragma fix
 
 Completes the 0.7.5 bundle ([detailed plan](docs/plans/0.7.5-tier-1-ui.md)): Phase A helpers shipped in 0.7.5; Phases B (testgen UI emission) + C (brew UI-aware prompt) land here, alongside a small post-init text fix.

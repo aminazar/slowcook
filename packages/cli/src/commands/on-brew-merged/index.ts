@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
 import { Octokit } from "@octokit/rest";
+import { parseCostMarkers } from "../refine/llm.js";
 
 /**
  * Called from a workflow that fires on `pull_request.closed` with
@@ -163,11 +164,55 @@ export async function onBrewMerged(argv: string[]): Promise<void> {
   console.log(
     `Posting brew-merged (shipped) comment on #${sourceIssue} (story-${storyId})`
   );
+
+  // Aggregate pipeline cost by reading existing comments on the source
+  // issue and summing slowcook:cost markers. Agents post these markers
+  // as hidden HTML comments in their audit-trail comments (0.7.9+).
+  // Best-effort — if the walk fails we still post the shipped message
+  // without the cost line.
+  let costSummaryMd = "";
+  try {
+    const comments = await octokit.paginate(octokit.issues.listComments, {
+      owner,
+      repo,
+      issue_number: sourceIssue,
+      per_page: 100,
+    });
+    const markers = (comments as Array<{ body?: string }>)
+      .flatMap((c) => parseCostMarkers(c.body ?? ""));
+    if (markers.length > 0) {
+      const byAgent = new Map<string, { usd: number; n: number }>();
+      for (const m of markers) {
+        const acc = byAgent.get(m.agent) ?? { usd: 0, n: 0 };
+        acc.usd += m.usd;
+        acc.n += 1;
+        byAgent.set(m.agent, acc);
+      }
+      const totalUsd = [...byAgent.values()].reduce((a, b) => a + b.usd, 0);
+      const order = ["refine", "testgen", "brew"];
+      const lines: string[] = [];
+      lines.push("**Pipeline cost:**");
+      for (const agent of order) {
+        const acc = byAgent.get(agent);
+        if (!acc) continue;
+        const roundsNote = acc.n > 1 ? ` (${acc.n} run${acc.n === 1 ? "" : "s"})` : "";
+        lines.push(`- ${agent}${roundsNote}: $${acc.usd.toFixed(4)}`);
+      }
+      lines.push(`- **Total: $${totalUsd.toFixed(4)}**`);
+      costSummaryMd = "\n\n" + lines.join("\n") + "\n";
+    }
+  } catch (e) {
+    console.log(
+      `  cost aggregation skipped: ${(e as Error).message}`
+    );
+  }
+
   const body =
     `### slowcook · shipped 🎉\n\n` +
     `[PR #${args.prNumber}](https://github.com/${owner}/${repo}/pull/${args.prNumber}) merged — ` +
-    `\`story-${storyId}\` is now on main. This issue is considered shipped; feel free to close it.\n\n` +
-    `Pipeline trail:\n` +
+    `\`story-${storyId}\` is now on main. This issue is considered shipped; feel free to close it.\n` +
+    costSummaryMd +
+    `\nPipeline trail:\n` +
     `- **refine** — \`spec-ready\` (earlier in this thread)\n` +
     `- **testgen** — tests merged (earlier in this thread)\n` +
     `- **brew** — this PR\n\n` +
