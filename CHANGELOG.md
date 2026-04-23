@@ -94,7 +94,7 @@ Version jump: `@slowcook-ai/stack-ts 0.6.2 → 0.7.0`. Byte-identical output for
 
 ## 0.7.0 — Phase 1: forge-agnostic refactor (pay the debt)
 
-First phase of the 0.7.0 bundle (per `docs/plans/0.7-roadmap-to-brownfield-cooker.md`). Addresses the tech debt I (the LLM) borrowed across 0.3 → 0.6.14: four GitHub-Actions workflow templates living in `@slowcook-ai/cli` despite slowcook's forge-agnostic pledge. This release moves them to `@slowcook-ai/forge-github` where they belong, so CLI stays neutral and future forges (GitLab, Gitea) can bring their own dialect.
+First phase of the 0.7.0 bundle (per `docs/plans/roadmap-0.7-to-0.11.md`, originally `0.7-roadmap-to-brownfield-cooker.md`). Addresses the tech debt I (the LLM) borrowed across 0.3 → 0.6.14: four GitHub-Actions workflow templates living in `@slowcook-ai/cli` despite slowcook's forge-agnostic pledge. This release moves them to `@slowcook-ai/forge-github` where they belong, so CLI stays neutral and future forges (GitLab, Gitea) can bring their own dialect.
 
 **Package version jumps (breaking in principle; no-op for current consumers):**
 
