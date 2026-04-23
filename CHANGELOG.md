@@ -6,6 +6,34 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.13 — Brew iteration log mirrors to stdout (visible in CI)
+
+User reported: "what do you see in the brew log? why don't I see better output in the GitHub Actions output? just iterations, nothing about progress."
+
+Root cause: `appendRunLog()` wrote iter-level progress (spend deltas, files touched, green-count deltas, ratchet outcomes, broken-test IDs on regressions, push/PR-open results, code-map regen events) ONLY to the rolling file at `.brewing/runs/<ts>/iterations.log`. Stdout only got:
+
+- `→ baseline test run…`
+- `→ baseline: X green, Y red / Z total`
+- `=== iteration N/M — target: ... ===` headers
+- Final halt report
+
+Everything BETWEEN iteration headers was invisible unless you downloaded the halt artifact. On a 10-iteration brew that halted at ITERATION_CAP, operators had to wait until the end + download the artifact to see what happened per-iteration.
+
+Fix: `appendRunLog` now also writes each line to stdout (prefixed with two spaces for indent). 15 call sites across brew's ratchet loop + halt path.
+
+Example of the new CI log shape per iteration:
+
+```
+=== iteration 3/20 — target: tests/integration/story-006-ui.test.tsx > ... warning banner ===
+  ITER 3/20 START  target=...  spend=$0.84/10.00
+  ITER 3 CHECKPOINT  +2 green  total_green=62/128  files=[src/components/profile/ProfileEditForm.tsx] +12/-4  spend_delta=$0.14
+  CODEMAP regenerate after iter 3
+```
+
+Halt-path events (push failures, PR-open failures, code-map errors, HALT reason + totals) also surface in stdout now. The iter-log file is unchanged; it's still the canonical record for post-hoc aggregation.
+
+**Version:** `@slowcook-ai/cli 0.7.12 → 0.7.13`. No API / behavior changes outside the new stdout stream. 136 cli tests still green.
+
 ## 0.7.12 — `slowcook dispatch` — trigger workflows remotely from the CLI
 
 Ops-UX win observed during rewo's story-006 UI brew cycle: 5× \`gh workflow run slowcook-brew.yml -f story_id=006 -f budget_usd=10 -f max_iterations=20 -f model=claude-sonnet-4-6\` invocations, every flag remembered by hand. The CLI now wraps it:

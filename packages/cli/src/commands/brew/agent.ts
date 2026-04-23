@@ -1229,6 +1229,12 @@ function regenerateCodeMap(ctx: BrewContext, when: string): void {
  * logging failed.
  */
 function appendRunLog(ctx: BrewContext, line: string): void {
+  // Mirror to stdout so GH Actions / terminal tails show per-iteration
+  // progress (spend deltas, files touched, green-count deltas, ratchet
+  // outcomes) live — not just the iteration headers that were the only
+  // previous stdout signal. Operators could read this trail only by
+  // downloading the halt artifact before 0.7.13.
+  process.stdout.write(`  ${line}\n`);
   if (!ctx.runLogPath) return;
   try {
     const ts = ctx.now().toISOString();
