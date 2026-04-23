@@ -6,6 +6,31 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.12 — `slowcook dispatch` — trigger workflows remotely from the CLI
+
+Ops-UX win observed during rewo's story-006 UI brew cycle: 5× \`gh workflow run slowcook-brew.yml -f story_id=006 -f budget_usd=10 -f max_iterations=20 -f model=claude-sonnet-4-6\` invocations, every flag remembered by hand. The CLI now wraps it:
+
+```bash
+slowcook dispatch brew --story 006 --max-iterations 20
+slowcook dispatch testgen
+slowcook dispatch refine --issue 47   # once the slowcook-refine.yml template gains workflow_dispatch (scheduled for 0.7.13+)
+```
+
+Under the hood: Octokit POST to `/repos/{owner}/{repo}/actions/workflows/{file}/dispatches`. Auto-detects `owner/repo` from the `origin` remote. After dispatch, polls briefly for the newly-created run and prints its URL so the operator can click through without hunting.
+
+**Why a new command instead of `--remote` on existing ones:** `slowcook brew --story 006` runs brew LOCALLY on your workstation with your \`$ANTHROPIC_API_KEY\` against your local git state — legitimate dev-cycle usage. `slowcook dispatch brew --story 006` TRIGGERS the remote workflow. Different semantics; separate commands keeps intent clear ("flag changes modifier, not identity").
+
+**Supported steps today:** \`brew\`, \`testgen\`. \`refine\` is scaffolded but will 404 gracefully until \`slowcook-refine.yml\` gains \`workflow_dispatch\` (out of scope for this release; tracked for 0.7.13+).
+
+**Not supported:** \`on-*-merged\` hooks — they fire from \`pull_request.closed\` events and need a PR number, which is ambiguous to "dispatch manually."
+
+**Version:**
+
+- \`@slowcook-ai/cli 0.7.10 → 0.7.12\` (skipping 0.7.11 — that was \`stack-ts\` only; CLI version was already at 0.7.10).
+- Other packages unchanged.
+
++5 new tests for arg parsing + error paths. 136 cli tests green.
+
 ## 0.7.11 — Wire jest-dom matchers into the UI tier-1 a11y helper
 
 **Silent-bug fix.** The 0.7.5 Phase A helper scaffolding shipped with a missing one-liner that made every UI test using a jest-dom matcher (toBeInTheDocument, toHaveTextContent, toHaveClass, toBeDisabled, toBeVisible, toHaveAccessibleName, …) fail with a misleading:

@@ -13,6 +13,7 @@ import { testgen } from "./commands/testgen/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
+import { dispatch } from "./commands/dispatch/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -46,6 +47,7 @@ Usage:
   slowcook catchup [--dry-run] [--cwd <path>]
   slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
   slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
+  slowcook dispatch <step> [inputs...]
   slowcook version
   slowcook help
 
@@ -61,6 +63,7 @@ Commands available in ${VERSION}:
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
+  dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
 Coming in later versions:
   review, dashboard
@@ -105,6 +108,9 @@ async function main(): Promise<void> {
       return;
     case "map":
       await map(args.slice(1), VERSION);
+      return;
+    case "dispatch":
+      await dispatch(args.slice(1));
       return;
     case "version":
     case "--version":
