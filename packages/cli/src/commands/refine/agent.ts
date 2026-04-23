@@ -27,6 +27,7 @@ import {
   analyzeRelationship,
   contradictionCommentBody,
   overlapCommentBody,
+  followUpCommentBody,
 } from "./relationship.js";
 import { applySupersede } from "@slowcook-ai/core";
 
@@ -68,6 +69,7 @@ export type RefineOutcome =
   | { kind: "questions-posted"; commentId: number }
   | { kind: "spec-emitted"; specPath: string; prUrl: string; prNumber: number }
   | { kind: "overlap-flagged"; conflicting_ids: string[] }
+  | { kind: "follow-up-noted"; related_ids: string[] }
   | { kind: "contradiction-blocked"; conflicting_ids: string[] }
   | { kind: "change-of-mind-accepted"; supersedes: string[] }
   | { kind: "noop"; reason: string };
@@ -97,17 +99,31 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   if (verdict.kind === "overlap") {
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      overlapCommentBody(verdict)
+      overlapCommentBody(verdict, existingSpecs)
     );
     await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_OVERLAP]);
     return { kind: "overlap-flagged", conflicting_ids: verdict.conflicting_ids };
+  }
+
+  if (verdict.kind === "follow_up") {
+    // Info only — refinement continues. Post the comment so the PM can see
+    // the agent noted the relationship + will cite it in related_specs.
+    // If we've already posted one for this issue, skip (dedup handled
+    // elsewhere in the agent's comment-seen logic).
+    await ctx.forge.createIssueComment(
+      ctx.issueNumber,
+      followUpCommentBody(verdict, existingSpecs)
+    );
+    // Intentionally no label — follow_up is not a blocker. Refinement
+    // continues below. The resulting spec's `related_specs` field will
+    // cite the predecessors.
   }
 
   if (verdict.kind === "contradiction") {
     if (!hasChangeOfMind) {
       await ctx.forge.createIssueComment(
         ctx.issueNumber,
-        contradictionCommentBody(verdict, false)
+        contradictionCommentBody(verdict, false, existingSpecs)
       );
       await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_CONTRADICTION]);
       return { kind: "contradiction-blocked", conflicting_ids: verdict.conflicting_ids };
@@ -116,7 +132,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     // blocker label from a prior pass, and proceed.
     await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      contradictionCommentBody(verdict, true)
+      contradictionCommentBody(verdict, true, existingSpecs)
     );
     await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_BLOCKED_CONTRADICTION);
   }
@@ -248,7 +264,8 @@ ${issue.body}`;
     const skip =
       c.body.startsWith("### slowcook · overlap detected") ||
       c.body.startsWith("### slowcook · contradiction") ||
-      c.body.startsWith("### slowcook · change-of-mind authorized");
+      c.body.startsWith("### slowcook · change-of-mind authorized") ||
+      c.body.startsWith("### slowcook · follow-up detected");
     if (skip) continue;
     let body = c.body;
     if (c.is_bot && body.startsWith(BRAND_HEADER)) {

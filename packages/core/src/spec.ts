@@ -80,7 +80,19 @@ export interface SpecIndex {
 export type RelationshipVerdict =
   | { kind: "new_or_independent"; reasoning: string }
   | { kind: "overlap"; conflicting_ids: string[]; reasoning: string }
-  | { kind: "contradiction"; conflicting_ids: string[]; reasoning: string };
+  | { kind: "contradiction"; conflicting_ids: string[]; reasoning: string }
+  /**
+   * New issue fulfills scope an active spec explicitly deferred via its
+   * `non_goals` list. This is the "builds on top" pattern — common in
+   * product work where a story intentionally defers scope (to stay
+   * shippable) that a later story picks up. The prior spec's non_goals
+   * is a positive invitation for this follow-up, not a red flag.
+   *
+   * Handling: refinement CONTINUES (no halt). The resulting spec should
+   * cite the predecessor(s) in its `related_specs` with relationship
+   * "related" and a note explaining what non-goal is now in scope.
+   */
+  | { kind: "follow_up"; related_ids: string[]; reasoning: string };
 
 export function makeEmptyIndex(): SpecIndex {
   return {

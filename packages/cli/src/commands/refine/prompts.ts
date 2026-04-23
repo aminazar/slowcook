@@ -28,22 +28,40 @@ export const RELATIONSHIP_ANALYST_SYSTEM = `You are a careful spec analyst for t
 Given a new GitHub issue and a list of existing specs (summaries + selected full bodies), classify the relationship. The goal is to preserve a ratchet: new decisions must not silently duplicate or contradict earlier decisions.
 
 Classify as one of:
-  - "new_or_independent": this issue addresses a concern not covered by any active spec
-  - "overlap": this issue substantially intersects with one or more active specs (same API, same feature, same user journey, same invariant). Could be resolved by merging, scoping to a delta, or closing as duplicate.
-  - "contradiction": this issue proposes something incompatible with an active spec — reverses a rule, changes a decision, breaks an invariant. The caller will check for a "change-of-mind" label: if present, it is authorized revocation; if absent, it is a blocker.
+  - "new_or_independent": this issue addresses a concern not covered by any active spec.
+  - "follow_up": this issue **fulfills scope that an active spec explicitly deferred via its \`non_goals\` list**. This is the "builds on top" pattern — a prior story intentionally left something out to stay shippable, and this issue picks it up. **Not** an overlap, even if the two stories touch the same surface (same page, same table, same route file). The prior spec's non-goal is a positive invitation: "someone should do this later, just not in that story." Refinement continues normally; the resulting spec will list the predecessor in \`related_specs\`.
+  - "overlap": this issue substantially **re-defines or re-implements active scope** that's already covered by a spec (same API with the same behaviour, same invariant re-stated with different values, same user journey with duplicated acceptance criteria). "Same surface" alone is NOT overlap — only duplicated or conflicting scope is.
+  - "contradiction": this issue proposes something **incompatible** with an active spec — reverses a rule, changes a decision, breaks an invariant that's stated as active goal. The caller will check for a "change-of-mind" label: if present, it is authorized revocation; if absent, it is a blocker.
+
+## Distinguishing follow_up from overlap (this matters — most real product work looks like this)
+
+When a new issue touches surface covered by a prior spec, apply this decision tree:
+
+1. Is the touched surface listed in the prior spec's **active goals / acceptance_scenarios / api_contract**? → **overlap** (re-definition).
+2. Is the touched surface listed in the prior spec's **non_goals**, or does the prior spec defer the topic with phrasing like "separate story", "not in this scope", "later"? → **follow_up** (the prior spec explicitly invited this).
+3. Does the new issue **reverse** an invariant the prior spec treats as active? → **contradiction**.
+4. Otherwise → **new_or_independent**.
+
+Concrete examples:
+
+- Prior spec defines \`POST /api/reactions\` with "ration = 15/week". New issue asks for "ration = 20/week". → **contradiction** (reverses a live invariant).
+- Prior spec implements \`/u/<handle>\` page + handle auto-assignment. Its non_goals list: "user-driven handle editing is a separate future story". New issue asks for user-driven handle editing on a profile page. → **follow_up** (prior non_goal → new goal). **NOT overlap**, even though both touch \`profiles\` + the \`/u/<handle>\` page.
+- Prior spec defines \`POST /api/rewos\` creating a rewo. New issue asks for \`POST /api/rewos\` with a different response schema. → **overlap** (same API, re-definition).
+- New issue adds \`PATCH /api/profiles/me\` where no prior spec mentioned it. → **new_or_independent**.
 
 Return STRICTLY the following JSON, no prose before or after:
 
 {
-  "kind": "new_or_independent" | "overlap" | "contradiction",
+  "kind": "new_or_independent" | "follow_up" | "overlap" | "contradiction",
   "conflicting_ids": ["042", "007"],
-  "reasoning": "one-paragraph explanation citing specific spec ids and the exact overlap/contradiction"
+  "reasoning": "one-paragraph explanation citing specific spec ids. For follow_up, QUOTE the non_goal or deferral phrasing that invites the new scope."
 }
 
 - For "new_or_independent", set conflicting_ids to [].
-- For "overlap" and "contradiction", list every spec id you find, not just the strongest match.
-- "reasoning" should name the specs by id and cite what specifically overlaps or contradicts. Be concrete — "story-042 defines POST /api/reactions with a 15/week ration; this issue changes the ration to 20/week" is good.
-- If information is insufficient to classify with confidence, pick the most conservative outcome (contradiction > overlap > independent).`;
+- For "follow_up", list the predecessor spec id(s) in conflicting_ids (the field name is historical; treat as "related_ids" for this verdict).
+- For "overlap" and "contradiction", list every conflicting spec id, not just the strongest match.
+- "reasoning" should name specs by id AND cite the specific text (invariant, non-goal, api_contract entry) that drove the classification. Be concrete.
+- If information is insufficient, pick the most conservative outcome: contradiction > overlap > follow_up > independent. But don't default to overlap just because surfaces are shared — require evidence of **scope duplication**, not just state-sharing.`;
 
 export const REFINEMENT_ANALYST_SYSTEM = (checklist: string, projectContext: string) => `You are a rigorous product analyst for the slowcook brewing harness.
 

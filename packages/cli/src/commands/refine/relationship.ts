@@ -4,7 +4,7 @@ import type { Spec, RelationshipVerdict, ForgeAdapter } from "@slowcook-ai/core"
 import { RELATIONSHIP_ANALYST_SYSTEM } from "./prompts.js";
 
 const VerdictSchema = z.object({
-  kind: z.enum(["new_or_independent", "overlap", "contradiction"]),
+  kind: z.enum(["new_or_independent", "follow_up", "overlap", "contradiction"]),
   conflicting_ids: z.array(z.string()),
   reasoning: z.string(),
 });
@@ -107,6 +107,9 @@ export function parseVerdict(raw: string): RelationshipVerdict {
   if (v.kind === "new_or_independent") {
     return { kind: "new_or_independent", reasoning: v.reasoning };
   }
+  if (v.kind === "follow_up") {
+    return { kind: "follow_up", related_ids: v.conflicting_ids, reasoning: v.reasoning };
+  }
   if (v.kind === "overlap") {
     return { kind: "overlap", conflicting_ids: v.conflicting_ids, reasoning: v.reasoning };
   }
@@ -130,9 +133,37 @@ function extractJsonObject(raw: string): string {
   return trimmed;
 }
 
+/**
+ * Format a spec reference for user-facing prose (issue comments, PR bodies).
+ * Prefers GitHub's native issue-number reference (\`#N\`) which auto-renders
+ * as a hyperlink. Falls back to the internal \`story-N\` id if the spec has
+ * no \`source_issue\` recorded.
+ *
+ * Inside YAML specs and internal slowcook state, keep using \`story-N\` —
+ * it's the stable canonical identifier. This function is only for prose.
+ */
+export function specRefForProse(spec: Spec): string {
+  const issueNum = spec.source_issue?.match(/#?(\d+)/)?.[1];
+  if (issueNum) return `#${issueNum} (story-${spec.story_id})`;
+  return `story-${spec.story_id}`;
+}
+
+function specsRef(ids: string[], activeSpecs: Spec[]): string {
+  return ids
+    .map((id) => {
+      const found = activeSpecs.find((s) => s.story_id === id);
+      if (found) return specRefForProse(found);
+      return `\`story-${id}\``;
+    })
+    .join(", ");
+}
+
 /** Comment body posted to the issue when relationship analysis surfaces a conflict. */
-export function overlapCommentBody(verdict: Extract<RelationshipVerdict, { kind: "overlap" }>): string {
-  const specs = verdict.conflicting_ids.map((id) => `\`story-${id}\``).join(", ");
+export function overlapCommentBody(
+  verdict: Extract<RelationshipVerdict, { kind: "overlap" }>,
+  activeSpecs: Spec[] = []
+): string {
+  const specs = specsRef(verdict.conflicting_ids, activeSpecs);
   return `### slowcook · overlap detected
 
 This issue overlaps with existing active specs: ${specs}.
@@ -148,11 +179,31 @@ Please choose how to proceed:
 I'll pause refinement until the issue body or labels are updated.`;
 }
 
+/**
+ * Comment body for the follow_up verdict — posted informationally, does NOT
+ * halt refinement. Tells the PM "I noticed this builds on X, will cite it in
+ * the resulting spec, proceeding with refinement now."
+ */
+export function followUpCommentBody(
+  verdict: Extract<RelationshipVerdict, { kind: "follow_up" }>,
+  activeSpecs: Spec[] = []
+): string {
+  const specs = specsRef(verdict.related_ids, activeSpecs);
+  return `### slowcook · follow-up detected
+
+This issue builds on top of ${specs} — it fulfills scope the prior spec(s) explicitly deferred via \`non_goals\` or "future story" phrasing. That's a legitimate scope-growth pattern, not a duplication. **Continuing with refinement.**
+
+**Reasoning:** ${verdict.reasoning}
+
+The resulting spec will list the predecessor(s) in its \`related_specs\` field so the chain is auditable.`;
+}
+
 export function contradictionCommentBody(
   verdict: Extract<RelationshipVerdict, { kind: "contradiction" }>,
-  hasChangeOfMind: boolean
+  hasChangeOfMind: boolean,
+  activeSpecs: Spec[] = []
 ): string {
-  const specs = verdict.conflicting_ids.map((id) => `\`story-${id}\``).join(", ");
+  const specs = specsRef(verdict.conflicting_ids, activeSpecs);
   if (hasChangeOfMind) {
     return `### slowcook · change-of-mind authorized
 

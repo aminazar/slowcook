@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/cli",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "CLI for the slowcook brewing harness",
   "license": "MIT",
   "author": "aminazar",
@@ -13,14 +13,25 @@
   "bugs": {
     "url": "https://github.com/aminazar/slowcook/issues"
   },
-  "keywords": ["tdd", "ai", "agents", "testing", "cli", "brewing", "slowcook"],
+  "keywords": [
+    "tdd",
+    "ai",
+    "agents",
+    "testing",
+    "cli",
+    "brewing",
+    "slowcook"
+  ],
   "type": "module",
   "bin": {
     "slowcook": "./dist/cli.js"
   },
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run --passWithNoTests",

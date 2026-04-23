@@ -6,6 +6,31 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.1 — Refine agent: `follow_up` category + GitHub-native issue references
+
+Surfaced by rewo issue #47, which was (correctly) recognized as touching the same domain as story-005 but (incorrectly) flagged as `overlap` because story-005's `non_goals` listed the fields #47 was requesting. The agent was treating a prior non-goal as evidence of overlap — logically the opposite of what non-goals mean. Non-goals are deliberate deferrals ("this WILL be a story, just not this one"); a later issue that fulfills them is the INTENDED follow-up, not duplication.
+
+**New:**
+
+- Fourth `RelationshipVerdict` kind: `follow_up`. Definition: "this issue fulfills scope an active spec explicitly deferred via `non_goals`." Refinement **does not halt** — the agent posts an informational comment noting the relationship and continues. The resulting spec will cite the predecessor(s) in its `related_specs` field.
+- `RELATIONSHIP_ANALYST_SYSTEM` prompt rewritten with a four-case decision tree (goal/non-goal/reversal/none) + four concrete worked examples distinguishing the categories. Key rule pinned: "same surface" alone is NOT overlap — only duplicated or conflicting scope is.
+- `followUpCommentBody` — new comment template. No "pause until PM acts" language; no blocking label.
+- Verdict schema + type + parser updated across `@slowcook-ai/core` and `@slowcook-ai/cli`.
+
+**Ergonomics:**
+
+- `specRefForProse(spec)` — format a spec reference as `#<source-issue> (story-<id>)` when the source issue is known, falling back to `story-<id>`. GitHub auto-renders `#N` as a hyperlink in comments. Used in overlap/contradiction/follow-up comment bodies. Internal state (YAML, commit messages, slowcook bookkeeping) keeps `story-<id>` — that's the stable canonical identifier.
+- All three relationship comment templates now thread `activeSpecs` through so `specRefForProse` can look up each referenced spec's source_issue.
+
+**Version jumps:**
+
+- `@slowcook-ai/core 0.5.0 → 0.7.1` (RelationshipVerdict type extension)
+- `@slowcook-ai/cli  0.7.0 → 0.7.1`
+
+Existing consumers: bump pin, no other action. The new category fires only when a prior spec's non-goals invite follow-up scope — existing pipelines unchanged. Rewo issue #47 will re-classify correctly on the next refine run; adding any new comment triggers it.
+
++5 tests: parseVerdict for follow_up, specRefForProse (three modes), followUpCommentBody shape. 114 cli tests.
+
 ## 0.7.0 — Phase 2: testgen auto-generates stubs + helpers
 
 Closes the two remaining manual touchpoints from the story-005 run. Testgen now emits a **bundle** — test file plus any needed route stubs plus any needed mock helpers — instead of just a test file.
