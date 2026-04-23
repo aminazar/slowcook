@@ -6,15 +6,31 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## 0.7.19 — forge-github template drops `cache: npm` from slowcook.yml
+## 0.7.19 — page-link test names are static literals; forge-github drops `cache: npm`
 
-Consumer CI incident on rewo (2026-04-23, ~21:00 UTC). `actions/setup-node@v4` with `cache: npm` captured `~/.npm/_npx` alongside the intended `~/.npm/_cacache`. On restore, `tar` couldn't mkdir the relative `../../..` paths `_npx` stored → **55k+ lines of "Cannot mkdir: No such file or directory" per CI run**.
+### cli: static test-name literals in page-link assertion
 
-`npx --yes "$SLOWCOOK_CLI"` downloads fresh each run regardless of whether the `_npx` cache is primed; the `cache: npm` option was saving state that hurt restore without ever helping runtime. Dropping it costs ~20 seconds per CI run (re-running `npm ci` cold) and saves 55k log lines.
+0.7.17's `buildPageLinkTestContent` used runtime string concatenation in `it(...)` names:
+```ts
+it("imports " + component + " from " + importFrom, () => { ... })
+```
 
-Template change in `packages/forge-github/src/templates.ts` slowcook-checks workflow. Consumers should also clear existing broken caches via `gh cache delete --all` and drop the option from any pre-existing workflow copies (rewo did both).
+Testgen's manifest extractor parses the file statically and records the first literal ("imports "). Vitest resolves the full concat at runtime ("imports ProfileEditForm from @/components/profile/ProfileEditForm"). IDs diverge → `MANIFEST_DRIFT` halt on brew.
 
-**`@slowcook-ai/forge-github`**: `0.7.11 → 0.7.12`. No cli/core/stack-ts changes.
+Caught on the story-005 dogfood run (2026-04-23, 21:06 UTC): brew halted at iteration 0 ($0.00 spent) citing "2 of the story's tests are invisible to the runner. First missing: `... > imports `".
+
+**Fix:** testgen inlines `component` + `importFrom` into literal strings at generation time. Manifest IDs now match vitest's runtime IDs verbatim.
+
+### forge-github: drop cache: npm (carried over from 0.7.19 pre-publish)
+
+Same as previously documented — `actions/setup-node@v4` with `cache: npm` captured `~/.npm/_npx` and produced 55k-line tar-restore spam on consumer CI. Template no longer opts in.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.7.18 → 0.7.19`.
+- **`@slowcook-ai/forge-github`**: `0.7.11 → 0.7.12`.
+
+155 tests green (+1 new regression guard on static test-name emission).
 
 ---
 

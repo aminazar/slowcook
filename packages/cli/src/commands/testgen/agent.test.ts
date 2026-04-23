@@ -649,4 +649,19 @@ describe("buildPageLinkTestContent", () => {
     expect(r.contents).toContain("imports ");
     expect(r.contents).toContain("mounts <");
   });
+
+  it("0.7.19: it() names are STATIC string literals so manifest extraction matches vitest runtime", () => {
+    const r = buildPageLinkTestContent(spec, hint);
+    // The full names must appear verbatim (no string concatenation in the
+    // emitted `it()` call), otherwise the manifest's static ID walk
+    // records a truncated name that diverges from vitest's runtime ID →
+    // MANIFEST_DRIFT halt on brew.
+    expect(r.contents).toContain(
+      '"imports ProfileEditForm from @/components/profile/ProfileEditForm"'
+    );
+    expect(r.contents).toContain('"mounts <ProfileEditForm /> in the rendered tree"');
+    // And the dynamic form must NOT appear.
+    expect(r.contents).not.toMatch(/"imports " \+ /);
+    expect(r.contents).not.toMatch(/"mounts <" \+ /);
+  });
 });

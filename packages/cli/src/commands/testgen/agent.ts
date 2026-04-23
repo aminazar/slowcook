@@ -989,6 +989,16 @@ export function buildPageLinkTestContent(
   const importFromEscaped = importFrom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const componentEscaped = component.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+  // Test names MUST be static string literals at generation time. The
+  // manifest extractor parses this file statically via AST-ish walk; a
+  // dynamic `"imports " + component + " from " + importFrom` reduces to
+  // "imports " in the extractor, while vitest resolves the full string
+  // at runtime. The two diverge → MANIFEST_DRIFT halt on brew. Observed
+  // on the story-005 dogfood run (2026-04-23, ~21:06 UTC); fixed in
+  // 0.7.19 by inlining component + importFrom at generation.
+  const importsTestName = `imports ${component} from ${importFrom}`;
+  const mountsTestName = `mounts <${component} /> in the rendered tree`;
+
   const contents =
     `// slowcook 0.7.17 page-link assertion — story-${spec.story_id}\n` +
     `//\n` +
@@ -1003,13 +1013,12 @@ export function buildPageLinkTestContent(
     `\n` +
     `describe("story-${spec.story_id} page integration", () => {\n` +
     `  const page = ${JSON.stringify(page)};\n` +
-    `  const component = ${JSON.stringify(component)};\n` +
     `\n` +
     `  it("page file exists", () => {\n` +
     `    expect(existsSync(page)).toBe(true);\n` +
     `  });\n` +
     `\n` +
-    `  it("imports " + component + " from " + ${JSON.stringify(importFrom)}, () => {\n` +
+    `  it(${JSON.stringify(importsTestName)}, () => {\n` +
     `    const src = existsSync(page) ? readFileSync(page, "utf8") : "";\n` +
     `    const importRe = new RegExp(\n` +
     `      "import\\\\s+(?:\\\\w+|\\\\{[^}]*\\\\b" + ${JSON.stringify(componentEscaped)} + "\\\\b[^}]*\\\\})" +\n` +
@@ -1018,7 +1027,7 @@ export function buildPageLinkTestContent(
     `    expect(src).toMatch(importRe);\n` +
     `  });\n` +
     `\n` +
-    `  it("mounts <" + component + " /> in the rendered tree", () => {\n` +
+    `  it(${JSON.stringify(mountsTestName)}, () => {\n` +
     `    const src = existsSync(page) ? readFileSync(page, "utf8") : "";\n` +
     `    expect(src).toMatch(new RegExp("<\\\\s*" + ${JSON.stringify(componentEscaped)} + "\\\\b"));\n` +
     `  });\n` +
