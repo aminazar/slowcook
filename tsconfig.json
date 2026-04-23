@@ -6,6 +6,7 @@
     { "path": "./packages/forge-github" },
     { "path": "./packages/llm-anthropic" },
     { "path": "./packages/recorder" },
+    { "path": "./packages/gates" },
     { "path": "./packages/cli" }
   ]
 }

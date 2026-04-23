@@ -1,0 +1,54 @@
+{
+  "name": "@slowcook-ai/gates",
+  "version": "0.10.0",
+  "description": "Gate 1 — deterministic mechanical UI checks for slowcook tier-2 acceptance: contrast, focus visibility, overflow, tap targets",
+  "license": "MIT",
+  "author": "aminazar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aminazar/slowcook.git",
+    "directory": "packages/gates"
+  },
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/gates#readme",
+  "bugs": {
+    "url": "https://github.com/aminazar/slowcook/issues"
+  },
+  "keywords": [
+    "slowcook",
+    "gates",
+    "a11y",
+    "accessibility",
+    "contrast",
+    "wcag",
+    "playwright",
+    "tier-2"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
+  },
+  "peerDependencies": {
+    "@playwright/test": "^1.40.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

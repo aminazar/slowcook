@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // Gates wrap Playwright's Page API; DOM lib needed for the in-browser
+    // evaluate() payloads to type-check against window / document / Element.
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "dist"]
+}

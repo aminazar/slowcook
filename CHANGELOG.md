@@ -6,6 +6,47 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.10.0 — Gate 1: deterministic mechanical UI checks (`@slowcook-ai/gates`)
+
+New workspace package `@slowcook-ai/gates@0.10.0`. Wraps Playwright's `Page` API with three deterministic checks that run alongside the screenshot capture from 0.9.2. Gate 2 (AI vision) and Gate 3 (HITL via PR comments) land in 0.10.1 and 0.10.2.
+
+### Checks
+
+- **`checkContrast(page)`** — WCAG 2.1 AA contrast on visible text. Inline relative-luminance algorithm; no axe dependency. Thresholds: 4.5:1 normal text, 3.0:1 large (≥24px or ≥18.66px bold).
+- **`checkTapTargets(page, { minSize: 44 })`** — flags interactive elements (`button`, `a[href]`, `input`, `select`, `[role="button"]`, `[onclick]`) below 44×44 CSS px. Override threshold per-call.
+- **`checkNoOverflow(page)`** — `document.scrollWidth > window.innerWidth` → report + name the three widest offenders by `right` edge.
+
+Plus a `runGate1(page)` orchestrator that runs all three in parallel.
+
+Every check returns `GateViolation[]` with `{ gate, selector, evidence, category }`. Empty array = clean; caller asserts `toEqual([])`.
+
+### What's NOT in 0.10.0
+
+- **Gate 2 (AI vision)** — Claude vision review of 0.9.2's screenshots vs spec `ui_behavior` prose. Ships in 0.10.1. Requires extending `LlmClient` with a vision-capable variant.
+- **Gate 3 (HITL)** — PR-comment delivery + PM reply loop + `aesthetic-sensitive` label gating. Ships in 0.10.2.
+- **Focus-ring visibility** — noted in the Gate 1 design but not implemented in 0.10.0 (needs keyboard-nav simulation, more fragile than the three shipped checks). Follow-up.
+
+### Consumer adoption
+
+```ts
+import { runGate1 } from "@slowcook-ai/gates";
+
+test("mobile Gate 1 clean", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/u/alice");
+  expect(await runGate1(page)).toEqual([]);
+});
+```
+
+Peer dep `@playwright/test ^1.40.0` — consumers already installed it in 0.9.0. No new devDependency churn.
+
+### Measurable scope
+
+- **New package**: `@slowcook-ai/gates@0.10.0` — 5 source files (index, types, contrast, tap-targets, overflow) + README. First publish.
+- 244 workspace tests green (no new gate tests shipped in 0.10.0 — checks exercise Playwright's `page.evaluate` which requires a real browser; integration tests live in consumer repos like rewo's tier-2 suite).
+
+---
+
 ## 0.9.2 — Screenshot capture helper (tier-2 matrix)
 
 Third slice of the 0.9 track. Ships the helper that captures per-viewport × colour-scheme screenshots during tier-2 runs — the inputs Gate 1/2/3 (0.10) will consume.
