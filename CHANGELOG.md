@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.7.3 — PR-gate runs the tests
+
+Surfaced by rewo story-006's diagnosis: story-005's 11 tier-1 tests sat red on main for ~24h between its brew-merge and the next story's attempt, undetected. Root cause — the `slowcook checks` workflow does frozen-path guard + manifest verify + code-map check but **never actually runs vitest**. A broken test file passes the PR gate.
+
+**Change:**
+
+- `@slowcook-ai/forge-github` — `getGitHubCiArtifacts()` now emits a final `Run tests` step in `slowcook.yml` that runs `npm test`. Every new consumer initialised after 0.7.3 gets PR-side vitest enforcement by default. Existing consumers adopt by bumping their pin + re-init'ing the workflow (or hand-editing the one-liner in).
+- Guidance documented inline in the emitted template: projects that gate heavy tests on an env var (`ACCEPTANCE=1`, `INTEGRATION=1`, etc.) should `describe.skipIf` those so `npm test` stays default-fast in CI and doesn't redline on local-server-required suites.
+
+**Version jumps:**
+
+- `@slowcook-ai/forge-github 0.7.0 → 0.7.3`
+- `@slowcook-ai/cli 0.7.2 → 0.7.3` (consumer of forge-github; paired publish)
+- `@slowcook-ai/core`, `@slowcook-ai/stack-ts` unchanged.
+
+Existing consumers: bump pin to 0.7.3, then either (a) re-init and let slowcook regenerate `slowcook.yml`, or (b) add the single step manually. rewo is in state (b) — it took the hand-patch directly (see `chore/ci-run-tests`) rather than wait for the publish, to close the gap immediately.
+
+114 cli tests still green. No behavioural changes to brew/refine/testgen/map.
+
 ## 0.7.2 — Brew halt diagnostics: full iteration history + fix cost sign bug + rescue run log on zero-checkpoint halts
 
 Surfaced by rewo story-006's first brew run: halted with `ITERATION_CAP` after 10 iters / 0 checkpoints, and the halt report was nearly useless for diagnosis — only the last 3 iter diffs survived, and the spend was reported as **negative** ($-1.89). Without per-iteration data for iters 1–7, and with the rolling run log lost (it's only pushed to the brew branch on checkpoint), there was no way to see *what the agent tried and why each edit failed*.
