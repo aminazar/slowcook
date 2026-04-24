@@ -29,6 +29,96 @@ export interface RelatedSpec {
   note?: string;
 }
 
+/**
+ * Status of a single proposal within a spec. Proposals are refine-agent-
+ * generated defaults for missing context (schema, UI layout, routes, etc.)
+ * that the issue author didn't specify. Humans review + resolve each.
+ *
+ * - `pending` — refine emitted a proposal; awaiting human sign-off
+ * - `approved` — human signed off (approved_by + approved_at populated)
+ * - `rejected` — human rejected; proposal ignored downstream, refine
+ *   should regenerate or ask clarifying questions on the next run
+ * - `deferred` — refine decided the story is small enough that the gap
+ *   doesn't matter (e.g., no perf budget for a read-only GET); reason
+ *   captured in the proposal's `rationale`
+ * - `blocked_on_clarification` — refine couldn't propose defensibly
+ *   without more info from the operator; clarifying question asked
+ */
+export type ProposalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "deferred"
+  | "blocked_on_clarification";
+
+interface ProposalBase {
+  status: ProposalStatus;
+  proposed_by: string;
+  approved_by?: string;
+  approved_at?: string;
+  rationale?: string;
+}
+
+export interface SchemaProposal extends ProposalBase {
+  /** Raw DDL — human reads, PR body renders as Mermaid ERD. */
+  sql: string;
+}
+
+export interface UiLayoutProposal extends ProposalBase {
+  viewport_coverage?: string[];
+  components_to_reuse?: string[];
+  tokens_to_reuse?: string[];
+  tokens_to_add?: string[];
+}
+
+export interface RoutesProposal extends ProposalBase {
+  paths: Array<{ path: string; file: string }>;
+}
+
+export interface AuthProposal extends ProposalBase {
+  requirements?: string[];
+}
+
+export interface PerfBudgetProposal extends ProposalBase {
+  budgets?: Record<string, number>;
+}
+
+export interface ObservabilityProposal extends ProposalBase {
+  log_events?: string[];
+  metrics?: Array<{ name: string; type: string }>;
+}
+
+export interface InfraProposal extends ProposalBase {
+  runtime?: string;
+  deploy_target?: string;
+  /** Free-form notes on cloud/facility choices when applicable. */
+  notes?: string;
+}
+
+export interface ApiShapeProposal extends ProposalBase {
+  endpoints?: Array<{
+    method: string;
+    path: string;
+    request_schema?: unknown;
+    responses?: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * Proposals block — optional; absent on specs authored pre-0.11 or on
+ * stories where no gaps were detected.
+ */
+export interface SpecProposals {
+  schema?: SchemaProposal;
+  ui_layout?: UiLayoutProposal;
+  routes?: RoutesProposal;
+  auth?: AuthProposal;
+  perf_budget?: PerfBudgetProposal;
+  observability?: ObservabilityProposal;
+  infra?: InfraProposal;
+  api_shape?: ApiShapeProposal;
+}
+
 export interface Spec {
   $schema?: string;
   story_id: string;
@@ -55,6 +145,14 @@ export interface Spec {
   non_goals: string[];
 
   related_specs?: RelatedSpec[];
+
+  /**
+   * Refine-agent proposals for gaps in the source issue (0.11+). Each
+   * category is optional; proposals start `pending` and resolve to
+   * approved/rejected/deferred as humans review. Brew reads `approved`
+   * schema proposals to unlock allowed-paths for migrations.
+   */
+  proposals?: SpecProposals;
 }
 
 export interface SpecIndexEntry {

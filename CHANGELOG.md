@@ -6,6 +6,35 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.0 — Refinement proposals (detect missing context → propose defaults)
+
+Refine agent graduates from "translate issue to spec" to "translate issue to spec **+ propose what the issue author didn't specify**." First slice of the refinement-proposals arc (0.11 → 0.12). See [`docs/plans/0.11-refinement-proposals.md`](./docs/plans/0.11-refinement-proposals.md).
+
+### What ships
+
+- **8-category proposal block in spec YAML** — `schema`, `ui_layout`, `routes`, `auth`, `perf_budget`, `observability`, `infra`, `api_shape`. Each carries `status` (pending/approved/rejected/deferred/blocked_on_clarification), `proposed_by`, `approved_by`, `approved_at`, `rationale`, and category-specific fields.
+- **Mermaid ERD generator** (`ddlToMermaidErd`) — shallow Postgres-DDL → `erDiagram`. Parses `create table` + `alter table add column`; captures FK relationships, column types (uuid/text/int/timestamptz/…), PK/NN/FK hints.
+- **Refine prompt extension** — new §Proposals section instructs the agent in the detect/propose/defer/ask rubric. Propose when project context supplies grounding; defer when the gap genuinely doesn't matter; ask when proposing would be speculation.
+- **PR body rendering** — draft spec PR now has a "## Proposals" section with status badges (⏳ pending / ✅ approved / 🟡 deferred / ❌ rejected / ❓ blocked), Mermaid ERD for schema, markdown tables for routes, token lists for UI layout. Humans review + resolve each.
+- **Non-breaking schema evolution** — `Spec.proposals` is optional; pre-0.11 specs keep validating without modification.
+
+### What's NOT in 0.11.0 (deferred)
+
+- **`/refine` resubmit workflow** — PM comments `/refine` on the spec PR → agent reads feedback → amends proposals on the same branch. Landing in 0.11.1.
+- **Brew reading proposals for allowed-paths** — 0.11.1. Brew's `supabase/migrations/**` allowed-path is already open (0.7.17+), so approved schema proposals don't need new allowed-path wiring to close — but the brew prompt should be updated to reference `proposals.schema.sql` as authoritative DDL. Small change; defer.
+- **Mockup generation** — 0.12.0. Draft plan at `docs/plans/0.12-mockup-first-refinement.md`.
+- **Review overlay package** — 0.12.1. Draft plan at `docs/plans/0.12.1-review-overlay.md`.
+- **Brownfield extraction** — 0.12.2. Covered in 0.12's Brownfield section.
+
+### Measurable scope
+
+- **`@slowcook-ai/core`**: `0.8.0 → 0.11.0` — additive `Spec.proposals` interface + per-category shapes (schema/ui_layout/routes/auth/perf_budget/observability/infra/api_shape). Non-breaking.
+- **`@slowcook-ai/cli`**: `0.9.1 → 0.11.0` — prompts.ts gains §Proposals + `renderProposalsSection`; new `refine/mermaid.ts` DDL-to-ERD; spec-yaml.ts zod extension; agent.ts passes spec into `draftPrBody`.
+- **Tests**: 160 green across 7 packages (+16 new: 8 Mermaid parser, 8 proposals PR rendering).
+- `@slowcook-ai/stack-ts`, `@slowcook-ai/forge-github`, `@slowcook-ai/llm-anthropic`, `@slowcook-ai/recorder`, `@slowcook-ai/gates` unchanged.
+
+---
+
 ## 0.10.0 — Gate 1: deterministic mechanical UI checks (`@slowcook-ai/gates`)
 
 New workspace package `@slowcook-ai/gates@0.10.0`. Wraps Playwright's `Page` API with three deterministic checks that run alongside the screenshot capture from 0.9.2. Gate 2 (AI vision) and Gate 3 (HITL via PR comments) land in 0.10.1 and 0.10.2.

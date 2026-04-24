@@ -250,6 +250,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
         storyId: spec.story_id,
         issueNumber: ctx.issueNumber,
         supersedes,
+        spec,
       }),
       head: branch,
       base: ctx.baseBranch,

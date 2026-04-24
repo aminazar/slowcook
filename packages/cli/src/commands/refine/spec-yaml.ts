@@ -38,6 +38,64 @@ const SpecIndexSchema = z.object({
   stories: z.record(z.string(), SpecIndexEntrySchema),
 });
 
+const ProposalStatusSchema = z.enum([
+  "pending",
+  "approved",
+  "rejected",
+  "deferred",
+  "blocked_on_clarification",
+]);
+
+const ProposalBaseSchema = z.object({
+  status: ProposalStatusSchema,
+  proposed_by: z.string(),
+  approved_by: z.string().optional(),
+  approved_at: z.string().optional(),
+  rationale: z.string().optional(),
+});
+
+const SpecProposalsSchema = z.object({
+  schema: ProposalBaseSchema.extend({ sql: z.string() }).optional(),
+  ui_layout: ProposalBaseSchema.extend({
+    viewport_coverage: z.array(z.string()).optional(),
+    components_to_reuse: z.array(z.string()).optional(),
+    tokens_to_reuse: z.array(z.string()).optional(),
+    tokens_to_add: z.array(z.string()).optional(),
+  }).optional(),
+  routes: ProposalBaseSchema.extend({
+    paths: z.array(z.object({ path: z.string(), file: z.string() })),
+  }).optional(),
+  auth: ProposalBaseSchema.extend({
+    requirements: z.array(z.string()).optional(),
+  }).optional(),
+  perf_budget: ProposalBaseSchema.extend({
+    budgets: z.record(z.string(), z.number()).optional(),
+  }).optional(),
+  observability: ProposalBaseSchema.extend({
+    log_events: z.array(z.string()).optional(),
+    metrics: z
+      .array(z.object({ name: z.string(), type: z.string() }))
+      .optional(),
+  }).optional(),
+  infra: ProposalBaseSchema.extend({
+    runtime: z.string().optional(),
+    deploy_target: z.string().optional(),
+    notes: z.string().optional(),
+  }).optional(),
+  api_shape: ProposalBaseSchema.extend({
+    endpoints: z
+      .array(
+        z.object({
+          method: z.string(),
+          path: z.string(),
+          request_schema: z.unknown().optional(),
+          responses: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
+      .optional(),
+  }).optional(),
+});
+
 const SpecSchema = z.object({
   $schema: z.string().optional(),
   story_id: z.string(),
@@ -66,6 +124,7 @@ const SpecSchema = z.object({
       })
     )
     .optional(),
+  proposals: SpecProposalsSchema.optional(),
 });
 
 export function readIndex(repoRoot: string): SpecIndex {
