@@ -6,6 +6,30 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.3 — Deterministic proposals synthesis from spec body
+
+Prompt-only steering (0.11.0, 0.11.2) failed to get the LLM to emit proposals reliably when the PM gave detailed answers in the question round. Two dogfoods on rewo #22 produced rich specs with empty `proposals:` blocks — all decisions inlined into `invariants` / `api_contract` / `ui_behavior`. The PR-body review surface (Mermaid ERD, routes table) never triggered.
+
+**Structural fix** matching the pattern 0.7.21 took for styling: stop relying on LLM cooperation for things we can compute. New `packages/cli/src/commands/refine/proposals-synth.ts` runs after `parseAgentOutput` and fills in categories the LLM left empty, sourcing content from the spec's traditional fields:
+
+- **Routes** — extract non-/api/ paths from `api_contract` + `ui_behavior` prose. Map to Next.js App Router file paths (`src/app/(main)/<segments>/page.tsx`). High confidence.
+- **Auth** — scan invariants for `authenticated` / `RLS policy` / `member_id = auth.uid()` / `ownership check` patterns. Synthesize requirements list. High confidence.
+- **Schema** — when invariants mention `unique constraint` / `alter table` / `add column` / table.column references but no structured DDL was emitted in proposals, synthesize a `pending` schema proposal with placeholder SQL citing the relevant invariants and flagging "regenerate or hand-author." Real DDL reconstruction from prose needs another LLM call; flagging the gap is honest partial progress.
+
+All synthesized proposals carry `proposed_by: "spec-body-synth"` so reviewers can distinguish from LLM-emitted ones. **LLM-emitted proposals always win** — synth never overrides, only fills gaps.
+
+Also fixed: `EmittedSpecSchema` in `parseAgentOutput` now accepts a `proposals` passthrough. 0.11.0/0.11.2's zod schema was stripping the `proposals` field during emit parse, which meant even if the LLM DID emit proposals they'd be dropped before reaching the Spec object. Now they pass through intact; synth fills remaining gaps; strict validation lives in `spec-yaml.ts` at read time.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.2 → 0.11.3`
+- New `refine/proposals-synth.ts` (+ test file, 8 tests)
+- `agent.ts` loosens EmittedSpecSchema + runs synth after spec assembly
+- 168 tests green (+8)
+- No other package changes
+
+---
+
 ## 0.11.2 — Proposals REQUIRED in their categories (don't hide in invariants)
 
 0.11.1 unblocked the emit round; dogfood on rewo issue #22 showed a new shape of the problem. Refine produced a rich spec with all the DDL + route + API decisions encoded in `invariants` + `api_contract` + `ui_behavior` — but the `proposals:` block stayed empty. The rendered PR body had no Mermaid ERD, no routes table, no status lifecycle — exactly the review surface 0.11.0 was built to provide.

@@ -2,6 +2,7 @@ import YAML from "yaml";
 import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
+import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -391,6 +392,16 @@ const EmittedSpecSchema = z.object({
   ui_behavior: z.record(z.string(), z.string()).optional(),
   acceptance_scenarios: z.array(z.string()),
   non_goals: z.array(z.string()),
+  /**
+   * Permissive passthrough — the strict zod parse for proposals lives in
+   * spec-yaml.ts (`SpecProposalsSchema`) and runs at READ time. At emit
+   * time we want to preserve whatever the LLM produced without tripping
+   * on optional-field variance; downstream validation catches malformed
+   * shapes when someone tries to re-read the spec file. Accepting
+   * `unknown` here means an LLM-emitted proposals block makes it through
+   * to `parseAgentOutput`'s output spec.
+   */
+  proposals: z.unknown().optional(),
   related_specs: z
     .array(
       z.object({
@@ -449,7 +460,22 @@ export function parseAgentOutput(
       acceptance_scenarios: d.acceptance_scenarios,
       non_goals: d.non_goals,
       related_specs: d.related_specs,
+      proposals: (d.proposals ?? undefined) as Spec["proposals"],
     };
+
+    // 0.11.3 — deterministic proposals synthesis from spec body.
+    // The LLM frequently inlines structure (routes, auth, schema
+    // hints) into invariants / api_contract / ui_behavior rather
+    // than emitting them in `proposals`. Prompt-only steering has
+    // failed twice to produce proposals reliably on well-answered
+    // stories. Synthesis fills in categories the LLM left empty
+    // using signal from the traditional fields. LLM-emitted
+    // proposals ALWAYS win — synth never overrides, only fills gaps.
+    const synthesized = synthesizeProposalsFromSpec(spec);
+    if (Object.keys(synthesized).length > 0) {
+      spec.proposals = synthesized;
+    }
+
     return { kind: "spec", spec };
   }
 
