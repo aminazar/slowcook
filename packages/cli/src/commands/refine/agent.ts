@@ -39,6 +39,7 @@ import {
   followUpCommentBody,
 } from "./relationship.js";
 import { applySupersede } from "@slowcook-ai/core";
+import { enrichBodyWithImages } from "./images.js";
 
 export const LABEL_CHANGE_OF_MIND = "change-of-mind";
 export const LABEL_BLOCKED_CONTRADICTION = "blocked-contradiction";
@@ -180,7 +181,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
 
   // Step 2: refinement loop (single round — ask or emit based on full history)
   const comments = await ctx.forge.listIssueComments(ctx.issueNumber);
-  const chat = buildChatHistory(issue, comments, supersedes);
+  const chat = await buildChatHistory(issue, comments, supersedes);
   const storyId = await nextStoryId(ctx.repoRoot, ctx.forge);
 
   const projectContext = buildProjectContext(ctx.repoRoot);
@@ -313,17 +314,23 @@ Labels updated regardless of PR status.`
 
 // ----- helpers -----
 
-function buildChatHistory(
+async function buildChatHistory(
   issue: Issue,
   comments: Comment[],
   supersedes: string[]
-): LlmMessage[] {
+): Promise<LlmMessage[]> {
   // First message: the issue body + metadata.
   const issueBlock = `# Issue #${issue.number}: ${issue.title}
 
 ${issue.body}`;
 
-  const messages: LlmMessage[] = [{ role: "user", content: issueBlock }];
+  // Bodies may reference screenshots via <img src> or ![](url). Fetch and
+  // attach them as image blocks so the agent can actually see the error
+  // the reporter screenshotted — text-only refinement on bug reports was
+  // blind to this before 0.11.9 (see issue #78 on rewo).
+  const messages: LlmMessage[] = [
+    { role: "user", content: await enrichBodyWithImages(issueBlock) },
+  ];
 
   // Interleave prior comments: bot comments become assistant turns, PM comments become user turns.
   // Skip the issue-level "overlap/contradiction" analysis acknowledgments by matching their headers.
@@ -340,9 +347,13 @@ ${issue.body}`;
     if (c.is_bot && body.startsWith(BRAND_HEADER)) {
       body = body.slice(BRAND_HEADER.length);
     }
+    // PM comments in refine threads often include follow-up screenshots.
+    // Bot comments are the agent's own prior text — never have images, so
+    // skip the fetch cost there.
+    const content = c.is_bot ? body : await enrichBodyWithImages(body);
     messages.push({
       role: c.is_bot ? "assistant" : "user",
-      content: body,
+      content,
     });
   }
 

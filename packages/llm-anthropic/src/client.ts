@@ -30,13 +30,16 @@ export class AnthropicClient implements LlmClient {
     // Newer Claude reasoning-enabled models (Opus 4.7, Sonnet 4.5+) reject
     // `temperature` with a 400. Only include it if the caller explicitly
     // passed one; otherwise let the model use its own default.
+    //
+    // Content can be a plain string (text-only shorthand) or an array of
+    // content blocks (text + image). The SDK accepts both shapes directly.
     const base = {
       model: args.model,
       max_tokens: args.maxTokens ?? 4096,
       system: systemContent as never,
       messages: args.messages.map((m) => ({
         role: m.role,
-        content: m.content,
+        content: m.content as never,
       })),
     };
     const response = await this.client.messages.create(

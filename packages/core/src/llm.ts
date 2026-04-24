@@ -14,9 +14,22 @@ export interface LlmClient {
   complete(args: LlmRequest): Promise<LlmResponse>;
 }
 
+/** A single piece of user-visible content in a message. String `content` on
+ * `LlmMessage` remains supported as a shorthand for a single text block. */
+export type LlmContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+        data: string;
+      };
+    };
+
 export interface LlmMessage {
   role: "user" | "assistant";
-  content: string;
+  content: string | LlmContentBlock[];
 }
 
 export interface LlmRequest {
