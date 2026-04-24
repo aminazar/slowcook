@@ -480,21 +480,29 @@ on:
     types: [opened, labeled, reopened]
   issue_comment:
     types: [created]
+  # 0.11.8+ — PM leaves inline comments on specific spec lines OR submits
+  # a batched review. Either fires if the body contains \`/refine\`.
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
 
 concurrency:
-  group: slowcook-refine-\${{ github.event.issue.number }}
+  group: slowcook-refine-\${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   refine:
     if: >-
       (
-        github.event.issue.state == 'open' &&
-        contains(github.event.issue.labels.*.name, 'needs-refinement') &&
-        (github.event_name != 'issue_comment' ||
-         (github.event.comment.user.type != 'Bot' &&
-          !startsWith(github.event.comment.body, '### slowcook ·')))
-      )
+        github.event_name == 'issues' ||
+        (github.event_name == 'issue_comment' && !github.event.issue.pull_request)
+      ) &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'needs-refinement') &&
+      (github.event_name != 'issue_comment' ||
+       (github.event.comment.user.type != 'Bot' &&
+        !startsWith(github.event.comment.body, '### slowcook ·')))
       ||
       (
         github.event_name == 'issue_comment' &&
@@ -503,23 +511,59 @@ jobs:
         startsWith(github.event.comment.body, '/refine') &&
         github.event.comment.user.type != 'Bot'
       )
+      ||
+      (
+        github.event_name == 'pull_request_review_comment' &&
+        contains(github.event.pull_request.labels.*.name, 'slowcook-spec') &&
+        startsWith(github.event.comment.body, '/refine') &&
+        github.event.comment.user.type != 'Bot'
+      )
+      ||
+      (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.pull_request.labels.*.name, 'slowcook-spec') &&
+        startsWith(github.event.review.body, '/refine') &&
+        github.event.review.user.type != 'Bot'
+      )
     runs-on: ubuntu-latest
     permissions:
       issues: write
       contents: write
       pull-requests: write
     steps:
-      - name: Detect mode
+      - name: Detect mode + target number
         id: mode
         env:
-          IS_PR: \${{ github.event.issue.pull_request != null }}
+          EVENT_NAME: \${{ github.event_name }}
+          IS_PR_ISSUE_COMMENT: \${{ github.event.issue.pull_request != null }}
+          ISSUE_NUM: \${{ github.event.issue.number }}
+          PR_NUM: \${{ github.event.pull_request.number }}
           COMMENT: \${{ github.event.comment.body }}
+          REVIEW_BODY: \${{ github.event.review.body }}
         run: |
-          if [ "$IS_PR" = "true" ] && [[ "\${COMMENT:-}" == /refine* ]]; then
-            echo "mode=pr" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=issue" >> "$GITHUB_OUTPUT"
-          fi
+          # PR number comes from different payloads depending on event:
+          #   issue_comment on a PR → github.event.issue.number
+          #   pull_request_review_comment / pull_request_review → github.event.pull_request.number
+          # Mode is PR when we're on a /refine trigger of any PR flavour.
+          case "$EVENT_NAME" in
+            pull_request_review_comment|pull_request_review)
+              echo "mode=pr" >> "$GITHUB_OUTPUT"
+              echo "target=$PR_NUM" >> "$GITHUB_OUTPUT"
+              ;;
+            issue_comment)
+              if [ "$IS_PR_ISSUE_COMMENT" = "true" ] && [[ "\${COMMENT:-}" == /refine* ]]; then
+                echo "mode=pr" >> "$GITHUB_OUTPUT"
+                echo "target=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+              else
+                echo "mode=issue" >> "$GITHUB_OUTPUT"
+                echo "target=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            *)
+              echo "mode=issue" >> "$GITHUB_OUTPUT"
+              echo "target=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
       - name: Fetch PR branch ref
         id: pr-branch
@@ -527,7 +571,7 @@ jobs:
         env:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH=$(gh pr view \${{ github.event.issue.number }} --repo \${{ github.repository }} --json headRefName -q .headRefName)
+          BRANCH=$(gh pr view \${{ steps.mode.outputs.target }} --repo \${{ github.repository }} --json headRefName -q .headRefName)
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
@@ -564,9 +608,9 @@ jobs:
           SLOWCOOK_DEBUG: "1"
         run: |
           if [ "\${{ steps.mode.outputs.mode }}" = "pr" ]; then
-            npx --yes "$SLOWCOOK_CLI" refine --pr \${{ github.event.issue.number }}
+            npx --yes "$SLOWCOOK_CLI" refine --pr \${{ steps.mode.outputs.target }}
           else
-            npx --yes "$SLOWCOOK_CLI" refine --issue \${{ github.event.issue.number }}
+            npx --yes "$SLOWCOOK_CLI" refine --issue \${{ steps.mode.outputs.target }}
           fi
 `;
 }

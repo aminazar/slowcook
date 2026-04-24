@@ -22,6 +22,29 @@ export interface Comment {
   is_bot: boolean;
 }
 
+/**
+ * A PR review comment anchored to a specific file + line (0.11.8+). Shape
+ * is distinct from `Comment` (the issue-timeline shape) because the line
+ * context is load-bearing — refine uses it to locate the exact field
+ * being reviewed in the spec YAML.
+ */
+export interface ReviewComment {
+  id: number;
+  author: string;
+  body: string;
+  created_at: string;
+  is_bot: boolean;
+  path: string;
+  /** New-side line number. GitHub returns null when the comment is
+   * outdated (i.e., the line it referenced was rewritten after the
+   * comment was posted). Treat null as "comment exists but we can't
+   * locate the exact line anymore — fall back to the whole file." */
+  line: number | null;
+  /** The batched review this comment was submitted as part of (or null
+   * for standalone inline comments). */
+  pull_request_review_id: number | null;
+}
+
 export interface PullRequestInput {
   title: string;
   body: string;
@@ -76,6 +99,14 @@ export interface ForgeAdapter {
   createIssueComment(number: number, body: string): Promise<Comment>;
   addIssueLabels(number: number, labels: string[]): Promise<void>;
   removeIssueLabel(number: number, label: string): Promise<void>;
+
+  /**
+   * 0.11.8+ — PR review comments anchored to specific file:line locations.
+   * Distinct from timeline `Comment`s; used by refine's resubmit path to
+   * locate the exact field being reviewed in the spec YAML.
+   * Returns an empty array for issues that aren't PRs.
+   */
+  listPullRequestReviewComments?(number: number): Promise<ReviewComment[]>;
 
   // Pull requests
   createPullRequest(input: PullRequestInput): Promise<PullRequest>;

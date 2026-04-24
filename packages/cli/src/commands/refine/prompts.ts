@@ -325,6 +325,11 @@ ${projectContext}
 - Read the current spec YAML and the PM feedback.
 - Produce an AMENDED spec that incorporates the feedback.
 - Preserve anything the feedback doesn't touch — minimal diff, not a rewrite.
+- The feedback may include two kinds of comments:
+  - **Timeline comments** ("## Timeline comment"): whole-spec-scope feedback.
+  - **Inline review comments** ("## Inline comment — @user on specs/story-N.yaml:LINE"): anchored to a specific line in the spec. Each includes a "Context from ..." block showing the YAML lines around the comment's target. Use the context to locate the exact field being reviewed; amend THAT field specifically, not the whole section.
+- If an inline comment refers to a single acceptance scenario or invariant, amend THAT entry only — don't rewrite the list.
+- Timeline comments CAN touch multiple fields if the feedback is cross-cutting.
 - Keep the existing story_id, title (unless feedback explicitly asks to change it), created_at, supersedes, source_issue, and refined_by fields.
 - If feedback rejects a proposal, flip that proposal's status to "rejected" and update the relevant fields instead of deleting.
 - If feedback approves a proposal, flip status to "approved" and add approved_by / approved_at (approved_by = the commenter's GitHub handle).

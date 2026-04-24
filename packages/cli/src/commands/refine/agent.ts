@@ -612,6 +612,32 @@ export type ResubmitOutcome =
   | { kind: "noop"; reason: string };
 
 /**
+ * Read a small window of lines around a target line number in a file,
+ * for inline-review-comment context (0.11.8+). Returns up to 3 lines
+ * (the target line ± 1), 1-indexed like editor tooling, so the agent
+ * can see what the PM was commenting on without having to re-read the
+ * whole file.
+ */
+function extractFileLineExcerpt(
+  repoRoot: string,
+  path: string,
+  line: number
+): string | null {
+  try {
+    const abs = join(repoRoot, path);
+    const lines = readFileSync(abs, "utf8").split(/\r?\n/);
+    const start = Math.max(0, line - 2);
+    const end = Math.min(lines.length, line + 1);
+    const slice = lines.slice(start, end);
+    return slice
+      .map((l, i) => `${(start + i + 1).toString().padStart(4, " ")}│ ${l}`)
+      .join("\n");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the story id from the current git branch (expected pattern:
  * `slowcook/spec/story-<id>`). CLI workflow checks out the PR branch
  * before invoking us, so `git branch --show-current` is authoritative.
@@ -667,26 +693,55 @@ export async function runResubmitRefinement(
     };
   }
 
-  // PR comments — listIssueComments covers PR timeline comments. We
-  // want PM feedback only; filter out bot-authored agent brand-header
-  // comments so we don't feed the agent its own prior output.
-  const comments = await ctx.forge.listIssueComments(ctx.prNumber);
-  const pmComments = comments.filter((c) => {
+  // PR comments — listIssueComments covers timeline comments. Review
+  // comments (line-anchored) come from a separate endpoint (0.11.8+).
+  // Filter bot-authored brand-header comments in both — don't feed the
+  // agent its own prior output.
+  const [timelineComments, reviewComments] = await Promise.all([
+    ctx.forge.listIssueComments(ctx.prNumber),
+    ctx.forge.listPullRequestReviewComments?.(ctx.prNumber) ?? Promise.resolve([]),
+  ]);
+  const pmTimeline = timelineComments.filter((c) => {
+    const body = c.body ?? "";
+    if (body.startsWith("### slowcook ·")) return false;
+    return true;
+  });
+  const pmReview = reviewComments.filter((c) => {
+    if (c.is_bot) return false;
     const body = c.body ?? "";
     if (body.startsWith("### slowcook ·")) return false;
     return true;
   });
 
-  if (pmComments.length === 0) {
+  if (pmTimeline.length === 0 && pmReview.length === 0) {
     return {
       kind: "noop",
-      reason: "no PM comments to process on the PR",
+      reason: "no PM comments (timeline or review) to process on the PR",
     };
   }
 
-  const feedback = pmComments
-    .map((c) => `— @${c.author} at ${c.created_at}:\n${c.body}`)
-    .join("\n\n---\n\n");
+  // Structure feedback with clear source labels so the amendment agent
+  // can tell timeline feedback (whole-spec scope) from line-anchored
+  // feedback (single-field scope). Line-anchored comments include the
+  // path + line + a short excerpt from the spec file at that line so
+  // the agent can match feedback to the exact field being reviewed.
+  const timelineFeedback = pmTimeline
+    .map((c) => `## Timeline comment — @${c.author} at ${c.created_at}\n${c.body}`)
+    .join("\n\n");
+  const reviewFeedback = pmReview
+    .map((c) => {
+      const excerpt = c.line != null ? extractFileLineExcerpt(ctx.repoRoot, c.path, c.line) : null;
+      const excerptBlock = excerpt
+        ? `\nContext from ${c.path} around line ${c.line}:\n\`\`\`yaml\n${excerpt}\n\`\`\`\n`
+        : "";
+      return (
+        `## Inline comment — @${c.author} on ${c.path}${c.line != null ? ":" + c.line : " (outdated)"} at ${c.created_at}\n` +
+        excerptBlock +
+        `Feedback:\n${c.body}`
+      );
+    })
+    .join("\n\n");
+  const feedback = [timelineFeedback, reviewFeedback].filter(Boolean).join("\n\n---\n\n");
 
   const projectContext = buildProjectContext(ctx.repoRoot);
   const systemPrompt = AMENDMENT_SYSTEM(projectContext);

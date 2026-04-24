@@ -3,6 +3,7 @@ import type {
   ForgeAdapter,
   Issue,
   Comment,
+  ReviewComment,
   PullRequest,
   PullRequestInput,
   PullRequestSummary,
@@ -76,6 +77,35 @@ export class GitHubAdapter implements ForgeAdapter {
       // This avoids an extra /user call that GITHUB_TOKEN cannot make (403).
       is_bot: c.user?.type === "Bot",
     }));
+  }
+
+  async listPullRequestReviewComments(number: number): Promise<ReviewComment[]> {
+    try {
+      const comments = await this.octokit.paginate(
+        this.octokit.pulls.listReviewComments,
+        {
+          owner: this.owner,
+          repo: this.repo,
+          pull_number: number,
+          per_page: 100,
+        }
+      );
+      return comments.map((c) => ({
+        id: c.id,
+        author: c.user?.login ?? "unknown",
+        body: c.body ?? "",
+        created_at: c.created_at,
+        is_bot: c.user?.type === "Bot",
+        path: c.path ?? "",
+        line: c.line ?? null,
+        pull_request_review_id: c.pull_request_review_id ?? null,
+      }));
+    } catch (e) {
+      // Not a PR, or PR-review-comments endpoint is unavailable.
+      // Return empty so the caller can treat it as "no inline feedback."
+      if ((e as { status?: number }).status === 404) return [];
+      throw e;
+    }
   }
 
   async createIssueComment(number: number, body: string): Promise<Comment> {
