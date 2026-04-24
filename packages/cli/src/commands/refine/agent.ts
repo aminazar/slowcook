@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
+import { SpecProposalsSchema } from "./spec-yaml.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -460,8 +461,21 @@ export function parseAgentOutput(
       acceptance_scenarios: d.acceptance_scenarios,
       non_goals: d.non_goals,
       related_specs: d.related_specs,
-      proposals: (d.proposals ?? undefined) as Spec["proposals"],
     };
+
+    // 0.11.3 hardening — validate LLM-emitted proposals against the
+    // strict schema before downstream consumers see them. Malformed
+    // proposals (missing required fields, wrong shape) get dropped
+    // rather than crashing the PR-body renderer. Valid ones pass
+    // through intact.
+    if (d.proposals) {
+      const proposalsParse = SpecProposalsSchema.safeParse(d.proposals);
+      if (proposalsParse.success) {
+        spec.proposals = proposalsParse.data as Spec["proposals"];
+      }
+      // Malformed proposals: drop silently; synth will fill gaps
+      // below, and the spec file stays valid with proposals absent.
+    }
 
     // 0.11.3 — deterministic proposals synthesis from spec body.
     // The LLM frequently inlines structure (routes, auth, schema

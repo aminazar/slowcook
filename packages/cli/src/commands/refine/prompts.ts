@@ -346,8 +346,9 @@ export function renderProposalsSection(spec: Spec): string {
   if (p.schema) {
     parts.push(`### 🗄 Schema — ${statusBadge(p.schema.status)}`, "");
     if (p.schema.rationale) parts.push(`_${p.schema.rationale}_`, "");
-    if (p.schema.sql.trim()) {
-      parts.push(ddlToMermaidErd(p.schema.sql), "", "<details><summary>Raw SQL</summary>", "", "```sql", p.schema.sql.trim(), "```", "</details>", "");
+    const sql = typeof p.schema.sql === "string" ? p.schema.sql.trim() : "";
+    if (sql) {
+      parts.push(ddlToMermaidErd(sql), "", "<details><summary>Raw SQL</summary>", "", "```sql", sql, "```", "</details>", "");
     }
   }
 

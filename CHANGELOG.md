@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.4 — Defensive rendering + strict proposal validation upstream
+
+0.11.3's dogfood on rewo #25 tripped a new failure: the LLM emitted a `proposals.schema` without a `sql` field, and `renderProposalsSection` called `.trim()` on undefined → crashed in `draftPrBody`, the whole emit round failed with "Cannot read properties of undefined".
+
+Two-layer fix:
+
+1. **Upstream validation**: `parseAgentOutput` now runs LLM-emitted proposals through `SpecProposalsSchema.safeParse` before downstream consumers see them. Malformed proposals get dropped silently (the synth layer fills gaps from traditional fields anyway; spec stays valid without them).
+2. **Defensive rendering**: `renderProposalsSection`'s schema branch now guards the `sql` access — `typeof p.schema.sql === "string"` before `.trim()`. Belt-and-braces against any future shape variance.
+
+`SpecProposalsSchema` is now exported from `spec-yaml.ts` so `agent.ts` can use it as the single source of truth for proposal validity.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.3 → 0.11.4` — hardening only, no new functionality
+- 168 tests green (unchanged — guards validated via manual re-test)
+- No other package changes
+
+---
+
 ## 0.11.3 — Deterministic proposals synthesis from spec body
 
 Prompt-only steering (0.11.0, 0.11.2) failed to get the LLM to emit proposals reliably when the PM gave detailed answers in the question round. Two dogfoods on rewo #22 produced rich specs with empty `proposals:` blocks — all decisions inlined into `invariants` / `api_contract` / `ui_behavior`. The PR-body review surface (Mermaid ERD, routes table) never triggered.

@@ -54,7 +54,7 @@ const ProposalBaseSchema = z.object({
   rationale: z.string().optional(),
 });
 
-const SpecProposalsSchema = z.object({
+export const SpecProposalsSchema = z.object({
   schema: ProposalBaseSchema.extend({ sql: z.string() }).optional(),
   ui_layout: ProposalBaseSchema.extend({
     viewport_coverage: z.array(z.string()).optional(),
