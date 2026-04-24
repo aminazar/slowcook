@@ -121,6 +121,14 @@ export interface ForgeAdapter {
     body: string
   ): Promise<ReviewComment>;
 
+  /**
+   * 0.11.11+ — fetch a single PR's state/summary. Used by the refine
+   * resubmit path to detect the "PM commented /refine after the spec PR
+   * was already merged" case; the amendment then goes onto a follow-up
+   * branch + new PR instead of being force-pushed onto a dead branch.
+   */
+  getPullRequest?(number: number): Promise<PullRequestSummary>;
+
   // Pull requests
   createPullRequest(input: PullRequestInput): Promise<PullRequest>;
 

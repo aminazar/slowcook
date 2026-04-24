@@ -202,6 +202,13 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
           console.log(`Spec amended: ${outcome.specPath}`);
           console.log(`Pushed to branch ${outcome.branch}.`);
           break;
+        case "follow-up-opened":
+          console.log(`Spec amended: ${outcome.specPath}`);
+          console.log(
+            `Original PR was already merged — opened follow-up PR #${outcome.followUpPrNumber} on branch ${outcome.branch}.`
+          );
+          console.log(`  ${outcome.followUpPrUrl}`);
+          break;
         case "noop":
           console.log(`Noop: ${outcome.reason}.`);
           break;

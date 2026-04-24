@@ -108,6 +108,26 @@ export class GitHubAdapter implements ForgeAdapter {
     }
   }
 
+  async getPullRequest(number: number): Promise<PullRequestSummary> {
+    const { data: pr } = await this.octokit.pulls.get({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: number,
+    });
+    return {
+      number: pr.number,
+      title: pr.title,
+      state: pr.state === "closed" ? "closed" : "open",
+      merged: Boolean(pr.merged_at),
+      labels: (pr.labels ?? [])
+        .map((l) => l.name ?? "")
+        .filter((s) => s.length > 0),
+      head_branch: pr.head.ref,
+      body: pr.body ?? "",
+      url: pr.html_url,
+    };
+  }
+
   async createReviewCommentReply(
     prNumber: number,
     inReplyToCommentId: number,
