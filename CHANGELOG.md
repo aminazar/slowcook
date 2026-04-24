@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.6 — Amendment prompt enforces field shapes
+
+0.11.5's first real `/refine` dogfood on rewo PR #73 emitted a spec where `acceptance_scenarios[1]` was an object instead of a string (agent "helpfully" structured a Given/When/Then into sub-fields). Zod rejected; refine failed.
+
+Fix: `AMENDMENT_SYSTEM` prompt gains an explicit "Field shapes (load-bearing)" section listing every field's expected type, with a specific callout that multi-line Given/When/Then prose stays as prose STRINGS (with YAML pipe-block scalars for long text), not structured objects.
+
+Same discipline the main `REFINEMENT_ANALYST_SYSTEM` already had; amendment mode was treating schema as inherited-by-reference. Shipping it explicitly in both places now.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.5 → 0.11.6` — amendment prompt only
+- 168 tests green (unchanged)
+- No other package changes
+
+---
+
 ## 0.11.5 — `/refine` PR-comment resubmit (cli + forge-github)
 
 Closes the iteration loop for refinement proposals. PM can reply `/refine <any prose>` on an open spec PR and the agent will amend the spec on the same branch — no need to close the PR and re-run refine from scratch.

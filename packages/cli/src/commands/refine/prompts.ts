@@ -341,6 +341,17 @@ Same as the main refine prompt emit shape:
 
 No prose preamble, no summary line, no postscript.
 
+## Field shapes (load-bearing — zod rejects wrong types and the run fails)
+
+- **preconditions / invariants / acceptance_scenarios / non_goals**: ALL four are arrays of STRINGS. Not objects. Not nested arrays. Not Given/When/Then split into sub-keys. Each entry is a single prose string. Use YAML multi-line block scalars (pipe character on its own line, then indented prose) for long strings; do NOT split into structured sub-fields.
+- **actors**: array of { name: string, notes?: string } objects.
+- **api_contract**: array of { method: string, path: string, request_schema?, responses? } objects. \`responses\` is a map from status-code string to value.
+- **ui_behavior**: one object with string keys (e.g., desktop_light, mobile_dark) and string values (prose per viewport).
+- **related_specs**: array of { id, relationship: "overlap"|"related"|"superseded", note? }.
+- **proposals**: optional object whose keys are the 8 proposal categories. Each category is an object with status, proposed_by, and category-specific fields (schema.sql is a string; routes.paths is an array of {path, file}; auth.requirements is an array of strings; etc.).
+
+If the original spec had an acceptance scenario as a multi-line Given/When/Then prose, the amended spec keeps it as a multi-line PROSE string — don't "helpfully" convert it to a structured object.
+
 ## YAML string hygiene
 
 Same rules as the main refine prompt — wrap strings containing backticks, colons, leading hyphens, pipes, braces, hashes, or ambiguous yes/no/true/false words in double quotes. Multi-line content uses YAML block scalars (pipe character). If in doubt, quote.
