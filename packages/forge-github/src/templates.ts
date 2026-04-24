@@ -487,8 +487,15 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Concurrency is keyed on BOTH the target number AND the event name.
+# GitHub fires two events for a single inline /refine review comment —
+# \`pull_request_review_comment\` AND \`pull_request_review\` (the wrapping
+# review, usually with an empty body). If both shared one group the
+# wrapping review's run would cancel-in-progress the comment's run, and
+# the wrapping review then skipped on the body filter, so neither
+# actually ran. Keying on event_name keeps them in separate groups.
 concurrency:
-  group: slowcook-refine-\${{ github.event.issue.number || github.event.pull_request.number }}
+  group: slowcook-refine-\${{ github.event.issue.number || github.event.pull_request.number }}-\${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
