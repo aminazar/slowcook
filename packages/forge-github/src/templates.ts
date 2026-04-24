@@ -536,7 +536,17 @@ jobs:
           ref: \${{ steps.mode.outputs.mode == 'pr' && steps.pr-branch.outputs.branch || github.ref }}
           token: \${{ secrets.GITHUB_TOKEN }}
 
-${RESOLVE_PIN_STEP}
+      - name: Resolve slowcook CLI pin (from main — latest agent behaviour)
+        # The PR branch may have been created when the pin was older. For
+        # agent tooling we always want main's latest pin — otherwise a PM
+        # commenting /refine on an old spec PR runs the OLD agent, missing
+        # bug fixes and new capabilities shipped since the branch was cut.
+        # Ref files on branches track per-branch concerns (frozen-paths,
+        # manifests); the agent pin is a global concern tracked on main.
+        run: |
+          git fetch --depth=1 origin main
+          VERSION=$(git show origin/main:.brewing/slowcook-cli-version | tr -d '[:space:]')
+          echo "SLOWCOOK_CLI=@slowcook-ai/cli@$VERSION" >> $GITHUB_ENV
 
       - name: Configure git identity for agent commits
         run: |
