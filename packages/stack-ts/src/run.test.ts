@@ -71,6 +71,35 @@ describe("parseVitestJson", () => {
     );
   });
 
+  it("preserves the describe/it boundary when the test name contains ' > '", () => {
+    // Regression: vitest's JSON reporter joins describe and it in `fullName`
+    // with a single space; `vitest list` uses " > ". If a test title itself
+    // contains " > " (e.g. "count > 0"), the old fullName-based path produced
+    // an id missing the describe/it separator and caused MANIFEST_DRIFT on
+    // every brew touching such a test. Build from ancestorTitles + title
+    // so the separator is always correct.
+    const withGt = JSON.stringify({
+      testResults: [
+        {
+          name: "tests/integration/story-004-ui.test.tsx",
+          assertionResults: [
+            {
+              fullName:
+                "FeedPage (story-004 UI) appends '+N others' when other_reactor_count > 0",
+              title: "appends '+N others' when other_reactor_count > 0",
+              ancestorTitles: ["FeedPage (story-004 UI)"],
+              status: "failed",
+            },
+          ],
+        },
+      ],
+    });
+    const tests = parseVitestJson(withGt, "npx vitest run");
+    expect(tests[0]?.id).toBe(
+      "tests/integration/story-004-ui.test.tsx > FeedPage (story-004 UI) > appends '+N others' when other_reactor_count > 0"
+    );
+  });
+
   it("returns empty array when stdout has no JSON object", () => {
     expect(parseVitestJson("no json here", "npx vitest run")).toEqual([]);
   });

@@ -199,13 +199,20 @@ function buildTestId(
   file: string,
   a: { fullName?: string; title?: string; ancestorTitles?: string[] }
 ): string {
+  // Prefer ancestorTitles + title: vitest's JSON reporter joins describe and it
+  // with a single space in `fullName` ("DescribeA test name"), but `vitest list`
+  // uses " > " ("DescribeA > test name"). If a test name itself contains " > "
+  // (e.g. "count > 0"), the old fullName-based path produced the wrong
+  // describe/it separator and caused MANIFEST_DRIFT halts.
+  const titles = (a.ancestorTitles ?? []).filter((s): s is string => typeof s === "string" && s.length > 0);
+  const leaf = a.title ?? a.fullName ?? "(anonymous)";
+  if (titles.length > 0 || a.title) {
+    return [file, ...titles, leaf].join(" > ");
+  }
   if (a.fullName && a.fullName.includes(" > ")) {
     return `${file} > ${a.fullName}`;
   }
-  const chain = [...(a.ancestorTitles ?? []), a.title ?? a.fullName ?? "(anonymous)"].filter(
-    (s): s is string => typeof s === "string" && s.length > 0
-  );
-  return [file, ...chain].join(" > ");
+  return `${file} > ${leaf}`;
 }
 
 /**
