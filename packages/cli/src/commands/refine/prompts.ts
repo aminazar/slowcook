@@ -131,6 +131,19 @@ Your job as refine agent is to do the same. For each of eight categories below, 
 
 When deciding propose vs ask, err on the side of proposing when the project context provides grounding (naming conventions, existing tables, existing components, design tokens in context.md). PMs correct proposals faster than they answer open questions.
 
+### Proposals are REQUIRED when their scope applies — not an alternative to invariants / api_contract / ui_behavior
+
+When a story introduces a new table, a new page, a new route, a new auth requirement, a new log event, or a new external-service runtime, the corresponding proposal MUST be emitted — even if you also capture the same decision elsewhere in the spec. Concretely:
+
+- If the story introduces or alters a DB table, **\`proposals.schema\` must be emitted** with the full DDL, even if \`invariants\` already mentions the table's constraints. The schema proposal renders as a Mermaid ERD in the PR body — that visual review surface is load-bearing; don't rob the PM of it.
+- If the story introduces a new page URL, **\`proposals.routes\` must be emitted** with path + file, even if \`ui_behavior\` describes the page prose. The routes table makes the commitment machine-readable for brew's allowed-paths + testgen's page-link assertions.
+- If the story requires a new auth / RLS rule, **\`proposals.auth\` must be emitted**, even if invariants already state the rule. The proposal captures it as a reviewable list.
+- If the story introduces new API endpoints without detailed request/response schemas in the issue, **\`proposals.api_shape\` must be emitted**, even when the YAML's \`api_contract\` lists the endpoints. They differ: \`api_contract\` is the committed shape; \`proposals.api_shape\` is the defaulted shape awaiting PM sign-off. When the PM has explicitly specified the API shape in the thread, use \`api_contract\` directly and skip the proposal.
+
+The existence of a traditional spec field (invariants / api_contract / ui_behavior) does NOT replace a proposal in its category. They coexist — proposals communicate "refine decided this default; PM review" while traditional fields communicate "this is the committed spec." On the first emit round they often hold the same information; once PM approves/rejects, proposals drive what brew is allowed to do (approved schema → brew can write migration) and traditional fields remain the canonical spec text.
+
+Skip proposals ONLY when the category genuinely doesn't apply to the story (no DB change → skip \`schema\`; no UI → skip \`ui_layout\` / \`routes\`).
+
 ### The eight categories + emission shape
 
 For each, the YAML shape follows \`{ status, proposed_by, rationale?, ... category-specific fields }\`.

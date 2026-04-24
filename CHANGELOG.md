@@ -6,6 +6,29 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.2 — Proposals REQUIRED in their categories (don't hide in invariants)
+
+0.11.1 unblocked the emit round; dogfood on rewo issue #22 showed a new shape of the problem. Refine produced a rich spec with all the DDL + route + API decisions encoded in `invariants` + `api_contract` + `ui_behavior` — but the `proposals:` block stayed empty. The rendered PR body had no Mermaid ERD, no routes table, no status lifecycle — exactly the review surface 0.11.0 was built to provide.
+
+**Root cause**: the prompt framed proposals as "for gaps the PM didn't close." When the PM gave detailed answers, refine inlined every decision into traditional spec fields and skipped proposals entirely. Two places to capture the same thing; refine chose one.
+
+**Fix**: prompt tightening to make proposals REQUIRED when their scope applies, even when a traditional field could also carry the decision. Proposals and traditional fields coexist — proposals are the review surface (Mermaid ERD, routes table, status lifecycle) and downstream allowed-path signal; traditional fields are the canonical spec text. They hold the same info on first emit; once PM approves proposals, brew gets the right allowed-paths expansion.
+
+Concrete rules now in the §Proposals section:
+
+- If the story introduces or alters a DB table → `proposals.schema` MUST emit (even if `invariants` mentions constraints)
+- If the story introduces a new page URL → `proposals.routes` MUST emit (even if `ui_behavior` describes it in prose)
+- If the story requires a new auth / RLS rule → `proposals.auth` MUST emit (even if invariants states the rule)
+- If the story introduces APIs without explicit request/response in the issue → `proposals.api_shape` MUST emit alongside `api_contract`
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.1 → 0.11.2` — one-section prompt tightening; no code change
+- 160 tests green (unchanged)
+- No other package changes
+
+---
+
 ## 0.11.1 — Refine emit-round YAML robustness
 
 Hot-fix to 0.11.0's emit round. Two fixes shipped together:
