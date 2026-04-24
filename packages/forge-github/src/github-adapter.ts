@@ -108,6 +108,30 @@ export class GitHubAdapter implements ForgeAdapter {
     }
   }
 
+  async createReviewCommentReply(
+    prNumber: number,
+    inReplyToCommentId: number,
+    body: string
+  ): Promise<ReviewComment> {
+    const { data } = await this.octokit.pulls.createReplyForReviewComment({
+      owner: this.owner,
+      repo: this.repo,
+      pull_number: prNumber,
+      comment_id: inReplyToCommentId,
+      body,
+    });
+    return {
+      id: data.id,
+      author: data.user?.login ?? "slowcook-bot",
+      body: data.body ?? "",
+      created_at: data.created_at,
+      is_bot: true,
+      path: data.path ?? "",
+      line: data.line ?? null,
+      pull_request_review_id: data.pull_request_review_id ?? null,
+    };
+  }
+
   async createIssueComment(number: number, body: string): Promise<Comment> {
     const { data } = await this.octokit.issues.createComment({
       owner: this.owner,

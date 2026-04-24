@@ -108,6 +108,19 @@ export interface ForgeAdapter {
    */
   listPullRequestReviewComments?(number: number): Promise<ReviewComment[]>;
 
+  /**
+   * 0.11.10+ — reply *threaded* to a specific PR review comment, so the
+   * agent's response sits under the PM's original inline comment instead
+   * of posting a disconnected timeline message. Optional: adapters that
+   * don't support threaded replies should simply omit this and callers
+   * fall back to `createIssueComment`.
+   */
+  createReviewCommentReply?(
+    prNumber: number,
+    inReplyToCommentId: number,
+    body: string
+  ): Promise<ReviewComment>;
+
   // Pull requests
   createPullRequest(input: PullRequestInput): Promise<PullRequest>;
 

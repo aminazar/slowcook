@@ -609,6 +609,13 @@ function extractYamlBlock(s: string): string | null {
 
 export interface ResubmitContext {
   prNumber: number;
+  /**
+   * 0.11.10+ — when refine was triggered by a `pull_request_review_comment`
+   * event, this is the id of the triggering inline comment. Agent will
+   * post its response as a threaded reply to that comment. Null when the
+   * trigger was an `issue_comment` or `pull_request_review` event.
+   */
+  reviewCommentId: number | null;
   repoRoot: string;
   forge: ForgeAdapter;
   llm: LlmClient;
@@ -810,7 +817,32 @@ export async function runResubmitRefinement(
     const body =
       `${BRAND_HEADER}Amended spec per your feedback. Force-pushed to \`${branch}\`; ` +
       `the PR diff reflects the new spec.\n\n${marker}`;
-    await ctx.forge.createIssueComment(ctx.prNumber, body);
+
+    // 0.11.10+ — when the trigger was an inline review comment and the
+    // forge adapter supports threaded replies, reply *under* the PM's
+    // original comment so the conversation stays anchored to the exact
+    // line they were reviewing. Fall back to the timeline-comment shape
+    // for other triggers (issue_comment, review with /refine in the
+    // batched review body) where there's no single-comment anchor — and
+    // when the threaded reply itself fails (e.g., the comment was
+    // deleted or the API call errored), so the agent's response is
+    // never lost entirely.
+    let posted = false;
+    if (ctx.reviewCommentId && ctx.forge.createReviewCommentReply) {
+      try {
+        await ctx.forge.createReviewCommentReply(
+          ctx.prNumber,
+          ctx.reviewCommentId,
+          body
+        );
+        posted = true;
+      } catch {
+        // Fall through to timeline comment.
+      }
+    }
+    if (!posted) {
+      await ctx.forge.createIssueComment(ctx.prNumber, body);
+    }
   } catch {
     /* best effort */
   }

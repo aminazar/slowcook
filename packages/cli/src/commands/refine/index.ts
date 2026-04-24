@@ -17,6 +17,14 @@ interface RefineArgs {
    * Mutually exclusive with --issue.
    */
   prNumber: number;
+  /**
+   * 0.11.10+ — when the refine was triggered by a `pull_request_review_comment`
+   * event, the workflow passes the triggering comment id so the agent can
+   * post its response as a threaded reply to that exact inline comment
+   * instead of a disconnected timeline message. Optional; falls back to
+   * timeline comment when absent (e.g., `issue_comment` on PR trigger).
+   */
+  reviewCommentId: number;
   repoRoot: string;
   owner?: string;
   repo?: string;
@@ -29,6 +37,7 @@ function parseArgs(argv: string[]): RefineArgs {
   const args: RefineArgs = {
     issueNumber: 0,
     prNumber: 0,
+    reviewCommentId: 0,
     repoRoot: process.cwd(),
     baseBranch: "main",
     refineModel: "claude-opus-4-7",
@@ -42,6 +51,9 @@ function parseArgs(argv: string[]): RefineArgs {
       i++;
     } else if (arg === "--pr" && next) {
       args.prNumber = parseInt(next, 10);
+      i++;
+    } else if (arg === "--review-comment-id" && next) {
+      args.reviewCommentId = parseInt(next, 10);
       i++;
     } else if (arg === "--cwd" && next) {
       args.repoRoot = next;
@@ -172,6 +184,7 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
       // 0.11.5+ — PR-driven resubmit path
       const ctx: ResubmitContext = {
         prNumber: args.prNumber,
+        reviewCommentId: args.reviewCommentId || null,
         repoRoot: args.repoRoot,
         forge,
         llm,

@@ -553,7 +553,15 @@ jobs:
           #   pull_request_review_comment / pull_request_review → github.event.pull_request.number
           # Mode is PR when we're on a /refine trigger of any PR flavour.
           case "$EVENT_NAME" in
-            pull_request_review_comment|pull_request_review)
+            pull_request_review_comment)
+              echo "mode=pr" >> "$GITHUB_OUTPUT"
+              echo "target=$PR_NUM" >> "$GITHUB_OUTPUT"
+              # 0.11.10+ — carry the inline comment id through so the agent
+              # can reply threaded under the PM's comment instead of posting
+              # a disconnected timeline message.
+              echo "review_comment_id=\${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request_review)
               echo "mode=pr" >> "$GITHUB_OUTPUT"
               echo "target=$PR_NUM" >> "$GITHUB_OUTPUT"
               ;;
@@ -615,7 +623,14 @@ jobs:
           SLOWCOOK_DEBUG: "1"
         run: |
           if [ "\${{ steps.mode.outputs.mode }}" = "pr" ]; then
-            npx --yes "$SLOWCOOK_CLI" refine --pr \${{ steps.mode.outputs.target }}
+            EXTRA=""
+            # review_comment_id is only set by the pull_request_review_comment
+            # branch — for issue_comment + pull_request_review triggers the
+            # flag is omitted and refine falls back to a timeline comment.
+            if [ -n "\${{ steps.mode.outputs.review_comment_id }}" ]; then
+              EXTRA="--review-comment-id \${{ steps.mode.outputs.review_comment_id }}"
+            fi
+            npx --yes "$SLOWCOOK_CLI" refine --pr \${{ steps.mode.outputs.target }} $EXTRA
           else
             npx --yes "$SLOWCOOK_CLI" refine --issue \${{ steps.mode.outputs.target }}
           fi
