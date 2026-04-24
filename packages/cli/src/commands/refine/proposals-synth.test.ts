@@ -102,6 +102,47 @@ describe("synthesizeProposalsFromSpec", () => {
     expect(out.schema).toBeUndefined();
   });
 
+  it("normalises <name> dynamic segments to [name] in route proposals (0.11.12)", () => {
+    // Regression: spec prose often uses <handle> as a dynamic-segment
+    // shorthand while concrete repro scenarios use example handles
+    // like /u/amin. Before 0.11.12, deriveRoutes only scanned
+    // ui_behavior and produced `/u/amin` as a proposed static route,
+    // which mapped to `src/app/(main)/u/amin/page.tsx` — wrong.
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "`/u/<handle>` MUST resolve owner via case-insensitive handle lookup",
+      ],
+      ui_behavior: {
+        desktop_light: "Authenticated visitor at `/u/amin`: page renders",
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const paths = out.routes?.paths.map((p) => p.path) ?? [];
+    // Coalescence: the concrete /u/amin gets dropped in favor of /u/[handle].
+    expect(paths).toContain("/u/[handle]");
+    expect(paths).not.toContain("/u/amin");
+    // File mapping uses the dynamic form.
+    const entry = out.routes?.paths.find((p) => p.path === "/u/[handle]");
+    expect(entry?.file).toBe("src/app/(main)/u/[handle]/page.tsx");
+  });
+
+  it("keeps distinct routes that differ in non-coalescible ways (0.11.12)", () => {
+    // Coalescence must NOT eat a route that differs in path length or
+    // has no dynamic sibling. /me/bookmarks + /discover stay separate.
+    const spec: Spec = {
+      ...base,
+      ui_behavior: {
+        desktop_light: "Routes: `/me/bookmarks` and `/discover` exist",
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const paths = out.routes?.paths.map((p) => p.path) ?? [];
+    expect(paths).toEqual(
+      expect.arrayContaining(["/discover", "/me/bookmarks"]),
+    );
+  });
+
   it("does not override LLM-emitted auth even when invariants match", () => {
     const spec: Spec = {
       ...base,

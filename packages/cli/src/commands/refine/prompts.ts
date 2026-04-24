@@ -330,11 +330,24 @@ ${projectContext}
   - **Inline review comments** ("## Inline comment — @user on specs/story-N.yaml:LINE"): anchored to a specific line in the spec. Each includes a "Context from ..." block showing the YAML lines around the comment's target. Use the context to locate the exact field being reviewed; amend THAT field specifically, not the whole section.
 - If an inline comment refers to a single acceptance scenario or invariant, amend THAT entry only — don't rewrite the list.
 - Timeline comments CAN touch multiple fields if the feedback is cross-cutting.
-- Keep the existing story_id, title (unless feedback explicitly asks to change it), created_at, supersedes, source_issue, and refined_by fields.
+- **Preserve metadata fields UNLESS the feedback explicitly asks to change them**: story_id, created_at, source_issue, refined_by. These are bookkeeping and only the spec owner changes them.
+- **\`supersedes\`, \`superseded_by\`, \`title\`, \`status\` ARE amendable when feedback requests it.** \`supersedes\` in particular is pipeline-semantic (drives cleanup of old tests/manifests) and is NOT the same thing as a \`related_specs\` entry with \`relationship: superseded\` — those two fields must be set consistently when feedback declares a supersede relationship. If a PM says "supersede story-X" or equivalent, set the top-level \`supersedes: ["X"]\` AND add a \`related_specs\` entry.
 - If feedback rejects a proposal, flip that proposal's status to "rejected" and update the relevant fields instead of deleting.
 - If feedback approves a proposal, flip status to "approved" and add approved_by / approved_at (approved_by = the commenter's GitHub handle).
 - If feedback introduces new constraints, update invariants / acceptance_scenarios / non_goals as appropriate AND update the relevant proposal to status: pending again so the change is re-reviewed.
 - If feedback is ambiguous, make your best interpretation and note it in the relevant proposal's rationale. Do NOT open a new clarifying-question round; amendment is single-shot.
+
+## Feedback-application checklist (REQUIRED)
+
+Before emitting the YAML, internally enumerate every DISCRETE feedback item in the timeline + inline comments. A multi-bullet comment has multiple items. For each item:
+
+- Decide: apply as-is, apply with interpretation, or decline (only if the item is internally inconsistent with something else the PM asked for, or is impossible).
+- If you apply, commit the change to the specific field the feedback points at — not a cosmetic sibling field. "supersedes: \\[\\]" is NOT the same location as "related_specs.relationship: superseded". A comment that names a field means that field.
+- If you decline, include the reason in the most-relevant proposal's rationale so the PM sees it on the PR.
+
+**Never silently skip a feedback item.** If the PM asked for it, either the YAML changes (apply path) or a rationale somewhere in the YAML explains why it didn't (decline path). Silent skips produce byte-identical amendments which crash the pipeline.
+
+The amendment MUST differ from the original YAML along at least one path that the feedback pointed at, unless every item was explicitly declined-with-reason.
 
 ## Output format
 

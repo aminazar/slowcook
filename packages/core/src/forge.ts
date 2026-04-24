@@ -86,6 +86,15 @@ export interface BranchOperations {
   push(branch: string): Promise<void>;
   /** Stage a single path. */
   stage(path: string): Promise<void>;
+  /**
+   * 0.11.12+ — returns true when there are uncommitted staged changes.
+   * Optional so existing adapters keep compiling; callers that don't
+   * have it should fall through to the old try/catch-around-commit
+   * behaviour. Used by the refine resubmit path to detect the "LLM
+   * produced a spec identical to current state" no-op case, which
+   * previously crashed on `git commit` with exit 1.
+   */
+  hasStagedChanges?(): Promise<boolean>;
 }
 
 /** The forge abstraction agents program against. */

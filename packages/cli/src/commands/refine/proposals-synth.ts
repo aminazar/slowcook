@@ -56,22 +56,70 @@ function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
     if (typeof p === "string" && !p.startsWith("/api/")) paths.add(p);
   }
 
-  // 2. Path mentions in ui_behavior prose: grep for `/foo` or `/foo/bar` segments.
-  const uiText = Object.values(spec.ui_behavior ?? {}).join("\n");
-  const pathRe = /(?:^|[\s(`"'])(\/(?:[a-z][a-z0-9_-]*)(?:\/(?:\[[a-z_]+\]|[a-z0-9_-]+))*)(?=[`"'\s)),.?]|$)/gi;
+  // 2. Path mentions in ALL prose fields, not just ui_behavior. Specs use
+  // `<handle>` in preconditions/invariants/acceptance_scenarios as the
+  // canonical dynamic-segment shorthand; example handles like `/u/amin`
+  // show up in ui_behavior + scenarios as concrete repros. We capture
+  // BOTH forms and coalesce below so the proposal emits the dynamic
+  // route, not an accidental static route keyed on an example handle.
+  const prose = [
+    ...Object.values(spec.ui_behavior ?? {}),
+    ...(spec.preconditions ?? []),
+    ...(spec.invariants ?? []),
+    ...(spec.acceptance_scenarios ?? []),
+    ...(spec.non_goals ?? []),
+  ].join("\n");
+
+  // Regex accepts either `[name]` (Next.js App Router shape) or
+  // `<name>` (spec shorthand) as dynamic segments, alongside literal
+  // path segments. The `<>` form is normalised to `[]` after the scan.
+  const pathRe = /(?:^|[\s(`"'])(\/(?:[a-z][a-z0-9_-]*)(?:\/(?:\[[a-z_]+\]|<[a-z_]+>|[a-z0-9_-]+))*)(?=[`"'\s)),.?]|$)/gi;
   let m: RegExpExecArray | null;
-  while ((m = pathRe.exec(uiText)) !== null) {
-    const path = m[1]!;
-    // Filter out obvious false positives: /api/* (API routes, not pages),
-    // and paths that look like file refs
-    if (path.startsWith("/api/")) continue;
-    if (path.includes(".")) continue;
-    paths.add(path);
+  while ((m = pathRe.exec(prose)) !== null) {
+    const raw = m[1]!;
+    if (raw.startsWith("/api/")) continue;
+    if (raw.includes(".")) continue;
+    // Normalise <name> → [name] so downstream file-path derivation
+    // sees a Next.js-shaped route regardless of which form the spec
+    // used in prose.
+    const normalised = raw.replace(/<([a-z_]+)>/gi, "[$1]");
+    paths.add(normalised);
   }
 
   if (paths.size === 0) return null;
 
-  const entries = Array.from(paths).sort().map((path) => ({
+  // Coalesce literal siblings into their dynamic parent: if both
+  // `/u/amin` and `/u/[handle]` are present, keep only `/u/[handle]`.
+  // This handles the common case where a spec includes both
+  // `<handle>` (canonical form) and concrete example handles in
+  // repro scenarios. Without this, testgen+brew see two routes and
+  // either pick the wrong one or generate duplicate files.
+  const pathList = Array.from(paths);
+  const hasDynamicSibling = (p: string): boolean => {
+    for (const other of pathList) {
+      if (other === p) continue;
+      if (!other.includes("[")) continue;
+      // Compare segment-by-segment: same length, same literal segments,
+      // other's `[name]` segments win over self's literal.
+      const aSegs = p.split("/");
+      const bSegs = other.split("/");
+      if (aSegs.length !== bSegs.length) continue;
+      let fits = true;
+      for (let i = 0; i < aSegs.length; i++) {
+        const a = aSegs[i]!;
+        const b = bSegs[i]!;
+        if (a === b) continue;
+        if (b.startsWith("[") && b.endsWith("]")) continue;
+        fits = false;
+        break;
+      }
+      if (fits) return true;
+    }
+    return false;
+  };
+  const coalesced = pathList.filter((p) => p.includes("[") || !hasDynamicSibling(p));
+
+  const entries = coalesced.sort().map((path) => ({
     path,
     file: pathToPageFile(path),
   }));
@@ -80,7 +128,7 @@ function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
     status: "pending",
     proposed_by: "spec-body-synth",
     rationale:
-      "Derived from api_contract + ui_behavior. Review the path-to-file mapping against the project's Next.js App Router convention.",
+      "Derived from api_contract + prose fields. `<name>` dynamic segments are normalised to `[name]`; literal example paths that have a dynamic sibling (e.g., `/u/amin` alongside `/u/[handle]`) are dropped in favour of the dynamic form. Review the path-to-file mapping against the project's Next.js App Router convention.",
     paths: entries,
   };
 }

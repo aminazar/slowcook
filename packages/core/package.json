@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/core",
-  "version": "0.11.11",
+  "version": "0.11.12",
   "description": "Core types and logic for the slowcook brewing harness",
   "license": "MIT",
   "author": "aminazar",

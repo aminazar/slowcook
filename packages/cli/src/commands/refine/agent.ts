@@ -826,6 +826,57 @@ export async function runResubmitRefinement(
   // Write, stage, commit
   const specPath = writeSpec(ctx.repoRoot, parsed.spec);
   await ctx.forge.git.stage(join(SPECS_DIR, `story-${storyId}.yaml`));
+
+  // 0.11.12+ — detect "LLM produced a spec byte-identical to current
+  // state" no-op. Before 0.11.12 we called `git commit` directly here,
+  // which exits 1 with "nothing to commit" when the LLM rewrote the
+  // spec but the re-serialised YAML matched the committed file — and
+  // the crash took the whole run down without posting any response to
+  // the PM. Now: detect the no-op, post an explanatory comment so the
+  // PM knows their feedback landed but didn't produce a change, and
+  // return cleanly.
+  if (ctx.forge.git.hasStagedChanges) {
+    const changed = await ctx.forge.git.hasStagedChanges();
+    if (!changed) {
+      const marker = costMarker({
+        agent: "refine",
+        usd: response.costUsd,
+        tokensIn: response.usage.inputTokens,
+        tokensOut: response.usage.outputTokens,
+        cacheRead: response.usage.cacheReadTokens,
+        cacheCreate: response.usage.cacheCreateTokens,
+        model: response.model,
+        round: "resubmit-noop",
+      });
+      const body =
+        `${BRAND_HEADER}Re-read your feedback but produced the same spec — ` +
+        `either I already reflected the change elsewhere in the YAML, or I ` +
+        `misread what you wanted. Could you point at the specific field(s) ` +
+        `you want changed (ideally with the expected before/after)?\n\n${marker}`;
+      let posted = false;
+      if (ctx.reviewCommentId && ctx.forge.createReviewCommentReply) {
+        try {
+          await ctx.forge.createReviewCommentReply(
+            ctx.prNumber,
+            ctx.reviewCommentId,
+            body
+          );
+          posted = true;
+        } catch {
+          /* fall through */
+        }
+      }
+      if (!posted) {
+        await ctx.forge.createIssueComment(ctx.prNumber, body);
+      }
+      return {
+        kind: "noop",
+        reason:
+          "agent produced amendment byte-identical to committed spec — likely misread feedback or conflated fields",
+      };
+    }
+  }
+
   await ctx.forge.git.commit(
     `refine: resubmit story-${storyId} per PR #${ctx.prNumber} feedback`
   );

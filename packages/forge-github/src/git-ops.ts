@@ -31,6 +31,28 @@ export class LocalGitOps implements BranchOperations {
   async push(branch: string): Promise<void> {
     this.run(`git push --set-upstream origin ${shellQuote(branch)}`);
   }
+
+  async hasStagedChanges(): Promise<boolean> {
+    // `git diff --cached --quiet` exits 0 when no staged changes, 1 when
+    // there are staged changes, or other non-zero on error. execSync
+    // throws on any non-zero exit, so the try/catch here is the
+    // idiomatic way to read a boolean out of it without shelling out
+    // through a shell pipeline.
+    try {
+      execSync("git diff --cached --quiet", {
+        cwd: this.cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      return false;
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      if (status === 1) return true;
+      // Any other status is a real error — re-throw so callers don't
+      // silently proceed on (say) a detached-HEAD or no-repo condition.
+      throw e;
+    }
+  }
 }
 
 function shellQuote(s: string): string {
