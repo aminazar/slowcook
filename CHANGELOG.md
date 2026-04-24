@@ -6,6 +6,26 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.7 — Ingestion-side normaliser for emit variance
+
+0.11.6's prompt tightening wasn't enough — agent (Opus 4.7 on 2026-04-24) kept emitting `acceptance_scenarios[1]` as a Given/When/Then object despite the explicit "must be strings" instruction. Third failure in the prompt-only pattern (styling 0.7.20, proposals 0.11.2, scenarios 0.11.6) — same answer each time: normalise at ingestion.
+
+New `normalizeEmittedSpec()` runs before zod validation:
+
+- Object entries with `given` / `when` / `then` (or title-case) keys → coerced to "Given … When … Then …" prose string
+- Other object entries → `[NORMALIZED_OBJECT] {...}` marker with JSON-stringified content (so operators see the malformed emit in the spec file instead of a crash)
+- Applied to `acceptance_scenarios`, `preconditions`, `invariants`, `non_goals`
+
+Well-formed input passes through unchanged.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.6 → 0.11.7` — new `normalizeEmittedSpec` helper, wired before `EmittedSpecSchema.safeParse` in `parseAgentOutput`
+- 168 tests green (unchanged)
+- No other package changes
+
+---
+
 ## 0.11.6 — Amendment prompt enforces field shapes
 
 0.11.5's first real `/refine` dogfood on rewo PR #73 emitted a spec where `acceptance_scenarios[1]` was an object instead of a string (agent "helpfully" structured a Given/When/Then into sub-fields). Zod rejected; refine failed.

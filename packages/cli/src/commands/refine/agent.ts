@@ -420,6 +420,54 @@ const EmittedSpecSchema = z.object({
     .optional(),
 });
 
+/**
+ * 0.11.6 — coerce common LLM emit variance to the shapes zod expects.
+ * The amendment prompt already tells the agent "acceptance_scenarios is
+ * an array of strings" but the LLM (Opus 4.7 as of 2026-04-24) still
+ * occasionally emits a {given, when, then} object for one entry. Prompt
+ * steering alone can't guarantee this; normalise at ingestion.
+ *
+ * Current coercions:
+ *  - acceptance_scenarios[i] object → joined "Given … When … Then …"
+ *    string. If the object doesn't have those keys, JSON-stringify with
+ *    a clear marker so the operator sees the malformed emit.
+ *  - preconditions / invariants / non_goals: same treatment, in case
+ *    future LLMs repeat the pattern on those fields.
+ *
+ * Non-breaking: if input is already well-formed, it passes through
+ * unchanged.
+ */
+function normalizeEmittedSpec(doc: unknown): unknown {
+  if (!doc || typeof doc !== "object") return doc;
+  const out = { ...(doc as Record<string, unknown>) };
+  const stringifyArrayEntries = (key: string): void => {
+    const val = out[key];
+    if (!Array.isArray(val)) return;
+    out[key] = val.map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        const o = entry as Record<string, unknown>;
+        // Given/When/Then pattern — the most common "helpfully structured"
+        // form the amendment agent emits.
+        const given = o.given ?? o.Given;
+        const when = o.when ?? o.When;
+        const then = o.then ?? o.Then;
+        if (typeof given === "string" && typeof when === "string" && typeof then === "string") {
+          return `Given ${given}, When ${when}, Then ${then}`;
+        }
+      }
+      // Fallback: JSON-stringify with a marker so operators see the
+      // structural weirdness in the spec file rather than a crash.
+      return `[NORMALIZED_OBJECT] ${JSON.stringify(entry)}`;
+    });
+  };
+  stringifyArrayEntries("acceptance_scenarios");
+  stringifyArrayEntries("preconditions");
+  stringifyArrayEntries("invariants");
+  stringifyArrayEntries("non_goals");
+  return out;
+}
+
 export function parseAgentOutput(
   raw: string,
   ctx: ParseContext
@@ -437,7 +485,7 @@ export function parseAgentOutput(
     const parsedDocs = docs
       .map((d) => d.toJS({ maxAliasCount: -1 }))
       .filter((d) => d && typeof d === "object" && "title" in d);
-    const doc = parsedDocs[0] ?? null;
+    const doc = parsedDocs[0] ? normalizeEmittedSpec(parsedDocs[0]) : null;
     const parsed = EmittedSpecSchema.safeParse(doc);
     if (!parsed.success) {
       throw new Error(
