@@ -1,10 +1,22 @@
 import { execSync } from "node:child_process";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { AnthropicClient } from "./llm.js";
-import { runRefinement, type RefineContext } from "./agent.js";
+import {
+  runRefinement,
+  runResubmitRefinement,
+  type RefineContext,
+  type ResubmitContext,
+} from "./agent.js";
 
 interface RefineArgs {
+  /** Issue-driven refine (the original 0.5+ path). Required unless --pr is set. */
   issueNumber: number;
+  /**
+   * 0.11.5+ — PR-driven resubmit. When set, refine loads the spec on the
+   * PR's branch + the new PR comments, amends the spec, force-pushes.
+   * Mutually exclusive with --issue.
+   */
+  prNumber: number;
   repoRoot: string;
   owner?: string;
   repo?: string;
@@ -16,6 +28,7 @@ interface RefineArgs {
 function parseArgs(argv: string[]): RefineArgs {
   const args: RefineArgs = {
     issueNumber: 0,
+    prNumber: 0,
     repoRoot: process.cwd(),
     baseBranch: "main",
     refineModel: "claude-opus-4-7",
@@ -26,6 +39,9 @@ function parseArgs(argv: string[]): RefineArgs {
     const next = argv[i + 1];
     if (arg === "--issue" && next) {
       args.issueNumber = parseInt(next, 10);
+      i++;
+    } else if (arg === "--pr" && next) {
+      args.prNumber = parseInt(next, 10);
       i++;
     } else if (arg === "--cwd" && next) {
       args.repoRoot = next;
@@ -50,8 +66,13 @@ function parseArgs(argv: string[]): RefineArgs {
       process.exit(0);
     }
   }
-  if (!args.issueNumber || isNaN(args.issueNumber)) {
-    console.error("Missing required --issue <number>");
+  // Exactly one of --issue / --pr required
+  const hasIssue = !!args.issueNumber && !isNaN(args.issueNumber);
+  const hasPr = !!args.prNumber && !isNaN(args.prNumber);
+  if (hasIssue === hasPr) {
+    console.error(
+      "Missing or ambiguous target: pass exactly one of --issue <number> OR --pr <number>."
+    );
     printHelp();
     process.exit(64);
   }
@@ -73,10 +94,15 @@ Re-run on every new PM comment (typically via a GitHub Actions workflow
 triggered by issue_comment events).
 
 Usage:
-  slowcook refine --issue <number> [options]
+  slowcook refine --issue <number> [options]     # original issue-driven refine
+  slowcook refine --pr <number> [options]        # 0.11.5+ PR-driven resubmit
 
 Options:
-  --issue <number>             Issue to refine (required)
+  --issue <number>             Issue to refine (exclusive with --pr)
+  --pr <number>                PR to resubmit (0.11.5+). Reads PM comments
+                               on the PR, amends the spec on the same branch,
+                               force-pushes, posts summary comment. Exclusive
+                               with --issue.
   --cwd <path>                 Repo working directory (default: current dir)
   --owner <login>              Repo owner (default: parsed from 'git remote get-url origin')
   --repo <name>                Repo name (default: parsed from 'git remote get-url origin')
@@ -141,23 +167,51 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
   const forge = new GitHubAdapter({ owner, repo, token: githubToken });
   const llm = new AnthropicClient(anthropicKey);
 
-  const ctx: RefineContext = {
-    issueNumber: args.issueNumber,
-    repoRoot: args.repoRoot,
-    forge,
-    llm,
-    refineModel: args.refineModel,
-    relationshipModel: args.relationshipModel,
-    cliVersion,
-    baseBranch: args.baseBranch,
-    now: new Date(),
-  };
-
-  console.log(
-    `slowcook refine · issue #${args.issueNumber} on ${owner}/${repo} (refine model: ${args.refineModel})`
-  );
-
   try {
+    if (args.prNumber) {
+      // 0.11.5+ — PR-driven resubmit path
+      const ctx: ResubmitContext = {
+        prNumber: args.prNumber,
+        repoRoot: args.repoRoot,
+        forge,
+        llm,
+        refineModel: args.refineModel,
+        cliVersion,
+        baseBranch: args.baseBranch,
+        now: new Date(),
+      };
+      console.log(
+        `slowcook refine · resubmit on PR #${args.prNumber} on ${owner}/${repo} (refine model: ${args.refineModel})`
+      );
+      const outcome = await runResubmitRefinement(ctx);
+      switch (outcome.kind) {
+        case "resubmitted":
+          console.log(`Spec amended: ${outcome.specPath}`);
+          console.log(`Pushed to branch ${outcome.branch}.`);
+          break;
+        case "noop":
+          console.log(`Noop: ${outcome.reason}.`);
+          break;
+      }
+      return;
+    }
+
+    const ctx: RefineContext = {
+      issueNumber: args.issueNumber,
+      repoRoot: args.repoRoot,
+      forge,
+      llm,
+      refineModel: args.refineModel,
+      relationshipModel: args.relationshipModel,
+      cliVersion,
+      baseBranch: args.baseBranch,
+      now: new Date(),
+    };
+
+    console.log(
+      `slowcook refine · issue #${args.issueNumber} on ${owner}/${repo} (refine model: ${args.refineModel})`
+    );
+
     const outcome = await runRefinement(ctx);
     switch (outcome.kind) {
       case "questions-posted":

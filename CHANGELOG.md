@@ -6,6 +6,59 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.5 — `/refine` PR-comment resubmit
+
+Closes the iteration loop for refinement proposals. PM can now reply `/refine <any prose>` on an open spec PR and the agent will amend the spec on the same branch — no need to close the PR and re-run refine from scratch.
+
+### CLI
+
+New flag on `slowcook refine`:
+
+```
+slowcook refine --pr <number>    # 0.11.5+ PR-driven resubmit
+```
+
+Mutually exclusive with `--issue`. Routes to a new `runResubmitRefinement` path in `agent.ts`:
+
+1. Detect story id from current branch (expected: `slowcook/spec/story-N`)
+2. Load current spec YAML from disk
+3. Fetch PR comments via `listIssueComments`; filter out agent's own brand-header output
+4. Call LLM with new `AMENDMENT_SYSTEM` prompt: current spec + PM feedback → amended spec
+5. Parse emitted YAML through same pipeline as `--issue` (proposal validation, synth fallback, zod strict)
+6. Write updated spec, stage, commit, force-push
+7. Post summary comment on the PR with cost marker
+
+### Workflow
+
+`slowcook-refine.yml` gets a second trigger path:
+
+- **Mode A (existing)**: issue labeled `needs-refinement` → issue-driven refine
+- **Mode B (new)**: `/refine` comment on a PR labeled `slowcook-spec` → resubmit
+
+Workflow detects mode via `github.event.issue.pull_request` + comment body; checks out the PR's head branch for Mode B (instead of main); invokes CLI with appropriate flag. One `slowcook-refine.yml` handles both modes.
+
+### Amendment prompt
+
+New `AMENDMENT_SYSTEM` in prompts.ts. Single-shot:
+
+- Does NOT re-run relationship analysis (spec already exists)
+- Does NOT ask clarifying questions (amendment is single-shot; if ambiguous, best-interpret + note in rationale)
+- Preserves story_id / title / supersedes / source_issue / refined_by
+- Flips proposal `status` based on feedback: approved → `approved` + approved_by/at, rejected → `rejected`, new-constraint-emerges → re-open as `pending`
+
+### What's NOT in 0.11.5
+
+- **Automatic approval-invalidation cross-reference** — prompt asks the agent to re-open approved proposals when related invariants change, but there's no mechanical enforcement. 0.11.6.
+- **Unit tests for resubmit** — manual dogfood only in 0.11.5.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.4 → 0.11.5` — new `--pr` flag, `runResubmitRefinement`, `AMENDMENT_SYSTEM` prompt
+- Rewo `slowcook-refine.yml` updated to handle both modes
+- 168 tests green (no new unit tests; resubmit validated via manual dogfood)
+
+---
+
 ## 0.11.4 — Defensive rendering + strict proposal validation upstream
 
 0.11.3's dogfood on rewo #25 tripped a new failure: the LLM emitted a `proposals.schema` without a `sql` field, and `renderProposalsSection` called `.trim()` on undefined → crashed in `draftPrBody`, the whole emit round failed with "Cannot read properties of undefined".

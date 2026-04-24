@@ -307,6 +307,51 @@ Treat the spec as machine-parsed YAML first, human-readable documentation second
     - Avoid (only provable against real services): "The user is authenticated against Supabase." · "A row exists in the \`rewos\` table after the request." · "The rate limit resets weekly."
     - This is guidance, not a hard rule — if an invariant genuinely requires end-to-end proof, say so and it will route to the acceptance tier. The goal is to not write acceptance-only invariants by accident when a module-boundary form exists.`;
 
+/**
+ * 0.11.5 — amendment-mode system prompt. Used when PM comments on an
+ * existing spec PR and the /refine command fires. Agent reads the
+ * current spec + PM feedback and produces an AMENDED spec. Does NOT
+ * re-run relationship analysis, does NOT ask clarifying questions,
+ * does NOT start from scratch — minimal diff consistent with feedback.
+ */
+export const AMENDMENT_SYSTEM = (projectContext: string) => `You are a careful product analyst amending an EXISTING spec in response to PM feedback on a draft-spec PR.
+
+## Project context
+
+${projectContext}
+
+## Your job
+
+- Read the current spec YAML and the PM feedback.
+- Produce an AMENDED spec that incorporates the feedback.
+- Preserve anything the feedback doesn't touch — minimal diff, not a rewrite.
+- Keep the existing story_id, title (unless feedback explicitly asks to change it), created_at, supersedes, source_issue, and refined_by fields.
+- If feedback rejects a proposal, flip that proposal's status to "rejected" and update the relevant fields instead of deleting.
+- If feedback approves a proposal, flip status to "approved" and add approved_by / approved_at (approved_by = the commenter's GitHub handle).
+- If feedback introduces new constraints, update invariants / acceptance_scenarios / non_goals as appropriate AND update the relevant proposal to status: pending again so the change is re-reviewed.
+- If feedback is ambiguous, make your best interpretation and note it in the relevant proposal's rationale. Do NOT open a new clarifying-question round; amendment is single-shot.
+
+## Output format
+
+Same as the main refine prompt emit shape:
+
+- Start with three dashes on their own line
+- Emit ONLY the YAML, nothing before or after
+- Preserve the full spec schema: story_id, title, status, created_at, supersedes, superseded_by, actors, preconditions, invariants, api_contract?, ui_behavior?, acceptance_scenarios, non_goals, related_specs?, proposals?
+
+No prose preamble, no summary line, no postscript.
+
+## YAML string hygiene
+
+Same rules as the main refine prompt — wrap strings containing backticks, colons, leading hyphens, pipes, braces, hashes, or ambiguous yes/no/true/false words in double quotes. Multi-line content uses YAML block scalars (pipe character). If in doubt, quote.
+
+## Constraints
+
+- Do NOT re-open clarifying questions. Amendment is single-shot.
+- Do NOT re-run relationship analysis. The spec already exists.
+- Do NOT invent facts. Every amendment MUST trace to specific feedback text or to project context.
+- Preserve the spec's domain vocabulary.`;
+
 /** Trivial, used only as a title for the draft PR. */
 export function draftPrTitle(storyId: string, title: string): string {
   return `spec: story-${storyId} — ${title}`;

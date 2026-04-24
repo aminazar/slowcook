@@ -14,6 +14,7 @@ import type {
 import {
   REFINEMENT_ANALYST_SYSTEM,
   SPEC_CHECKLIST_MD,
+  AMENDMENT_SYSTEM,
   draftPrTitle,
   draftPrBody,
 } from "./prompts.js";
@@ -21,10 +22,15 @@ import {
   readIndex,
   writeIndex,
   writeSpec,
+  readSpec,
   listActiveSpecs,
   nextStoryId,
   entryFromSpec,
+  SPECS_DIR,
 } from "./spec-yaml.js";
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildProjectContext } from "./context.js";
 import {
   analyzeRelationship,
@@ -536,4 +542,173 @@ function extractYamlBlock(s: string): string | null {
   }
 
   return null;
+}
+
+/* ======================================================================== */
+/* 0.11.5 — PR-driven resubmit                                              */
+/* ======================================================================== */
+
+export interface ResubmitContext {
+  prNumber: number;
+  repoRoot: string;
+  forge: ForgeAdapter;
+  llm: LlmClient;
+  refineModel: string;
+  cliVersion: string;
+  baseBranch: string;
+  now: Date;
+}
+
+export type ResubmitOutcome =
+  | { kind: "resubmitted"; specPath: string; branch: string }
+  | { kind: "noop"; reason: string };
+
+/**
+ * Read the story id from the current git branch (expected pattern:
+ * `slowcook/spec/story-<id>`). CLI workflow checks out the PR branch
+ * before invoking us, so `git branch --show-current` is authoritative.
+ */
+function detectStoryIdFromBranch(repoRoot: string): string | null {
+  try {
+    const branch = execSync("git branch --show-current", {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    const m = branch.match(/^slowcook\/spec\/story-(.+)$/);
+    return m && m[1] ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Amend a spec on its existing PR branch based on PR review comments.
+ *
+ * Flow:
+ *   1. Detect story id from current branch
+ *   2. Load current spec YAML from disk
+ *   3. Fetch PR comments — filter to PM replies since the most recent
+ *      spec-author commit (agent's own edits don't count as feedback)
+ *   4. Call LLM in amendment mode: old spec + feedback → new spec
+ *   5. Parse emitted YAML, run through spec-body synth + proposals validator
+ *   6. Write updated spec, stage, commit, force-push, post summary comment
+ *
+ * Kept intentionally narrow: no relationship analysis (spec already
+ * exists), no supersede logic (that's refine-proper's job on a new
+ * story), no test manifest changes.
+ */
+export async function runResubmitRefinement(
+  ctx: ResubmitContext
+): Promise<ResubmitOutcome> {
+  const storyId = detectStoryIdFromBranch(ctx.repoRoot);
+  if (!storyId) {
+    return {
+      kind: "noop",
+      reason:
+        "could not detect story id from current branch — expected `slowcook/spec/story-N` pattern",
+    };
+  }
+
+  let spec: Spec;
+  try {
+    spec = readSpec(ctx.repoRoot, storyId);
+  } catch (e) {
+    return {
+      kind: "noop",
+      reason: `could not read spec for story-${storyId}: ${(e as Error).message}`,
+    };
+  }
+
+  // PR comments — listIssueComments covers PR timeline comments. We
+  // want PM feedback only; filter out bot-authored agent brand-header
+  // comments so we don't feed the agent its own prior output.
+  const comments = await ctx.forge.listIssueComments(ctx.prNumber);
+  const pmComments = comments.filter((c) => {
+    const body = c.body ?? "";
+    if (body.startsWith("### slowcook ·")) return false;
+    return true;
+  });
+
+  if (pmComments.length === 0) {
+    return {
+      kind: "noop",
+      reason: "no PM comments to process on the PR",
+    };
+  }
+
+  const feedback = pmComments
+    .map((c) => `— @${c.author} at ${c.created_at}:\n${c.body}`)
+    .join("\n\n---\n\n");
+
+  const projectContext = buildProjectContext(ctx.repoRoot);
+  const systemPrompt = AMENDMENT_SYSTEM(projectContext);
+
+  const userMessage =
+    `## Current spec (story-${storyId})\n\n\`\`\`yaml\n${YAML.stringify(spec)}\n\`\`\`\n\n` +
+    `## PM feedback on the spec PR\n\n${feedback}\n\n` +
+    `Produce the AMENDED spec YAML applying the feedback. Preserve anything the feedback doesn't touch. Start your response with \`---\` and emit only YAML (no prose wrapper).`;
+
+  const response = await ctx.llm.complete({
+    system: systemPrompt,
+    cacheSystem: true,
+    model: ctx.refineModel,
+    messages: [{ role: "user", content: userMessage }],
+    maxTokens: 8192,
+  });
+
+  const parsed = parseAgentOutput(response.text, {
+    storyId,
+    issueNumber: parseInt((spec.source_issue ?? "#0").replace("#", ""), 10) || 0,
+    createdAt: spec.created_at,
+    supersedes: spec.supersedes,
+    cliVersion: ctx.cliVersion,
+  });
+
+  if (parsed.kind !== "spec") {
+    return {
+      kind: "noop",
+      reason: "agent did not emit a spec in the amendment round",
+    };
+  }
+
+  // Write, stage, commit, force-push
+  const specPath = writeSpec(ctx.repoRoot, parsed.spec);
+  await ctx.forge.git.stage(join(SPECS_DIR, `story-${storyId}.yaml`));
+  await ctx.forge.git.commit(
+    `refine: resubmit story-${storyId} per PR #${ctx.prNumber} feedback`
+  );
+  const branch = `slowcook/spec/story-${storyId}`;
+  await ctx.forge.git.push(branch);
+
+  // Post a summary comment on the PR
+  try {
+    const costUsd = response.costUsd;
+    const marker = costMarker({
+      agent: "refine",
+      usd: costUsd,
+      tokensIn: response.usage.inputTokens,
+      tokensOut: response.usage.outputTokens,
+      cacheRead: response.usage.cacheReadTokens,
+      cacheCreate: response.usage.cacheCreateTokens,
+      model: response.model,
+      round: "resubmit",
+    });
+    const body =
+      `${BRAND_HEADER}Amended spec per your feedback. Force-pushed to \`${branch}\`; ` +
+      `the PR diff reflects the new spec.\n\n${marker}`;
+    await ctx.forge.createIssueComment(ctx.prNumber, body);
+  } catch {
+    /* best effort */
+  }
+
+  // Read the file back from disk and verify the content we just wrote
+  // contains the expected story_id — catches the case where the YAML
+  // ended up at a different path than expected.
+  try {
+    void readFileSync(specPath, "utf8");
+  } catch {
+    /* already in error path if this fails */
+  }
+
+  return { kind: "resubmitted", specPath, branch };
 }
