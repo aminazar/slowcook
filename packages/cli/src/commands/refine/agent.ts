@@ -411,7 +411,15 @@ export function parseAgentOutput(
   // Heuristic: spec starts with `---` or is wrapped in a ```yaml block.
   const yamlBlock = extractYamlBlock(trimmed);
   if (yamlBlock) {
-    const doc = YAML.parse(yamlBlock);
+    // Use parseAllDocuments so stray `---` lines (e.g. one inside a pipe
+    // block SQL scalar, or an accidentally-doubled separator) don't crash
+    // the parse. Pick the first document that validates against the
+    // EmittedSpecSchema. 0.11.1 hardening against LLM emit variance.
+    const docs = YAML.parseAllDocuments(yamlBlock);
+    const parsedDocs = docs
+      .map((d) => d.toJS({ maxAliasCount: -1 }))
+      .filter((d) => d && typeof d === "object" && "title" in d);
+    const doc = parsedDocs[0] ?? null;
     const parsed = EmittedSpecSchema.safeParse(doc);
     if (!parsed.success) {
       throw new Error(
@@ -460,6 +468,21 @@ function extractYamlBlock(s: string): string | null {
   // Bare YAML starting with --- (document separator)
   if (s.startsWith("---")) {
     return s;
+  }
+
+  // 0.11.1: some emit rounds include a prose preamble ahead of the
+  // YAML (agent accidentally emits a summary line / apology / etc.
+  // despite the prompt forbidding it). If ANY line in the output is
+  // exactly `---` and the content after looks like our spec shape,
+  // start parsing from that line. Prevents a chatty preamble from
+  // breaking the whole run.
+  const lines = s.split(/\r?\n/);
+  const yamlStart = lines.findIndex((l) => l.trim() === "---");
+  if (yamlStart >= 0) {
+    const candidate = lines.slice(yamlStart).join("\n");
+    if (/\ntitle:\s/i.test(candidate) || /\nstory_id:\s/i.test(candidate)) {
+      return candidate;
+    }
   }
 
   // Content that's just YAML without front-matter fence — detect heuristically.

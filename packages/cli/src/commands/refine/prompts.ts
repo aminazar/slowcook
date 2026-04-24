@@ -260,7 +260,7 @@ api_shape:
 - The story is a bug fix or styling polish with no structural changes — skip the entire \`proposals\` block
 - You're in the question round (not the emit round) — proposals land in the FINAL spec YAML, not in clarifying questions
 
-When you DO emit proposals, surface them in a short summary line at the top of your emit response (still followed by the YAML). Something like: "Emitting spec with 3 pending proposals: schema, routes, observability. See YAML for details."
+**IMPORTANT**: proposals land INSIDE the spec YAML as a \`proposals:\` block. Do NOT add any prose (summary line, preamble, postscript) around the YAML — the pipeline strictly expects the emit response to start with \`---\` and end with the last YAML field. A prose line above \`---\` will break the parser. The YAML's own top-level fields (title, invariants, acceptance_scenarios, proposals) are the summary.
 
 ## YAML string hygiene (load-bearing — ignore and the spec fails to parse)
 

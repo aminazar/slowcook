@@ -6,6 +6,35 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.11.1 — Refine emit-round YAML robustness
+
+Hot-fix to 0.11.0's emit round. Two fixes shipped together:
+
+### Prompt: forbid prose preamble before the YAML
+
+0.11.0's new §Proposals section added an encouragement to include a "short summary line at the top of your emit response." That conflicted with the existing instruction "output ONLY the YAML, nothing before or after, starting with `---`." The agent tried to satisfy both — emitted a preamble line, then `---`, then YAML — and the YAML parser either tripped on the unexpected leading prose or choked on a stray `---` elsewhere in the output.
+
+**Fix:** §Proposals now explicitly re-asserts the strict YAML-only rule at emit time. The YAML's own top-level fields (`title`, `invariants`, `acceptance_scenarios`, `proposals`) are the summary — no prose wrapper.
+
+### Parser: tolerate multi-document + prose preamble
+
+Defense-in-depth for LLM emit variance:
+
+- `extractYamlBlock` now recognises a `---` line anywhere in the output (not just the start) when followed by spec-shaped content. Prose preambles no longer crash parsing.
+- `parseAgentOutput` uses `YAML.parseAllDocuments` + picks the first valid spec doc. An accidentally doubled `---` separator, or a literal `---` inside a pipe block scalar, no longer throws `MULTIPLE_DOCS`.
+
+### Caught by
+
+Dogfood on rewo issue #22 (R3-002: Myself timeline / bookmarks). Refine's question round worked perfectly (5 sharp questions for $0.38); the emit round tripped the parser. 0.11.1 unblocks.
+
+### Measurable scope
+
+- **`@slowcook-ai/cli`**: `0.11.0 → 0.11.1` — prompt clarification + parser hardening.
+- 160 tests green (unchanged).
+- No other package changes.
+
+---
+
 ## 0.11.0 — Refinement proposals (detect missing context → propose defaults)
 
 Refine agent graduates from "translate issue to spec" to "translate issue to spec **+ propose what the issue author didn't specify**." First slice of the refinement-proposals arc (0.11 → 0.12). See [`docs/plans/0.11-refinement-proposals.md`](./docs/plans/0.11-refinement-proposals.md).
