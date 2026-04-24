@@ -462,9 +462,109 @@ ${RESOLVE_PIN_STEP}
  *
  * Ordering is deterministic and stable for snapshot testability.
  */
+function slowcookRefineWorkflow(): string {
+  return `name: slowcook refine
+
+# Runs the slowcook refinement agent in two modes:
+#
+# Mode A (original): issues tagged \`needs-refinement\` — each round the
+# agent reads the issue + comments and either posts clarifying questions
+# or emits a spec + draft PR. Triggered by issue events and issue_comment.
+#
+# Mode B (0.11.5+): \`/refine <prose>\` comments on a \`slowcook-spec\` labeled
+# PR — the agent amends the spec on the same branch and force-pushes.
+# Single-shot: no clarifying-question loop at the PR level.
+
+on:
+  issues:
+    types: [opened, labeled, reopened]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: slowcook-refine-\${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  refine:
+    if: >-
+      (
+        github.event.issue.state == 'open' &&
+        contains(github.event.issue.labels.*.name, 'needs-refinement') &&
+        (github.event_name != 'issue_comment' ||
+         (github.event.comment.user.type != 'Bot' &&
+          !startsWith(github.event.comment.body, '### slowcook ·')))
+      )
+      ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        contains(github.event.issue.labels.*.name, 'slowcook-spec') &&
+        startsWith(github.event.comment.body, '/refine') &&
+        github.event.comment.user.type != 'Bot'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Detect mode
+        id: mode
+        env:
+          IS_PR: \${{ github.event.issue.pull_request != null }}
+          COMMENT: \${{ github.event.comment.body }}
+        run: |
+          if [ "$IS_PR" = "true" ] && [[ "\${COMMENT:-}" == /refine* ]]; then
+            echo "mode=pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=issue" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch PR branch ref
+        id: pr-branch
+        if: steps.mode.outputs.mode == 'pr'
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH=$(gh pr view \${{ github.event.issue.number }} --repo \${{ github.repository }} --json headRefName -q .headRefName)
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: \${{ steps.mode.outputs.mode == 'pr' && steps.pr-branch.outputs.branch || github.ref }}
+          token: \${{ secrets.GITHUB_TOKEN }}
+
+${RESOLVE_PIN_STEP}
+
+      - name: Configure git identity for agent commits
+        run: |
+          git config user.name  "slowcook-refine[bot]"
+          git config user.email "slowcook-refine@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Refine
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+        run: |
+          if [ "\${{ steps.mode.outputs.mode }}" = "pr" ]; then
+            npx --yes "$SLOWCOOK_CLI" refine --pr \${{ github.event.issue.number }}
+          else
+            npx --yes "$SLOWCOOK_CLI" refine --issue \${{ github.event.issue.number }}
+          fi
+`;
+}
+
 export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifact[] {
   return [
     { path: ".github/workflows/slowcook.yml", contents: slowcookWorkflow() },
+    { path: ".github/workflows/slowcook-refine.yml", contents: slowcookRefineWorkflow() },
     { path: ".github/workflows/slowcook-spec-merged.yml", contents: slowcookSpecMergedWorkflow() },
     { path: ".github/workflows/slowcook-tests-merged.yml", contents: slowcookTestsMergedWorkflow() },
     { path: ".github/workflows/slowcook-brew-merged.yml", contents: slowcookBrewMergedWorkflow() },

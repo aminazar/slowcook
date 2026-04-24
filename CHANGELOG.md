@@ -6,7 +6,11 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## 0.11.5 — `/refine` PR-comment resubmit
+## 0.11.5 — `/refine` PR-comment resubmit (cli + forge-github)
+
+Closes the iteration loop for refinement proposals. PM can reply `/refine <any prose>` on an open spec PR and the agent will amend the spec on the same branch — no need to close the PR and re-run refine from scratch.
+
+Paired release: CLI adds the new flag + runResubmitRefinement path; forge-github adds the `slowcook-refine.yml` template so `slowcook init` emits the workflow with both trigger modes.
 
 Closes the iteration loop for refinement proposals. PM can now reply `/refine <any prose>` on an open spec PR and the agent will amend the spec on the same branch — no need to close the PR and re-run refine from scratch.
 
@@ -54,8 +58,9 @@ New `AMENDMENT_SYSTEM` in prompts.ts. Single-shot:
 ### Measurable scope
 
 - **`@slowcook-ai/cli`**: `0.11.4 → 0.11.5` — new `--pr` flag, `runResubmitRefinement`, `AMENDMENT_SYSTEM` prompt
-- Rewo `slowcook-refine.yml` updated to handle both modes
-- 168 tests green (no new unit tests; resubmit validated via manual dogfood)
+- **`@slowcook-ai/forge-github`**: `0.9.0 → 0.9.1` — new `slowcook-refine.yml` template (two-mode: issue-driven refine + PR-driven resubmit), registered in `getGitHubCiArtifacts`. Before this, consumers had to hand-author their refine workflow; `slowcook init` now emits one by default.
+- Rewo `slowcook-refine.yml` already hand-updated to match the new template shape (committed earlier in this cycle).
+- 168 cli tests green
 
 ---
 
