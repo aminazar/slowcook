@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.13.4 — Refine reads brownfield extracts (the missing wire-up)
+
+Cut 2026-04-25.
+
+`buildProjectContext` (refine's system-prompt grounding) now appends a "Brownfield project awareness" section when `.brewing/diagrams/schema.mmd` and/or `.brewing/diagrams/tokens.md` exist. Without this, the 0.13.2/0.13.3 extracts sat unused. With it, refine's proposals align with the consumer's existing entity vocabulary + design tokens instead of inventing.
+
+- Schema is wrapped in a fenced ` ```mermaid ` block so the agent can both read the entity names and (if it pastes the section into a PR body) GitHub renders the diagram.
+- Tokens markdown is included verbatim with a steering note: "reuse these tokens by name (`var(--coral)`, `bg-coral`) instead of inventing".
+- Both extracts are optional — silently skipped on greenfield or pre-extraction state.
+- Wiring flows automatically into both `buildProjectContext` call sites in `refine/agent.ts` (initial + amendment).
+- 6 new unit tests in `refine/context.test.ts`.
+
+Pairs with 0.13.2 (`--emit-schema`) and 0.13.3 (`--emit-tokens`). The full brownfield foundation for 0.14 mockup-first refinement is now wire-complete.
+
+---
+
 ## 0.13.3 — Brownfield extraction: `slowcook map --emit-tokens`
 
 Cut 2026-04-25.
