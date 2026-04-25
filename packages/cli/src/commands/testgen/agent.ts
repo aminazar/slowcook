@@ -453,9 +453,15 @@ function collectTargetSpecs(ctx: TestgenContext): TargetSpec[] {
     const needsUi = hasUi && !uiExists;
 
     if (!needsHandler && !needsUi) {
-      // Already has everything — skip unless explicit --spec requests it
+      // Already has everything. With --all, silently skip (CI path —
+      // no tests need generating). With explicit --spec, the operator
+      // is asking for a re-emit (matches the help text:
+      // "re-runs even if tests exist") — force-regenerate in "full"
+      // mode. Existing test files are overwritten by the testgen
+      // commit. 0.12.2+: previously this silently skipped on --spec
+      // too, contradicting the help.
       if (!ctx.specId) continue;
-      // With --spec, we still skip if nothing's missing; there's nothing to do.
+      targets.push({ spec, mode: "full" });
       continue;
     }
 
