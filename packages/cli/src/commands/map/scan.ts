@@ -32,11 +32,27 @@ import type {
   ExportAssignment,
 } from "ts-morph";
 
+/**
+ * 0.12.7+ (Phase 2A of brownfield-retrieval) — every exported symbol
+ * carries a 1-based `line` (declaration site) and `callers` (count of
+ * non-declaration references across src/) so brew can answer
+ * "how widely is this used?" without reading every file.
+ *
+ * `callers` is approximate: based on a name-only AST scan that doesn't
+ * perform type resolution. Two unrelated symbols sharing a name will
+ * pool their callers. Trade-off: cheap (single pass) and useful for
+ * "should I extend or duplicate?" judgement calls; not authoritative
+ * for refactor planning.
+ */
 export interface ApiRouteEntry {
   method: string;
   path: string;
   file: string;
   function: string;
+  /** 1-based line where the handler function is declared. */
+  line?: number;
+  /** Reference count across src/ (excluding the declaration itself). */
+  callers?: number;
   jsdoc?: string;
   imports: string[];
 }
@@ -45,6 +61,8 @@ export interface PageEntry {
   path: string;
   file: string;
   component?: string;
+  /** 1-based line where the page's default-export component is declared. */
+  line?: number;
   jsdoc?: string;
 }
 
@@ -53,6 +71,9 @@ export interface ComponentEntry {
   file: string;
   exportKind: "default" | "named";
   props_type?: string;
+  /** 1-based line of the component declaration. */
+  line?: number;
+  callers?: number;
   jsdoc?: string;
 }
 
@@ -61,6 +82,9 @@ export interface HelperEntry {
   kind: "function" | "const" | "class";
   file: string;
   signature: string;
+  /** 1-based line of the helper declaration. */
+  line?: number;
+  callers?: number;
   jsdoc?: string;
 }
 
@@ -69,6 +93,9 @@ export interface TypeEntry {
   kind: "interface" | "type" | "enum";
   file: string;
   declaration: string;
+  /** 1-based line of the type declaration. */
+  line?: number;
+  callers?: number;
   jsdoc?: string;
 }
 
@@ -152,9 +179,71 @@ export function generateMap(opts: GenerateMapOptions): CodeMap {
     }
   }
 
+  // 0.12.7+ (Phase 2A) — annotate every entry with `callers`. Single
+  // pass: count identifier references across the entire src/ tree once,
+  // then attach the count to each exported symbol entry. Excludes the
+  // declaration itself + import specifiers; counts everything else.
+  enrichWithCallerCounts(project, map);
+
   // Stable ordering so the JSON diffs cleanly across regenerations.
   sortMap(map);
   return map;
+}
+
+/**
+ * Phase 2A — count name-only AST references for every exported symbol
+ * in the map. Approximate (no type resolution): symbols sharing a
+ * name pool their counts. Trade-off: cheap, useful for "should I
+ * extend or duplicate?" judgement; not authoritative for refactor
+ * planning.
+ */
+function enrichWithCallerCounts(project: Project, map: CodeMap): void {
+  // Collect all names we care about. Include component names, helper
+  // names, type names. (api_routes use HTTP-method names like POST/GET
+  // which would balloon the count meaninglessly — skip them.)
+  const names = new Set<string>();
+  for (const c of map.components) names.add(c.name);
+  for (const h of map.helpers) names.add(h.name);
+  for (const t of map.types) names.add(t.name);
+  if (names.size === 0) return;
+
+  const counts = new Map<string, number>();
+  for (const sf of project.getSourceFiles()) {
+    sf.forEachDescendant((node) => {
+      if (!Node.isIdentifier(node)) return;
+      const text = node.getText();
+      if (!names.has(text)) return;
+      const parent = node.getParent();
+      if (!parent) return;
+      // Skip declaration sites — counted via `line`, not here.
+      if (
+        (Node.isFunctionDeclaration(parent) ||
+          Node.isClassDeclaration(parent) ||
+          Node.isInterfaceDeclaration(parent) ||
+          Node.isTypeAliasDeclaration(parent) ||
+          Node.isEnumDeclaration(parent) ||
+          Node.isVariableDeclaration(parent)) &&
+        parent.getNameNode?.() === node
+      ) {
+        return;
+      }
+      // Skip import bindings — bringing a symbol in is not a use site.
+      // Also skip the property-name half of `import { x as y }` where
+      // `x` is the imported identifier (parent: ImportSpecifier).
+      if (
+        Node.isImportSpecifier(parent) ||
+        Node.isImportClause(parent) ||
+        Node.isNamespaceImport(parent)
+      ) {
+        return;
+      }
+      counts.set(text, (counts.get(text) ?? 0) + 1);
+    });
+  }
+
+  for (const c of map.components) c.callers = counts.get(c.name) ?? 0;
+  for (const h of map.helpers) h.callers = counts.get(h.name) ?? 0;
+  for (const t of map.types) t.callers = counts.get(t.name) ?? 0;
 }
 
 function sortMap(map: CodeMap): void {
@@ -183,6 +272,7 @@ function scanApiRouteFile(sf: SourceFile, rel: string, map: CodeMap): void {
       path: urlPath,
       file: rel,
       function: name,
+      line: fn.getStartLineNumber(),
       jsdoc: getJsDoc(fn),
       imports,
     });
@@ -199,6 +289,7 @@ function scanApiRouteFile(sf: SourceFile, rel: string, map: CodeMap): void {
         path: urlPath,
         file: rel,
         function: name,
+        line: decl.getStartLineNumber(),
         jsdoc: getJsDoc(vs),
         imports,
       });
@@ -212,7 +303,8 @@ function scanPageFile(sf: SourceFile, rel: string, map: CodeMap): void {
   const jsdoc =
     getJsDocOnDefaultExport(sf) ??
     getJsDocOnFirstExportedFunction(sf);
-  map.pages.push({ path: urlPath, file: rel, component: componentName, jsdoc });
+  const line = findDefaultExportLine(sf);
+  map.pages.push({ path: urlPath, file: rel, component: componentName, line, jsdoc });
 }
 
 function scanComponentFile(sf: SourceFile, rel: string, map: CodeMap): void {
@@ -224,6 +316,7 @@ function scanComponentFile(sf: SourceFile, rel: string, map: CodeMap): void {
       file: rel,
       exportKind: "default",
       props_type: extractPropsType(sf, def),
+      line: findDefaultExportLine(sf),
       jsdoc: getJsDocOnDefaultExport(sf),
     });
   }
@@ -237,6 +330,7 @@ function scanComponentFile(sf: SourceFile, rel: string, map: CodeMap): void {
       file: rel,
       exportKind: "named",
       props_type: extractPropsType(sf, name),
+      line: fn.getStartLineNumber(),
       jsdoc: getJsDoc(fn),
     });
   }
@@ -250,6 +344,7 @@ function scanComponentFile(sf: SourceFile, rel: string, map: CodeMap): void {
         file: rel,
         exportKind: "named",
         props_type: extractPropsType(sf, name),
+        line: decl.getStartLineNumber(),
         jsdoc: getJsDoc(vs),
       });
     }
@@ -266,6 +361,7 @@ function scanHelperFile(sf: SourceFile, rel: string, map: CodeMap): void {
       kind: "function",
       file: rel,
       signature: functionSignature(fn),
+      line: fn.getStartLineNumber(),
       jsdoc: getJsDoc(fn),
     });
   }
@@ -278,6 +374,7 @@ function scanHelperFile(sf: SourceFile, rel: string, map: CodeMap): void {
       kind: "class",
       file: rel,
       signature: `class ${name}`,
+      line: cls.getStartLineNumber(),
       jsdoc: getJsDoc(cls),
     });
   }
@@ -293,6 +390,7 @@ function scanHelperFile(sf: SourceFile, rel: string, map: CodeMap): void {
         kind: "const",
         file: rel,
         signature: constSignature(decl.getName(), decl.getTypeNode()?.getText()),
+        line: decl.getStartLineNumber(),
         jsdoc: getJsDoc(vs),
       });
     }
@@ -307,6 +405,7 @@ function scanTypesFile(sf: SourceFile, rel: string, map: CodeMap): void {
       kind: "interface",
       file: rel,
       declaration: iface.getText().split("\n").slice(0, 6).join("\n"),
+      line: iface.getStartLineNumber(),
       jsdoc: getJsDoc(iface),
     });
   }
@@ -317,6 +416,7 @@ function scanTypesFile(sf: SourceFile, rel: string, map: CodeMap): void {
       kind: "type",
       file: rel,
       declaration: alias.getText(),
+      line: alias.getStartLineNumber(),
       jsdoc: getJsDoc(alias),
     });
   }
@@ -327,6 +427,7 @@ function scanTypesFile(sf: SourceFile, rel: string, map: CodeMap): void {
       kind: "enum",
       file: rel,
       declaration: en.getText().split("\n").slice(0, 12).join("\n"),
+      line: en.getStartLineNumber(),
       jsdoc: getJsDoc(en),
     });
   }
@@ -391,6 +492,17 @@ function findDefaultExportName(sf: SourceFile): string | undefined {
     const expr = exportAssign.getExpression();
     if (Node.isIdentifier(expr)) return expr.getText();
   }
+  return undefined;
+}
+
+function findDefaultExportLine(sf: SourceFile): number | undefined {
+  for (const fn of sf.getFunctions()) {
+    if (fn.isDefaultExport()) return fn.getStartLineNumber();
+  }
+  const exportAssign = sf
+    .getExportAssignments()
+    .find((e) => !e.isExportEquals());
+  if (exportAssign) return exportAssign.getStartLineNumber();
   return undefined;
 }
 

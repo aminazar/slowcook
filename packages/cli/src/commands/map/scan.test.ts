@@ -195,6 +195,133 @@ export enum Visibility { Public, Connections }
   });
 });
 
+describe("generateMap — Phase 2A enrichment (line + callers)", () => {
+  it("populates 1-based `line` for api_routes, components, helpers, types", () => {
+    const repo = mkRepo();
+    try {
+      writeSrc(
+        repo,
+        "src/app/api/rewos/route.ts",
+        `// header line 1
+// header line 2
+export async function POST(req: Request): Promise<Response> { void req; return new Response(); }
+`
+      );
+      writeSrc(
+        repo,
+        "src/components/rewo/card.tsx",
+        `// banner
+
+export function RewoCard() { return null as unknown as JSX.Element; }
+`
+      );
+      writeSrc(
+        repo,
+        "src/lib/util.ts",
+        `
+
+export function helperA(): void {}
+`
+      );
+      writeSrc(
+        repo,
+        "src/types/rewo.ts",
+        `// types module
+
+export interface Rewo { id: string }
+`
+      );
+      const m = generateMap({ repoRoot: repo, slowcookVersion: "t" });
+      expect(m.api_routes[0]?.line).toBe(3);
+      expect(m.components[0]?.line).toBe(3);
+      expect(m.helpers[0]?.line).toBe(3);
+      expect(m.types[0]?.line).toBe(3);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("counts callers across src/ for components, helpers, and types", () => {
+    const repo = mkRepo();
+    try {
+      writeSrc(
+        repo,
+        "src/lib/math.ts",
+        `export function add(a: number, b: number): number { return a + b; }
+`
+      );
+      writeSrc(
+        repo,
+        "src/lib/consumer.ts",
+        `import { add } from "./math";
+export function useAddTwice(): number {
+  return add(1, 2) + add(3, 4);
+}
+`
+      );
+      writeSrc(
+        repo,
+        "src/lib/single.ts",
+        `import { add } from "./math";
+export function useAddOnce(): number {
+  return add(5, 6);
+}
+`
+      );
+      const m = generateMap({ repoRoot: repo, slowcookVersion: "t" });
+      const add = m.helpers.find((h) => h.name === "add");
+      // 3 call sites (two in consumer, one in single). Imports excluded.
+      expect(add?.callers).toBe(3);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes the declaration site itself from callers count", () => {
+    const repo = mkRepo();
+    try {
+      writeSrc(
+        repo,
+        "src/lib/lonely.ts",
+        `export function neverUsed(): void {}
+`
+      );
+      const m = generateMap({ repoRoot: repo, slowcookVersion: "t" });
+      expect(m.helpers.find((h) => h.name === "neverUsed")?.callers).toBe(0);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes import-specifier names from callers count", () => {
+    // Imports are how a symbol is brought in, not a use site. Without
+    // this exclusion the count would always be ≥1 even if the importer
+    // never references the symbol after binding it.
+    const repo = mkRepo();
+    try {
+      writeSrc(
+        repo,
+        "src/lib/source.ts",
+        `export function isolated(): void {}
+`
+      );
+      writeSrc(
+        repo,
+        "src/lib/importer.ts",
+        `import { isolated } from "./source";
+void isolated;
+`
+      );
+      const m = generateMap({ repoRoot: repo, slowcookVersion: "t" });
+      // Two name occurrences in importer.ts: the import-specifier and
+      // the `void isolated` reference. We want only the latter counted.
+      expect(m.helpers.find((h) => h.name === "isolated")?.callers).toBe(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("generateMap — stability", () => {
   it("produces output equal under mapsEqual when regenerated without source changes", () => {
     const repo = mkRepo();

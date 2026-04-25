@@ -26,11 +26,11 @@ export function renderMarkdown(map: CodeMap): string {
   section(lines, "API routes", map.api_routes.length);
   if (map.api_routes.length > 0) {
     lines.push("");
-    lines.push("| Method | Path | File | Function | Summary |");
+    lines.push("| Method | Path | File:Line | Function | Summary |");
     lines.push("|---|---|---|---|---|");
     for (const r of map.api_routes) {
       lines.push(
-        `| \`${r.method}\` | \`${r.path}\` | \`${r.file}\` | \`${r.function}\` | ${oneLine(r.jsdoc)} |`
+        `| \`${r.method}\` | \`${r.path}\` | \`${fileLine(r.file, r.line)}\` | \`${r.function}\` | ${oneLine(r.jsdoc)} |`
       );
     }
   }
@@ -39,11 +39,11 @@ export function renderMarkdown(map: CodeMap): string {
   section(lines, "Pages", map.pages.length);
   if (map.pages.length > 0) {
     lines.push("");
-    lines.push("| Path | Component | File | Summary |");
+    lines.push("| Path | Component | File:Line | Summary |");
     lines.push("|---|---|---|---|");
     for (const p of map.pages) {
       lines.push(
-        `| \`${p.path}\` | ${p.component ? `\`${p.component}\`` : "—"} | \`${p.file}\` | ${oneLine(p.jsdoc)} |`
+        `| \`${p.path}\` | ${p.component ? `\`${p.component}\`` : "—"} | \`${fileLine(p.file, p.line)}\` | ${oneLine(p.jsdoc)} |`
       );
     }
   }
@@ -52,11 +52,11 @@ export function renderMarkdown(map: CodeMap): string {
   section(lines, "Components", map.components.length);
   if (map.components.length > 0) {
     lines.push("");
-    lines.push("| Name | Export | Props | File | Summary |");
-    lines.push("|---|---|---|---|---|");
+    lines.push("| Name | Export | Props | File:Line | Callers | Summary |");
+    lines.push("|---|---|---|---|---|---|");
     for (const c of map.components) {
       lines.push(
-        `| \`${c.name}\` | ${c.exportKind} | ${c.props_type ? `\`${c.props_type}\`` : "—"} | \`${c.file}\` | ${oneLine(c.jsdoc)} |`
+        `| \`${c.name}\` | ${c.exportKind} | ${c.props_type ? `\`${c.props_type}\`` : "—"} | \`${fileLine(c.file, c.line)}\` | ${callersCell(c.callers)} | ${oneLine(c.jsdoc)} |`
       );
     }
   }
@@ -65,11 +65,11 @@ export function renderMarkdown(map: CodeMap): string {
   section(lines, "Helpers", map.helpers.length);
   if (map.helpers.length > 0) {
     lines.push("");
-    lines.push("| Name | Kind | File | Signature | Summary |");
-    lines.push("|---|---|---|---|---|");
+    lines.push("| Name | Kind | File:Line | Callers | Signature | Summary |");
+    lines.push("|---|---|---|---|---|---|");
     for (const h of map.helpers) {
       lines.push(
-        `| \`${h.name}\` | ${h.kind} | \`${h.file}\` | \`${escapeTable(h.signature)}\` | ${oneLine(h.jsdoc)} |`
+        `| \`${h.name}\` | ${h.kind} | \`${fileLine(h.file, h.line)}\` | ${callersCell(h.callers)} | \`${escapeTable(h.signature)}\` | ${oneLine(h.jsdoc)} |`
       );
     }
   }
@@ -79,7 +79,9 @@ export function renderMarkdown(map: CodeMap): string {
   if (map.types.length > 0) {
     lines.push("");
     for (const t of map.types) {
-      lines.push(`### ${t.name} (${t.kind}) — \`${t.file}\``);
+      const loc = fileLine(t.file, t.line);
+      const usage = t.callers !== undefined ? ` · ${t.callers} callers` : "";
+      lines.push(`### ${t.name} (${t.kind}) — \`${loc}\`${usage}`);
       if (t.jsdoc) {
         lines.push("");
         lines.push(`> ${oneLine(t.jsdoc)}`);
@@ -107,6 +109,14 @@ function oneLine(s: string | undefined): string {
 
 function escapeTable(s: string): string {
   return s.replace(/\|/g, "\\|");
+}
+
+function fileLine(file: string, line: number | undefined): string {
+  return line !== undefined ? `${file}:${line}` : file;
+}
+
+function callersCell(n: number | undefined): string {
+  return n === undefined ? "—" : String(n);
 }
 
 /**
