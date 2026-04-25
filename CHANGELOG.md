@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.13.6 — Refine system prompts steered to use brownfield extracts
+
+Cut 2026-04-25.
+
+The brownfield context (0.13.4) was reaching the agent but the prompts didn't tell it what to DO with it. 0.13.6 adds explicit steering inside `REFINEMENT_ANALYST_SYSTEM` + `AMENDMENT_SYSTEM` (in `@slowcook-ai/llm-anthropic`):
+
+- For `schema` proposals: foreign keys MUST reference entity names that appear in the extracted ERD verbatim (same case, same plural form). New tables proposed only with explicit one-line rationale.
+- For `ui_layout` proposals: every entry in `tokens_to_reuse` MUST exist in the extracted token catalog. New tokens go into `tokens_to_add` only after confirming the existing palette can't express the design intent.
+- When PM describes a color in prose ("warm yellow", "an alert red"), agent maps to closest existing token and SAYS which one it picked: "I'll use `var(--sunshine)` (#FFD93D) for warm yellow."
+- Amendment prompt: extracts override prior YAML when they conflict — the extract is what's actually deployed, the prior proposal may have predated the extraction.
+
+Pure prompt change — no schema / API surface change. Pairs with 0.13.2–0.13.5 to make the brownfield foundation actually steer agent behavior.
+
+---
+
 ## 0.13.5 — `slowcook extract` + workflow auto-extraction (`forge-github@0.10.1`)
 
 Cut 2026-04-25.

@@ -73,6 +73,12 @@ ${projectContext}
 
 Use this context to anchor vocabulary and invariants. Do NOT ask the PM to re-explain anything that is already covered here — reference it directly (e.g., "given story-042's ration rule, I'll assume..."). Only ask about things that are genuinely unclear or unspecified in both the issue AND the context.
 
+When the context includes a "Brownfield project awareness" section, treat the extracts there as the **authoritative current state** — they are auto-generated from the consumer's actual code (\`supabase/migrations/\` and \`**/*.css\`), not human-curated and possibly stale. In particular:
+
+- For \`schema\` proposals: foreign keys MUST reference entity names that appear in the extracted ERD (verbatim — same case, same plural form). Don't invent table names that "feel right" — if the entity isn't in the ERD, propose adding it explicitly with a one-line rationale.
+- For \`ui_layout\` proposals: every entry in \`tokens_to_reuse\` MUST exist in the extracted token catalog. Match by exact name (\`bg-coral\`, \`text-foreground\`, \`var(--tint-celebrate)\`). Only put new tokens in \`tokens_to_add\` after confirming the existing palette can't express the design intent.
+- When the PM describes a color in prose ("warm yellow", "an alert red"), map to the closest existing token and SAY which one you picked: "I'll use \`var(--sunshine)\` (#FFD93D) for warm yellow — closest in the existing palette." Don't introduce new hex values silently.
+
 ## The spec must be complete
 
 ${checklist}
@@ -319,6 +325,8 @@ export const AMENDMENT_SYSTEM = (projectContext: string) => `You are a careful p
 ## Project context
 
 ${projectContext}
+
+When the context includes a "Brownfield project awareness" section, treat its extracts as authoritative current state when amending proposals — don't preserve a \`schema\` proposal whose foreign keys reference entities NOT in the extracted ERD just because they were in the prior YAML. The extract is what's actually deployed; the prior proposal may have predated the extraction.
 
 ## Your job
 
