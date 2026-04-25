@@ -11,6 +11,7 @@ import { onTestsMerged } from "./commands/on-tests-merged/index.js";
 import { onBrewMerged } from "./commands/on-brew-merged/index.js";
 import { testgen } from "./commands/testgen/index.js";
 import { investigate } from "./commands/investigate/index.js";
+import { recipeRegression } from "./commands/recipe-regression/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
@@ -108,6 +109,15 @@ async function main(): Promise<void> {
       // `testgen` keeps as a hidden alias for one minor version so
       // existing rewo workflow YAMLs (`slowcook testgen --spec …`)
       // don't break the moment 0.13.0 ships. Removed in 0.14.0.
+      //
+      // 0.13.0-alpha.3a — `--regression` mode: emit a regression
+      // test from a bug-profile.yaml instead of an acceptance test
+      // from a spec.yaml. Different input shape, different output
+      // directory (tests/regression/), different agent path.
+      if (args.slice(1).includes("--regression")) {
+        await recipeRegression(args.slice(1), VERSION);
+        return;
+      }
       await testgen(args.slice(1), VERSION);
       return;
     case "investigate":

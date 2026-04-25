@@ -388,7 +388,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
       throw new Error(`Top-level YAML key expected; got indented line: ${line}`);
     }
     // top-level
-    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+    const m = line.match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(.*)$/);
     if (!m) throw new Error(`Cannot parse YAML line: ${line}`);
     const key = m[1] ?? "";
     const rest = (m[2] ?? "").trim();
@@ -414,7 +414,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
           } else if (/^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(itemRaw)) {
             // List of objects (e.g., related_specs)
             const item: Record<string, unknown> = {};
-            const firstMatch = itemRaw.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+            const firstMatch = itemRaw.match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(.*)$/);
             if (firstMatch) {
               item[firstMatch[1] ?? ""] = parseScalar(firstMatch[2] ?? "");
             }
@@ -430,7 +430,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
                 i++;
                 continue;
               }
-              const cm = cont.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+              const cm = cont.trim().match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(.*)$/);
               if (!cm) break;
               item[cm[1] ?? ""] = parseScalar(cm[2] ?? "");
               i++;
@@ -444,7 +444,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
         } else {
           mode = "object";
           // child key
-          const cm = next.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+          const cm = next.trim().match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(.*)$/);
           if (!cm) throw new Error(`Cannot parse YAML child line: ${next}`);
           const ckey = cm[1] ?? "";
           const cval = (cm[2] ?? "").trim();
