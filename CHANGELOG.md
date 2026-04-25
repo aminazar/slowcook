@@ -6,6 +6,67 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.13.0 — Bug-flow + chef orchestrator + `testgen` → `recipe` rename
+
+Cut 2026-04-25 (tag `0.13.0`). Pairs with `forge-github@0.10.0`. Six alphas (α.1–α.5c) plus α.3b LLM-backed regression-test emitter consolidated into the final cut.
+
+### New parallel pipeline for bugs
+
+```
+Story flow:  refine        → recipe                → brew
+Bug flow:    investigate   → recipe --regression   → sift
+                              ↓
+                            chef (watches all PRs, classifies + acts)
+```
+
+- **`investigate`** — bug-flow analogue of refine. Reads the issue body, runs read-only repo tools (read_file, outline_file, find_references, find_definition, grep, list_directory) to find the failure locus, emits a `bug-profile.yaml` at `.brewing/bug-profiles/B-N.yaml`, opens a PR. Auto-trigger on issues labelled `bug`. Live-validated against rewo issues #135 + #88; both produced sound profiles ($1.74–$1.76 per Opus run).
+- **`recipe --regression --bug B-N`** — new mode on the recipe (formerly testgen) command. Two emitters: deterministic stub (no LLM, `expect.fail` body) and LLM-backed real test (Sonnet default). Output: single vitest file at `tests/regression/B-N-<slug>.test.ts`.
+- **`sift`** — bug-flow analogue of brew. Narrow red→green ratchet bounded by `bug-profile.fix_scope`. Defaults: Sonnet model, $0.50 budget cap, 3 iterations cap. Test-runner scoped to the regression file only.
+- **`chef`** — pipeline orchestrator. Watches slowcook-bot PRs. Pure classifier (`classifyPrFailure`) decides between four classes: `self-conflict` (rebase needed), `self-fail` (PR's own diff caused it; dispatch retry), `external-fail` (pre-existing red on base; comment + escalate), `infra-fail` (rerun once, escalate if persists). Loop protection: refuses to act after 3 prior chef-bot comments.
+
+### `testgen` → `recipe` rename
+
+`recipe` is the new canonical name (kitchen-metaphor consistency with refine + brew + sift + investigate + chef). `testgen` keeps as a hidden alias through 0.13.x; removed in 0.14.0.
+
+### New schemas + workflows
+
+- `bug-profile.schema.json` — TypeScript types + `validateBugProfile` runtime check.
+- `slowcook-investigate.yml` — fires on `bug` label OR workflow_dispatch.
+- `slowcook-sift.yml` — manual workflow_dispatch (auto-trigger ships in 0.13.x).
+- `slowcook-chef.yml` — fires on `check_suite.completed` (failure) for slowcook-bot PRs.
+
+### Stats
+
+- 26 test files / 345 tests green (was 24 / 319 at 0.12.13).
+- ~2.6k LOC of new agents + tests across `commands/{investigate,sift,chef,recipe-regression}/`.
+
+### Deferred (planned for 0.13.x or 0.14)
+
+- Auto-rebase + structural-conflict resolver in chef (currently surfaces a manual recipe).
+- Auto-dispatch of retries from chef via `gh workflow run` (currently posts a comment).
+- Brew/sift shared iteration engine — sift owns its own narrow loop (~1.1k LOC); merge if duplication bites.
+
+### Migration for consumers
+
+Bump `.brewing/slowcook-cli-version` to `0.13.0`. Run `slowcook init --force` to install the three new workflow files.
+
+---
+
+## 0.12.x rollup — brownfield-retrieval Phase 2 + tier-1 prevention checks + cost-marker fixes
+
+The 0.12 line landed in 13 patches (0.12.0 → 0.12.13) over 2026-04-24 → 2026-04-25. Highlights:
+
+- **0.12.7–0.12.12 — Phase 2 brownfield-retrieval.** Code-map gained `line` + `callers` per symbol (2A); brew now writes a per-target slice at `.brewing/code-map.target.md` every iteration (2B); `.brewing/patterns/` directory loads team-authored recipes into the cached prefix (2C).
+- **0.12.9 — page-link static check (slowcook#6).** Testgen emits a `tests/integration/story-N-page.test.ts` assertion that every literal `fetch('/api/...')` URL in a wired-in component resolves to a real route file. Catches the gap observed on rewo PR #117 (story-004 brew shipped a /feed page wired to `/api/feed` which never existed).
+- **0.12.10 — schema-presence check (slowcook#7).** Testgen emits a `tests/schema/story-N-column-presence.test.ts` assertion that every `.from(t).select(c)` reference exists in `supabase/migrations/`.
+- **0.12.11 — multi-column ALTER TABLE fix.** schema-presence check now correctly handles `ALTER TABLE foo ADD COLUMN a, ADD COLUMN b`.
+- **0.12.13 + forge 0.9.8 — cost-marker fixes.** `slowcook · shipped` rollup renders as a fixed-width restaurant bill and correctly includes testgen + brew. Two underlying bugs fixed: testgen workflow was missing `issues:write`; brew's halt comment was fire-and-forget without `await`.
+- **0.12.0–0.12.6** — refine retrieval Phase 1 (cross-brew provenance), refine validators, code-map gitignore, sanitiser regex fix.
+
+Latest stable on npm: `cli@0.12.13`, `forge-github@0.9.8`. The `0.13.0` tag is committed but not yet published.
+
+---
+
 ## 0.11.7 — Ingestion-side normaliser for emit variance
 
 0.11.6's prompt tightening wasn't enough — agent (Opus 4.7 on 2026-04-24) kept emitting `acceptance_scenarios[1]` as a Given/When/Then object despite the explicit "must be strings" instruction. Third failure in the prompt-only pattern (styling 0.7.20, proposals 0.11.2, scenarios 0.11.6) — same answer each time: normalise at ingestion.
