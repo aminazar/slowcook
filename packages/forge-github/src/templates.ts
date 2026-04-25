@@ -656,7 +656,79 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     // labeled `bug`; sift fires when a bug-profile PR merges.
     { path: ".github/workflows/slowcook-investigate.yml", contents: slowcookInvestigateWorkflow() },
     { path: ".github/workflows/slowcook-sift.yml", contents: slowcookSiftWorkflow() },
+    { path: ".github/workflows/slowcook-chef.yml", contents: slowcookChefWorkflow() },
   ];
+}
+
+/**
+ * 0.13.0-alpha.5c — chef workflow. Fires when a check_suite completes
+ * with a non-success conclusion on a slowcook-bot PR (head ref starts
+ * with \`slowcook/\`). Chef reads the PR + check status, classifies the
+ * failure, and acts (rebase / retry / escalate).
+ */
+function slowcookChefWorkflow(): string {
+  return `name: slowcook chef
+
+# 0.13.0-alpha.5c — pipeline orchestrator. Fires automatically when
+# check_suite completes with a non-success conclusion on a slowcook-bot
+# PR (head ref starts with \`slowcook/\`). Chef reads the PR + check
+# status, classifies the failure (self-conflict / self-fail /
+# external-fail / infra-fail), and acts.
+
+on:
+  check_suite:
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to process (manual override)"
+        required: true
+        type: string
+
+concurrency:
+  group: slowcook-chef-\${{ github.event.check_suite.pull_requests[0].number || github.event.inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  chef:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.check_suite.conclusion != 'success' &&
+        github.event.check_suite.conclusion != null &&
+        github.event.check_suite.pull_requests[0] != null &&
+        startsWith(github.event.check_suite.head_branch, 'slowcook/')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      issues: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
+
+      - name: Configure git identity for chef commits
+        run: |
+          git config user.name  "slowcook-chef[bot]"
+          git config user.email "slowcook-chef@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run chef
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: \${{ github.event.check_suite.pull_requests[0].number || github.event.inputs.pr }}
+        run: |
+          set -eu
+          npx --yes "$SLOWCOOK_CLI" chef --pr "$PR_NUMBER"
+`;
 }
 
 /**

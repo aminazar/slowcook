@@ -13,6 +13,7 @@ import { testgen } from "./commands/testgen/index.js";
 import { investigate } from "./commands/investigate/index.js";
 import { recipeRegression } from "./commands/recipe-regression/index.js";
 import { sift } from "./commands/sift/index.js";
+import { chef } from "./commands/chef/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
@@ -67,6 +68,7 @@ Commands available in ${VERSION}:
   recipe             Generate Vitest tests from merged specs (a "recipe" — the test contract brew follows). Aliases: testgen.
   investigate        (alpha.2a, scaffold) Diagnose a bug from a GitHub issue and emit a bug-profile.
   sift               (alpha.4) Narrow red→green ratchet for a bug fix; bounded by bug-profile fix_scope.
+  chef               (alpha.5c) Pipeline orchestrator — classify PR failure, dispatch retry / escalate.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -132,6 +134,12 @@ async function main(): Promise<void> {
       // ratchet bounded by the bug-profile's fix_scope. Default budget
       // $0.50 / 3 iterations; Sonnet model.
       await sift(args.slice(1), VERSION);
+      return;
+    case "chef":
+      // 0.13.0-alpha.5c — pipeline orchestrator. Watches a single
+      // slowcook-bot PR, classifies its failure mode, and acts (rebase
+      // / dispatch retry / external-comment / escalate).
+      await chef(args.slice(1), VERSION);
       return;
     case "catchup":
       await catchup(args.slice(1), VERSION);
