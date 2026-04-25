@@ -724,4 +724,22 @@ describe("buildPageLinkTestContent", () => {
     expect(r.contents).not.toMatch(/"imports " \+ /);
     expect(r.contents).not.toMatch(/"mounts <" \+ /);
   });
+
+  it("0.12.9 (slowcook#6): emits a fetch-URL resolution check for the component", () => {
+    const r = buildPageLinkTestContent(spec, hint);
+    // Static title + the component path inlined as a string literal
+    // (so the check reads the component source at runtime, not via
+    // dynamic resolution).
+    expect(r.contents).toContain(
+      '"every literal fetch(\'/api/...\') URL in ProfileEditForm resolves to a route file"'
+    );
+    expect(r.contents).toContain('"src/components/profile/ProfileEditForm.tsx"');
+    // Asserts route file presence under src/app/, not just any path.
+    expect(r.contents).toContain('"src/app" + url + "/route.ts"');
+    expect(r.contents).toContain('"src/app" + url + "/route.tsx"');
+    // Skips template-literal URLs for v1 (dynamic-segment resolution
+    // deferred). Keep this assertion so a future "drop the skip" change
+    // is caught here and the limitation is explicit.
+    expect(r.contents).toContain('after.startsWith("${")');
+  });
 });

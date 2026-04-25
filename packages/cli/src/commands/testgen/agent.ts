@@ -1084,6 +1084,12 @@ export function buildPageLinkTestContent(
   // 0.7.19 by inlining component + importFrom at generation.
   const importsTestName = `imports ${component} from ${importFrom}`;
   const mountsTestName = `mounts <${component} /> in the rendered tree`;
+  // 0.12.9 (slowcook#6): assert every literal /api/* URL the component
+  // fetches resolves to a real route file. Catches the "ship a page
+  // wired to a non-existent endpoint" gap class (rewo PR #117 — feed
+  // page hit /api/feed which never existed; tier-1 + axe both passed).
+  const fetchUrlsTestName = `every literal fetch('/api/...') URL in ${component} resolves to a route file`;
+  const componentPathFromImport = resolveImportToSourcePath(importFrom);
 
   const contents =
     `// slowcook 0.7.17 page-link assertion — story-${spec.story_id}\n` +
@@ -1116,6 +1122,44 @@ export function buildPageLinkTestContent(
     `  it(${JSON.stringify(mountsTestName)}, () => {\n` +
     `    const src = existsSync(page) ? readFileSync(page, "utf8") : "";\n` +
     `    expect(src).toMatch(new RegExp("<\\\\s*" + ${JSON.stringify(componentEscaped)} + "\\\\b"));\n` +
+    `  });\n` +
+    `\n` +
+    `  // 0.12.9 (slowcook#6) — fetch-URL resolution check. Reads the\n` +
+    `  // component source and asserts every literal /api/* URL points at\n` +
+    `  // a route file that exists. Skips template-literal URLs that contain\n` +
+    `  // dynamic interpolation segments — those need dynamic-segment\n` +
+    `  // resolution (deferred to v2).\n` +
+    `  it(${JSON.stringify(fetchUrlsTestName)}, () => {\n` +
+    `    const componentPath = ${JSON.stringify(componentPathFromImport)};\n` +
+    `    if (!existsSync(componentPath)) {\n` +
+    `      // Component file missing — caller's UI tier-1 will fail loudly\n` +
+    `      // already; don't double-report here.\n` +
+    `      return;\n` +
+    `    }\n` +
+    `    const src = readFileSync(componentPath, "utf8");\n` +
+    `    // Match fetch("..." | '...' | \`...\`) and capture the URL up to\n` +
+    `    // the first \${ (template-literal interpolation) or closing quote.\n` +
+    `    const fetchRe = /fetch\\(\\s*[\`"']([^\`"'$]*)/g;\n` +
+    `    const urls = new Set();\n` +
+    `    let m;\n` +
+    `    while ((m = fetchRe.exec(src)) !== null) {\n` +
+    `      const url = m[1];\n` +
+    `      if (url.startsWith("/api/")) urls.add(url);\n` +
+    `    }\n` +
+    `    const missing = [];\n` +
+    `    for (const url of urls) {\n` +
+    `      // Determine if this URL was followed by \${ in the source — if\n` +
+    `      // so, it's a template literal with dynamic segments. Skip in v1.\n` +
+    `      const idx = src.indexOf(url);\n` +
+    `      const after = idx >= 0 ? src.slice(idx + url.length, idx + url.length + 2) : "";\n` +
+    `      if (after.startsWith("\${")) continue;\n` +
+    `      const route = "src/app" + url + "/route.ts";\n` +
+    `      const routeTsx = "src/app" + url + "/route.tsx";\n` +
+    `      if (!existsSync(route) && !existsSync(routeTsx)) {\n` +
+    `        missing.push(url);\n` +
+    `      }\n` +
+    `    }\n` +
+    `    expect(missing, \`fetch URLs with no matching route file under src/app/: \${missing.join(", ")}\`).toEqual([]);\n` +
     `  });\n` +
     `});\n`;
 
