@@ -17,6 +17,7 @@ import { chef } from "./commands/chef/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
+import { extract } from "./commands/extract/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 
@@ -52,6 +53,7 @@ Usage:
   slowcook catchup [--dry-run] [--cwd <path>]
   slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
   slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
+  slowcook extract [--schema] [--tokens] [--cwd <path>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook version
@@ -72,6 +74,7 @@ Commands available in ${VERSION}:
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
+  extract            Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
 Coming in later versions:
@@ -149,6 +152,12 @@ async function main(): Promise<void> {
       return;
     case "map":
       await map(args.slice(1), VERSION);
+      return;
+    case "extract":
+      // 0.13.5+ — focused brownfield extraction (schema + tokens). Designed
+      // for refine / investigate workflows that want project-awareness
+      // context without paying for `map generate`'s full ts-morph scan.
+      await extract(args.slice(1), VERSION);
       return;
     case "dispatch":
       await dispatch(args.slice(1));

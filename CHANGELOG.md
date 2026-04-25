@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.13.5 — `slowcook extract` + workflow auto-extraction (`forge-github@0.10.1`)
+
+Cut 2026-04-25.
+
+The brownfield extracts now run automatically before refine + investigate, so consumers don't have to remember.
+
+- **New top-level command** `slowcook extract [--schema] [--tokens]` — focused brownfield extraction without paying for `map generate`'s ts-morph code-map scan or requiring `npm ci`. Pure regex/filesystem walk over `supabase/migrations/*.sql` + `**/*.css`. Measured: ~315ms total against rewo (10 entities + 21+21+10 tokens). Default with no flag = run both.
+- **forge-github@0.10.1**: refine + investigate workflow templates gain a "Brownfield extracts" step before the agent step. Both extracts skip silently on greenfield, so the templates are safe defaults for non-Supabase / no-CSS-vars consumers.
+- **rewo workflows updated to match** (paired per the slowcook/rewo template-drift convention).
+- 4 new unit tests for the extract command (default, --schema only, --tokens only, greenfield skip messages).
+
+This closes the brownfield-extraction loop opened in 0.13.2: map produces → refine consumes → CI runs the extract step automatically before every refine. Foundation for 0.14 mockup-first refinement is now ready end-to-end.
+
+---
+
 ## 0.13.4 — Refine reads brownfield extracts (the missing wire-up)
 
 Cut 2026-04-25.

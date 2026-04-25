@@ -621,6 +621,15 @@ jobs:
         with:
           node-version: 20
 
+      - name: Brownfield extracts (schema + tokens for refine context)
+        # 0.13.5+ — refine reads .brewing/diagrams/schema.mmd + tokens.md
+        # to align proposals with existing entities and design tokens.
+        # \`extract\` is regex/filesystem-only — no npm ci needed, finishes
+        # in ~100ms. Both extracts skip silently when their inputs are
+        # missing (greenfield / no Supabase / no .css with :root vars).
+        # Outputs are gitignored — regenerated each refine run.
+        run: npx --yes "$SLOWCOOK_CLI" extract
+
       - name: Refine
         env:
           ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
@@ -877,6 +886,14 @@ ${RESOLVE_PIN_STEP}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Brownfield extracts (schema + tokens for investigate context)
+        # 0.13.5+ — investigate's read-only tools also benefit from
+        # knowing the existing schema + design tokens (e.g. when a bug
+        # report mentions "the coral button", investigate can locate
+        # the var(--coral) usages instead of grep-guessing). Fast, no
+        # npm ci needed; skips silently on greenfield.
+        run: npx --yes "$SLOWCOOK_CLI" extract
 
       - name: Investigate
         env:
