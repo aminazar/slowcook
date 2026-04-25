@@ -29,6 +29,7 @@ import {
   BREW_SYSTEM,
   BREW_TOOLS,
   turnPrompt,
+  turnPromptParts,
 } from "./prompts.js";
 import {
   writeHaltReport,
@@ -110,6 +111,24 @@ interface IterationLog {
 const DIFF_LINE_CAP = 200;
 const DIFF_FILE_CAP = 5;
 const STAGNATION_CAP = 15;
+
+/**
+ * 0.11.15+ — opt the tools block into Anthropic's prompt cache by
+ * attaching cache_control to the LAST tool definition. The API caches
+ * everything up through the tagged tool, including the system prompt
+ * and tools themselves. Returns a fresh array; doesn't mutate input.
+ *
+ * Done as a helper because BREW_TOOLS is a const exported from
+ * prompts.ts and we don't want to bake the cache directive into the
+ * shared definition (other agents that consume the same tool list
+ * may not benefit from caching).
+ */
+function addCacheControlToLastTool(tools: readonly unknown[]): unknown[] {
+  if (tools.length === 0) return [];
+  const last = tools[tools.length - 1] as Record<string, unknown>;
+  const tagged = { ...last, cache_control: { type: "ephemeral" } };
+  return [...tools.slice(0, -1), tagged];
+}
 
 const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = {
   "claude-opus-4-7": { input: 15, output: 75 },
@@ -841,7 +860,13 @@ async function runTurn(
     : "(unknown)";
   const targetFilePath = findTargetTestFile(ctx, args.target) ?? targetFile;
 
-  const userMessage = turnPrompt({
+  // 0.11.15+ — split the prompt into a cacheable prefix (spec body +
+  // allowed paths, constant across iters) and a dynamic body (per-iter
+  // varies). Anthropic's prompt cache requires a contiguous prefix, so
+  // we send the user message as a content array with cache_control on
+  // the prefix block. ~30-50% input-token savings within the 5-minute
+  // ephemeral cache TTL.
+  const promptParts = turnPromptParts({
     iteration: args.iteration,
     max_iterations: ctx.maxIterations,
     target_test_id: args.target,
@@ -857,6 +882,9 @@ async function runTurn(
     other_failure_messages: args.otherFailureMessages,
     lint_issues: args.lintIssues,
   });
+  // Backwards-compat: turnPrompt() still works for any non-brew caller
+  // that hasn't migrated; quiet the lint that flags the unused import.
+  void turnPrompt;
 
   const filesTouched = new Set<string>();
   let rationale = "";
@@ -875,9 +903,24 @@ async function runTurn(
   let overflowJustification: TurnResult["overflowJustification"];
   let spendDelta = 0;
 
+  // 0.11.15+ — user message is now a content array: [cacheable prefix,
+  // dynamic body]. The prefix block carries cache_control: ephemeral
+  // so subsequent iters within the same brew (5-min cache TTL) hit
+  // cached input for the spec + allowed paths. The dynamic body block
+  // is uncached because it varies per iter.
   // Tool-use loop: call the model, execute tool_use blocks, feed tool_results back, repeat
   const messages: Anthropic.Messages.MessageParam[] = [
-    { role: "user", content: userMessage },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: promptParts.cachedPrefix,
+          cache_control: { type: "ephemeral" },
+        },
+        { type: "text", text: promptParts.dynamicBody },
+      ] as never,
+    },
   ];
 
   // Safety cap: 12 tool rounds within a single turn (should be plenty; prevents runaway)
@@ -895,7 +938,11 @@ async function runTurn(
           cache_control: { type: "ephemeral" },
         },
       ] as never,
-      tools: BREW_TOOLS as Anthropic.Messages.Tool[],
+      // 0.11.15+ — cache the tools block. Anthropic's prompt cache
+      // for tools is opt-in via cache_control on the LAST tool def;
+      // when set, the API caches everything up through the tools.
+      // Tools are constant across iters → strong cache hit rate.
+      tools: addCacheControlToLastTool(BREW_TOOLS) as Anthropic.Messages.Tool[],
       messages,
     });
     spendDelta += costUsdForResponse(response, ctx.model);

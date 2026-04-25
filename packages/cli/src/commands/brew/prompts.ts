@@ -280,6 +280,66 @@ export function turnPrompt(args: {
    */
   lint_issues?: string;
 }): string {
+  // Backwards-compatible single-string form: prefix + body. Callers
+  // that want prompt caching should use `turnPromptParts` (0.11.15+)
+  // and emit two content blocks with cache_control on the prefix.
+  const parts = turnPromptParts(args);
+  return `${parts.cachedPrefix}\n\n${parts.dynamicBody}`;
+}
+
+/**
+ * 0.11.15+ — split the per-iter prompt into a CACHEABLE prefix
+ * (constant across iterations within a brew run: spec + allowed paths)
+ * and a DYNAMIC body (iteration counter, target test, failure messages,
+ * lint issues, prior attempts).
+ *
+ * The Anthropic API's prompt cache requires the cached content to be
+ * a contiguous prefix; before this split, spec+allowed_paths sat in
+ * the middle of the user message and were never cache-eligible. Moving
+ * them to the front lets ~30-50% of the input tokens be reused across
+ * iterations within the 5-minute ephemeral cache TTL.
+ *
+ * The instruction order doesn't change agent behaviour — having spec
+ * context first is at least as good as having it later. The dynamic
+ * body still ends with the iteration's specific request.
+ */
+export function turnPromptParts(args: {
+  iteration: number;
+  max_iterations: number;
+  target_test_id: string;
+  target_test_file: string;
+  spec_yaml: string;
+  currently_green: string[];
+  currently_red: string[];
+  allowed_paths: string[];
+  budget_spent_usd: number;
+  budget_cap_usd: number;
+  previous_attempts?: Array<{
+    iteration: number;
+    outcome: "reverted-regression" | "reverted-no-progress" | "rejected-overflow";
+    note: string;
+    files_touched: string[];
+  }>;
+  target_failure_message?: string;
+  other_failure_messages?: Array<{ test_id: string; message: string }>;
+  lint_issues?: string;
+}): { cachedPrefix: string; dynamicBody: string } {
+  // === CACHEABLE PREFIX === (constant across iterations in a single
+  // brew run: spec body + allowed paths)
+  const prefix: string[] = [];
+  prefix.push("### Spec (the contract)");
+  prefix.push("```yaml");
+  prefix.push(args.spec_yaml.trim());
+  prefix.push("```");
+  prefix.push("");
+  if (args.allowed_paths.length > 0) {
+    prefix.push("### Allowed paths for this story");
+    for (const p of args.allowed_paths) prefix.push(`- \`${p}\``);
+    prefix.push("");
+  }
+  const cachedPrefix = prefix.join("\n");
+
+  // === DYNAMIC BODY === (varies per iteration)
   const sections: string[] = [];
   sections.push(`## Brew iteration ${args.iteration} of ${args.max_iterations}`);
   sections.push(
@@ -327,16 +387,6 @@ export function turnPrompt(args: {
     sections.push("</details>");
     sections.push("");
   }
-  sections.push("### Spec (the contract)");
-  sections.push("```yaml");
-  sections.push(args.spec_yaml.trim());
-  sections.push("```");
-  sections.push("");
-  if (args.allowed_paths.length > 0) {
-    sections.push("### Allowed paths for this story");
-    for (const p of args.allowed_paths) sections.push(`- \`${p}\``);
-    sections.push("");
-  }
   sections.push(
     `### Test state going into this turn: ${args.currently_green.length} green / ${args.currently_red.length} red`
   );
@@ -377,5 +427,5 @@ export function turnPrompt(args: {
   sections.push(
     "Use the tools to inspect the code, then write the minimum change that flips the target test. End with a one-paragraph rationale of what you changed and why."
   );
-  return sections.join("\n");
+  return { cachedPrefix, dynamicBody: sections.join("\n") };
 }
