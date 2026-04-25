@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.1 — Mockup-first data-layer seam (mock fixtures)
+
+Cut 2026-04-25.
+
+First slice of the 0.14 mockup-first refinement plan. Refine now writes hand-authored mock fixture files alongside the spec, so the generated mockup (later α.3) can be behaviorally complete without a real backend.
+
+- **New schema field** `proposals.fixtures.by_domain.<domain>.seed` in `@slowcook-ai/core@0.12.0`. Each domain's seed is a record of named exports the generated `<domain>.mock.ts` will emit verbatim.
+- **New module** `packages/cli/src/commands/refine/mock-fixtures.ts` exporting `writeMockFixtures(repoRoot, spec)` + `renderMockFile(domain, storyId, seed)`. Pure deterministic JSON.stringify-based emission. Idempotent.
+- **Wired into refine** at both call sites: initial spec emit + amendment. Skipped silently when `proposals.fixtures` is absent / rejected, so this is a no-op for pre-α.1 specs.
+- **Path safety:** domain names must match `^[a-z][a-z0-9_-]*$`; export names must be valid TS identifiers. Rejects `../escape`, `Notifications`, `bad-name` etc.
+- 8 new tests in `mock-fixtures.test.ts` (header rendering, primitives/arrays/objects, validation, two-domain emission, idempotence, status=rejected skip).
+
+What's next:
+- **α.1.5** — refine prompt steering to populate `proposals.fixtures` when api_contract entries imply data shapes.
+- **α.2** — sibling `<domain>.ts` stub with `@slowcook-stub` body that throws (brew's ratchet target).
+- **α.3** — generated `src/**/page.tsx` + components for the story (first user mockup-feedback checkpoint).
+
+---
+
 ## 0.13.6 — Refine system prompts steered to use brownfield extracts
 
 Cut 2026-04-25.

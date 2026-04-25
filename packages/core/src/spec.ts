@@ -105,6 +105,17 @@ export interface ApiShapeProposal extends ProposalBase {
 }
 
 /**
+ * 0.14.0-α.1 (mockup-first refinement, data-layer seam) — fixtures
+ * keyed by domain (a single-word slug for the story's primary
+ * resource: `notifications`, `bookmarks`). Each domain's `seed` is
+ * an arbitrary record of named exports the generated
+ * `src/lib/data/<domain>.mock.ts` will emit verbatim.
+ */
+export interface FixturesProposal extends ProposalBase {
+  by_domain?: Record<string, { seed: Record<string, unknown> }>;
+}
+
+/**
  * Proposals block — optional; absent on specs authored pre-0.11 or on
  * stories where no gaps were detected.
  */
@@ -117,6 +128,8 @@ export interface SpecProposals {
   observability?: ObservabilityProposal;
   infra?: InfraProposal;
   api_shape?: ApiShapeProposal;
+  /** 0.14.0-α.1 mockup-first data-layer seam — see FixturesProposal. */
+  fixtures?: FixturesProposal;
 }
 
 export interface Spec {

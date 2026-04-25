@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
+import { writeMockFixtures } from "./mock-fixtures.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import type {
   ForgeAdapter,
@@ -239,10 +240,23 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   );
   writeIndex(ctx.repoRoot, updatedIndex);
 
+  // 0.14.0-α.1 mockup-first data-layer seam — emit `.mock.ts` files
+  // when the spec has `proposals.fixtures.by_domain`. Skipped silently
+  // for specs without fixtures, so this is a no-op for pre-α.1 specs.
+  const mockResult = writeMockFixtures(ctx.repoRoot, spec);
+  if (mockResult.written.length > 0) {
+    console.log(
+      `[refine] wrote ${mockResult.written.length} mock fixture file(s): ${mockResult.written.join(", ")}`
+    );
+  }
+
   const branch = `slowcook/spec/story-${spec.story_id}`;
   await ctx.forge.git.createBranch(branch);
   await ctx.forge.git.stage(specPath);
   await ctx.forge.git.stage(`specs/_index.yaml`);
+  for (const f of mockResult.written) {
+    await ctx.forge.git.stage(f);
+  }
   await ctx.forge.git.commit(
     `slowcook: spec story-${spec.story_id} — ${spec.title}\n\nRefined from #${ctx.issueNumber}.`
   );
@@ -826,6 +840,19 @@ export async function runResubmitRefinement(
   // Write, stage, commit
   const specPath = writeSpec(ctx.repoRoot, parsed.spec);
   await ctx.forge.git.stage(join(SPECS_DIR, `story-${storyId}.yaml`));
+
+  // 0.14.0-α.1 mockup-first data-layer seam — emit `.mock.ts` files
+  // for any fixture domains in the amended spec. Skipped silently
+  // when proposals.fixtures is absent or rejected.
+  const mockResult = writeMockFixtures(ctx.repoRoot, parsed.spec);
+  if (mockResult.written.length > 0) {
+    console.log(
+      `[refine amend] wrote ${mockResult.written.length} mock fixture file(s): ${mockResult.written.join(", ")}`
+    );
+    for (const f of mockResult.written) {
+      await ctx.forge.git.stage(f);
+    }
+  }
 
   // 0.11.12+ — detect "LLM produced a spec byte-identical to current
   // state" no-op. Before 0.11.12 we called `git commit` directly here,

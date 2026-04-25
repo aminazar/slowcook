@@ -94,6 +94,42 @@ export const SpecProposalsSchema = z.object({
       )
       .optional(),
   }).optional(),
+  /**
+   * 0.14.0-α.1 (mockup-first refinement, data-layer seam) — fixtures
+   * the agent has hand-authored to make a mockup behaviorally complete.
+   * Keyed by domain (a single-word slug derived from the story's primary
+   * resource: `notifications`, `bookmarks`, `feed`). Each domain's
+   * `seed` is an arbitrary record of named arrays/values that the
+   * generated `<domain>.mock.ts` will export verbatim.
+   *
+   * Example:
+   *   fixtures:
+   *     status: pending
+   *     proposed_by: refine-agent
+   *     by_domain:
+   *       notifications:
+   *         seed:
+   *           list:
+   *             - { id: "n-1", actor_handle: "@alice", read_at: null }
+   *             - { id: "n-2", actor_handle: "@bob",   read_at: "2026-04-25T12:00:00Z" }
+   *           unread_count: 1
+   *
+   * Refine writes `src/lib/data/notifications.mock.ts` exporting
+   * `seed.list` and `seed.unread_count` as JSON-equivalent constants.
+   * The page/component imports from `@/lib/data/notifications`; an
+   * env flag `MOCK_STORY_N=1` routes the import to the mock module.
+   * Brew (later) writes the real `notifications.ts` and removes the flag.
+   */
+  fixtures: ProposalBaseSchema.extend({
+    by_domain: z
+      .record(
+        z.string(),
+        z.object({
+          seed: z.record(z.string(), z.unknown()),
+        })
+      )
+      .optional(),
+  }).optional(),
 });
 
 const SpecSchema = z.object({
