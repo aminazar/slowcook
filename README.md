@@ -7,13 +7,27 @@
 
 ## Status
 
-**0.7.17 — pipeline closes its own integration gaps.** The pipeline runs end-to-end: `slowcook refine` (issue → spec) → `slowcook testgen` (spec → handler + UI tests + stubs + helpers + **page-link + schema static assertions**) → `slowcook brew` (ratcheted implementation loop, now fluent in editing Next.js pages + writing SQL migrations). Each transition posts an audit-trail comment on the source GitHub issue. Stories with `ui_behavior` get page-integration assertions so a test suite can't go green while the page forgets to mount the component; stories whose invariants describe DDL get schema assertions so migrations can't silently be skipped.
+**0.13.0 in flight — bug-flow + chef orchestrator + `testgen` → `recipe` rename.** Slowcook runs two parallel pipelines now:
 
-**First fully-autonomous UI shipment on rewo landed via PR #61 (2026-04-23).** Issue #47 / story-006 traversed refine → testgen (handler + UI bundles) → brew (1 iter, $0.21) after the observability arc (0.7.13 → 0.7.16) taught us to listen to the agent's own diagnosis. 0.7.17 addresses the two residual gaps the shipment exposed (page-integration + schema).
+```
+Story flow:  refine        →  recipe                 →  brew
+Bug flow:    investigate   →  recipe --regression    →  sift
+                                ↓
+                              chef (watches all PRs, retries failures, escalates)
+```
 
-Published packages (latest on npm): `cli@0.11.7`, `core@0.11.0`, `stack-ts@0.9.2`, `forge-github@0.9.2`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`.
+The story flow has been the production path since 0.7.x. The bug flow is shipping in 0.13.0 alphas (currently α.5b on main). Investigate diagnoses bugs by reading code, sift narrows to a regression-test-driven minimum-diff fix; chef orchestrates failure recovery across both flows. See [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md).
 
-The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md); the active roadmap is [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+**Most recent shipped milestones:**
+
+- **0.12.7–0.12.12 — Phase 2 brownfield-retrieval.** Code-map gained `line` + `callers` per symbol (2A); brew now writes a per-target code-map slice every iter (2B); `.brewing/patterns/` directory holds team-authored recipes brew indexes into its cached prefix (2C).
+- **0.12.9 + 0.12.10 — testgen prevention checks.** Page-link static test catches "code points at non-existent route" regressions; schema-presence test catches "code references column that no migration adds."
+- **0.12.13 + forge 0.9.8 — cost-marker fixes.** `slowcook · shipped` rollups now render as a fixed-width restaurant bill and correctly include testgen + brew (the missing-permissions + fire-and-forget bugs got the audit-trail right).
+- **0.13.0-α.1 → α.5b** — `recipe` alias for `testgen`, full `investigate` agent, `recipe --regression` stub emitter, full `sift` agent, PR opening + auto-trigger workflows for both. Chef + 0.13.0 final cut next.
+
+Published packages (latest stable on npm): `cli@0.12.13`, `forge-github@0.9.8`, `core@0.11.0`, `stack-ts@0.9.2`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`. Alphas of cli + forge-github live on git tags only.
+
+The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md); the canonical post-0.11 plan is [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (now historical) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
 ## The idea
 
@@ -44,6 +58,13 @@ The version timeline tells the story of how slowcook went from "brew exists" to 
 - **0.7.5 (Phase A) — tier-1 UI helpers scaffolded.** `slowcook init` emits `renderWithProviders` + `mockFetch`/`realShapedFetch` + `jest-axe` wiring. Consumers get the test-infra layer UI tests depend on.
 - **0.7.6 — re-publish 0.7.4 + 0.7.5 with correct `dist/`.** Both prior versions had shipped with stale compiled output because `pnpm build` wasn't run before publish. Fixed; all packages now have `prepublishOnly: "tsc -b"` as a guard.
 - **0.7.7 (Phases B + C) — testgen UI bundle + brew UI-aware.** Testgen emits `<ui_test_file>` + `<ui_stub>` blocks when specs have `ui_behavior`; a new `"ui-only"` mode lets testgen retroactively add UI tests to a brownfield story whose handler was built pre-0.7.5. Brew's system prompt knows how `.test.tsx` targets work (edit `src/components/` or client pages, respect `@slowcook-stub` markers, mock `fetch` via `vi.stubGlobal`, use `"use client"`).
+- **0.7.17 — pipeline closes its own integration gaps.** Page-link static test catches "page imports a component but never mounts it"; spec-driven schema-assertion test catches "spec describes columns no migration adds." Both auto-emitted by testgen.
+- **0.8 + 0.9 — tier-2 acceptance + gates.** Playwright runner against a sandbox Supabase project; AI-vision checks; PR-comment-driven HITL review.
+- **0.10–0.11 — model adapter + textual proposals.** `@slowcook-ai/llm-anthropic` extracted; refine emits structured route/schema/token proposals reviewers can edit inline.
+- **0.12.7–0.12.12 — Phase 2 brownfield-retrieval.** Code-map carries `line` + `callers` per symbol (2A); per-target slice every iter (2B); `.brewing/patterns/` selective loading (2C). Foundation for adopting slowcook on existing codebases.
+- **0.12.9 + 0.12.10 — testgen prevention checks.** Page-link fetch-URL static test (every `fetch('/api/...')` resolves to a real route file) + column-presence test (every `.from(t).select(c)` exists in migrations). Both catch real-world failure classes that slipped through tier-1 mocks.
+- **0.12.13 + forge 0.9.8 — cost-marker fixes.** `slowcook · shipped` rollup posts a fixed-width "restaurant bill" with refine + recipe + brew + investigate + sift line items. Two underlying bugs fixed: testgen workflow template was missing `issues:write`, brew's halt comment was fire-and-forget (`.catch(() => {})` without await — process exited before the network round-trip).
+- **0.13.0 (in progress) — bug-flow + chef + recipe rename.** New parallel pipeline for bugs (`investigate → recipe --regression → sift`); `chef` orchestrator for PR-failure recovery; `testgen` renamed to `recipe` for kitchen-metaphor consistency. α.1 (alias), α.2/2b (investigate scaffold + agent), α.3 (recipe --regression stub), α.4 (sift), α.5a (investigate PR opening + auto-trigger), α.5b (sift PR opening + workflow) shipped to git. Final cut after α.5c (chef) + end-to-end validation.
 
 ## Getting started
 
