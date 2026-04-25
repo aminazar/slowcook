@@ -652,7 +652,85 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-testgen.yml", contents: slowcookTestgenWorkflow() },
     { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
     { path: ".github/workflows/slowcook-acceptance.yml", contents: slowcookAcceptanceWorkflow() },
+    // 0.13.0-alpha.5a — bug-flow workflows. investigate fires on issues
+    // labeled `bug`; sift fires when a regression-test PR merges.
+    { path: ".github/workflows/slowcook-investigate.yml", contents: slowcookInvestigateWorkflow() },
   ];
+}
+
+/**
+ * 0.13.0-alpha.5a — slowcook-investigate workflow. Fires on issues
+ * labeled \`bug\` (auto-trigger) OR via workflow_dispatch (manual).
+ * The investigate agent reads the issue body, runs read-only repo
+ * tools, emits a bug-profile YAML, and opens a PR labeled
+ * \`slowcook-bug-profile\`. Merging that PR triggers the next stage
+ * of the bug-flow.
+ */
+function slowcookInvestigateWorkflow(): string {
+  return `name: slowcook investigate
+
+# 0.13.0-alpha.5a — bug-flow analogue of slowcook-refine. Fires on
+# issues labeled \`bug\` and runs the investigate agent: reads the
+# issue body, uses read-only repo tools to find the failure locus,
+# emits a bug-profile YAML, and opens a PR proposing it.
+
+on:
+  issues:
+    types: [opened, labeled, reopened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number to investigate (must have \`bug\` label)"
+        required: true
+        type: string
+
+concurrency:
+  group: slowcook-investigate-\${{ github.event.issue.number || github.event.inputs.issue }}
+  cancel-in-progress: true
+
+jobs:
+  investigate:
+    # Auto-trigger: only when an issue gains the \`bug\` label, OR when
+    # a comment fires on an already-\`bug\`-labeled issue. Manual
+    # dispatch always runs (gated by the input).
+    if: >-
+      (
+        github.event_name == 'issues' &&
+        contains(github.event.issue.labels.*.name, 'bug') &&
+        github.event.issue.state == 'open'
+      ) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
+
+      - name: Configure git identity for agent commits
+        run: |
+          git config user.name  "slowcook-investigate[bot]"
+          git config user.email "slowcook-investigate@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Investigate
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+          ISSUE_NUMBER: \${{ github.event.issue.number || github.event.inputs.issue }}
+        run: |
+          set -eu
+          npx --yes "$SLOWCOOK_CLI" investigate --issue "$ISSUE_NUMBER"
+`;
 }
 
 /** Stable identifier for this forge. */

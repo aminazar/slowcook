@@ -16,6 +16,7 @@
 import { mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import {
   validateBugProfile,
   type BugProfile,
@@ -32,6 +33,11 @@ interface InvestigateArgs {
   stub: boolean;
   /** LLM model to use. Default opus-4-7 — investigate is one-shot per bug. */
   model: string;
+  /** Skip PR opening even on the real path; write profile to disk only. */
+  noPr: boolean;
+  /** Forge owner/repo (auto-detected from git remote when omitted). */
+  owner?: string;
+  repo?: string;
 }
 
 function parseArgs(argv: string[]): InvestigateArgs {
@@ -41,6 +47,7 @@ function parseArgs(argv: string[]): InvestigateArgs {
     dryRun: false,
     stub: false,
     model: "claude-opus-4-7",
+    noPr: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -55,6 +62,14 @@ function parseArgs(argv: string[]): InvestigateArgs {
       args.dryRun = true;
     } else if (arg === "--stub") {
       args.stub = true;
+    } else if (arg === "--no-pr") {
+      args.noPr = true;
+    } else if (arg === "--owner" && next) {
+      args.owner = next;
+      i++;
+    } else if (arg === "--repo" && next) {
+      args.repo = next;
+      i++;
     } else if (arg === "--model" && next) {
       args.model = next;
       i++;
@@ -183,7 +198,7 @@ export async function investigate(
       cliVersion,
       now,
     });
-    return finaliseProfile(profile, args, bugId);
+    return finaliseProfile(profile, args, bugId, cliVersion);
   }
 
   // ---- Real agent path (alpha.2b) ----
@@ -216,14 +231,15 @@ export async function investigate(
     `Agent done: ${result.rounds} round(s), $${result.spendUsd.toFixed(4)} spent${result.halted ? ` (HALTED: ${result.haltReason})` : ""}.`
   );
 
-  return finaliseProfile(result.profile, args, bugId);
+  return finaliseProfile(result.profile, args, bugId, cliVersion);
 }
 
-function finaliseProfile(
+async function finaliseProfile(
   profile: BugProfile,
   args: InvestigateArgs,
-  bugId: string
-): void {
+  bugId: string,
+  cliVersion: string
+): Promise<void> {
   const validation = validateBugProfile(profile);
   if (!validation.ok) {
     console.error(`slowcook investigate: profile failed validation:`);
@@ -237,14 +253,145 @@ function finaliseProfile(
     process.exit(0);
   }
 
-  const outDir = join(args.repoRoot, ".brewing/bug-profiles");
-  mkdirSync(outDir, { recursive: true });
-  const outPath = join(outDir, `${bugId}.yaml`);
-  writeFileSync(outPath, renderProfileAsYaml(validation.profile), "utf8");
-  console.error(`Wrote ${outPath}.`);
-  console.error(
-    `Next: review the profile, then 'slowcook recipe --regression --bug ${bugId}' (alpha.3) to emit the regression test.`
+  const relPath = `.brewing/bug-profiles/${bugId}.yaml`;
+  const fullPath = join(args.repoRoot, relPath);
+  mkdirSync(join(args.repoRoot, ".brewing/bug-profiles"), { recursive: true });
+  writeFileSync(fullPath, renderProfileAsYaml(validation.profile), "utf8");
+  console.error(`Wrote ${relPath}.`);
+
+  if (args.noPr) {
+    console.error(
+      `Next: review the profile, then 'slowcook recipe --regression --bug ${bugId}' (alpha.3) to emit the regression test.`
+    );
+    process.exit(0);
+  }
+
+  // 0.13.0-alpha.5a — open the bug-profile PR. Mirrors the refine
+  // pattern: branch off main, commit the YAML, push, open PR.
+  await openBugProfilePr({
+    repoRoot: args.repoRoot,
+    bugId,
+    profile: validation.profile,
+    relPath,
+    owner: args.owner,
+    repo: args.repo,
+    cliVersion,
+  });
+}
+
+interface OpenBugProfilePrArgs {
+  repoRoot: string;
+  bugId: string;
+  profile: BugProfile;
+  relPath: string;
+  owner?: string;
+  repo?: string;
+  cliVersion: string;
+}
+
+async function openBugProfilePr(args: OpenBugProfilePrArgs): Promise<void> {
+  const githubToken = process.env["GITHUB_TOKEN"];
+  if (!githubToken) {
+    console.error(
+      "GITHUB_TOKEN not set — bug profile written to disk but PR not opened. Re-run with --no-pr to suppress this notice, or set the token."
+    );
+    process.exit(0);
+  }
+
+  const detected = detectOwnerRepo(args.repoRoot);
+  const owner = args.owner ?? detected?.owner;
+  const repo = args.repo ?? detected?.repo;
+  if (!owner || !repo) {
+    console.error(
+      "Could not detect owner/repo from git remote — pass --owner + --repo explicitly."
+    );
+    process.exit(2);
+  }
+
+  const branch = `slowcook/bug-profile/${args.bugId}`;
+  const forge = new GitHubAdapter({ owner, repo, token: githubToken });
+
+  try {
+    await forge.git.createBranch(branch);
+    await forge.git.stage(args.relPath);
+    // forge git op author identity is configured by the caller (workflow
+    // step) — see slowcook-investigate.yml's `git config user.*` step.
+    await forge.git.commit(
+      `slowcook: bug profile ${args.bugId} (from issue ${args.profile.source_issue})`
+    );
+    await forge.git.push(branch);
+  } catch (e) {
+    console.error(
+      `Failed to push branch ${branch}: ${(e as Error).message}\n  Profile is at ${args.relPath} on disk; open the PR manually if you'd like.`
+    );
+    process.exit(0);
+  }
+
+  try {
+    const pr = await forge.createPullRequest({
+      title: `bug profile: ${args.bugId} — ${args.profile.title}`,
+      body: buildBugProfilePrBody(args.profile, args.cliVersion),
+      base: "main",
+      head: branch,
+      draft: false,
+      labels: ["slowcook-bug-profile", "bug"],
+    });
+    console.error(`Opened PR ${pr.url}.`);
+    console.error(
+      `Next: review the bug-profile PR, merge to trigger 'slowcook recipe --regression' on this bug.`
+    );
+  } catch (e) {
+    console.error(
+      `Pushed branch ${branch} but couldn't open PR: ${(e as Error).message}\n  Open it manually at https://github.com/${owner}/${repo}/pull/new/${branch}`
+    );
+    process.exit(0);
+  }
+}
+
+function detectOwnerRepo(repoRoot: string): { owner: string; repo: string } | null {
+  try {
+    const url = execSync("git remote get-url origin", {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const m = url.match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?$/);
+    if (m && m[1] && m[2]) return { owner: m[1], repo: m[2] };
+  } catch {
+    /* not a git repo */
+  }
+  return null;
+}
+
+function buildBugProfilePrBody(profile: BugProfile, cliVersion: string): string {
+  const lines: string[] = [];
+  lines.push(`Auto-emitted bug profile from \`slowcook investigate\` (${cliVersion}).`);
+  lines.push("");
+  lines.push(`Closes related: ${profile.source_issue}`);
+  lines.push("");
+  lines.push(`## Symptom`);
+  for (const s of profile.symptom) lines.push(`- ${s}`);
+  lines.push("");
+  lines.push(`## Expected`);
+  for (const s of profile.expected) lines.push(`- ${s}`);
+  lines.push("");
+  lines.push(`## Failure locus`);
+  lines.push(
+    `\`${profile.failure_locus.file}${profile.failure_locus.line ? `:${profile.failure_locus.line}` : ""}\`${profile.failure_locus.function ? ` · \`${profile.failure_locus.function}\`` : ""}`
   );
+  lines.push("");
+  lines.push(`> ${profile.failure_locus.diagnosis.split("\n").join("\n> ")}`);
+  lines.push("");
+  lines.push(`## Regression assertion`);
+  for (const a of profile.regression_assertion) lines.push(`- ${a}`);
+  lines.push("");
+  lines.push(`## Fix scope`);
+  for (const s of profile.fix_scope) lines.push(`- \`${s}\``);
+  lines.push("");
+  lines.push(
+    `Merging this PR triggers \`slowcook recipe --regression --bug ${profile.bug_id}\` to emit the failing test under \`tests/regression/\`. Sift takes it from there.`
+  );
+  return lines.join("\n");
 }
 
 interface IssuePayload {

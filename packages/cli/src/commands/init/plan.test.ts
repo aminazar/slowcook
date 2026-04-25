@@ -95,6 +95,7 @@ describe("buildPlan — fresh project", () => {
     expect(paths).toContain(".brewing/manifests/.gitkeep");
     expect(paths).toContain(".github/workflows/slowcook.yml");
     expect(paths).toContain(".github/workflows/slowcook-spec-merged.yml");
+    expect(paths).toContain(".github/workflows/slowcook-investigate.yml");
     expect(paths).toContain("CODEOWNERS");
     expect(plan.actions.every((a) => a.kind === "create")).toBe(true);
   });
