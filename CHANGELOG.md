@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.13.2 — Brownfield extraction foundation: `slowcook map --emit-schema`
+
+Cut 2026-04-25.
+
+Foundation piece for 0.14 mockup-first refinement. `slowcook map generate --emit-schema` walks `supabase/migrations/*.sql`, concatenates the DDL, hands it to the existing `ddlToMermaidErd` from refine, and writes `.brewing/diagrams/schema.mmd`. Refine reads this later as project-awareness so its proposals (new tables / FKs) align with the consumer's existing entity vocabulary instead of inventing.
+
+- Skipped silently (no error) when `supabase/migrations/` is missing or empty — not every consumer uses Supabase.
+- Files processed in lexical order (`00001_…sql` before `00002_…sql`) so the rendered ERD reflects the migration timeline.
+- Output is annotated with a generated-by header so reviewers know not to hand-edit.
+- 4 new unit tests in `packages/cli/src/commands/map/emit-schema.test.ts` cover: missing dir, empty dir, valid migrations, lexical ordering.
+
+Next brownfield slices (`--emit-tokens`, `--emit-components`) follow the same shape.
+
+---
+
 ## 0.13.0 — Bug-flow + chef orchestrator + `testgen` → `recipe` rename
 
 Cut 2026-04-25 (tag `0.13.0`). Pairs with `forge-github@0.10.0`. Six alphas (α.1–α.5c) plus α.3b LLM-backed regression-test emitter consolidated into the final cut.

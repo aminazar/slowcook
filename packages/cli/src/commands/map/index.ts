@@ -1,4 +1,4 @@
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { generateMap } from "./scan.js";
 import {
@@ -9,12 +9,20 @@ import {
   CODE_MAP_MD_PATH,
 } from "./render.js";
 import type { CodeMap } from "./scan.js";
+import { ddlToMermaidErd } from "../refine/mermaid.js";
 
 interface MapArgs {
   subcommand: "generate" | "check";
   repoRoot: string;
   out: string;
   md: string;
+  /**
+   * 0.13.2+ (brownfield-extraction track for 0.14 mockup-first refinement):
+   * also emit `.brewing/diagrams/schema.mmd` from `supabase/migrations/*.sql`.
+   * Foundation for refine reading the consumer's existing schema before
+   * proposing new tables / FK shapes.
+   */
+  emitSchema: boolean;
 }
 
 function parseArgs(argv: string[]): MapArgs {
@@ -23,6 +31,7 @@ function parseArgs(argv: string[]): MapArgs {
     repoRoot: process.cwd(),
     out: CODE_MAP_JSON_PATH,
     md: CODE_MAP_MD_PATH,
+    emitSchema: false,
   };
   const first = argv[0];
   if (first === "generate" || first === "check") {
@@ -42,6 +51,7 @@ function parseArgs(argv: string[]): MapArgs {
     if (a === "--cwd" && next) { args.repoRoot = next; i++; }
     else if (a === "--out" && next) { args.out = next; i++; }
     else if (a === "--md" && next) { args.md = next; i++; }
+    else if (a === "--emit-schema") { args.emitSchema = true; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
   return args;
@@ -57,7 +67,7 @@ helper functions, and domain types. Lives at \`.brewing/code-map.json\`
 context so it doesn't have to re-read files every iteration.
 
 Usage:
-  slowcook map generate [--cwd <path>] [--out <path>] [--md <path>]
+  slowcook map generate [--cwd <path>] [--out <path>] [--md <path>] [--emit-schema]
   slowcook map check    [--cwd <path>] [--out <path>]
 
   generate   Write a fresh map to .brewing/code-map.{json,md}.
@@ -65,9 +75,12 @@ Usage:
              generation. Meant for CI — keeps the map honest.
 
 Options:
-  --cwd <path>   Repo root (default: cwd).
-  --out <path>   JSON output path (default: .brewing/code-map.json).
-  --md  <path>   Markdown output path (default: .brewing/code-map.md).
+  --cwd <path>      Repo root (default: cwd).
+  --out <path>      JSON output path (default: .brewing/code-map.json).
+  --md  <path>      Markdown output path (default: .brewing/code-map.md).
+  --emit-schema     Brownfield: also emit .brewing/diagrams/schema.mmd from
+                    supabase/migrations/*.sql (Mermaid erDiagram). Skipped
+                    silently when no migrations directory exists.
 `);
 }
 
@@ -82,6 +95,18 @@ export async function map(argv: string[], cliVersion: string): Promise<void> {
   if (args.subcommand === "generate") {
     writeFreshMap(args.repoRoot, args.out, args.md, fresh);
     summary(fresh);
+    if (args.emitSchema) {
+      const schemaResult = emitSchemaDiagram(args.repoRoot);
+      if (schemaResult.written) {
+        console.log(
+          `Wrote .brewing/diagrams/schema.mmd (${schemaResult.entityCount} entities, ${schemaResult.migrationsCount} migrations parsed).`
+        );
+      } else {
+        console.log(
+          `Skipped schema emit: ${schemaResult.skippedReason}`
+        );
+      }
+    }
     return;
   }
 
@@ -146,4 +171,44 @@ function summary(map: CodeMap): void {
 
 function summaryCounts(m: CodeMap): string {
   return `${m.api_routes.length} routes, ${m.pages.length} pages, ${m.components.length} components, ${m.helpers.length} helpers, ${m.types.length} types`;
+}
+
+/**
+ * 0.13.2 (brownfield-extraction track for 0.14 mockup-first refinement) —
+ * walk `supabase/migrations/*.sql`, concatenate, hand to ddlToMermaidErd,
+ * write `.brewing/diagrams/schema.mmd`. Refine reads this file later as
+ * project-awareness so its proposals (new tables / FKs) align with the
+ * existing entity vocabulary instead of inventing.
+ *
+ * Skipped silently when no `supabase/migrations/` directory exists —
+ * not every consumer uses Supabase.
+ */
+export function emitSchemaDiagram(repoRoot: string): {
+  written: boolean;
+  entityCount?: number;
+  migrationsCount?: number;
+  skippedReason?: string;
+} {
+  const dir = join(repoRoot, "supabase/migrations");
+  if (!existsSync(dir)) {
+    return { written: false, skippedReason: "no supabase/migrations/ directory" };
+  }
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  if (files.length === 0) {
+    return { written: false, skippedReason: "supabase/migrations/ is empty" };
+  }
+  const ddl = files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+  const mermaid = ddlToMermaidErd(ddl);
+  // Count entities — quick parse of the rendered output.
+  // Each entity becomes a `  NAME {` line in the erDiagram block.
+  const entityCount = (mermaid.match(/^ {2}[A-Z_]+\s*\{/gm) ?? []).length;
+
+  const outDir = join(repoRoot, ".brewing/diagrams");
+  mkdirSync(outDir, { recursive: true });
+  const outPath = join(outDir, "schema.mmd");
+  const header =
+    `<!-- Auto-emitted by \`slowcook map --emit-schema\`. Do not hand-edit; regenerate. -->\n` +
+    `<!-- Source: ${files.length} migration file(s) under supabase/migrations/. -->\n\n`;
+  writeFileSync(outPath, header + mermaid + "\n", "utf8");
+  return { written: true, entityCount, migrationsCount: files.length };
 }
