@@ -130,6 +130,31 @@ describe("real", () => {
     expect(ids).toEqual([`${FILE} > real > real test`]);
   });
 
+  it("preserves describe prefix when nested it() body uses a regex literal with an apostrophe (0.12.6 regression)", () => {
+    // Real-world repro from rewo's story-007-ui.test.tsx. The
+    // sanitiser previously didn't recognise regex literals; an
+    // apostrophe inside `/haven'?t/i` opened a single-quote string
+    // mode that swallowed all braces until the next apostrophe far
+    // below — making nested it()s appear UNATTACHED to their
+    // describe. The manifest then stored \`file > test name\` (no
+    // prefix), and brew halted with MANIFEST_DRIFT because vitest
+    // reported \`file > Outer > test name\` instead.
+    const src = `
+describe("Outer", () => {
+  it("first uses a regex with apostrophe", () => {
+    expect(text).toMatch(/you haven'?t saved anything yet/i);
+  });
+
+  it("second is the canary — should still see Outer prefix", () => {});
+});
+`;
+    const ids = extractTestIdsFromFile(FILE, src);
+    expect(ids).toEqual([
+      `${FILE} > Outer > first uses a regex with apostrophe`,
+      `${FILE} > Outer > second is the canary — should still see Outer prefix`,
+    ]);
+  });
+
   it("returns a fallback marker when no tests are parseable", () => {
     const src = `// empty file with no tests`;
     const ids = extractTestIdsFromFile(FILE, src);

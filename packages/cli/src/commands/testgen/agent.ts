@@ -1290,12 +1290,32 @@ function extractNameAtOffset(source: string, offset: number): string | null {
  *   - `//` and `/* ... *\/` comments are replaced with space of equal length
  *   - contents of string literals (single/double/template quotes) are replaced
  *     with non-`d`/`i`/`t` filler so the regex scan can't match inside them.
+ *   - 0.12.6+: contents of regex literals (`/.../flags`) are also blanked so
+ *     apostrophes inside regex (e.g. `/haven'?t/i`) don't trick the
+ *     string-detector into entering single-quote mode and swallowing the
+ *     rest of the file.
  * Offsets are preserved so block-range calculations stay valid against the
  * original source.
  */
 function sanitiseForParsing(src: string): string {
   const out: string[] = [];
   let i = 0;
+  /** True when the previous non-whitespace, non-comment, non-string token
+   * was something that could syntactically precede a regex literal
+   * (operators, opening brackets, keywords like `return`). Used to
+   * disambiguate `/` as regex-start vs division. */
+  let regexAllowedHere = true;
+
+  // Tokens after which `/` is a regex literal start (subset that's safe;
+  // false negatives just keep `/` as plain divide which is harmless for
+  // our brace-counting use case).
+  const regexAfterTokens = new Set([
+    "(", ",", "=", ":", ";", "?", "!", "&", "|", "<", ">", "+", "-", "*",
+    "%", "^", "~", "[", "{", "}", "/", // /} closes a JSX expr: regex can follow
+    "return", "typeof", "in", "of", "instanceof", "delete", "void",
+    "new", "throw", "yield", "await", "case",
+  ]);
+
   while (i < src.length) {
     const c = src[i];
     const next = src[i + 1];
@@ -1305,6 +1325,7 @@ function sanitiseForParsing(src: string): string {
         out.push(" ");
         i++;
       }
+      // comments don't change the "regex allowed" context
     } else if (c === "/" && next === "*") {
       // block comment — blank out to matching */
       out.push(" ", " ");
@@ -1335,8 +1356,65 @@ function sanitiseForParsing(src: string): string {
         out.push(quote);
         i++;
       }
+      regexAllowedHere = false;
+    } else if (c === "/" && regexAllowedHere) {
+      // 0.12.6+ — regex literal /pattern/flags. Blank the BODY but keep
+      // the slashes + flags so offsets line up. Inside a regex, `[...]`
+      // is a char-class that may contain `/`, so we track bracket depth
+      // to know which `/` closes the regex.
+      out.push("/");
+      i++;
+      let inClass = false;
+      while (i < src.length) {
+        const r = src[i];
+        if (r === "\\" && i + 1 < src.length) {
+          out.push("  ");
+          i += 2;
+          continue;
+        }
+        if (r === "[") inClass = true;
+        else if (r === "]") inClass = false;
+        else if (r === "/" && !inClass) break;
+        else if (r === "\n") {
+          // Unterminated regex — bail out, treat the `/` as division
+          // for the rest. This is rare and recovery to "plain code" is
+          // safer than swallowing further lines.
+          break;
+        }
+        out.push(r === "\n" ? "\n" : " ");
+        i++;
+      }
+      if (i < src.length && src[i] === "/") {
+        out.push("/");
+        i++;
+        // consume regex flags (letters)
+        while (i < src.length && /[a-zA-Z]/.test(src[i] ?? "")) {
+          out.push(src[i] as string);
+          i++;
+        }
+      }
+      regexAllowedHere = false;
     } else {
       out.push(c as string);
+      // Update regexAllowedHere based on the character we just kept.
+      if (/\s/.test(c as string)) {
+        // whitespace doesn't reset; preserves prior context
+      } else if (regexAfterTokens.has(c as string)) {
+        regexAllowedHere = true;
+      } else if (/[a-zA-Z_$0-9]/.test(c as string)) {
+        // We're in the middle of an identifier or number. Once the
+        // identifier ends, check if it was a regex-starter keyword.
+        let j = i;
+        while (j < src.length && /[a-zA-Z_$0-9]/.test(src[j] ?? "")) j++;
+        const ident = src.slice(i, j);
+        regexAllowedHere = regexAfterTokens.has(ident);
+        // We've already pushed `c`; push the rest of the identifier.
+        for (let k = i + 1; k < j; k++) out.push(src[k] as string);
+        i = j;
+        continue;
+      } else {
+        regexAllowedHere = false;
+      }
       i++;
     }
   }
