@@ -11,6 +11,7 @@ import {
   extractDdlColumnsFromSpec,
   buildSchemaAssertionTestContent,
   buildPageLinkTestContent,
+  buildSchemaPresenceTestContent,
   buildStylingPresenceTestContent,
   resolveImportToSourcePath,
 } from "./agent.js";
@@ -723,6 +724,29 @@ describe("buildPageLinkTestContent", () => {
     // And the dynamic form must NOT appear.
     expect(r.contents).not.toMatch(/"imports " \+ /);
     expect(r.contents).not.toMatch(/"mounts <" \+ /);
+  });
+
+  it("0.12.10 (slowcook#7): buildSchemaPresenceTestContent emits a column-presence assertion test file", () => {
+    const r = buildSchemaPresenceTestContent({ story_id: "042" } as unknown as Spec);
+    expect(r.path).toBe("tests/schema/story-042-column-presence.test.ts");
+    // The describe wrapper carries the story id so the manifest can
+    // attribute the assertion to a story.
+    expect(r.contents).toContain('describe("story-042 column presence (code → schema)"');
+    // Title is a static literal so manifest extraction matches vitest
+    // runtime (same MANIFEST_DRIFT-safe pattern as page-link).
+    expect(r.contents).toContain(
+      '"every literal .from(t).select(...) column reference exists in supabase/migrations/"'
+    );
+    // Reads supabase/migrations not just one file
+    expect(r.contents).toContain('"supabase/migrations"');
+    // Walks src/ recursively, not just src/app
+    expect(r.contents).toContain('walkSrc("src", srcFiles)');
+    // Skips wildcard selects + computed-table skips
+    expect(r.contents).toContain('colsStr.trim() === "*"');
+    expect(r.contents).toContain('colsStr.includes("${")');
+    // Only validates against tables it has seen in CREATE TABLE — views
+    // / RPC tables aren't false-positives.
+    expect(r.contents).toContain("knownTables");
   });
 
   it("0.12.9 (slowcook#6): emits a fetch-URL resolution check for the component", () => {

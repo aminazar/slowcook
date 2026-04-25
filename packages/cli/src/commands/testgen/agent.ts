@@ -163,6 +163,12 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     if (schemaArtifact) {
       extraTestFiles.push(schemaArtifact);
     }
+    // 0.12.10 (slowcook#7) — code→schema presence check. Always emit
+    // (cheap repo-wide scan; no per-spec input). Catches "code references
+    // a column with no migration" regressions like rewo PR #74's
+    // `author_id` and the lingering story-001 `hidden`/`banned_at`/
+    // `is_admin` references.
+    extraTestFiles.push(buildSchemaPresenceTestContent(spec));
 
     const extraIds = extraTestFiles.flatMap((f) =>
       extractTestIdsFromFile(f.path, f.contents).map((id) => ({ id, file: f.path }))
@@ -978,6 +984,182 @@ export function buildSchemaAssertionTestContent(
     `\n` +
     columnChecks +
     `\n` +
+    `});\n`;
+
+  return { path, contents };
+}
+
+/**
+ * 0.12.10 (slowcook#7) — code→schema presence check. Walks src/ for
+ * literal `.from('<table>').select('<columns>')` calls and asserts every
+ * referenced column appears in some `CREATE TABLE` body or
+ * `ALTER TABLE … ADD COLUMN` clause under `supabase/migrations/`.
+ * Catches the gap class where brew tier-1 mocks the database away, so a
+ * SELECT against a column with no migration ships green.
+ *
+ * Per-story emission (file name carries `story-N`) but the test logic
+ * scans the WHOLE repo — the assertion is project-wide. Multiple stories
+ * emit identical-content files; redundant but fits slowcook's tier-1
+ * frame.
+ *
+ * v1 limitations:
+ *   - Only literal table/column strings. Computed table names
+ *     (`from(tableName)` where tableName is a variable) are skipped.
+ *   - `select('*')` skipped — by definition matches everything.
+ *   - Relation sub-selects like `member:profiles!member_id(id, name)`:
+ *     the alias `member` is treated as a relation pointer and skipped
+ *     (we don't try to recursively validate the joined table here).
+ *   - Views and computed columns aren't tracked — unknown tables are
+ *     skipped (no false positive when a CTE / view is referenced).
+ */
+export function buildSchemaPresenceTestContent(
+  spec: Spec
+): { path: string; contents: string } {
+  const path = join(TESTS_SCHEMA_DIR, `story-${spec.story_id}-column-presence.test.ts`);
+
+  const contents =
+    `// slowcook 0.12.10 column-presence assertion — story-${spec.story_id}\n` +
+    `//\n` +
+    `// Auto-emitted by testgen on every spec — scans the whole repo for\n` +
+    `// .from('t').select('c1, c2, ...') calls and asserts every column\n` +
+    `// referenced exists in supabase/migrations/ (CREATE TABLE body or\n` +
+    `// ALTER TABLE ADD COLUMN). Closes slowcook#7 — catches code-ahead-\n` +
+    `// of-schema bugs like rewo PR #74's author_id reference (no migration).\n` +
+    `\n` +
+    `import { describe, it, expect } from "vitest";\n` +
+    `import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";\n` +
+    `import { join } from "node:path";\n` +
+    `\n` +
+    `describe("story-${spec.story_id} column presence (code → schema)", () => {\n` +
+    `  it("every literal .from(t).select(...) column reference exists in supabase/migrations/", () => {\n` +
+    `    const migrationsDir = "supabase/migrations";\n` +
+    `    const sql = existsSync(migrationsDir)\n` +
+    `      ? readdirSync(migrationsDir)\n` +
+    `          .filter((f) => f.endsWith(".sql"))\n` +
+    `          .sort()\n` +
+    `          .map((f) => readFileSync(join(migrationsDir, f), "utf8"))\n` +
+    `          .join("\\n")\n` +
+    `      : "";\n` +
+    `\n` +
+    `    function escapeRe(s: string): string {\n` +
+    `      return s.replace(/[.*+?^\${}()|[\\]\\\\]/g, "\\\\$&");\n` +
+    `    }\n` +
+    `\n` +
+    `    function isColumnInSchema(table: string, column: string): boolean {\n` +
+    `      const t = escapeRe(table);\n` +
+    `      const c = escapeRe(column);\n` +
+    `      // 1. CREATE TABLE table ( ... column ... )\n` +
+    `      const createRe = new RegExp(\n` +
+    `        \`create\\\\s+table\\\\s+(?:if\\\\s+not\\\\s+exists\\\\s+)?[\\"\\\`]?(?:public\\\\.)?\${t}[\\"\\\`]?\\\\s*\\\\(([\\\\s\\\\S]*?)\\\\)\\\\s*;\`,\n` +
+    `        "i"\n` +
+    `      );\n` +
+    `      const m = sql.match(createRe);\n` +
+    `      if (m) {\n` +
+    `        // Look for column at the start of a line/segment within the body.\n` +
+    `        const colRe = new RegExp(\n` +
+    `          \`(?:^|,|\\\\n)\\\\s*[\\"\\\`]?\${c}[\\"\\\`]?\\\\s+\`,\n` +
+    `          "i"\n` +
+    `        );\n` +
+    `        if (colRe.test(m[1])) return true;\n` +
+    `      }\n` +
+    `      // 2. ALTER TABLE table ADD COLUMN [IF NOT EXISTS] column\n` +
+    `      const alterRe = new RegExp(\n` +
+    `        \`alter\\\\s+table\\\\s+(?:only\\\\s+)?[\\"\\\`]?(?:public\\\\.)?\${t}[\\"\\\`]?\\\\s+add\\\\s+column\\\\s+(?:if\\\\s+not\\\\s+exists\\\\s+)?[\\"\\\`]?\${c}\\\\b\`,\n` +
+    `        "i"\n` +
+    `      );\n` +
+    `      return alterRe.test(sql);\n` +
+    `    }\n` +
+    `\n` +
+    `    function parseSelectColumns(colsStr: string): string[] {\n` +
+    `      // Split on top-level commas (paren-aware so relation subselects\n` +
+    `      // like \`member:profiles!member_id(id, name)\` aren't shredded).\n` +
+    `      const cols: string[] = [];\n` +
+    `      let depth = 0;\n` +
+    `      let buf = "";\n` +
+    `      for (const ch of colsStr) {\n` +
+    `        if (ch === "(") depth++;\n` +
+    `        else if (ch === ")") depth--;\n` +
+    `        if (ch === "," && depth === 0) {\n` +
+    `          if (buf.trim()) cols.push(buf.trim());\n` +
+    `          buf = "";\n` +
+    `        } else {\n` +
+    `          buf += ch;\n` +
+    `        }\n` +
+    `      }\n` +
+    `      if (buf.trim()) cols.push(buf.trim());\n` +
+    `      return cols;\n` +
+    `    }\n` +
+    `\n` +
+    `    function isPlainColumn(col: string): boolean {\n` +
+    `      // Skip relation sub-selects (contain ':') and aggregates (contain '(').\n` +
+    `      return !col.includes(":") && !col.includes("(");\n` +
+    `    }\n` +
+    `\n` +
+    `    function bareColumnName(col: string): string {\n` +
+    `      // Strip aliases like "old_name as new_name" (Supabase rare) and\n` +
+    `      // any trailing modifiers. Take the first identifier.\n` +
+    `      const match = col.trim().match(/^[\\"\\\`]?([A-Za-z_][A-Za-z0-9_]*)[\\"\\\`]?/);\n` +
+    `      return match ? match[1] : col.trim();\n` +
+    `    }\n` +
+    `\n` +
+    `    function walkSrc(dir: string, out: string[]): void {\n` +
+    `      if (!existsSync(dir)) return;\n` +
+    `      for (const entry of readdirSync(dir)) {\n` +
+    `        const full = join(dir, entry);\n` +
+    `        const stat = statSync(full);\n` +
+    `        if (stat.isDirectory()) {\n` +
+    `          walkSrc(full, out);\n` +
+    `        } else if (/\\.(tsx?|jsx?)$/.test(full)) {\n` +
+    `          out.push(full);\n` +
+    `        }\n` +
+    `      }\n` +
+    `    }\n` +
+    `\n` +
+    `    const srcFiles: string[] = [];\n` +
+    `    walkSrc("src", srcFiles);\n` +
+    `\n` +
+    `    // Match .from("table").select("cols") — both quoted forms.\n` +
+    `    // Backticks accepted; if the inner text contains \${} we skip\n` +
+    `    // (computed). Whitespace-flexible.\n` +
+    `    const callRe = /\\.from\\(\\s*["'\`]([A-Za-z_][A-Za-z0-9_]*)["'\`]\\s*\\)\\s*\\.select\\(\\s*[\`"']([^\`"']+)["'\`]/g;\n` +
+    `\n` +
+    `    const missing: string[] = [];\n` +
+    `    const knownTables = new Set<string>();\n` +
+    `    // Pre-pass: any table with a CREATE TABLE in migrations is "known."\n` +
+    `    // Tables we don't recognize (views, RPC results) are skipped to\n` +
+    `    // avoid false positives.\n` +
+    `    const tableDeclRe = /create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?["\`]?(?:public\\.)?([A-Za-z_][A-Za-z0-9_]*)["\`]?/gi;\n` +
+    `    let tm: RegExpExecArray | null;\n` +
+    `    while ((tm = tableDeclRe.exec(sql)) !== null) {\n` +
+    `      knownTables.add(tm[1].toLowerCase());\n` +
+    `    }\n` +
+    `\n` +
+    `    for (const file of srcFiles) {\n` +
+    `      const src = readFileSync(file, "utf8");\n` +
+    `      let m: RegExpExecArray | null;\n` +
+    `      callRe.lastIndex = 0;\n` +
+    `      while ((m = callRe.exec(src)) !== null) {\n` +
+    `        const table = m[1];\n` +
+    `        if (!knownTables.has(table.toLowerCase())) continue;\n` +
+    `        const colsStr = m[2];\n` +
+    `        if (colsStr.trim() === "*") continue;\n` +
+    `        if (colsStr.includes("\${")) continue; // computed — skip\n` +
+    `        const cols = parseSelectColumns(colsStr).filter(isPlainColumn).map(bareColumnName);\n` +
+    `        for (const col of cols) {\n` +
+    `          if (!col) continue;\n` +
+    `          if (!isColumnInSchema(table, col)) {\n` +
+    `            missing.push(\`\${file}: \${table}.\${col}\`);\n` +
+    `          }\n` +
+    `        }\n` +
+    `      }\n` +
+    `    }\n` +
+    `\n` +
+    `    expect(\n` +
+    `      missing,\n` +
+    `      \`Selected columns with no matching CREATE/ALTER TABLE in supabase/migrations/:\\n  \` +\n` +
+    `        missing.join("\\n  ")\n` +
+    `    ).toEqual([]);\n` +
+    `  });\n` +
     `});\n`;
 
   return { path, contents };
