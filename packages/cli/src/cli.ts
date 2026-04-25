@@ -10,6 +10,7 @@ import { onSpecMerged } from "./commands/on-spec-merged/index.js";
 import { onTestsMerged } from "./commands/on-tests-merged/index.js";
 import { onBrewMerged } from "./commands/on-brew-merged/index.js";
 import { testgen } from "./commands/testgen/index.js";
+import { investigate } from "./commands/investigate/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
@@ -62,6 +63,7 @@ Commands available in ${VERSION}:
   on-tests-merged    Post audit-trail comment after a tests PR merges.
   on-brew-merged     Post final "shipped" audit-trail comment after a brew PR merges.
   recipe             Generate Vitest tests from merged specs (a "recipe" — the test contract brew follows). Aliases: testgen.
+  investigate        (alpha.2a, scaffold) Diagnose a bug from a GitHub issue and emit a bug-profile.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -107,6 +109,11 @@ async function main(): Promise<void> {
       // existing rewo workflow YAMLs (`slowcook testgen --spec …`)
       // don't break the moment 0.13.0 ships. Removed in 0.14.0.
       await testgen(args.slice(1), VERSION);
+      return;
+    case "investigate":
+      // 0.13.0-alpha.2a — bug-flow analogue of refine. Scaffold only;
+      // real LLM agent in alpha.2b. See docs/plans/0.13-bug-flow-and-chef.md.
+      await investigate(args.slice(1), VERSION);
       return;
     case "catchup":
       await catchup(args.slice(1), VERSION);
