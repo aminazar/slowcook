@@ -26,13 +26,25 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateBugProfile, type BugProfile } from "../investigate/schema.js";
 import { parseSimpleYaml } from "../investigate/agent.js";
+import { runRegressionRecipe } from "./agent.js";
 
 export interface RecipeRegressionArgs {
   bugId: string; // "B-1"
   repoRoot: string;
   dryRun: boolean;
-  /** alpha.3b: when true, route through the LLM emitter. Stub today. */
+  /**
+   * 0.13.0-alpha.3b: when true, route through the LLM-backed emitter
+   * (real test, can be flipped green by sift). When false, fall back
+   * to the deterministic alpha.3a stub (expect.fail body — only
+   * useful for testing the file-system layout). Stub stays as the
+   * default through 0.13.0 because LLM mode requires ANTHROPIC_API_KEY
+   * + actually exercises the agent; CI / scripted runs that just
+   * want a placeholder file don't want an LLM call.
+   */
   useLlm: boolean;
+  /** Anthropic model (LLM mode only). Default sonnet — single-shot
+   *  regression test emission shouldn't need Opus. */
+  model: string;
 }
 
 export function parseRecipeRegressionArgs(argv: string[]): RecipeRegressionArgs {
@@ -41,6 +53,7 @@ export function parseRecipeRegressionArgs(argv: string[]): RecipeRegressionArgs 
     repoRoot: process.cwd(),
     dryRun: false,
     useLlm: false,
+    model: "claude-sonnet-4-6",
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -55,6 +68,9 @@ export function parseRecipeRegressionArgs(argv: string[]): RecipeRegressionArgs 
       args.dryRun = true;
     } else if (arg === "--llm") {
       args.useLlm = true;
+    } else if (arg === "--model" && next) {
+      args.model = next;
+      i++;
     }
   }
   return args;
@@ -78,27 +94,65 @@ export async function recipeRegression(
     console.error("slowcook recipe --regression: --bug <id> is required");
     process.exit(64);
   }
-  if (args.useLlm) {
-    console.error(
-      "slowcook recipe --regression --llm: alpha.3b not yet shipped; falling back to stub emitter."
-    );
-  }
 
   const profile = loadBugProfile(args.repoRoot, args.bugId);
-  const file = renderRegressionStub(profile, cliVersion);
+  const slug = slugFromTitle(profile.title);
+  const relPath = `tests/regression/${profile.bug_id}-${slug}.test.ts`;
+
+  let contents: string;
+  if (args.useLlm) {
+    const apiKey = process.env["ANTHROPIC_API_KEY"];
+    if (!apiKey) {
+      console.error(
+        "slowcook recipe --regression --llm: ANTHROPIC_API_KEY required (or omit --llm for the stub emitter)"
+      );
+      process.exit(78);
+    }
+    console.error(
+      `slowcook recipe --regression (${cliVersion}) — LLM mode (model ${args.model}) for ${profile.bug_id}.`
+    );
+    const result = await runRegressionRecipe({
+      repoRoot: args.repoRoot,
+      anthropicApiKey: apiKey,
+      model: args.model,
+      bugProfile: profile,
+      cliVersion,
+    });
+    console.error(
+      `Agent done: ${result.rounds} round(s), $${result.spendUsd.toFixed(4)} spent.`
+    );
+    if (!result.emitted) {
+      console.error(
+        `slowcook recipe --regression: agent halted. ${result.haltReason ?? "(no reason)"}`
+      );
+      process.exit(1);
+    }
+    contents = result.testContents ?? "";
+  } else {
+    const file = renderRegressionStub(profile, cliVersion);
+    contents = file.contents;
+  }
 
   if (args.dryRun) {
-    console.log(file.contents);
-    console.error(`\n(dry-run: would write ${file.path})`);
+    console.log(contents);
+    console.error(`\n(dry-run: would write ${relPath})`);
     return;
   }
 
-  const fullPath = join(args.repoRoot, file.path);
+  const fullPath = join(args.repoRoot, relPath);
   mkdirSync(join(args.repoRoot, "tests/regression"), { recursive: true });
-  writeFileSync(fullPath, file.contents, "utf8");
+  writeFileSync(fullPath, contents, "utf8");
   console.error(
-    `Wrote ${file.path} (alpha.3a stub — uses expect.fail; sift / alpha.3b will replace with real assertions).`
+    `Wrote ${relPath}${args.useLlm ? " (LLM-emitted)" : " (alpha.3a stub — sift will replace expect.fail bodies)"}.`
   );
+}
+
+function slugFromTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 }
 
 export function loadBugProfile(repoRoot: string, bugId: string): BugProfile {

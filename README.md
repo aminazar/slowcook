@@ -7,7 +7,7 @@
 
 ## Status
 
-**0.13.0 in flight — bug-flow + chef orchestrator + `testgen` → `recipe` rename.** Slowcook runs two parallel pipelines now:
+**0.13.0 — bug-flow + chef orchestrator + `testgen` → `recipe` rename. Cut 2026-04-25.** Slowcook now runs two parallel pipelines:
 
 ```
 Story flow:  refine        →  recipe                 →  brew
@@ -64,7 +64,7 @@ The version timeline tells the story of how slowcook went from "brew exists" to 
 - **0.12.7–0.12.12 — Phase 2 brownfield-retrieval.** Code-map carries `line` + `callers` per symbol (2A); per-target slice every iter (2B); `.brewing/patterns/` selective loading (2C). Foundation for adopting slowcook on existing codebases.
 - **0.12.9 + 0.12.10 — testgen prevention checks.** Page-link fetch-URL static test (every `fetch('/api/...')` resolves to a real route file) + column-presence test (every `.from(t).select(c)` exists in migrations). Both catch real-world failure classes that slipped through tier-1 mocks.
 - **0.12.13 + forge 0.9.8 — cost-marker fixes.** `slowcook · shipped` rollup posts a fixed-width "restaurant bill" with refine + recipe + brew + investigate + sift line items. Two underlying bugs fixed: testgen workflow template was missing `issues:write`, brew's halt comment was fire-and-forget (`.catch(() => {})` without await — process exited before the network round-trip).
-- **0.13.0 (in progress) — bug-flow + chef + recipe rename.** New parallel pipeline for bugs (`investigate → recipe --regression → sift`); `chef` orchestrator for PR-failure recovery; `testgen` renamed to `recipe` for kitchen-metaphor consistency. α.1 (alias), α.2/2b (investigate scaffold + agent), α.3 (recipe --regression stub), α.4 (sift), α.5a (investigate PR opening + auto-trigger), α.5b (sift PR opening + workflow) shipped to git. Final cut after α.5c (chef) + end-to-end validation.
+- **0.13.0 — bug-flow + chef + recipe rename (cut 2026-04-25).** New parallel pipeline for bugs (`investigate → recipe --regression → sift`); `chef` orchestrator for PR-failure recovery; `testgen` renamed to `recipe` for kitchen-metaphor consistency. Six alphas plus α.3b (LLM-backed regression test emitter) shipped to git; final cut after 345 green / 26 files.
 
 ## Getting started
 
