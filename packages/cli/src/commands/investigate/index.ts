@@ -15,17 +15,23 @@
 
 import { mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { execSync } from "node:child_process";
 import {
   validateBugProfile,
   type BugProfile,
   BUG_PROFILE_SCHEMA_VERSION,
 } from "./schema.js";
+import { runInvestigation } from "./agent.js";
 
 interface InvestigateArgs {
   issueNumber: number;
   repoRoot: string;
   /** Dry-run: print the would-be profile to stdout, don't write files / open PR. */
   dryRun: boolean;
+  /** Skip the LLM agent + emit a stub profile (alpha.2a behaviour, kept for testing). */
+  stub: boolean;
+  /** LLM model to use. Default opus-4-7 — investigate is one-shot per bug. */
+  model: string;
 }
 
 function parseArgs(argv: string[]): InvestigateArgs {
@@ -33,6 +39,8 @@ function parseArgs(argv: string[]): InvestigateArgs {
     issueNumber: 0,
     repoRoot: process.cwd(),
     dryRun: false,
+    stub: false,
+    model: "claude-opus-4-7",
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -45,6 +53,11 @@ function parseArgs(argv: string[]): InvestigateArgs {
       i++;
     } else if (arg === "--dry-run") {
       args.dryRun = true;
+    } else if (arg === "--stub") {
+      args.stub = true;
+    } else if (arg === "--model" && next) {
+      args.model = next;
+      i++;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -58,20 +71,35 @@ function printHelp(): void {
 slowcook investigate — diagnose a bug from a GitHub issue and emit a bug-profile.
 
 Usage:
-  slowcook investigate --issue <number> [--cwd <path>] [--dry-run]
+  slowcook investigate --issue <number> [--cwd <path>] [--model <id>] [--dry-run] [--stub]
 
-Status: alpha.2a — scaffold only. Real agent integration in alpha.2b.
+Status: alpha.2b — real LLM agent integration. PR opening (auto-branch
++ push + PR open) lands in alpha.2c. Today: writes the bug-profile to
+.brewing/bug-profiles/B-<n>.yaml.
 
-What it WILL do (alpha.2b):
-  1. Fetch issue #<number> body + prior comments via gh
-  2. Run an LLM agent loop with read-only code tools
-  3. Emit a bug-profile.yaml (schema_version ${BUG_PROFILE_SCHEMA_VERSION})
-  4. Open a PR with the profile under .brewing/bug-profiles/B-<n>.yaml
+What it does:
+  1. Fetches issue #<number> body + prior comments via gh
+  2. Runs an LLM agent loop with read-only code tools
+     (read_file, outline_file, list_directory, find_references,
+      find_definition, grep)
+  3. Validates the agent's <bug_profile> output against the schema
+     (schema_version ${BUG_PROFILE_SCHEMA_VERSION})
+  4. Writes .brewing/bug-profiles/B-<n>.yaml
 
-Today (alpha.2a):
-  Prints "not yet implemented" + a stub bug-profile shape + exits 64.
-  This intentional non-implementation prevents accidental workflow
-  wiring from running an empty agent in production.
+Flags:
+  --issue <n>     GitHub issue number (required).
+  --cwd <path>    Repo root (default: cwd).
+  --model <id>    LLM model. Default: claude-opus-4-7.
+  --dry-run       Print profile + agent stats, don't write to disk.
+  --stub          Emit a stub profile without calling the LLM (alpha.2a
+                  behaviour; useful for testing the file layout).
+
+Environment:
+  ANTHROPIC_API_KEY  Required unless --stub. The agent makes Anthropic
+                     API calls; cost varies by model + bug complexity
+                     ($0.05–$0.50 typical for opus, $0.01–$0.10 for sonnet).
+  GITHUB_TOKEN       Required to fetch the issue body via gh CLI.
+                     Falls back to gh's auth if unset.
 `);
 }
 
@@ -140,43 +168,138 @@ export async function investigate(
     process.exit(64);
   }
 
-  console.error(
-    `slowcook investigate (${cliVersion}) — alpha.2a scaffold. Real agent integration in alpha.2b.`
-  );
-
-  // Build a stub profile so downstream consumers can exercise the
-  // schema + file-system layout while the agent is still being built.
   const bugId = pickNextBugId(args.repoRoot);
-  const profile = buildStubProfile({
-    issueNumber: args.issueNumber,
-    issueTitle: `(issue #${args.issueNumber})`,
+  const now = new Date();
+
+  // ---- Stub path (alpha.2a-style; kept for testing without API key) ----
+  if (args.stub) {
+    console.error(
+      `slowcook investigate (${cliVersion}) — --stub mode. No LLM call; emitting placeholder profile.`
+    );
+    const profile = buildStubProfile({
+      issueNumber: args.issueNumber,
+      issueTitle: `(issue #${args.issueNumber})`,
+      bugId,
+      cliVersion,
+      now,
+    });
+    return finaliseProfile(profile, args, bugId);
+  }
+
+  // ---- Real agent path (alpha.2b) ----
+  const apiKey = process.env["ANTHROPIC_API_KEY"];
+  if (!apiKey) {
+    console.error(
+      "slowcook investigate: ANTHROPIC_API_KEY is required (or use --stub for placeholder)"
+    );
+    process.exit(78);
+  }
+
+  console.error(
+    `slowcook investigate (${cliVersion}) — issue #${args.issueNumber}, model ${args.model}, bug-id ${bugId}.`
+  );
+  console.error(`Fetching issue from GitHub…`);
+  const issue = fetchIssueViaGh(args.issueNumber, args.repoRoot);
+
+  console.error(`Running investigation agent (read-only tools, max 12 rounds)…`);
+  const result = await runInvestigation({
+    repoRoot: args.repoRoot,
+    anthropicApiKey: apiKey,
+    model: args.model,
     bugId,
     cliVersion,
-    now: new Date(),
+    issue,
+    now: () => now,
   });
 
+  console.error(
+    `Agent done: ${result.rounds} round(s), $${result.spendUsd.toFixed(4)} spent${result.halted ? ` (HALTED: ${result.haltReason})` : ""}.`
+  );
+
+  return finaliseProfile(result.profile, args, bugId);
+}
+
+function finaliseProfile(
+  profile: BugProfile,
+  args: InvestigateArgs,
+  bugId: string
+): void {
   const validation = validateBugProfile(profile);
   if (!validation.ok) {
-    console.error(`slowcook investigate: stub profile failed self-validation:`);
+    console.error(`slowcook investigate: profile failed validation:`);
     for (const e of validation.errors) console.error(`  - ${e}`);
     process.exit(70);
   }
 
   if (args.dryRun) {
-    console.log(JSON.stringify(profile, null, 2));
-    console.error("\n(dry-run: not writing files, not opening PR)");
+    console.log(renderProfileAsYaml(validation.profile));
+    console.error("\n(dry-run: not writing to disk)");
     process.exit(0);
   }
 
-  // alpha.2a: write the stub to disk so the next-id picker advances
-  // and consumers can see the file layout. Real PR opening lands in
-  // alpha.2b alongside the LLM agent.
   const outDir = join(args.repoRoot, ".brewing/bug-profiles");
   mkdirSync(outDir, { recursive: true });
   const outPath = join(outDir, `${bugId}.yaml`);
-  writeFileSync(outPath, renderProfileAsYaml(profile), "utf8");
-  console.error(`Wrote ${outPath} (alpha.2a stub).`);
-  console.error("Real agent + PR opening: alpha.2b.");
+  writeFileSync(outPath, renderProfileAsYaml(validation.profile), "utf8");
+  console.error(`Wrote ${outPath}.`);
+  console.error(
+    `Next: review the profile, then 'slowcook recipe --regression --bug ${bugId}' (alpha.3) to emit the regression test.`
+  );
+}
+
+interface IssuePayload {
+  number: number;
+  title: string;
+  body: string;
+  priorComments: string[];
+}
+
+/**
+ * Fetch issue body + prior comments via the gh CLI. We invoke gh
+ * rather than the REST API directly so the existing GITHUB_TOKEN /
+ * gh-auth flow Just Works in CI + on dev machines.
+ *
+ * Falls back to throwing on failure — investigate without an issue
+ * body has nothing to work with.
+ */
+function fetchIssueViaGh(
+  issueNumber: number,
+  repoRoot: string
+): IssuePayload {
+  let payload: {
+    title: string;
+    body: string;
+    comments: Array<{ author: { login: string }; body: string }>;
+  };
+  try {
+    const json = execSync(
+      `gh issue view ${issueNumber} --json title,body,comments`,
+      { cwd: repoRoot, encoding: "utf8", maxBuffer: 1024 * 1024 }
+    );
+    payload = JSON.parse(json);
+  } catch (e) {
+    throw new Error(
+      `gh issue view ${issueNumber} failed: ${(e as Error).message}. ` +
+        `Make sure GITHUB_TOKEN is set or 'gh auth status' is healthy.`
+    );
+  }
+  const priorComments = (payload.comments ?? [])
+    .filter(
+      (c) =>
+        // Drop slowcook-bot's own audit-trail messages — they're noise
+        // for an LLM trying to read the *human* conversation.
+        !c.body.startsWith("### slowcook ·") &&
+        c.author.login !== "github-actions" &&
+        c.author.login !== "slowcook-refine[bot]" &&
+        c.author.login !== "slowcook-brew[bot]"
+    )
+    .map((c) => `(${c.author.login}) ${c.body}`);
+  return {
+    number: issueNumber,
+    title: payload.title,
+    body: payload.body,
+    priorComments,
+  };
 }
 
 /**
