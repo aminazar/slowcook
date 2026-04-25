@@ -83,6 +83,13 @@ Exit codes:
 `);
 }
 
+function centre(text: string, width: number): string {
+  if (text.length >= width) return text;
+  const totalPad = width - text.length;
+  const left = Math.floor(totalPad / 2);
+  return " ".repeat(left) + text + " ".repeat(totalPad - left);
+}
+
 function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
   try {
     const url = execSync("git remote get-url origin", {
@@ -189,17 +196,33 @@ export async function onBrewMerged(argv: string[]): Promise<void> {
         byAgent.set(m.agent, acc);
       }
       const totalUsd = [...byAgent.values()].reduce((a, b) => a + b.usd, 0);
-      const order = ["refine", "testgen", "brew"];
+      // 0.12.13+ — restaurant-bill rendering. Wrapped in a code block so
+      // GitHub renders it in a fixed-width font; columns align.
+      // Order respects the pipeline flow (refine → testgen/recipe →
+      // brew/sift). Bug-flow agents (investigate, sift) included so
+      // future bugs render with the same template.
+      const order = ["refine", "investigate", "testgen", "recipe", "brew", "sift"];
+      const lineWidth = 38;
       const lines: string[] = [];
-      lines.push("**Pipeline cost:**");
+      const sep = "─".repeat(lineWidth);
+      lines.push(sep);
+      lines.push(centre("SLOWCOOK · PIPELINE BILL", lineWidth));
+      lines.push(sep);
       for (const agent of order) {
         const acc = byAgent.get(agent);
         if (!acc) continue;
-        const roundsNote = acc.n > 1 ? ` (${acc.n} run${acc.n === 1 ? "" : "s"})` : "";
-        lines.push(`- ${agent}${roundsNote}: $${acc.usd.toFixed(4)}`);
+        const left = ` ${agent.padEnd(12)}× ${acc.n}`;
+        const right = `$${acc.usd.toFixed(4)} `;
+        lines.push(left + " ".repeat(Math.max(1, lineWidth - left.length - right.length)) + right);
       }
-      lines.push(`- **Total: $${totalUsd.toFixed(4)}**`);
-      costSummaryMd = "\n\n" + lines.join("\n") + "\n";
+      lines.push(sep);
+      const totalLeft = " TOTAL";
+      const totalRight = `$${totalUsd.toFixed(4)} `;
+      lines.push(
+        totalLeft + " ".repeat(Math.max(1, lineWidth - totalLeft.length - totalRight.length)) + totalRight
+      );
+      lines.push(sep);
+      costSummaryMd = "\n\n```\n" + lines.join("\n") + "\n```\n";
     }
   } catch (e) {
     console.log(

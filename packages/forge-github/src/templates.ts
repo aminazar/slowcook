@@ -266,6 +266,11 @@ jobs:
   testgen:
     runs-on: ubuntu-latest
     permissions:
+      # 0.12.13+ — issues:write so testgen can post the audit-trail
+      # comment + cost marker on the spec's source_issue. Without it,
+      # the comment POST returns 403 and the on-brew-merged rollup
+      # silently undercounts pipeline cost (testgen contribution lost).
+      issues: write
       contents: write
       pull-requests: write
     steps:

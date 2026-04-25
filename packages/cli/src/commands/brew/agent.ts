@@ -2136,14 +2136,32 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
     }
   }
 
-  // Post comment to the source issue if present
+  // Post comment to the source issue if present.
+  //
+  // 0.12.13+ — this MUST be awaited. Previously fire-and-forget, the
+  // process exited before the network round-trip completed, so the
+  // halt report (containing the cost marker) never landed on the
+  // issue and on-brew-merged's pipeline-cost rollup silently lost
+  // brew's contribution. Symptom: rewo issue #124 / story-013 brew
+  // halted with TRANSITIVE_REGRESSION, opened PR #134, but no brew
+  // marker appeared on the source issue → "shipped" comment listed
+  // only refine cost.
   const sourceIssue = ctx.spec.source_issue?.match(/#?(\d+)/)?.[1];
   if (sourceIssue) {
-    ctx.forge
-      .createIssueComment(parseInt(sourceIssue, 10), haltReportToMarkdown(report))
-      .catch(() => {
-        /* best effort */
-      });
+    try {
+      await ctx.forge.createIssueComment(
+        parseInt(sourceIssue, 10),
+        haltReportToMarkdown(report)
+      );
+    } catch (e) {
+      // Best-effort but logged (was silent before). If the comment
+      // failed, the operator can still find the halt details in
+      // .brewing/halts/.
+      appendRunLog(
+        ctx,
+        `WARN  halt comment post failed: ${(e as Error).message.slice(0, 200)}`
+      );
+    }
   }
 
   return { kind: "halted", report };
