@@ -351,6 +351,10 @@ export function gitignoreSection(): string {
 .brewing/code-map.json
 .brewing/code-map.md
 .brewing/code-map.target.md
+# 0.13.5+ — brownfield extracts (schema.mmd, tokens.md). Same
+# rationale: regenerated each refine/investigate workflow run via
+# \`slowcook extract\`. Live as derived state, not in source control.
+.brewing/diagrams/
 ${SLOWCOOK_GITIGNORE_MARKER_END}
 `;
 }
