@@ -7,6 +7,7 @@ import {
   readProvenance,
   writeProvenance,
   recordBrewProvenance,
+  renderPriorContextBlock,
   PROVENANCE_PATH,
   PROVENANCE_SCHEMA_VERSION,
   type ProvenanceIndex,
@@ -243,5 +244,95 @@ describe("writeProvenance + recordBrewProvenance", () => {
       "story-006",
     ]);
     expect(written.by_file["src/lib/y.ts"]?.first_added_by).toBe("story-006");
+  });
+});
+
+describe("renderPriorContextBlock (0.12.0)", () => {
+  function build(entries: Array<[string, Partial<typeof baseEntry> & { stories: string[]; halts?: number; regressions?: number; pr?: string | null }]>): ProvenanceIndex {
+    const idx: ProvenanceIndex = { schema_version: 1, by_file: {}, by_symbol: {}, by_route: {} };
+    for (const [file, e] of entries) {
+      idx.by_file[file] = {
+        first_added_by: e.stories[0]!,
+        modified_by: e.stories,
+        last_brew: e.stories[e.stories.length - 1]!,
+        last_pr: e.pr ?? null,
+        last_modified: "2026-04-25T00:00:00Z",
+        halt_count: e.halts ?? 0,
+        regression_count: e.regressions ?? 0,
+      };
+    }
+    return idx;
+  }
+
+  it("returns empty string when no manifest files have prior history", () => {
+    const idx = build([
+      ["src/other/x.ts", { stories: ["story-001"] }],
+    ]);
+    expect(renderPriorContextBlock(idx, ["src/lib/y.ts"], "story-007")).toBe("");
+  });
+
+  it("skips entries that only mention the current story", () => {
+    const idx = build([
+      ["src/components/x.tsx", { stories: ["story-007"] }],
+    ]);
+    expect(
+      renderPriorContextBlock(idx, ["src/components/x.tsx"], "story-007")
+    ).toBe("");
+  });
+
+  it("surfaces prior stories that touched the same file", () => {
+    const idx = build([
+      ["src/components/x.tsx", { stories: ["story-005", "story-007"], pr: "https://x/y/pull/42" }],
+    ]);
+    const out = renderPriorContextBlock(
+      idx,
+      ["src/components/x.tsx"],
+      "story-007"
+    );
+    expect(out).toContain("Prior brew history");
+    expect(out).toContain("src/components/x.tsx");
+    expect(out).toContain("story-005");
+    expect(out).toContain("story-007");
+    expect(out).toContain("https://x/y/pull/42");
+  });
+
+  it("ranks regression-heavy files first", () => {
+    const idx = build([
+      ["src/clean.ts", { stories: ["story-001"] }],
+      ["src/risky.ts", { stories: ["story-002"], regressions: 3 }],
+    ]);
+    const out = renderPriorContextBlock(
+      idx,
+      ["src/clean.ts", "src/risky.ts"],
+      "story-007"
+    );
+    const cleanIdx = out.indexOf("src/clean.ts");
+    const riskyIdx = out.indexOf("src/risky.ts");
+    expect(riskyIdx).toBeGreaterThan(0);
+    expect(riskyIdx).toBeLessThan(cleanIdx);
+  });
+
+  it("includes adjacent files in the same directory", () => {
+    const idx = build([
+      ["src/components/sibling.tsx", { stories: ["story-005"] }],
+    ]);
+    const out = renderPriorContextBlock(
+      idx,
+      ["src/components/x.tsx"], // x.tsx isn't in idx but sibling.tsx is
+      "story-007"
+    );
+    expect(out).toContain("src/components/sibling.tsx");
+  });
+
+  it("respects maxFiles cap", () => {
+    const entries: Array<[string, { stories: string[] }]> = [];
+    for (let i = 0; i < 15; i++) {
+      entries.push([`src/components/f${i}.tsx`, { stories: ["story-001"] }]);
+    }
+    const idx = build(entries);
+    const manifest = entries.map(([f]) => f);
+    const out = renderPriorContextBlock(idx, manifest, "story-007", { maxFiles: 5 });
+    const lineCount = (out.match(/^- `/gm) ?? []).length;
+    expect(lineCount).toBe(5);
   });
 });

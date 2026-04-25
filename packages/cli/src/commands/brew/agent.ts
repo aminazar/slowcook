@@ -23,8 +23,14 @@ import {
   formatLintIssues,
   type LintResult,
 } from "@slowcook-ai/stack-ts";
-import { recordBrewProvenance } from "./provenance.js";
+import { recordBrewProvenance, readProvenance, renderPriorContextBlock } from "./provenance.js";
 import { sliceSpecForTarget, renderSpecSlice } from "./spec-slice.js";
+import {
+  findReferences,
+  findImplementations,
+  findDefinition,
+  renderReferences,
+} from "./retrieval.js";
 import { readSpec } from "../refine/spec-yaml.js";
 import {
   BREW_SYSTEM,
@@ -185,6 +191,25 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   // brew-completion full-suite gate catches transitive regressions
   // in other stories before we open the PR.
   const storyTestFiles = deriveStoryTestFiles(manifest.tests);
+
+  // 0.12.0+ — load cross-brew provenance. Build a prior-context
+  // block referencing files this brew is likely to touch (manifest
+  // files + their directory neighbours). Empty string when there's
+  // no history (first brew on the project, or no overlap with prior
+  // brews). Computed once per brew run; injected into the cached
+  // prefix of every iter's prompt — same data, free re-cache.
+  const provenanceIndex = readProvenance(ctx.repoRoot);
+  const priorContextBlock = renderPriorContextBlock(
+    provenanceIndex,
+    storyTestFiles,
+    `story-${ctx.storyId}`
+  );
+  if (priorContextBlock) {
+    appendRunLog(
+      ctx,
+      `PRIOR_CONTEXT  files=${(priorContextBlock.match(/^- `/gm) ?? []).length}`
+    );
+  }
 
   // Baseline: run scoped to the story's tests so the iter loop's
   // greenSet/redSet starts from the same scope it will track. Without
@@ -382,6 +407,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       priorAttempts,
       spendUsd,
       lintIssues: lintIssuesForNextIter,
+      priorContextBlock,
     });
     spendUsd += turnResult.spendDelta;
 
@@ -904,6 +930,8 @@ async function runTurn(
     spendUsd: number;
     /** 0.11.13+ — formatted lint/typecheck issues from the prior iter's edits. */
     lintIssues?: string;
+    /** 0.12.0+ — markdown prior-brew-history block, derived once per brew run. */
+    priorContextBlock?: string;
   }
 ): Promise<TurnResult> {
   // 0.11.16+ — bounded-attention spec slicing. Replace the full spec
@@ -947,6 +975,7 @@ async function runTurn(
     target_failure_message: args.targetFailureMessage,
     other_failure_messages: args.otherFailureMessages,
     lint_issues: args.lintIssues,
+    prior_context_block: args.priorContextBlock,
   });
   // Backwards-compat: turnPrompt() still works for any non-brew caller
   // that hasn't migrated; quiet the lint that flags the unused import.
@@ -1125,6 +1154,34 @@ function handleToolUse(
         const path = String(input["path"] ?? "");
         const result = findHandler(ctx.repoRoot, method, path);
         return { content: JSON.stringify(result, null, 2), is_error: false };
+      }
+      // 0.12.0+ — symbol-aware retrieval (Phase 1 of bounded attention).
+      // Backed by ts-morph syntax tree (no type-checking — fast, ~95%
+      // accurate, false positives recoverable). Mandatory pre-write
+      // discovery in BREW_SYSTEM tells the agent to call these BEFORE
+      // writing any new exported symbol so duplications get caught.
+      case "find_references": {
+        const symbol = String(input["symbol"] ?? "").trim();
+        const excludeDefinitions = Boolean(input["exclude_definitions"] ?? false);
+        if (!symbol) return { content: "symbol is required", is_error: true };
+        const refs = findReferences(ctx.repoRoot, symbol, { excludeDefinitions });
+        return { content: renderReferences(refs), is_error: false };
+      }
+      case "find_implementations": {
+        const name = String(input["interface_or_base"] ?? "").trim();
+        if (!name) return { content: "interface_or_base is required", is_error: true };
+        const refs = findImplementations(ctx.repoRoot, name);
+        return { content: renderReferences(refs), is_error: false };
+      }
+      case "find_definition": {
+        const symbol = String(input["symbol"] ?? "").trim();
+        if (!symbol) return { content: "symbol is required", is_error: true };
+        const def = findDefinition(ctx.repoRoot, symbol);
+        if (!def) return { content: `(no declaration found for ${symbol})`, is_error: false };
+        return {
+          content: `${def.kind} | ${def.file}:${def.line}:${def.column} | ${def.context}`,
+          is_error: false,
+        };
       }
       case "list_directory": {
         const p = String(input["path"] ?? "");
@@ -1669,6 +1726,11 @@ function summarizeToolInput(tool: {
     case "write_file":
     case "list_directory":
       return pick(["path"]);
+    case "find_references":
+    case "find_definition":
+      return pick(["symbol"]);
+    case "find_implementations":
+      return pick(["interface_or_base"]);
     case "justify_diff_overflow":
       return pick(["reason_category"]);
     default:

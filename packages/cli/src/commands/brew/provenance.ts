@@ -220,3 +220,83 @@ export function recordBrewProvenance(
   const updated = applyBrewEntry(current, entry);
   writeProvenance(repoRoot, updated);
 }
+
+/**
+ * 0.12.0+ — render a "prior brew history" markdown block for files
+ * the current brew is touching. Returns empty string when there's
+ * no history to surface.
+ *
+ * Inputs:
+ *   - index: the loaded provenance.json
+ *   - manifestFiles: file paths from the current story's manifest
+ *     (i.e., the files brew's tests are likely to exercise; loaded by
+ *     deriveStoryTestFiles or similar at the brew layer)
+ *   - currentStoryId: skip entries that only mention the current story
+ *     (no novel context — agent already knows about its own brew).
+ *
+ * The block is small by design: bounded attention is the point. We
+ * include hot-spot files only (touched in ≥2 brews) plus files with
+ * non-zero halt or regression counts.
+ */
+export function renderPriorContextBlock(
+  index: ProvenanceIndex,
+  manifestFiles: string[],
+  currentStoryId: string,
+  options: { maxFiles?: number } = {}
+): string {
+  const max = options.maxFiles ?? 8;
+
+  const candidates: Array<{ file: string; entry: FileProvenance }> = [];
+  for (const f of manifestFiles) {
+    const entry = index.by_file[f];
+    if (!entry) continue;
+    // Skip entries that only mention the current story.
+    const others = entry.modified_by.filter((s) => s !== currentStoryId);
+    if (others.length === 0) continue;
+    candidates.push({ file: f, entry });
+  }
+  // Also surface files in the same directory as manifest files. Cheap
+  // proxy for "code adjacent to what the agent will touch."
+  const adjacentSeen = new Set(candidates.map((c) => c.file));
+  const dirs = new Set(manifestFiles.map((f) => f.split("/").slice(0, -1).join("/")));
+  for (const [f, entry] of Object.entries(index.by_file)) {
+    if (adjacentSeen.has(f)) continue;
+    const dir = f.split("/").slice(0, -1).join("/");
+    if (!dirs.has(dir)) continue;
+    const others = entry.modified_by.filter((s) => s !== currentStoryId);
+    if (others.length === 0) continue;
+    candidates.push({ file: f, entry });
+  }
+
+  // Rank: regression-heavy first, then hot-spot, then recent.
+  candidates.sort((a, b) => {
+    const ra = a.entry.regression_count + a.entry.halt_count * 2;
+    const rb = b.entry.regression_count + b.entry.halt_count * 2;
+    if (rb !== ra) return rb - ra;
+    if (b.entry.modified_by.length !== a.entry.modified_by.length) {
+      return b.entry.modified_by.length - a.entry.modified_by.length;
+    }
+    return b.entry.last_modified.localeCompare(a.entry.last_modified);
+  });
+
+  const top = candidates.slice(0, max);
+  if (top.length === 0) return "";
+
+  const lines: string[] = [];
+  lines.push("### Prior brew history (this surface area)");
+  lines.push("");
+  for (const { file, entry } of top) {
+    const stories = entry.modified_by.join(", ");
+    const flags: string[] = [];
+    if (entry.halt_count > 0) flags.push(`${entry.halt_count} halt(s)`);
+    if (entry.regression_count > 0) flags.push(`${entry.regression_count} regression(s)`);
+    const flagSuffix = flags.length > 0 ? ` — ${flags.join(", ")}` : "";
+    const prSuffix = entry.last_pr ? ` — last PR: ${entry.last_pr}` : "";
+    lines.push(`- \`${file}\` — ${stories}${flagSuffix}${prSuffix}`);
+  }
+  lines.push("");
+  lines.push(
+    "Read prior PRs before duplicating logic. If a previous brew touched a file you're about to edit, the existing structure is the right starting point — extend it, don't bypass it."
+  );
+  return lines.join("\n");
+}

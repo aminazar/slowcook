@@ -58,6 +58,45 @@ Then, in order:
 
 A human doesn't read every file in a package to fix one test; neither should you.
 
+## Mandatory pre-write discovery (0.12.0+)
+
+Before writing ANY new exported symbol — function, component, type,
+class, route handler — you MUST verify nothing similar already exists.
+This prevents a recurring failure mode: brew duplicates a helper that
+already lives elsewhere in the codebase, the duplicate passes the
+target test, and the duplication ships unnoticed. Same problem at scale
+in brownfield projects.
+
+**Required tool sequence:**
+
+1. **\`find_references\`** on the symbol name you're about to introduce
+   (or the most-likely existing equivalent). Examples:
+   - About to write \`getProfileByHandle\`? Call \`find_references({symbol: "getProfileByHandle"})\`
+     AND \`find_references({symbol: "getProfile"})\` (broader concept).
+   - About to write a \`BookmarkItem\` component? Call
+     \`find_references({symbol: "BookmarkItem"})\` AND consider similar
+     concept names.
+2. If \`find_references\` returns matches with kind=\`definition\`, READ
+   that file's outline. Decide:
+   - Can I extend the existing symbol with an extra arg / option?
+     **YES → extend it. Don't create a parallel.**
+   - Is the existing symbol unsuitable for this case (genuinely
+     orthogonal use)? **OK to add a new one. State the reason in your
+     turn rationale so the reviewer can audit the choice.**
+3. **\`grep\`** is acceptable when you're searching for a concept rather
+   than an exact identifier (e.g., "where do we do RLS?"). Always
+   refine to specific symbols via find_references after.
+
+**Rule of thumb:** if the cumulative diff so far has duplication you'd
+consolidate, do it on this iteration's edit while you're already
+touching the file. Don't open a separate refactor turn — write
+cleaner code on the green path.
+
+The reviewer audits your discovery work via the iteration log's
+\`discovery:\` field (slowcook 0.12.0+) and the rationale you write at
+turn end. Silent skips of the discovery requirement turn into
+"why did you write a parallel function?" PR comments later.
+
 ## When you're stuck (same target, 2+ iterations without progress)
 
 **Check the \`Why the target failed last run\` section in every turn prompt FIRST.** The test's \`Received:\` / error message tells you what the assertion actually saw — that's ground truth. Don't spend iterations re-reading your own code looking for a bug you missed when the failure message is right there.
@@ -156,6 +195,55 @@ export const BREW_TOOLS = [
         },
       },
       required: ["method", "path"],
+    },
+  },
+  {
+    name: "find_references",
+    description:
+      "0.12.0+ symbol-aware retrieval. Return every place a named symbol is referenced in src/ (definition + imports + usages). MANDATORY before writing any new exported function/component/type — call this first to verify nothing similar already exists. AST-aware: ignores comments and string literals. Returns lines like `kind | file:line:col | context_line`. `kind` ∈ {definition, reference, import, implements, extends}.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        symbol: {
+          type: "string" as const,
+          description: "The exact identifier name to search for (case-sensitive). E.g. 'getProfileByHandle', 'BookmarksPage', 'ReactionItem'.",
+        },
+        exclude_definitions: {
+          type: "boolean" as const,
+          description: "If true, skip the symbol's own declaration. Useful when you want to know 'is anyone calling this' without seeing the definition itself.",
+        },
+      },
+      required: ["symbol"],
+    },
+  },
+  {
+    name: "find_implementations",
+    description:
+      "0.12.0+ symbol-aware retrieval. Find every class that `implements <interface>` or `extends <class>`, plus every interface that extends another interface, by name. Returns the same shape as find_references, with kind ∈ {implements, extends}. Use when you're about to write a new implementor and want to see how others did it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        interface_or_base: {
+          type: "string" as const,
+          description: "Name of the interface or base class to find implementations/extensions of.",
+        },
+      },
+      required: ["interface_or_base"],
+    },
+  },
+  {
+    name: "find_definition",
+    description:
+      "0.12.0+ symbol-aware retrieval. Jump to the canonical declaration site of a symbol. Returns at most one result (the first declaration found). Faster than find_references when you only need the definition; both use the same AST scan but find_definition stops at the first match.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        symbol: {
+          type: "string" as const,
+          description: "The identifier name whose declaration site you want.",
+        },
+      },
+      required: ["symbol"],
     },
   },
   {
@@ -323,9 +411,16 @@ export function turnPromptParts(args: {
   target_failure_message?: string;
   other_failure_messages?: Array<{ test_id: string; message: string }>;
   lint_issues?: string;
+  /**
+   * 0.12.0+ — pre-rendered markdown describing prior brews' touches
+   * on this surface area. Derived once per brew run from
+   * `.brewing/provenance.json`. Constant across iterations within a
+   * brew, so it lives in the cached prefix.
+   */
+  prior_context_block?: string;
 }): { cachedPrefix: string; dynamicBody: string } {
   // === CACHEABLE PREFIX === (constant across iterations in a single
-  // brew run: spec body + allowed paths)
+  // brew run: spec body + allowed paths + prior brew history)
   const prefix: string[] = [];
   prefix.push("### Spec (the contract)");
   prefix.push("```yaml");
@@ -335,6 +430,13 @@ export function turnPromptParts(args: {
   if (args.allowed_paths.length > 0) {
     prefix.push("### Allowed paths for this story");
     for (const p of args.allowed_paths) prefix.push(`- \`${p}\``);
+    prefix.push("");
+  }
+  // 0.12.0+ — prior brew history. Listed here in the cached prefix
+  // because the data doesn't change per iteration. Empty when the
+  // current brew doesn't overlap with prior brews.
+  if (args.prior_context_block && args.prior_context_block.trim().length > 0) {
+    prefix.push(args.prior_context_block.trim());
     prefix.push("");
   }
   const cachedPrefix = prefix.join("\n");
