@@ -117,39 +117,66 @@ function scoreEntry(entry: string, identifiers: Set<string>): number {
 /**
  * Produce a focused slice of the spec for the given target test.
  *
- * Conservative: when fewer than `minKept` invariants match, returns the
- * full spec (fellBack=true). Always keeps non_goals (small, safety
- * critical to keep visible).
+ * Algorithm (0.11.17+ — top-K ranked):
+ *
+ *   1. Score each invariant + scenario by token overlap with identifiers
+ *      extracted from the target test name.
+ *   2. Sort by score descending.
+ *   3. Keep top `keepInvariants` invariants and top `keepScenarios`
+ *      scenarios (each defaulting to a small fixed number, NOT
+ *      "everything with score > 0"). On focused stories where every
+ *      invariant shares common terms, score>0 is almost always true,
+ *      and slicing fails to narrow — top-K forces aggressive narrowing.
+ *   4. Drop entries with score=0 even if they'd fit in the top-K
+ *      (no relevance ≠ low relevance — exclude entirely).
+ *   5. When fewer than `minKept` invariants have score > 0 AND there
+ *      are more invariants total than we kept, return the FULL spec
+ *      as a safety fallback (the agent doesn't have enough relevant
+ *      context to work from).
+ *
+ * Validated 2026-04-25 on rewo's story-007 manifest: prior `score > 0`
+ * algorithm produced ~97% retention (effectively no slicing) and 50%
+ * fallback rate. Top-K with K=5 reduces retention to ~45% on the
+ * same data while keeping the most-relevant invariants surfaced.
  */
 export function sliceSpecForTarget(
   spec: Spec,
   targetTestId: string,
-  options?: { minKept?: number }
+  options?: {
+    /** Minimum kept invariants before falling back to full spec. */
+    minKept?: number;
+    /** How many top-scored invariants to keep. Default 5. */
+    keepInvariants?: number;
+    /** How many top-scored scenarios to keep. Default 4. */
+    keepScenarios?: number;
+  }
 ): SpecSlice {
   const minKept = options?.minKept ?? 2;
+  const keepInvariants = options?.keepInvariants ?? 5;
+  const keepScenarios = options?.keepScenarios ?? 4;
   const identifiers = extractIdentifiersFromTargetTest(targetTestId);
 
   const invariants = spec.invariants ?? [];
   const scenarios = spec.acceptance_scenarios ?? [];
   const nonGoals = spec.non_goals ?? [];
 
-  // Score each entry; keep entries with score > 0
-  const scoredInv = invariants.map((entry) => ({
-    entry,
-    score: scoreEntry(entry, identifiers),
-  }));
-  const scoredScn = scenarios.map((entry) => ({
-    entry,
-    score: scoreEntry(entry, identifiers),
-  }));
+  // Score each entry, then sort descending. Take the top-K with score>0.
+  const scoredInv = invariants
+    .map((entry, idx) => ({ entry, score: scoreEntry(entry, identifiers), idx }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || a.idx - b.idx); // stable: original order on tie
+  const scoredScn = scenarios
+    .map((entry, idx) => ({ entry, score: scoreEntry(entry, identifiers), idx }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || a.idx - b.idx);
 
-  let keptInv = scoredInv.filter((s) => s.score > 0).map((s) => s.entry);
-  let keptScn = scoredScn.filter((s) => s.score > 0).map((s) => s.entry);
+  let keptInv = scoredInv.slice(0, keepInvariants).map((s) => s.entry);
+  let keptScn = scoredScn.slice(0, keepScenarios).map((s) => s.entry);
 
   // Fallback: if too few invariants matched AND there's room to
-  // expand (we actually narrowed something), return the full spec
-  // rather than starve the agent of context. When kept == total,
-  // slicing didn't narrow anything; no fallback needed.
+  // expand, return the full spec rather than starve the agent of
+  // context. Triggers on completely unrelated test names (no
+  // identifier overlap with any invariant).
   let fellBack = false;
   if (keptInv.length < minKept && keptInv.length < invariants.length) {
     keptInv = invariants;
