@@ -652,10 +652,95 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-testgen.yml", contents: slowcookTestgenWorkflow() },
     { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
     { path: ".github/workflows/slowcook-acceptance.yml", contents: slowcookAcceptanceWorkflow() },
-    // 0.13.0-alpha.5a — bug-flow workflows. investigate fires on issues
-    // labeled `bug`; sift fires when a regression-test PR merges.
+    // 0.13.0-alpha.5 — bug-flow workflows. investigate fires on issues
+    // labeled `bug`; sift fires when a bug-profile PR merges.
     { path: ".github/workflows/slowcook-investigate.yml", contents: slowcookInvestigateWorkflow() },
+    { path: ".github/workflows/slowcook-sift.yml", contents: slowcookSiftWorkflow() },
   ];
+}
+
+/**
+ * 0.13.0-alpha.5b — sift workflow. Fires manually (workflow_dispatch)
+ * for now; auto-trigger on regression-recipe PR merge lands in
+ * alpha.5c alongside chef. Requires the bug profile + regression test
+ * to already be on main.
+ */
+function slowcookSiftWorkflow(): string {
+  return `name: slowcook sift
+
+# 0.13.0-alpha.5b — bug-flow analogue of slowcook-brew. Runs the sift
+# agent: reads a bug-profile + the matching regression test, runs a
+# narrow red→green ratchet bounded by the bug-profile's fix_scope.
+#
+# Manual trigger only today. Auto-trigger on regression-recipe PR
+# merge ships in alpha.5c (chef will own that dispatch).
+
+on:
+  workflow_dispatch:
+    inputs:
+      bug_id:
+        description: "Bug id to sift (B-N or just N)"
+        required: true
+        type: string
+      max_iterations:
+        description: "Max iterations (default 3)"
+        required: false
+        default: "3"
+        type: string
+      budget_usd:
+        description: "Spend cap USD (default 0.5)"
+        required: false
+        default: "0.5"
+        type: string
+      model:
+        description: "LLM model (default sonnet-4-6)"
+        required: false
+        default: "claude-sonnet-4-6"
+        type: string
+
+concurrency:
+  group: slowcook-sift-\${{ github.event.inputs.bug_id }}
+  cancel-in-progress: false
+
+jobs:
+  sift:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
+
+      - name: Configure git identity for agent commits
+        run: |
+          git config user.name  "slowcook-sift[bot]"
+          git config user.email "slowcook-sift@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install consumer deps
+        run: npm ci
+
+      - name: Sift
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+        run: |
+          set -eu
+          npx --yes "$SLOWCOOK_CLI" sift \\
+            --bug "\${{ github.event.inputs.bug_id }}" \\
+            --max-iterations "\${{ github.event.inputs.max_iterations }}" \\
+            --budget-usd "\${{ github.event.inputs.budget_usd }}" \\
+            --model "\${{ github.event.inputs.model }}"
+`;
 }
 
 /**
