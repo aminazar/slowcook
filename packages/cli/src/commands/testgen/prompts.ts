@@ -86,7 +86,16 @@ Which blocks to emit is driven by the mode (from the user message) + the spec. \
    const res = await PATCH(req);
    \`\`\`
 
-6. **Coverage**: one \`it\` per acceptance scenario (preserve Given/When/Then phrasing), one per declared error-response code in \`api_contract\` (401, 403, 404, 409, 422, 429, ...), and one per handler-call-level invariant.
+6. **Coverage (0.11.16+ — minimization rules):**
+
+   - **One \`it\` per acceptance scenario** (preserve Given/When/Then phrasing). Acceptance scenarios are the user-visible contract; each is unique by definition.
+   - **One \`it\` per declared error-response code** in \`api_contract\` (401, 403, 404, 409, 422, 429, ...). Error paths are distinct branches.
+   - **One \`it\` per handler-call-level invariant — and ONLY ONE.** Don't write a positive + negative + edge case for the same invariant; one well-chosen \`it\` is the contract.
+   - **Skip invariants that are PURE TYPE constraints.** Examples: "Props.viewer is \`{ id: string } | null\`", "the response body is \`{ items: T[], next_cursor: string | null }\`". \`tsc --noEmit\` enforces these; brew's 0.11.13 typecheck signal catches violations. Writing a vitest test for them is duplicative work that costs brew an iteration.
+   - **Skip invariants that are PURE LINT rules.** Examples: "no synthetic \`{ id: \"\" }\` literals", "always \`await cookies()\` before \`createClient\`". eslint enforces these via project config; the 0.11.13 lint signal catches violations.
+   - **Default to FEWER tests, not more.** A test exists to contract behavior the agent might otherwise get wrong. If lint, tsc, or another test already contracts that behavior, this test is noise.
+
+   When in doubt about whether a behavior needs a test: ask "would lint or tsc catch the wrong shape here?" If yes, skip the test.
 
 ## Stub-file shape (when emitted)
 
@@ -216,7 +225,7 @@ it("has no axe violations", async () => {
 });
 \`\`\`
 
-### Coverage
+### Coverage (0.11.16+ — minimization rules apply equally to UI tests)
 
 Derive test cases from the spec's \`ui_behavior\` and \`acceptance_scenarios\` that have UI implications:
 
@@ -227,6 +236,13 @@ Derive test cases from the spec's \`ui_behavior\` and \`acceptance_scenarios\` t
 - Error states (component shows the \`handle_taken\` error when API returns 409).
 - Loading states (spinner while availability check in-flight).
 - Routing intent (\`fireEvent.click(cancelButton)\` → \`router.push\` called with expected href).
+
+Same minimization rules as the handler section above:
+
+- **One \`it\` per UI invariant.** Don't write a positive + negative pair when one is enough.
+- **Skip pure prop-shape assertions.** TypeScript types in the \`Props\` interface are enforced by \`tsc --noEmit\`; a vitest test that asserts the component "accepts a string" is duplicative.
+- **Skip pure className-presence assertions** if the project has eslint rules or styling tests covering them.
+- **Keep the axe accessibility test mandatory** — accessibility is a behavior contract, not a type/lint constraint.
 
 ### UI stub shape (when emitted)
 

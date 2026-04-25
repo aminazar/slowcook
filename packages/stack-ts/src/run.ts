@@ -35,6 +35,18 @@ export interface RunOptions {
   maxBuffer?: number;
   /** Inject for tests. Receives cmd + cwd; returns { stdout, stderr, code }. */
   exec?: (cmd: string, cwd: string) => { stdout: string; stderr: string; code: number };
+  /**
+   * 0.11.16+ — when set, append these test file paths to the run
+   * command so vitest only runs the named files. Used by brew's
+   * per-iter loop for bounded-attention scoped runs (run only tests
+   * relevant to the current story / files brew touched). Falls
+   * through to a full-suite run when undefined or empty.
+   *
+   * Path semantics: vitest accepts file paths (relative to cwd) as
+   * positional arguments; matched by glob-substring against
+   * test files.
+   */
+  scopeFiles?: string[];
 }
 
 export function runTests(config: StackConfig, options: RunOptions): RunResult {
@@ -52,9 +64,22 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
     // For `run`, we want vitest's JSON reporter. We append `--reporter=json`
     // to the declared run_command if it's a vitest command and doesn't already
     // specify a reporter. Keep it additive (caller can override in stack.json).
-    const cmd = shouldAppendJsonReporter(suite.run_command)
+    let cmd = shouldAppendJsonReporter(suite.run_command)
       ? `${suite.run_command} --reporter=json`
       : suite.run_command;
+
+    // 0.11.16+ — bounded-attention scoped runs. When the caller passes
+    // scopeFiles, append them to the run command as positional args so
+    // vitest only runs those files. Skipped for non-vitest runners
+    // (Playwright etc.) — they'd need their own filtering syntax.
+    if (
+      options.scopeFiles &&
+      options.scopeFiles.length > 0 &&
+      /\bvitest\b/.test(suite.run_command)
+    ) {
+      const quoted = options.scopeFiles.map((f) => shellQuote(f)).join(" ");
+      cmd = `${cmd} ${quoted}`;
+    }
 
     try {
       const { stdout, stderr, code } = exec(cmd, options.cwd);
@@ -91,6 +116,17 @@ function shouldAppendJsonReporter(cmd: string): boolean {
   if (!/\bvitest\b/.test(cmd)) return false;
   if (/--reporter/.test(cmd)) return false;
   return true;
+}
+
+/**
+ * 0.11.16+ — quote a path for shell append. Conservative: bare-word
+ * paths pass through; anything with whitespace or special chars gets
+ * single-quoted. Test files in slowcook today are all `tests/...`
+ * which are bare-word, so the common case is no quoting.
+ */
+function shellQuote(s: string): string {
+  if (/^[A-Za-z0-9_./-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 function defaultExec(

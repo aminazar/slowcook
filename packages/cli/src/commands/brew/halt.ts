@@ -39,7 +39,11 @@ export type HaltReason =
   | "API_ERROR"
   // 0.7.14 additions: early-halt to preserve budget when agent is stuck.
   | "AGENT_STALLED_NO_EDITS"
-  | "AGENT_SELF_REPORTED_STUCK";
+  | "AGENT_SELF_REPORTED_STUCK"
+  // 0.11.16+: per-iter scoped runs miss transitive regressions in
+  // tests outside the story manifest. Full-suite gate at brew
+  // completion catches them before opening the PR.
+  | "TRANSITIVE_REGRESSION";
 
 export interface IterationDiff {
   iteration: number;
@@ -290,6 +294,19 @@ export function defaultSuggestedActions(
           id: "clarify_spec_or_hand_patch",
           label: "Clarify the spec + add context, or hand-patch",
           description: "If the agent's described mismatch is a genuine spec ambiguity, add detail and re-run. If it's a concrete bug the agent can't see (test assertion vs component output), hand-patch and let brew continue on the remaining red.",
+        },
+      ];
+    case "TRANSITIVE_REGRESSION":
+      return [
+        {
+          id: "read_first_broken_test",
+          label: "Read the first broken test in the halt summary",
+          description: "Brew turned all the story's tests green but the full-suite gate caught regression(s) in tests OUTSIDE the manifest. The agent touched code that other stories' tests cover. Identify which file caused the breakage from the broken test name.",
+        },
+        {
+          id: "hand_patch_or_widen_manifest",
+          label: "Hand-patch the regression OR widen this brew's manifest",
+          description: "Two options: (a) keep brew's existing checkpoints, hand-fix the broken external test, push, retrigger brew on the now-clean baseline. (b) include the broken tests in this story's manifest so the next brew sees them as in-scope.",
         },
       ];
   }

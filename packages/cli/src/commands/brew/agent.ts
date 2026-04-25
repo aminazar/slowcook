@@ -24,6 +24,7 @@ import {
   type LintResult,
 } from "@slowcook-ai/stack-ts";
 import { recordBrewProvenance } from "./provenance.js";
+import { sliceSpecForTarget, renderSpecSlice } from "./spec-slice.js";
 import { readSpec } from "../refine/spec-yaml.js";
 import {
   BREW_SYSTEM,
@@ -179,9 +180,23 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   };
   const expectedTestIds = new Set(manifest.tests.map((t) => t.id));
 
-  // Baseline: run tests once to see starting state
-  console.log("→ baseline test run…");
-  const baseline = runTestSuite(ctx);
+  // 0.11.16+ — derive per-iter test scope from manifest. Per-iter
+  // runs only the story's tests (cheap heuristic); the
+  // brew-completion full-suite gate catches transitive regressions
+  // in other stories before we open the PR.
+  const storyTestFiles = deriveStoryTestFiles(manifest.tests);
+
+  // Baseline: run scoped to the story's tests so the iter loop's
+  // greenSet/redSet starts from the same scope it will track. Without
+  // this, iter 1's "diff vs baseline" would compare scoped iter
+  // results to a full-suite baseline — many tests "go red" in iter 1
+  // just by no longer being scope-included.
+  console.log("→ baseline test run (story-scoped)…");
+  const baseline = runTestSuite(ctx, storyTestFiles);
+  appendRunLog(
+    ctx,
+    `SCOPED_TESTS  story_files=${storyTestFiles.length}`
+  );
   if (!baseline.ran) {
     return haltFor(ctx, {
       reason: "TEST_RUNNER_BROKEN",
@@ -549,8 +564,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       continue;
     }
 
-    // Run tests to see the outcome of this turn
-    const result = runTestSuite(ctx);
+    // Run tests to see the outcome of this turn — scoped to the
+    // story's manifest files (0.11.16+) for fast feedback. Full
+    // suite runs at brew completion as the correctness gate.
+    const result = runTestSuite(ctx, storyTestFiles);
     if (!result.ran) {
       revertToSnapshot(ctx, snapshot);
       iterationLogs.push({
@@ -751,6 +768,41 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   const allStoryGreen =
     [...expectedTestIds].every((id) => greenSet.has(id));
   if (allStoryGreen) {
+    // 0.11.16+ — full-suite correctness gate. Per-iter we ran scoped
+    // tests for speed; before opening a PR we need to confirm we
+    // didn't break anything OUTSIDE the story's manifest. Catches
+    // transitive regressions where brew touched a shared helper
+    // imported by tests in other stories.
+    appendRunLog(ctx, `FINAL_GATE  running full suite to check for transitive regressions…`);
+    const finalRun = runTestSuite(ctx); // no scope = full suite
+    if (!finalRun.ran) {
+      appendRunLog(
+        ctx,
+        `FINAL_GATE_RUNNER_BROKEN  ${finalRun.error ?? "(unknown)"} — proceeding without full-suite verdict`
+      );
+    } else {
+      const finalRed = finalRun.tests.filter((t) => t.status !== "passed");
+      const transitiveBreaks = finalRed.filter((t) => !expectedTestIds.has(t.id));
+      if (transitiveBreaks.length > 0) {
+        appendRunLog(
+          ctx,
+          `FINAL_GATE_REGRESSION  story_green_but_${transitiveBreaks.length}_other_tests_red  first=${transitiveBreaks[0]?.id?.slice(0, 100)}`
+        );
+        // Halt: brew can't ship a PR that breaks unrelated tests.
+        // The operator can rerun with a wider scope or hand-fix.
+        return haltFor(ctx, {
+          reason: "TRANSITIVE_REGRESSION",
+          iterations: iterationLogs.length,
+          checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+          greenCount: greenSet.size,
+          totalCount: expectedTestIds.size,
+          spendUsd,
+          iterationLogs,
+          summary: `Story tests all green, but the full-suite gate found ${transitiveBreaks.length} regression(s) in tests OUTSIDE the story manifest. Brew touched code that other stories' tests cover. First broken: \`${transitiveBreaks[0]?.id?.slice(0, 200)}\`. Hand-investigate or expand the next brew's manifest scope.`,
+        });
+      }
+      appendRunLog(ctx, `FINAL_GATE  pass  full_suite_green=${finalRun.tests.filter((t) => t.status === "passed").length}`);
+    }
     await pushBranch(ctx);
     const checkpointsCount = iterationLogs.filter((l) => l.outcome === "checkpoint").length;
     await openBrewPullRequest(ctx, {
@@ -854,11 +906,25 @@ async function runTurn(
     lintIssues?: string;
   }
 ): Promise<TurnResult> {
-  const specYaml = YAML.stringify(ctx.spec);
+  // 0.11.16+ — bounded-attention spec slicing. Replace the full spec
+  // body with a focused projection of just the invariants + scenarios
+  // relevant to the target test. Falls back to full spec when the
+  // slicer can't confidently narrow it down (e.g., the test's title
+  // doesn't share enough identifiers with any invariant).
+  const slice = sliceSpecForTarget(ctx.spec, args.target);
+  const specYaml = slice.fellBack
+    ? YAML.stringify(ctx.spec)
+    : renderSpecSlice(slice, ctx.spec);
   const targetFile = ctx.spec.story_id
     ? "(see manifest file for target test location)"
     : "(unknown)";
   const targetFilePath = findTargetTestFile(ctx, args.target) ?? targetFile;
+  // Iter-log the slice ratio for telemetry — lets us measure
+  // attention-bound effectiveness across runs.
+  appendRunLog(
+    ctx,
+    `ITER ${args.iteration} SPEC_SLICE  inv=${slice.ratio.invariants.kept}/${slice.ratio.invariants.total} scn=${slice.ratio.scenarios.kept}/${slice.ratio.scenarios.total} fellBack=${slice.fellBack}`
+  );
 
   // 0.11.15+ — split the prompt into a cacheable prefix (spec body +
   // allowed paths, constant across iters) and a dynamic body (per-iter
@@ -1540,8 +1606,37 @@ function appendRunLog(ctx: BrewContext, line: string): void {
 
 /** ------------------------- Runner + parsers ------------------------- */
 
-function runTestSuite(ctx: BrewContext): RunResult {
-  return runTests(ctx.stackConfig, { cwd: ctx.repoRoot });
+function runTestSuite(ctx: BrewContext, scopeFiles?: string[]): RunResult {
+  // 0.11.16+ — bounded-attention scoped runs. When scopeFiles is
+  // provided, vitest only runs those files; per-iter cycle becomes
+  // ~50-70% faster (fewer tests = less wall-clock + less compute).
+  // Caller passes manifest tests for per-iter; passes nothing for
+  // the brew-completion full-suite gate.
+  return runTests(ctx.stackConfig, {
+    cwd: ctx.repoRoot,
+    scopeFiles: scopeFiles && scopeFiles.length > 0 ? scopeFiles : undefined,
+  });
+}
+
+/**
+ * 0.11.16+ — derive the file-scope for per-iter scoped test runs.
+ *
+ * Conservative scope: take every distinct file path from the story's
+ * manifest. This guarantees the agent's own contract tests run, while
+ * skipping every test from other stories. Catch case: when a brew
+ * touches a shared helper, it could break a test in another story —
+ * NOT caught per-iter; caught at the brew-completion full-suite gate.
+ *
+ * Could be expanded later (Phase 2) to also include tests in the
+ * import-closure of files brew touched. For 0.11.16, manifest-only is
+ * the cheap reliable heuristic.
+ */
+function deriveStoryTestFiles(manifestTests: Array<{ id: string; file: string }>): string[] {
+  const files = new Set<string>();
+  for (const t of manifestTests) {
+    if (t.file && t.file.length > 0) files.add(t.file);
+  }
+  return Array.from(files);
 }
 
 /**
