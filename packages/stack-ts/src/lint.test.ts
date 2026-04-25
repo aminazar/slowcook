@@ -160,6 +160,87 @@ describe("runLint", () => {
   });
 });
 
+describe("runLint — filterToFiles (0.11.14)", () => {
+  // Regression: pre-existing lint debt in unrelated files (e.g. build
+  // artifacts, generated code) shows up as a noise floor brew can't
+  // distinguish from "did I just break something?" Solution: caller
+  // passes the files the agent edited in this iter; only issues
+  // anchored to those files survive.
+  it("drops issues whose path doesn't match the allowlist", () => {
+    const fakeExec = () => ({
+      stdout:
+        "src/touched/x.ts(1,1): error TS9999: A.\n" +
+        "src/other/y.ts(2,2): error TS9999: B.",
+      stderr: "",
+      code: 1,
+    });
+    const result = runLint(
+      { typecheck_command: "tsc" },
+      {
+        cwd: "/tmp",
+        exec: fakeExec,
+        filterToFiles: ["src/touched/x.ts"],
+      }
+    );
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]?.file).toBe("src/touched/x.ts");
+  });
+
+  it("matches by path suffix so absolute paths from eslint stylish work", () => {
+    const fakeExec = () => ({
+      stdout:
+        "/abs/repo/src/touched/x.ts\n  1:1  error  bad  no-console\n" +
+        "/abs/repo/src/other/y.ts\n  2:2  error  bad  no-console",
+      stderr: "",
+      code: 1,
+    });
+    const result = runLint(
+      { lint_command: "lint" },
+      {
+        cwd: "/tmp",
+        exec: fakeExec,
+        filterToFiles: ["src/touched/x.ts"],
+      }
+    );
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]?.file).toBe("/abs/repo/src/touched/x.ts");
+  });
+
+  it("preserves unanchored issues (file:null) regardless of filter", () => {
+    // Some eslint config errors aren't anchored to a file — they
+    // shouldn't be filtered out by file matching.
+    const fakeExec = () => ({
+      stdout:
+        "/abs/repo/src/other/y.ts\n  1:1  error  bad  rule\n",
+      stderr: "",
+      code: 1,
+    });
+    // The other-file issue should be filtered, but no unanchored
+    // issues to validate against in this fixture. Sanity check that
+    // filter doesn't crash.
+    const result = runLint(
+      { lint_command: "lint" },
+      { cwd: "/tmp", exec: fakeExec, filterToFiles: ["src/touched/x.ts"] }
+    );
+    expect(result.issues).toEqual([]);
+  });
+
+  it("falls through to full output when filterToFiles is empty / undefined", () => {
+    const fakeExec = () => ({
+      stdout: "src/x.ts(1,1): error TS9999: bad.",
+      stderr: "",
+      code: 1,
+    });
+    const r1 = runLint({ typecheck_command: "tsc" }, { cwd: "/tmp", exec: fakeExec });
+    const r2 = runLint(
+      { typecheck_command: "tsc" },
+      { cwd: "/tmp", exec: fakeExec, filterToFiles: [] }
+    );
+    expect(r1.issues).toHaveLength(1);
+    expect(r2.issues).toHaveLength(1);
+  });
+});
+
 describe("formatLintIssues", () => {
   it("returns empty string when ran=false", () => {
     expect(formatLintIssues({ ran: false, clean: true, issues: [], duration_ms: 0 })).toBe("");

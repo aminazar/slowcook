@@ -664,6 +664,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // Issues fold into the next iteration's prompt as additional reds
     // for the agent to clean up. Skipped when stack.json doesn't define
     // any lint commands (the runner returns ran:false).
+    //
+    // 0.11.14+ — filter the lint result to only issues anchored to
+    // the files this iteration TOUCHED. Pre-existing lint debt in
+    // unrelated files (especially build artifacts) used to swamp the
+    // signal: brew couldn't distinguish "did my edit break anything"
+    // from a constant ~30-error noise floor. With the filter, brew
+    // only reacts to issues its OWN edits caused.
     let lintResult: LintResult = {
       ran: false,
       clean: true,
@@ -671,7 +678,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       duration_ms: 0,
     };
     try {
-      lintResult = runLint(ctx.stackConfig.lint, { cwd: ctx.repoRoot });
+      lintResult = runLint(ctx.stackConfig.lint, {
+        cwd: ctx.repoRoot,
+        filterToFiles: diff.changedPaths,
+      });
     } catch (e) {
       // Don't take the brew down if a lint command misbehaves —
       // surface it in the run log and continue.
@@ -1651,6 +1661,48 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
     ctx,
     `HALT ${args.reason}  iterations=${args.iterations}  checkpoints=${args.checkpoints}  green=${args.greenCount}/${args.totalCount}  spend=$${args.spendUsd.toFixed(2)}  report=${reportPath}`
   );
+
+  // 0.11.14+ — record provenance on halts too. Halted brews still
+  // touched files; recording them gives the next brew on overlapping
+  // surface a richer prior-context block (showing where prior brews
+  // halted vs succeeded). 0.11.13 only recorded on success; 0.11.14
+  // closes that gap. Writes are no-op-safe (try/catch) so a
+  // provenance failure never masks the underlying halt.
+  if (args.iterationLogs && args.iterationLogs.length > 0) {
+    try {
+      const filesTouched = Array.from(
+        new Set(
+          args.iterationLogs
+            .filter((l) => l.outcome === "checkpoint")
+            .flatMap((l) => l.files_touched)
+        )
+      );
+      const regressionCount = args.iterationLogs.filter(
+        (l) => l.outcome === "reverted-regression"
+      ).length;
+      // Only record when at least one checkpoint landed; otherwise
+      // there's nothing useful to remember.
+      if (filesTouched.length > 0) {
+        recordBrewProvenance(ctx.repoRoot, {
+          story_id: `story-${ctx.storyId}`,
+          pr_url: null,
+          completed_at: report.halt_timestamp,
+          files_touched: filesTouched,
+          regression_count: regressionCount,
+          halted: true,
+        });
+        appendRunLog(
+          ctx,
+          `PROVENANCE  halted=true files=${filesTouched.length} regressions=${regressionCount}`
+        );
+      }
+    } catch (e) {
+      appendRunLog(
+        ctx,
+        `PROVENANCE_ERROR  ${(e as Error).message.slice(0, 200)}`
+      );
+    }
+  }
 
   // Copy the rolling run log into the halts/ directory so CI's
   // halt-artifact upload (which is pointed at .brewing/halts/) captures it.

@@ -69,6 +69,20 @@ export interface RunLintOptions {
   exec?: Exec;
   /** Cap on returned issues to avoid prompt bloat. Default 50. */
   maxIssues?: number;
+  /**
+   * 0.11.14+ — when set, only return issues whose file path appears
+   * in this allowlist (after path normalisation). Lets brew filter
+   * out pre-existing lint debt in unrelated files (e.g., generated
+   * .next/ output) and only react to issues its own edits caused.
+   *
+   * Path matching is suffix-based: an issue path like
+   * `/abs/repo/src/x.ts` matches a filter entry `src/x.ts` so callers
+   * don't need to normalise absolute paths before passing.
+   *
+   * Issues with `file: null` are kept regardless — they're not
+   * anchored to a file so we can't filter them.
+   */
+  filterToFiles?: string[];
 }
 
 export function runLint(
@@ -104,7 +118,21 @@ export function runLint(
     deduped.push(issue);
   }
 
-  const truncated = deduped.slice(0, max);
+  // 0.11.14+ — file filter. When the caller supplies a list of files
+  // brew touched in the current iteration, drop issues anchored to
+  // OTHER files. Without this, pre-existing lint debt elsewhere in
+  // the project (e.g., generated .next/ output, debt in test files)
+  // shows up as a constant noise floor that brew can't distinguish
+  // from new errors it just introduced.
+  const filtered =
+    options.filterToFiles && options.filterToFiles.length > 0
+      ? deduped.filter((i) => {
+          if (i.file === null) return true; // unanchored — keep
+          return options.filterToFiles!.some((f) => i.file!.endsWith(f));
+        })
+      : deduped;
+
+  const truncated = filtered.slice(0, max);
   return {
     ran: true,
     clean: truncated.every((i) => i.severity !== "error"),
