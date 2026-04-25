@@ -222,6 +222,28 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     ctx,
     `SCOPED_TESTS  story_files=${storyTestFiles.length}`
   );
+
+  // 0.12.3+ — full-suite baseline ALSO runs at brew start. Captures
+  // which tests OUTSIDE the story manifest are currently green so the
+  // brew-completion gate can detect TRUE transitive regressions
+  // (tests that were green and went red because of brew's edits)
+  // vs FALSE POSITIVES (tests that were already red on main from
+  // unbrewed stories — common in multi-story projects).
+  //
+  // Without this, the gate flags all pre-existing reds as regressions
+  // and halts every successful brew. Observed on rewo Run F (Sonnet,
+  // 32/32 story green) which incorrectly halted with 123 "transitive
+  // regressions" — all of which were already red on main from
+  // story-001/003/004 etc. that hadn't been brewed yet.
+  console.log("→ baseline test run (full suite for gate reference)…");
+  const fullBaseline = runTestSuite(ctx); // no scope = full suite
+  const fullBaselineGreen = fullBaseline.ran
+    ? new Set(fullBaseline.tests.filter((t) => t.status === "passed").map((t) => t.id))
+    : new Set<string>();
+  appendRunLog(
+    ctx,
+    `BASELINE_FULL  total=${fullBaseline.tests.length} green=${fullBaselineGreen.size} red=${fullBaseline.tests.length - fullBaselineGreen.size}`
+  );
   if (!baseline.ran) {
     return haltFor(ctx, {
       reason: "TEST_RUNNER_BROKEN",
@@ -808,11 +830,22 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       );
     } else {
       const finalRed = finalRun.tests.filter((t) => t.status !== "passed");
-      const transitiveBreaks = finalRed.filter((t) => !expectedTestIds.has(t.id));
+      // 0.12.3+ — TRUE regression detection. A "transitive regression"
+      // is a test that was green at baseline AND is now red. Pre-
+      // existing red tests on main (other-story unbrewed tests) are
+      // NOT regressions — they were already red and brew didn't touch
+      // them. Without this filter the gate halts every brew on a
+      // multi-story project that has unbrewed stories sitting at red.
+      const transitiveBreaks = finalRed.filter(
+        (t) => !expectedTestIds.has(t.id) && fullBaselineGreen.has(t.id)
+      );
+      const preExistingRed = finalRed.filter(
+        (t) => !expectedTestIds.has(t.id) && !fullBaselineGreen.has(t.id)
+      );
       if (transitiveBreaks.length > 0) {
         appendRunLog(
           ctx,
-          `FINAL_GATE_REGRESSION  story_green_but_${transitiveBreaks.length}_other_tests_red  first=${transitiveBreaks[0]?.id?.slice(0, 100)}`
+          `FINAL_GATE_REGRESSION  true_regressions=${transitiveBreaks.length} pre_existing_red=${preExistingRed.length} first_regression=${transitiveBreaks[0]?.id?.slice(0, 100)}`
         );
         // Halt: brew can't ship a PR that breaks unrelated tests.
         // The operator can rerun with a wider scope or hand-fix.
@@ -824,10 +857,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
           totalCount: expectedTestIds.size,
           spendUsd,
           iterationLogs,
-          summary: `Story tests all green, but the full-suite gate found ${transitiveBreaks.length} regression(s) in tests OUTSIDE the story manifest. Brew touched code that other stories' tests cover. First broken: \`${transitiveBreaks[0]?.id?.slice(0, 200)}\`. Hand-investigate or expand the next brew's manifest scope.`,
+          summary: `Story tests all green, but the full-suite gate found ${transitiveBreaks.length} TRUE regression(s) in tests OUTSIDE the story manifest (tests that WERE green at baseline and went red). Pre-existing reds on main (${preExistingRed.length}) are NOT counted. Brew touched code that other stories' tests cover. First true regression: \`${transitiveBreaks[0]?.id?.slice(0, 200)}\`. Hand-investigate or expand the next brew's manifest scope.`,
         });
       }
-      appendRunLog(ctx, `FINAL_GATE  pass  full_suite_green=${finalRun.tests.filter((t) => t.status === "passed").length}`);
+      appendRunLog(
+        ctx,
+        `FINAL_GATE  pass  full_suite_green=${finalRun.tests.filter((t) => t.status === "passed").length} pre_existing_red=${preExistingRed.length}`
+      );
     }
     await pushBranch(ctx);
     const checkpointsCount = iterationLogs.filter((l) => l.outcome === "checkpoint").length;
