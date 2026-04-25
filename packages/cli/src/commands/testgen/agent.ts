@@ -1062,12 +1062,24 @@ export function buildSchemaPresenceTestContent(
     `        );\n` +
     `        if (colRe.test(m[1])) return true;\n` +
     `      }\n` +
-    `      // 2. ALTER TABLE table ADD COLUMN [IF NOT EXISTS] column\n` +
-    `      const alterRe = new RegExp(\n` +
-    `        \`alter\\\\s+table\\\\s+(?:only\\\\s+)?[\\"\\\`]?(?:public\\\\.)?\${t}[\\"\\\`]?\\\\s+add\\\\s+column\\\\s+(?:if\\\\s+not\\\\s+exists\\\\s+)?[\\"\\\`]?\${c}\\\\b\`,\n` +
+    `      // 2. ALTER TABLE — multi-column form supported (0.12.11 fix):\n` +
+    `      //   alter table foo add column a int, add column b text;\n` +
+    `      // First find every \`alter table <t> ... ;\` statement, then\n` +
+    `      // check whether the add-column clause for our column appears\n` +
+    `      // anywhere in the statement body.\n` +
+    `      const alterStmtRe = new RegExp(\n` +
+    `        \`alter\\\\s+table\\\\s+(?:only\\\\s+)?[\\"\\\`]?(?:public\\\\.)?\${t}[\\"\\\`]?\\\\s+([\\\\s\\\\S]*?);\`,\n` +
+    `        "gi"\n` +
+    `      );\n` +
+    `      const addRe = new RegExp(\n` +
+    `        \`add\\\\s+column\\\\s+(?:if\\\\s+not\\\\s+exists\\\\s+)?[\\"\\\`]?\${c}\\\\b\`,\n` +
     `        "i"\n` +
     `      );\n` +
-    `      return alterRe.test(sql);\n` +
+    `      let stmt;\n` +
+    `      while ((stmt = alterStmtRe.exec(sql)) !== null) {\n` +
+    `        if (addRe.test(stmt[1])) return true;\n` +
+    `      }\n` +
+    `      return false;\n` +
     `    }\n` +
     `\n` +
     `    function parseSelectColumns(colsStr: string): string[] {\n` +

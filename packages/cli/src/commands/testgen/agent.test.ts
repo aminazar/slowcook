@@ -726,6 +726,28 @@ describe("buildPageLinkTestContent", () => {
     expect(r.contents).not.toMatch(/"mounts <" \+ /);
   });
 
+  it("0.12.11: schema-presence handles multi-column ALTER TABLE (alter table foo add column a, add column b)", () => {
+    // Regression for the false positive observed on rewo's 00017
+    // story-006 migration:
+    //   alter table profiles
+    //     add column handle_confirmed boolean not null default false,
+    //     add column handle_changed_at timestamptz;
+    // 0.12.10's regex anchored "add column" right after "alter table foo",
+    // missing the second column. 0.12.11 splits the check into
+    // (statement match) + (any add-column-of-name inside).
+    const r = buildSchemaPresenceTestContent({ story_id: "regression" } as unknown as Spec);
+    // Captures the entire ALTER TABLE statement body up to its `;`.
+    expect(r.contents).toContain("alterStmtRe");
+    expect(r.contents).toContain("([\\\\s\\\\S]*?);");
+    // Then iterates the matches, applying a separate add-column regex
+    // to each statement body.
+    expect(r.contents).toContain("alterStmtRe.exec(sql)");
+    expect(r.contents).toContain("addRe.test(stmt[1])");
+    // Single-column ALTER TABLEs still match (the same alterStmtRe
+    // captures `add column foo timestamptz;` as the body).
+    expect(r.contents).toContain("(?:if\\\\s+not\\\\s+exists\\\\s+)?");
+  });
+
   it("0.12.10 (slowcook#7): buildSchemaPresenceTestContent emits a column-presence assertion test file", () => {
     const r = buildSchemaPresenceTestContent({ story_id: "042" } as unknown as Spec);
     expect(r.path).toBe("tests/schema/story-042-column-presence.test.ts");
