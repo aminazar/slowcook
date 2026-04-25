@@ -10,6 +10,9 @@ import {
 } from "./render.js";
 import type { CodeMap } from "./scan.js";
 import { ddlToMermaidErd } from "../refine/mermaid.js";
+import { emitTokensCatalog } from "./emit-tokens.js";
+
+export { emitTokensCatalog } from "./emit-tokens.js";
 
 interface MapArgs {
   subcommand: "generate" | "check";
@@ -23,6 +26,13 @@ interface MapArgs {
    * proposing new tables / FK shapes.
    */
   emitSchema: boolean;
+  /**
+   * 0.13.3+ (brownfield-extraction track) — also emit
+   * `.brewing/diagrams/tokens.md` from `:root { --var }` and `@theme`
+   * blocks in any `**\/*.css` file. Refine reads it so mockup proposals
+   * reuse the consumer's existing palette/scale.
+   */
+  emitTokens: boolean;
 }
 
 function parseArgs(argv: string[]): MapArgs {
@@ -32,6 +42,7 @@ function parseArgs(argv: string[]): MapArgs {
     out: CODE_MAP_JSON_PATH,
     md: CODE_MAP_MD_PATH,
     emitSchema: false,
+    emitTokens: false,
   };
   const first = argv[0];
   if (first === "generate" || first === "check") {
@@ -52,6 +63,7 @@ function parseArgs(argv: string[]): MapArgs {
     else if (a === "--out" && next) { args.out = next; i++; }
     else if (a === "--md" && next) { args.md = next; i++; }
     else if (a === "--emit-schema") { args.emitSchema = true; }
+    else if (a === "--emit-tokens") { args.emitTokens = true; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
   return args;
@@ -67,7 +79,7 @@ helper functions, and domain types. Lives at \`.brewing/code-map.json\`
 context so it doesn't have to re-read files every iteration.
 
 Usage:
-  slowcook map generate [--cwd <path>] [--out <path>] [--md <path>] [--emit-schema]
+  slowcook map generate [--cwd <path>] [--out <path>] [--md <path>] [--emit-schema] [--emit-tokens]
   slowcook map check    [--cwd <path>] [--out <path>]
 
   generate   Write a fresh map to .brewing/code-map.{json,md}.
@@ -81,6 +93,9 @@ Options:
   --emit-schema     Brownfield: also emit .brewing/diagrams/schema.mmd from
                     supabase/migrations/*.sql (Mermaid erDiagram). Skipped
                     silently when no migrations directory exists.
+  --emit-tokens     Brownfield: also emit .brewing/diagrams/tokens.md by
+                    walking **/*.css for :root + @theme tokens. Skipped
+                    silently when no .css files / no tokens are found.
 `);
 }
 
@@ -104,6 +119,18 @@ export async function map(argv: string[], cliVersion: string): Promise<void> {
       } else {
         console.log(
           `Skipped schema emit: ${schemaResult.skippedReason}`
+        );
+      }
+    }
+    if (args.emitTokens) {
+      const tokensResult = emitTokensCatalog(args.repoRoot);
+      if (tokensResult.written) {
+        console.log(
+          `Wrote .brewing/diagrams/tokens.md (${tokensResult.lightCount} light, ${tokensResult.darkCount} dark, ${tokensResult.themeCount} @theme; ${tokensResult.filesScanned} css file(s) scanned).`
+        );
+      } else {
+        console.log(
+          `Skipped tokens emit: ${tokensResult.skippedReason}`
         );
       }
     }

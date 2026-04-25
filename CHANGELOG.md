@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.13.3 — Brownfield extraction: `slowcook map --emit-tokens`
+
+Cut 2026-04-25.
+
+Second brownfield slice for 0.14 mockup-first refinement. `slowcook map generate --emit-tokens` walks `**/*.css` (skipping `node_modules`, `.next`, `.open-next`, `.claude`, build dirs), parses `:root { --var }` and `@theme { --var }` blocks, classifies tokens by name + value, and writes `.brewing/diagrams/tokens.md`.
+
+- Detects light vs dark variants by checking if `:root` lives inside `@media (prefers-color-scheme: dark)`.
+- Captures Tailwind v4 inline `@theme` blocks separately from raw `:root` definitions.
+- Heuristic classification: `color` / `typography` / `spacing` / `other` based on token name, value pattern, or transitive `var()` resolution.
+- 9 unit tests (light/dark routing, @theme capture, comments, regression for the `@import "tailwindcss";` Tailwind v4 idiom that used to swallow the next selector head, skip-dir walking).
+- Validated against rewo: 21 light + 21 dark + 10 @theme tokens from `src/app/globals.css`. Refine can now reference `var(--tint-celebrate)` rather than inventing hex.
+
+Bug fix in the parser worth calling out: bodyless at-rules (`@import`, `@charset`) used to be glued onto the head of the next block. Now stripped before head matching. This was caught only by running the live extractor against rewo — synthetic tests passed but the real Tailwind v4 file produced 0 light tokens.
+
+---
+
 ## 0.13.2 — Brownfield extraction foundation: `slowcook map --emit-schema`
 
 Cut 2026-04-25.
