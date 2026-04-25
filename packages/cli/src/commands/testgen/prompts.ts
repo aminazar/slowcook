@@ -176,6 +176,79 @@ export function resetMocks(): void {
 - The fluent chain returned by \`mockFoo\` must support the operators the test actually calls (\`.from(t).select(...).eq(...).order(...).single()\` etc.). Include \`.then\` so bare \`await\` works.
 - Call recording: every chained method pushes to \`calls\`; tests assert \`expect(client.calls).toContainEqual({ table: "...", op: "...", args: [...] })\`.
 
+### CRITICAL: setting up "check-then-insert" handlers (0.12.1+)
+
+A whole class of handlers does:
+
+1. Query: "is X already in the table?"
+2. If not, INSERT X
+3. Return 201 with the inserted row
+
+Test-authoring bug pattern observed across rewo's brew-007 runs: the
+test description says "with NO existing X" but the test seeds
+\`tables.X.data = { ...full row... }\`, treating the seed as "the row
+the handler will return." That's wrong — the seed is what the
+PRE-INSERT QUERY will see, NOT the post-insert state.
+
+When the handler does the pre-insert "is X already there?" check, the
+mock returns the seeded row → handler thinks X exists → returns
+\`200 { already_saved: true }\` instead of \`201 { ...inserted... }\`.
+
+**Correct pattern for "Given NO existing X" tests:**
+
+\`\`\`ts
+it("Given NO existing bookmark, When POST, Then inserts and returns 201", async () => {
+  const supabase = mockSupabase({
+    user: { id: "member-a" },
+    tables: {
+      rewos: { data: { id: "rewo-abc", slug: "abc123" } },
+      bookmarks: { data: null },              // ← NULL: no existing row
+    },
+  });
+  vi.mocked(createClient).mockImplementation(realShapedCreateClient(supabase));
+
+  const res = await POST(buildReq("POST", { rewoSlug: "abc123" }));
+  expect(res.status).toBe(201);
+
+  // Assert the handler actually issued the INSERT — that's the contract,
+  // not whatever the response body claims.
+  expect(supabase.calls).toContainEqual(
+    expect.objectContaining({ table: "bookmarks", op: "insert" })
+  );
+
+  // If asserting the response body, only assert FIELDS THE HANDLER COMPUTES,
+  // not literal seeded ids — the mock can't return the inserted row's
+  // generated id without stateful response handling.
+  const json = (await res.json()) as { bookmark: { rewo_id: string } };
+  expect(json.bookmark).toMatchObject({ rewo_id: "rewo-abc" });
+});
+\`\`\`
+
+**Correct pattern for "Given EXISTING X" tests:**
+
+\`\`\`ts
+it("Given existing bookmark, When POST, Then returns 200 already_saved", async () => {
+  const supabase = mockSupabase({
+    user: { id: "member-a" },
+    tables: {
+      rewos: { data: { id: "rewo-abc", slug: "abc123" } },
+      bookmarks: { data: { id: "bm-1", rewo_id: "rewo-abc" } },  // ← seeded existing row
+    },
+  });
+  // ...
+  expect(res.status).toBe(200);
+  expect(json).toEqual({ already_saved: true });
+});
+\`\`\`
+
+**Rules:**
+
+- For "Given NO X" tests, seed \`tables.<X>.data = null\` (or absent).
+- For "Given EXISTING X" tests, seed the row's CURRENT-STATE shape.
+- For "INSERT then RETURN" assertions, prefer asserting the INSERT \`call\` arg shape over the response body's id (the mock can't generate ids).
+- If you need the response to have a specific id, assert ONLY the fields the handler synthesizes from input (e.g., rewo_id from the request body), not generated ids.
+- NEVER seed a "post-insert state" row when the description says the row doesn't yet exist. Read the test's "Given" clause; it's the source of truth.
+
 Also add a barrel file when creating the first helper:
 
 \`\`\`
