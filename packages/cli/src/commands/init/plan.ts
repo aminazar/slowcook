@@ -11,10 +11,13 @@ import {
   codeownersFullFile,
   codeownersSection,
   gitkeep,
+  gitignoreSection,
   CLI_VERSION_FOR_TEMPLATES,
   SLOWCOOK_CLI_VERSION_FILE,
   SLOWCOOK_CODEOWNERS_MARKER_BEGIN,
   SLOWCOOK_CODEOWNERS_MARKER_END,
+  SLOWCOOK_GITIGNORE_MARKER_BEGIN,
+  SLOWCOOK_GITIGNORE_MARKER_END,
   type TemplateParams,
 } from "./templates.js";
 import { getGitHubCiArtifacts } from "@slowcook-ai/forge-github";
@@ -75,6 +78,7 @@ const TARGETS = {
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
   preCommitHook: ".githooks/pre-commit",
   codeowners: "CODEOWNERS",
+  gitignore: ".gitignore",
   packageJson: "package.json",
 };
 
@@ -201,6 +205,11 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
   // 6. CODEOWNERS — special case (append if exists without our markers)
   actions.push(planCodeowners(reader, options, tmplParams));
 
+  // 7. .gitignore — append slowcook's derived-data patterns (0.12.4+).
+  // Same idempotent-marker pattern as CODEOWNERS so re-running init
+  // doesn't trample consumer-added patterns elsewhere in the file.
+  actions.push(planGitignore(reader, options));
+
   return { detected, actions, warnings };
 }
 
@@ -283,4 +292,56 @@ function replaceCodeownersSection(existing: string, params: TemplateParams): str
       ? existing.slice(endMarkerEnd + 1)
       : existing.slice(endMarkerEnd);
   return existing.slice(0, begin) + codeownersSection(params) + after;
+}
+
+/**
+ * 0.12.4+ — plan the .gitignore action. Same shape as planCodeowners:
+ * create-if-missing, append-with-markers if file exists without
+ * markers, skip-or-replace (under --force) when our section is
+ * already present.
+ */
+function planGitignore(reader: FileReader, options: PlanOptions): FileAction {
+  const path = TARGETS.gitignore;
+  if (!reader.exists(path)) {
+    return { kind: "create", path, contents: gitignoreSection() };
+  }
+  const existing = reader.read(path);
+  if (
+    existing.includes(SLOWCOOK_GITIGNORE_MARKER_BEGIN) &&
+    existing.includes(SLOWCOOK_GITIGNORE_MARKER_END)
+  ) {
+    if (options.force) {
+      const replaced = replaceGitignoreSection(existing);
+      return { kind: "overwrite", path, contents: replaced };
+    }
+    return {
+      kind: "skip-exists",
+      path,
+      reason: "slowcook section already present in .gitignore (use --force to regenerate)",
+    };
+  }
+  const toAppend =
+    (existing.endsWith("\n") ? existing : existing + "\n") +
+    "\n" +
+    gitignoreSection();
+  return {
+    kind: "append",
+    path,
+    contents: toAppend,
+    existingContents: existing,
+  };
+}
+
+function replaceGitignoreSection(existing: string): string {
+  const begin = existing.indexOf(SLOWCOOK_GITIGNORE_MARKER_BEGIN);
+  const endMarkerStart = existing.indexOf(SLOWCOOK_GITIGNORE_MARKER_END);
+  if (begin === -1 || endMarkerStart === -1 || endMarkerStart < begin) {
+    return existing + "\n" + gitignoreSection();
+  }
+  const endMarkerEnd = endMarkerStart + SLOWCOOK_GITIGNORE_MARKER_END.length;
+  const after =
+    existing[endMarkerEnd] === "\n"
+      ? existing.slice(endMarkerEnd + 1)
+      : existing.slice(endMarkerEnd);
+  return existing.slice(0, begin) + gitignoreSection() + after;
 }

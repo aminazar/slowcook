@@ -35,6 +35,13 @@ export interface TemplateParams {
 export const SLOWCOOK_CODEOWNERS_MARKER_BEGIN = "# --- slowcook:frozen-paths BEGIN ---";
 export const SLOWCOOK_CODEOWNERS_MARKER_END = "# --- slowcook:frozen-paths END ---";
 
+// 0.12.4+ — gitignore section markers, same idempotent-append pattern
+// as CODEOWNERS. Lets `slowcook init` add (and on --force, replace)
+// the slowcook-specific gitignore patterns without trampling other
+// patterns the consumer added themselves.
+export const SLOWCOOK_GITIGNORE_MARKER_BEGIN = "# --- slowcook:derived-files BEGIN ---";
+export const SLOWCOOK_GITIGNORE_MARKER_END = "# --- slowcook:derived-files END ---";
+
 export function frozenPathsJson(): string {
   return (
     JSON.stringify(
@@ -204,10 +211,16 @@ export function gitkeep(): string {
 }
 
 /**
- * Committable git pre-commit hook that forces `.brewing/code-map.*` to
- * stay in lockstep with `src/` on every commit. Without this, contributors
- * (especially LLM agents) hit the stale-map CI failure repeatedly because
- * the `slowcook map check` gate only catches staleness AFTER the commit.
+ * Committable git pre-commit hook that keeps `.brewing/code-map.*`
+ * fresh on disk so brew agents and `slowcook map check` see up-to-date
+ * snapshots when they run.
+ *
+ * 0.12.4+: code-map files are NOT tracked in git (added to .gitignore
+ * by `slowcook init`). Earlier versions committed them, which produced
+ * merge conflicts on every parallel PR — two brews regenerating the
+ * same derived file inevitably diverge. Now the hook regenerates the
+ * map locally + brew/CI workflow steps regenerate at workflow start;
+ * the file never enters git history.
  *
  * Activation is a one-time per-clone `git config core.hooksPath .githooks`
  * — we can't set it from init because it's a local-clone concern. The
@@ -217,9 +230,14 @@ export function preCommitHook(): string {
   return `#!/usr/bin/env bash
 # slowcook pre-commit hook
 #
-# Keeps .brewing/code-map.{json,md} in lockstep with src/ so you never
-# push a PR that fails \`slowcook map check\` on something you already
-# had in your working tree.
+# Keeps .brewing/code-map.{json,md} fresh on disk so brew agents and
+# \`slowcook map check\` see the up-to-date snapshot when they run.
+#
+# As of 0.12.4: code-map files are NOT tracked in git. Committing them
+# produced merge conflicts on every parallel PR (each brew regenerates
+# → branches diverge on the same derived file). The hook regenerates
+# locally; brew/CI workflows regenerate at workflow start. The file
+# never enters git history.
 #
 # Activate once per clone:
 #   git config core.hooksPath .githooks
@@ -246,8 +264,29 @@ if ! npx --yes "@slowcook-ai/cli@$CLI_PIN" map generate >/dev/null 2>&1; then
   exit 1
 fi
 
-git add .brewing/code-map.json .brewing/code-map.md
+# Map files are gitignored — no \`git add\`. The fresh regen sits on
+# disk for tools/agents; the committed state never includes derived data.
 
 exit 0
+`;
+}
+
+/**
+ * 0.12.4+ — gitignore section that slowcook init appends to the
+ * consumer's .gitignore (or creates if absent). Wrapped in the
+ * SLOWCOOK_GITIGNORE_MARKER_* sentinels so subsequent `slowcook init
+ * --force` calls can replace the section without trampling
+ * consumer-added patterns elsewhere in the file.
+ */
+export function gitignoreSection(): string {
+  return `${SLOWCOOK_GITIGNORE_MARKER_BEGIN}
+# Slowcook-derived data — regenerated from src/ on every brew iter
+# and \`slowcook map generate\`. Committing produced merge conflicts
+# on every parallel PR (each brew regenerates → branches diverge
+# on the same derived file). Pre-commit hook + workflow steps
+# regenerate locally as needed.
+.brewing/code-map.json
+.brewing/code-map.md
+${SLOWCOOK_GITIGNORE_MARKER_END}
 `;
 }
