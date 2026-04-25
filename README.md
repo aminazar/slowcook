@@ -7,6 +7,8 @@
 
 ## Status
 
+**0.13.5 — brownfield extraction foundation for 0.14 mockup-first. Cut 2026-04-25.** New `slowcook extract` runs in ~315ms with no `npm ci`; walks `supabase/migrations/` + `**/*.css`; writes `.brewing/diagrams/{schema.mmd,tokens.md}`. Refine + investigate workflows auto-run it before each agent invocation, and refine's project-context now appends both extracts so proposals reuse existing entity names + design tokens (`var(--coral)`, `bg-tint-celebrate`) instead of inventing. Validated on rewo: 10 entities + 21 light + 21 dark + 10 @theme tokens extracted correctly. The 0.13.x series after the bug-flow cut: 0.13.2 (`map --emit-schema`), 0.13.3 (`map --emit-tokens` + Tailwind v4 parser fix), 0.13.4 (refine reads extracts), 0.13.5 (`slowcook extract` command + workflow auto-extraction). 368 tests green.
+
 **0.13.0 — bug-flow + chef orchestrator + `testgen` → `recipe` rename. Cut 2026-04-25.** Slowcook now runs two parallel pipelines:
 
 ```
@@ -24,8 +26,9 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 - **0.12.9 + 0.12.10 — testgen prevention checks.** Page-link static test catches "code points at non-existent route" regressions; schema-presence test catches "code references column that no migration adds."
 - **0.12.13 + forge 0.9.8 — cost-marker fixes.** `slowcook · shipped` rollups now render as a fixed-width restaurant bill and correctly include testgen + brew (the missing-permissions + fire-and-forget bugs got the audit-trail right).
 - **0.13.0 (cut 2026-04-25, tag `0.13.0`)** — `recipe` alias for `testgen`; full `investigate` + `sift` + `chef` agents; `recipe --regression` with both deterministic stub + LLM-backed real-test modes; PR opening + auto-trigger workflows. Pipeline now has parallel story-flow + bug-flow; chef watches both.
+- **0.13.2–0.13.5 — brownfield extraction foundation for 0.14.** `map --emit-schema` (Supabase migrations → Mermaid erDiagram), `map --emit-tokens` (CSS `:root` + `@theme` → token catalog with light/dark/Tailwind-v4 split), `slowcook extract` focused command, refine reads both as project-awareness context, refine + investigate workflow templates auto-run extraction before each agent invocation. Validated on rewo: 10 entities + 21+21+10 tokens parsed in 315ms.
 
-Latest stable on npm: `cli@0.12.13`, `forge-github@0.9.8`, `core@0.11.0`, `stack-ts@0.9.3`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`. The `0.13.0` tag is committed but **not yet published** (publish needs OTP); run `npm publish --access public` from `packages/cli` and `packages/forge-github` to roll out.
+Latest stable on npm: `cli@0.12.13`, `forge-github@0.9.8`, `core@0.11.0`, `stack-ts@0.9.3`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`. The `0.13.0`–`0.13.5` cli + `forge-github@0.10.0`–`0.10.1` + `llm-anthropic@0.9.0` are committed and tagged but **not yet published**.
 
 The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md); the canonical post-0.11 plan is [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (now historical) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
