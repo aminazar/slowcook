@@ -85,13 +85,22 @@ export async function map(argv: string[], cliVersion: string): Promise<void> {
     return;
   }
 
-  // check: compare existing committed map to a fresh regen
+  // check: compare existing committed map to a fresh regen.
+  //
+  // 0.12.4+ — code-map files are gitignored by default (see init's
+  // gitignore section). When the file isn't present, the check
+  // becomes a no-op success: the brew/CI workflow regenerates the
+  // map at runtime via `slowcook map generate`, so "missing" is the
+  // expected state on a fresh checkout. Existing consumers that
+  // still commit the map (pre-0.12.4 setups) keep the staleness
+  // verdict.
   const existingPath = join(args.repoRoot, args.out);
   if (!existsSync(existingPath)) {
-    console.error(
-      `Map check failed: no map found at ${args.out}. Run \`slowcook map generate\` and commit the result.`
+    console.log(
+      `✓ Map check skipped — ${args.out} is not committed (gitignored as of 0.12.4). ` +
+        `The map regenerates fresh on every \`slowcook map generate\` / brew iter / CI workflow start.`
     );
-    process.exit(1);
+    return;
   }
   let existing: CodeMap;
   try {
@@ -110,7 +119,9 @@ export async function map(argv: string[], cliVersion: string): Promise<void> {
     `✗ Map is stale. The committed \`${args.out}\` does not match what would be generated from the current source tree.\n\n` +
       `  Committed: ${summaryCounts(existing)}\n` +
       `  Fresh:     ${summaryCounts(fresh)}\n\n` +
-      `Fix by running:\n  npx slowcook map generate\nThen commit the updated ${args.out} + ${args.md}.`
+      `Either regenerate (\`npx slowcook map generate\` then commit), ` +
+      `OR if you've migrated to gitignored code-map (slowcook 0.12.4+), ` +
+      `delete the committed file (\`git rm .brewing/code-map.json .brewing/code-map.md\`) and the check will become a no-op.`
   );
   process.exit(1);
 }
