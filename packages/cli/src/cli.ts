@@ -44,7 +44,7 @@ Usage:
   slowcook on-spec-merged --pr <number> [--cwd <path>]
   slowcook on-tests-merged --pr <number> [--cwd <path>]
   slowcook on-brew-merged --pr <number> [--cwd <path>]
-  slowcook testgen [--spec <id>] [--all] [--cwd <path>]
+  slowcook recipe [--spec <id>] [--all] [--cwd <path>]   (testgen — alias kept for 0.13.x)
   slowcook catchup [--dry-run] [--cwd <path>]
   slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
   slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
@@ -61,7 +61,7 @@ Commands available in ${VERSION}:
   on-spec-merged     Transition source-issue labels + post audit-trail comment after a spec PR merges.
   on-tests-merged    Post audit-trail comment after a tests PR merges.
   on-brew-merged     Post final "shipped" audit-trail comment after a brew PR merges.
-  testgen            Generate Vitest integration tests from merged specs.
+  recipe             Generate Vitest tests from merged specs (a "recipe" — the test contract brew follows). Aliases: testgen.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -100,6 +100,12 @@ async function main(): Promise<void> {
       await onBrewMerged(args.slice(1));
       return;
     case "testgen":
+    case "recipe":
+      // 0.13.0-alpha.1 — `recipe` is the canonical name (kitchen
+      // metaphor: refine, recipe, brew, sift, investigate, chef).
+      // `testgen` keeps as a hidden alias for one minor version so
+      // existing rewo workflow YAMLs (`slowcook testgen --spec …`)
+      // don't break the moment 0.13.0 ships. Removed in 0.14.0.
       await testgen(args.slice(1), VERSION);
       return;
     case "catchup":

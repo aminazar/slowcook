@@ -83,6 +83,32 @@ describe("slowcook dispatch — arg parsing + config building", () => {
     logSpy.mockRestore();
   });
 
+  it("0.13.0-alpha.1: 'recipe' is accepted as an alias for 'testgen'", async () => {
+    const mod = await loadModule();
+    const prevToken = process.env["GITHUB_TOKEN"];
+    delete process.env["GITHUB_TOKEN"]; // forces exit at the GITHUB_TOKEN check
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`__exit_${code ?? 0}__`);
+    }) as never);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    // 'recipe' should NOT trigger the "Unknown step" error path; it
+    // should normalise to the testgen step and reach the same later
+    // checkpoint as `dispatch testgen` would.
+    await expect(mod.dispatch(["recipe"])).rejects.toThrow(/__exit_2__/);
+    const errorCalls = errSpy.mock.calls.flat().join(" ");
+    expect(errorCalls).not.toMatch(/Unknown step/);
+    // The error reached should be GITHUB_TOKEN or git remote — same as
+    // the 'testgen' step would have hit.
+    expect(/GITHUB_TOKEN|git remote/i.test(errorCalls)).toBe(true);
+
+    if (prevToken !== undefined) process.env["GITHUB_TOKEN"] = prevToken;
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
   it("errors out when GITHUB_TOKEN is missing (brew)", async () => {
     const mod = await loadModule();
     const prevToken = process.env["GITHUB_TOKEN"];

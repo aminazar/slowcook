@@ -86,12 +86,17 @@ function parseArgs(argv: string[]): {
     result.help = true;
     return result;
   }
-  if (first !== "brew" && first !== "testgen" && first !== "refine") {
+  // 0.13.0-alpha.1 — `recipe` is the canonical name for the testgen
+  // step. Both names dispatch to the same workflow.
+  if (first === "recipe") {
+    result.step = "testgen";
+  } else if (first !== "brew" && first !== "testgen" && first !== "refine") {
     throw new Error(
-      `Unknown step '${first}'. Supported: brew, testgen, refine.`
+      `Unknown step '${first}'. Supported: brew, recipe (testgen), refine.`
     );
+  } else {
+    result.step = first;
   }
-  result.step = first;
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "-h" || arg === "--help") {
