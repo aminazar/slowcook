@@ -383,4 +383,15 @@ Each version gets its own detailed plan doc when we're ready to implement — th
 ## Related docs
 
 - [`docs/plans/0.7-testgen-two-tier.md`](0.7-testgen-two-tier.md) — earlier plan covering tier-1 + tier-2 shape. Sections of this roadmap supersede the sequencing in that doc (tier-2 is now 0.8, not part of 0.7).
+- [`docs/plans/0.13-bug-flow-and-chef.md`](0.13-bug-flow-and-chef.md) — 0.13.0 plan: parallel bug-fix flow (`investigate` + `recipe --regression` + `sift`), `chef` orchestrator that watches all slowcook-bot PRs and recovers from failures, and the `testgen` → `recipe` rename.
 - [`docs/DESIGN.md`](../DESIGN.md) — pipeline overview. §7 is the canonical spec for the gates + HITL flow that 0.9 reinstates into this plan. DESIGN.md's `@slowcook-ai/dashboard` package has been descoped in favour of GitHub-native surfaces; the gates themselves and the HITL review loop are preserved in full. 0.11's brownfield cooker augments §3 (refinement) without changing the pipeline shape.
+
+## Post-0.11 sequencing update (2026-04-25)
+
+Phase 2 brownfield-retrieval shipped in 0.12.7–0.12.12 (signature/caller enrichment, per-target slicing, patterns dir). The next major architectural shift is **0.13.0** — see `0.13-bug-flow-and-chef.md`:
+
+- **Bug-fix flow** as a parallel pipeline. Story flow stays: `refine → recipe → brew`. Bug flow adds: `investigate → recipe --regression → sift`. Same TDD red→green ratchet on both, different agents at each stage tuned for their failure mode.
+- **`chef` orchestrator** — watches all slowcook-bot PRs, classifies failures (self-conflict / self-CI-fail / external / infra), rebases / retry-dispatches / escalates. Single point for retry policy + cost gating + (later) PR review + queue management.
+- **`testgen` → `recipe` rename** — strengthens the kitchen metaphor (refine, recipe, brew, sift, investigate, chef). `testgen` keeps as a hidden alias through 0.13.x; removed in 0.14.0.
+
+R&R (was 0.10) and brownfield cooker (was 0.11) move further out as 0.12.x retrieval already addressed brownfield's blocking concerns; explicit re-sequencing happens once 0.13 ships.

@@ -5,6 +5,8 @@
 > slowcook is forge-agnostic and stack-agnostic by design. 0.1 ships a GitHub forge adapter and a TypeScript stack adapter; other forges (GitLab, Gitea) and stacks (Python, Go) are fast-follows. Consumer projects integrate via `npm install @slowcook-ai/cli` plus a small `.brewing/` config.
 >
 > [`reworthy/app`](https://github.com/reworthy/app) is slowcook's first consumer and integration-test project.
+>
+> **2026-04-25 — 0.13.0 architectural addition.** A parallel bug-fix flow (`investigate → recipe --regression → sift`) lands alongside the existing story flow (`refine → recipe → brew` — note `testgen` is being renamed to `recipe`). A new `chef` agent watches all slowcook-bot PRs and recovers from failures (rebase / retry-dispatch / escalate). See [`docs/plans/0.13-bug-flow-and-chef.md`](plans/0.13-bug-flow-and-chef.md). The original story-flow design below is unchanged in 0.13.0; bug flow is additive.
 
 ## 1. Principles
 
