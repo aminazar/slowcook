@@ -271,6 +271,14 @@ export function turnPrompt(args: {
    * target). Shown truncated so the agent has peripheral vision into
    * related problems without losing focus on the target. */
   other_failure_messages?: Array<{ test_id: string; message: string }>;
+  /**
+   * 0.11.13+ — formatted lint + typecheck issues from the previous
+   * iteration's edits. Empty string when there are none. Folded into
+   * the prompt so the agent treats lint/type errors as additional
+   * reds to fix in this iteration. Hard signal — the agent can't
+   * talk its way around an eslint rule or a TS error.
+   */
+  lint_issues?: string;
 }): string {
   const sections: string[] = [];
   sections.push(`## Brew iteration ${args.iteration} of ${args.max_iterations}`);
@@ -333,6 +341,18 @@ export function turnPrompt(args: {
     `### Test state going into this turn: ${args.currently_green.length} green / ${args.currently_red.length} red`
   );
   sections.push("");
+  // 0.11.13+ — lint + typecheck issues from prior iter's edits.
+  // These are reds at the static-analysis level and must be fixed
+  // alongside the test target. Hard signal: the agent can't satisfy
+  // an eslint or tsc error by rewriting prose.
+  if (args.lint_issues && args.lint_issues.trim().length > 0) {
+    sections.push(args.lint_issues.trim());
+    sections.push("");
+    sections.push(
+      "Treat the lint/typecheck errors above as additional reds: fix them in the same edit that flips the target test, or fix them first if they block compilation."
+    );
+    sections.push("");
+  }
   if (args.currently_green.length > 0) {
     sections.push("<details><summary>Currently green (keep them green!)</summary>");
     sections.push("");

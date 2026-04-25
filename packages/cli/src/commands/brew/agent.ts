@@ -19,7 +19,11 @@ import {
   type TestResult,
   validateStackConfig,
   type StackConfig,
+  runLint,
+  formatLintIssues,
+  type LintResult,
 } from "@slowcook-ai/stack-ts";
+import { recordBrewProvenance } from "./provenance.js";
 import { readSpec } from "../refine/spec-yaml.js";
 import {
   BREW_SYSTEM,
@@ -232,6 +236,20 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
    * agent going silent for 2+ turns signals analysis paralysis — more
    * iterations won't recover, so halt early and save budget. */
   let consecutiveNoEdits = 0;
+  /**
+   * 0.11.13+ — formatted lint/typecheck issues from the most recent
+   * checkpoint's edits. Empty until first checkpoint produces issues;
+   * folded into next iter's prompt so the agent can fix them in the
+   * same loop as test reds. Reset to "" each successful checkpoint
+   * if lint runs clean; lingers if errors persist.
+   */
+  let lintIssuesForNextIter = "";
+  /**
+   * 0.11.13+ — running tally of regression-revert iters across this
+   * brew run. Used by provenance write at completion so future brews
+   * see how risky a file's surface was.
+   */
+  let totalRegressions = 0;
   const iterationLogs: IterationLog[] = [];
   const priorAttempts: Array<{
     iteration: number;
@@ -329,6 +347,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       redList: [...redSet],
       priorAttempts,
       spendUsd,
+      lintIssues: lintIssuesForNextIter,
     });
     spendUsd += turnResult.spendDelta;
 
@@ -555,6 +574,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
 
     if (regressions.length > 0) {
       // Regression — revert
+      totalRegressions += 1;
       revertToSnapshot(ctx, snapshot);
       iterationLogs.push({
         iteration,
@@ -640,6 +660,38 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // sees current handler/component/type layout.
     regenerateCodeMap(ctx, `after iter ${iteration}`);
 
+    // 0.11.13+ — run lint + typecheck after each successful checkpoint.
+    // Issues fold into the next iteration's prompt as additional reds
+    // for the agent to clean up. Skipped when stack.json doesn't define
+    // any lint commands (the runner returns ran:false).
+    let lintResult: LintResult = {
+      ran: false,
+      clean: true,
+      issues: [],
+      duration_ms: 0,
+    };
+    try {
+      lintResult = runLint(ctx.stackConfig.lint, { cwd: ctx.repoRoot });
+    } catch (e) {
+      // Don't take the brew down if a lint command misbehaves —
+      // surface it in the run log and continue.
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} LINT_ERROR  ${(e as Error).message.slice(0, 200)}`
+      );
+    }
+    if (lintResult.ran) {
+      const errCount = lintResult.issues.filter((i) => i.severity === "error").length;
+      const warnCount = lintResult.issues.filter((i) => i.severity === "warning").length;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} LINT  errors=${errCount} warnings=${warnCount} duration=${lintResult.duration_ms}ms`
+      );
+      lintIssuesForNextIter = formatLintIssues(lintResult);
+    } else {
+      lintIssuesForNextIter = "";
+    }
+
     // Pick next target from story scope, if any remain
     const next = pickTarget(storyRedSet(), currentTarget);
     currentTarget = next;
@@ -685,6 +737,39 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       ctx,
       `SUCCESS  iterations=${iterationLogs.length}  checkpoints=${checkpointsCount}  spend=$${spendUsd.toFixed(2)}`
     );
+
+    // 0.11.13+ — write provenance entry. Aggregate files_touched across
+    // all checkpoint iterations (excluding reverts). Wrapped in try/catch
+    // so a provenance write failure doesn't fail an otherwise-successful
+    // brew. No agent reads this file yet (reads ship in 0.12.0); we're
+    // bootstrapping the index so it isn't empty when reads land.
+    try {
+      const filesTouched = Array.from(
+        new Set(
+          iterationLogs
+            .filter((l) => l.outcome === "checkpoint")
+            .flatMap((l) => l.files_touched)
+        )
+      );
+      recordBrewProvenance(ctx.repoRoot, {
+        story_id: `story-${ctx.storyId}`,
+        pr_url: null, // populated in 0.12.0+ when openBrewPullRequest returns the PR
+        completed_at: ctx.now().toISOString(),
+        files_touched: filesTouched,
+        regression_count: totalRegressions,
+        halted: false,
+      });
+      appendRunLog(
+        ctx,
+        `PROVENANCE  files=${filesTouched.length} regressions=${totalRegressions}`
+      );
+    } catch (e) {
+      appendRunLog(
+        ctx,
+        `PROVENANCE_ERROR  ${(e as Error).message.slice(0, 200)}`
+      );
+    }
+
     return {
       kind: "success",
       iterations: iterationLogs.length,
@@ -736,6 +821,8 @@ async function runTurn(
       files_touched: string[];
     }>;
     spendUsd: number;
+    /** 0.11.13+ — formatted lint/typecheck issues from the prior iter's edits. */
+    lintIssues?: string;
   }
 ): Promise<TurnResult> {
   const specYaml = YAML.stringify(ctx.spec);
@@ -758,6 +845,7 @@ async function runTurn(
     previous_attempts: args.priorAttempts.slice(-3),
     target_failure_message: args.targetFailureMessage,
     other_failure_messages: args.otherFailureMessages,
+    lint_issues: args.lintIssues,
   });
 
   const filesTouched = new Set<string>();
