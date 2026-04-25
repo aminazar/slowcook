@@ -140,6 +140,35 @@ export async function runInvestigation(
     break;
   }
 
+  // 0.13.0-alpha.2c — format-compliance retry. If the agent stopped
+  // without emitting either tag, the model produced free-form prose.
+  // Send one explicit nudge to wrap the output, then accept whatever
+  // tag form lands in the second response. Reduces the "Opus
+  // forgets to wrap" failure mode observed on the first live run
+  // (rewo issue #135 validation, 2026-04-25).
+  if (!hasBugProfileBlock(finalText) && !parseHaltBlock(finalText)) {
+    rounds += 1;
+    messages.push({ role: "assistant", content: finalText });
+    messages.push({
+      role: "user",
+      content:
+        "Your previous reply was free-form prose. Slowcook's parser greps for `<bug_profile>...</bug_profile>` (or `<halt>...</halt>`) literally. Re-emit your conclusion now using one of those two wrappers — nothing else will parse. Pick one:\n\n" +
+        "- `<bug_profile>` block with the schema fields if you have a concrete failure locus.\n" +
+        "- `<halt>` block with a one-line description of what you couldn't disambiguate.\n",
+    });
+    const retry = await anthropic.messages.create({
+      model: ctx.model,
+      max_tokens: 4096,
+      system: INVESTIGATE_SYSTEM,
+      tools: INVESTIGATE_TOOLS,
+      messages,
+    });
+    spendUsd += costUsd(retry, ctx.model);
+    for (const block of retry.content) {
+      if (block.type === "text") finalText = block.text;
+    }
+  }
+
   const halted = parseHaltBlock(finalText);
   if (halted) {
     return {
@@ -338,6 +367,10 @@ export function parseBugProfileBlock(
 function parseHaltBlock(text: string): string | null {
   const m = text.match(/<halt>([\s\S]*?)<\/halt>/);
   return m ? (m[1] ?? "").trim() : null;
+}
+
+function hasBugProfileBlock(text: string): boolean {
+  return /<bug_profile>[\s\S]*?<\/bug_profile>/.test(text);
 }
 
 function stubHaltProfile(ctx: InvestigateContext, reason: string): BugProfile {
