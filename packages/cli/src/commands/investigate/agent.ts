@@ -357,8 +357,15 @@ export function parseBugProfileBlock(
 
   const validation = validateBugProfile(profile);
   if (!validation.ok) {
+    // Include the raw YAML + parsed object so the operator can see
+    // exactly what the agent emitted vs what the schema expected.
+    // 0.13.0-alpha.3.2 — debug-friendly error shape.
     throw new Error(
-      `investigate: agent emitted an invalid bug-profile:\n  ${validation.errors.join("\n  ")}`
+      `investigate: agent emitted an invalid bug-profile:\n` +
+        `  ${validation.errors.join("\n  ")}\n\n` +
+        `Raw YAML the agent emitted:\n` +
+        `------------\n${yaml}\n------------\n\n` +
+        `Parsed object: ${JSON.stringify(profile, null, 2)}`
     );
   }
   return validation.profile;
