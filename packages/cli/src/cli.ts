@@ -12,6 +12,7 @@ import { onBrewMerged } from "./commands/on-brew-merged/index.js";
 import { testgen } from "./commands/testgen/index.js";
 import { investigate } from "./commands/investigate/index.js";
 import { recipeRegression } from "./commands/recipe-regression/index.js";
+import { sift } from "./commands/sift/index.js";
 import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
@@ -65,6 +66,7 @@ Commands available in ${VERSION}:
   on-brew-merged     Post final "shipped" audit-trail comment after a brew PR merges.
   recipe             Generate Vitest tests from merged specs (a "recipe" — the test contract brew follows). Aliases: testgen.
   investigate        (alpha.2a, scaffold) Diagnose a bug from a GitHub issue and emit a bug-profile.
+  sift               (alpha.4) Narrow red→green ratchet for a bug fix; bounded by bug-profile fix_scope.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -124,6 +126,12 @@ async function main(): Promise<void> {
       // 0.13.0-alpha.2a — bug-flow analogue of refine. Scaffold only;
       // real LLM agent in alpha.2b. See docs/plans/0.13-bug-flow-and-chef.md.
       await investigate(args.slice(1), VERSION);
+      return;
+    case "sift":
+      // 0.13.0-alpha.4 — bug-flow analogue of brew. Narrow red→green
+      // ratchet bounded by the bug-profile's fix_scope. Default budget
+      // $0.50 / 3 iterations; Sonnet model.
+      await sift(args.slice(1), VERSION);
       return;
     case "catchup":
       await catchup(args.slice(1), VERSION);
