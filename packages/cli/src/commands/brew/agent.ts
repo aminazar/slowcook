@@ -24,6 +24,7 @@ import {
   type LintResult,
 } from "@slowcook-ai/stack-ts";
 import { recordBrewProvenance, readProvenance, renderPriorContextBlock } from "./provenance.js";
+import { gatherPatternIndex, renderPatternIndexBlock } from "./patterns.js";
 import { sliceSpecForTarget, renderSpecSlice } from "./spec-slice.js";
 import {
   findReferences,
@@ -214,6 +215,19 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     appendRunLog(
       ctx,
       `PRIOR_CONTEXT  files=${(priorContextBlock.match(/^- `/gm) ?? []).length}`
+    );
+  }
+
+  // Phase 2C (0.12.12+) — load the project's pattern index. Hand-
+  // written recipes at .brewing/patterns/*.md describe project-specific
+  // conventions. The index (title + summary per pattern) is cheap to
+  // include in the cached prefix; the agent reads full pattern files
+  // on-demand via read_file.
+  const patternIndexBlock = renderPatternIndexBlock(gatherPatternIndex(ctx.repoRoot));
+  if (patternIndexBlock) {
+    appendRunLog(
+      ctx,
+      `PATTERN_INDEX  count=${(patternIndexBlock.match(/^- /gm) ?? []).length}`
     );
   }
 
@@ -441,6 +455,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       spendUsd,
       lintIssues: lintIssuesForNextIter,
       priorContextBlock,
+      patternIndexBlock,
     });
     spendUsd += turnResult.spendDelta;
 
@@ -979,6 +994,8 @@ async function runTurn(
     lintIssues?: string;
     /** 0.12.0+ — markdown prior-brew-history block, derived once per brew run. */
     priorContextBlock?: string;
+    /** 0.12.12+ — markdown index of `.brewing/patterns/*.md` (Phase 2C). */
+    patternIndexBlock?: string;
   }
 ): Promise<TurnResult> {
   // 0.11.16+ — bounded-attention spec slicing. Replace the full spec
@@ -1023,6 +1040,7 @@ async function runTurn(
     other_failure_messages: args.otherFailureMessages,
     lint_issues: args.lintIssues,
     prior_context_block: args.priorContextBlock,
+    pattern_index_block: args.patternIndexBlock,
   });
   // Backwards-compat: turnPrompt() still works for any non-brew caller
   // that hasn't migrated; quiet the lint that flags the unused import.

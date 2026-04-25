@@ -426,6 +426,13 @@ export function turnPromptParts(args: {
    * brew, so it lives in the cached prefix.
    */
   prior_context_block?: string;
+  /**
+   * 0.12.12+ (Phase 2C) — pre-rendered markdown index of project
+   * patterns at `.brewing/patterns/*.md`. Includes title + one-line
+   * summary per pattern; the agent reads full bodies on-demand via
+   * `read_file`. Constant per brew, lives in the cached prefix.
+   */
+  pattern_index_block?: string;
 }): { cachedPrefix: string; dynamicBody: string } {
   // === CACHEABLE PREFIX === (constant across iterations in a single
   // brew run: spec body + allowed paths + prior brew history)
@@ -445,6 +452,13 @@ export function turnPromptParts(args: {
   // current brew doesn't overlap with prior brews.
   if (args.prior_context_block && args.prior_context_block.trim().length > 0) {
     prefix.push(args.prior_context_block.trim());
+    prefix.push("");
+  }
+  // 0.12.12+ (Phase 2C) — pattern index. Same caching rationale as
+  // prior_context_block: per-brew constant, the body of each pattern
+  // is fetched on-demand by the agent via read_file when relevant.
+  if (args.pattern_index_block && args.pattern_index_block.trim().length > 0) {
+    prefix.push(args.pattern_index_block.trim());
     prefix.push("");
   }
   const cachedPrefix = prefix.join("\n");

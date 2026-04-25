@@ -6,6 +6,7 @@ import {
   frozenPathsJson,
   brewingReadme,
   contextMdTemplate,
+  patternsReadme,
   slowcookCliVersionFile,
   preCommitHook,
   codeownersFullFile,
@@ -76,6 +77,7 @@ const TARGETS = {
   contextMd: ".brewing/context.md",
   cliVersion: SLOWCOOK_CLI_VERSION_FILE,
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
+  patternsReadme: ".brewing/patterns/README.md",
   preCommitHook: ".githooks/pre-commit",
   codeowners: "CODEOWNERS",
   gitignore: ".gitignore",
@@ -169,6 +171,18 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
   if (!reader.exists(".brewing/manifests/")) {
     actions.push({ kind: "create", path: TARGETS.manifestsGitkeep, contents: gitkeep() });
   }
+
+  // 4b. .brewing/patterns/README.md (Phase 2C, 0.12.12+) — onboarding
+  // doc for the team-authored patterns directory. brew loads the index
+  // (title + summary per pattern) into its cached prefix, agent reads
+  // bodies on-demand. Empty directory = empty index = no-op.
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.patternsReadme,
+    patternsReadme()
+  );
 
   // 5. CI workflows are provided by the forge adapter. Today only GitHub
   // is wired; future forges (GitLab, Gitea) supply their own via a
