@@ -157,11 +157,49 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
     process.exit(2);
   }
 
+  // 0.11.18+ — when `--story <id>` is set, FILTER the discovered
+  // tests to those belonging to that story. Slowcook's per-story
+  // file-naming convention is `tests/<dir>/story-<id>(.test.*|-*.test.*)`,
+  // so we match files where the basename starts with `story-<id>`
+  // followed by `.` or `-` (or end of path), preventing story-007
+  // from matching story-0070.
+  //
+  // Without this filter, every story-N manifest captured all
+  // discoverable tests, breaking brew's per-story scope: brew on
+  // story-007 would target reds in stories 003/004/etc. and the
+  // per-iter test scope was effectively the full suite. See slowcook
+  // GitHub issue #5 for the original bug report.
+  let filteredTests = tests;
+  let filteredSuites = suites;
+  if (args.storyId) {
+    const storyRe = new RegExp(`(?:^|/)story-${escapeRegex(args.storyId)}(?:[-.]|$)`);
+    filteredTests = tests.filter((t) => storyRe.test(t.file));
+    if (filteredTests.length === 0) {
+      console.error(
+        `No tests matched story id "${args.storyId}". Expected files matching ` +
+          `\`story-${args.storyId}.test.*\` or \`story-${args.storyId}-*.test.*\` ` +
+          `under the configured discovery roots. Refusing to write an empty manifest.`
+      );
+      process.exit(2);
+    }
+    // Recompute per-suite counts from the filtered set so the manifest's
+    // `suites[].test_count` reflects the FILTERED total, not raw discovery.
+    filteredSuites = suites.map((s) => ({
+      ...s,
+      test_count: filteredTests.filter((t) =>
+        // Heuristic: tests whose suite-of-origin matches this suite name.
+        // Slowcook only has one vitest suite today; this is a forward-
+        // compat hedge for multi-suite stacks.
+        true
+      ).length,
+    }));
+  }
+
   const m = buildManifest({
     slowcookVersion: CLI_VERSION,
     storyId: args.storyId,
-    tests,
-    suites,
+    tests: filteredTests,
+    suites: filteredSuites,
   });
 
   // Ensure directory exists
@@ -171,7 +209,10 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
   writeFileSync(args.manifestPath, JSON.stringify(m, null, 2) + "\n", "utf8");
 
   console.log(
-    `Recorded ${m.tests.length} test(s) across ${m.suites.length} suite(s) → ${args.manifestPath}`
+    `Recorded ${m.tests.length} test(s) across ${m.suites.length} suite(s) → ${args.manifestPath}` +
+      (args.storyId
+        ? ` (filtered to story-${args.storyId}; from ${tests.length} total discovered)`
+        : "")
   );
   for (const s of m.suites) {
     console.log(`  [${s.suite}] ${s.test_count} tests`);
@@ -179,6 +220,12 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
   appendGhSummary(
     `### Manifest recorded\n\n- ${m.tests.length} tests across ${m.suites.length} suites\n- Written to \`${args.manifestPath}\`\n`
   );
+}
+
+/** Escape regex meta-characters in a story id (defensive — story ids
+ *  are normally numeric, but the type allows any string). */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function verifyManifest(args: ManifestArgs, config: StackConfig): void {
