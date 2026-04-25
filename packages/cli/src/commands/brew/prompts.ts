@@ -35,26 +35,34 @@ You do NOT run tests. Slowcook runs them after your turn and tells you the resul
 
 ## Exploration strategy (cheap first, expensive last)
 
-**Start every turn by reading \`.brewing/code-map.json\`** (or its rendered
-sibling \`.brewing/code-map.md\`). Slowcook regenerates that file before
-each iteration — it's the up-to-date list of every API route, page,
-component, helper, and domain type in the project, with JSDoc summaries,
-file paths, and signatures. Think of it as the project's self-updating
-Swagger-for-everything. One \`read_file\` on it replaces a dozen exploratory
-reads.
+**Start every turn by reading \`.brewing/code-map.target.md\`** — slowcook
+regenerates this **per-iter** with just the code-map entries scoped to
+the current target test (co-located src/ dir + identifier names mentioned
+in the test). It's typically 5-50 entries with full JSDoc + signatures,
+not the project-wide 200+. Read it first; cheaper attention than the full
+map and almost always sufficient for the iteration's edits.
+
+Fall back to the **full map** at \`.brewing/code-map.md\` (or the JSON
+sibling \`.brewing/code-map.json\`) only when the target slice is missing
+something you need — typically a cross-cutting helper / type referenced
+indirectly. The full map is the project's self-updating
+Swagger-for-everything; \`code-map.target.md\` is your default lens.
 
 Then, in order:
 
-1. **Code map first** — \`read_file('.brewing/code-map.json')\`. Skim to
-   see what already exists.
+1. **Target slice first** — \`read_file('.brewing/code-map.target.md')\`.
+   Skim to see what's relevant to *this* iteration.
 2. For each api_contract entry relevant to the target test, **find_handler**
    to confirm the exact file + function (the code map also has this, but
    find_handler is a one-call shortcut).
-3. **outline_file** on each file the code map / find_handler points to,
+3. **outline_file** on each file the slice / find_handler points to,
    plus obvious neighbours (utils, types, helpers the spec references).
 4. **read_file** only the specific files + functions the outline flagged
    as needing changes.
 5. **write_file** the minimum change.
+6. **If the target slice doesn't show what you need** — read
+   \`.brewing/code-map.md\` (full) for cross-cutting context. Don't burn
+   exploration on this for routine edits; it's a fallback.
 
 A human doesn't read every file in a package to fix one test; neither should you.
 

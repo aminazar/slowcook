@@ -246,6 +246,45 @@ function enrichWithCallerCounts(project: Project, map: CodeMap): void {
   for (const t of map.types) t.callers = counts.get(t.name) ?? 0;
 }
 
+/**
+ * Phase 2B (0.12.8+) — return a copy of `map` containing only entries
+ * whose `file` is in `scope.files` OR whose `name` is in `scope.names`.
+ *
+ * The brew agent uses this to read a target-scoped slice instead of the
+ * full code-map every iteration. Scope is derived per-iter from the
+ * current target test (mirrored src/ dir + identifier names mentioned
+ * in the test source). Falls back to the full map if scope is empty.
+ *
+ * Pure function — does not mutate input. Schema metadata (slowcook
+ * version, generated_at, etc.) is preserved verbatim.
+ */
+export function sliceCodeMap(
+  map: CodeMap,
+  scope: { files?: ReadonlySet<string>; names?: ReadonlySet<string> }
+): CodeMap {
+  const files = scope.files ?? new Set<string>();
+  const names = scope.names ?? new Set<string>();
+
+  // Empty scope is meaningless — don't pretend to slice. Caller
+  // should fall through to the full map.
+  if (files.size === 0 && names.size === 0) return map;
+
+  const keepFile = (f: string): boolean => files.has(f);
+  const keepName = (n: string): boolean => names.has(n);
+
+  return {
+    schema_version: map.schema_version,
+    slowcook_version: map.slowcook_version,
+    generated_at: map.generated_at,
+    repo_root: map.repo_root,
+    api_routes: map.api_routes.filter((r) => keepFile(r.file)),
+    pages: map.pages.filter((p) => keepFile(p.file)),
+    components: map.components.filter((c) => keepFile(c.file) || keepName(c.name)),
+    helpers: map.helpers.filter((h) => keepFile(h.file) || keepName(h.name)),
+    types: map.types.filter((t) => keepFile(t.file) || keepName(t.name)),
+  };
+}
+
 function sortMap(map: CodeMap): void {
   map.api_routes.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
   map.pages.sort((a, b) => a.path.localeCompare(b.path));

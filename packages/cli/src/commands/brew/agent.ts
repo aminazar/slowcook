@@ -46,9 +46,15 @@ import {
   type HaltReport,
   type IterationDiff,
 } from "./halt.js";
-import { generateMap } from "../map/scan.js";
+import { generateMap, sliceCodeMap } from "../map/scan.js";
+import type { CodeMap } from "../map/scan.js";
 import { writeFreshMap } from "../map/index.js";
-import { CODE_MAP_JSON_PATH, CODE_MAP_MD_PATH } from "../map/render.js";
+import {
+  CODE_MAP_JSON_PATH,
+  CODE_MAP_MD_PATH,
+  CODE_MAP_TARGET_MD_PATH,
+  renderMarkdown,
+} from "../map/render.js";
 
 /** ------------------------- Context + options ------------------------- */
 
@@ -406,6 +412,11 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
 
     // Snapshot before turn (for revert)
     const snapshot = snapshotAllowedPaths(ctx);
+
+    // 0.12.8+ (Phase 2B) — refresh per-iter target slice. Cheap (slice +
+    // render off the cached JSON, no ts-morph rescan). The agent's first
+    // read on this iter sees just the entries scoped to currentTarget.
+    regenerateTargetSlice(ctx, currentTarget, findTargetTestFile(ctx, currentTarget));
 
     // Run one agent turn. Fix 1 (0.7.14): include the target test's
     // failure message + a few peripheral ones so the agent sees ground
@@ -1673,6 +1684,118 @@ function regenerateCodeMap(ctx: BrewContext, when: string): void {
   } catch (e) {
     appendRunLog(ctx, `CODEMAP regenerate FAILED (${when}): ${(e as Error).message.slice(0, 200)}`);
   }
+}
+
+/**
+ * Phase 2B (0.12.8+) — write a target-scoped slice of the code map to
+ * `.brewing/code-map.target.md`. Called BEFORE every turn so the
+ * agent's first read is the slice (cheap), not the full map.
+ *
+ * Scope derivation is intentionally cheap and approximate:
+ *   1. mirror tests/X/Y/foo.test.ts → src/X/Y/ → keep entries whose
+ *      file lives under that prefix (the "co-located src" intuition)
+ *   2. tokenise the test file source → keep entries whose `name`
+ *      appears in the test (the "what does the test reference?"
+ *      intuition)
+ *
+ * The slice is the UNION of both. Empty scope falls through to the
+ * full map (avoids surprising "empty slice" failures on early iters
+ * before tests/ has been written, etc.). Best-effort — failures are
+ * logged but never halt the brew.
+ */
+function regenerateTargetSlice(
+  ctx: BrewContext,
+  targetTestId: string,
+  targetTestFile: string | null
+): void {
+  try {
+    const jsonPath = join(ctx.repoRoot, CODE_MAP_JSON_PATH);
+    if (!existsSync(jsonPath)) return;
+    const map = JSON.parse(readFileSync(jsonPath, "utf8")) as CodeMap;
+    const scope = deriveCodeMapScope(ctx.repoRoot, targetTestFile, map);
+    const slice = sliceCodeMap(map, scope);
+    const md = renderTargetSliceHeader(targetTestId, targetTestFile, scope, slice) + renderMarkdown(slice);
+    const outPath = join(ctx.repoRoot, CODE_MAP_TARGET_MD_PATH);
+    writeFileSync(outPath, md, "utf8");
+    appendRunLog(
+      ctx,
+      `CODEMAP slice  scope_files=${scope.files?.size ?? 0} scope_names=${scope.names?.size ?? 0}  routes=${slice.api_routes.length} pages=${slice.pages.length} components=${slice.components.length} helpers=${slice.helpers.length} types=${slice.types.length}`
+    );
+  } catch (e) {
+    appendRunLog(ctx, `CODEMAP slice FAILED: ${(e as Error).message.slice(0, 200)}`);
+  }
+}
+
+function deriveCodeMapScope(
+  repoRoot: string,
+  testFile: string | null,
+  map: CodeMap
+): { files: Set<string>; names: Set<string> } {
+  const files = new Set<string>();
+  const names = new Set<string>();
+  if (!testFile) return { files, names };
+
+  // Mirrored src dir: tests/X/Y/foo.test.ts → src/X/Y/ as a prefix.
+  // Keep every entry whose file starts with that prefix.
+  const mirrorPrefix = testFile
+    .replace(/^tests\//, "src/")
+    .replace(/\/[^/]+\.test\.tsx?$/, "/");
+  const all: Array<{ file: string }> = [
+    ...map.api_routes,
+    ...map.pages,
+    ...map.components,
+    ...map.helpers,
+    ...map.types,
+  ];
+  for (const entry of all) {
+    if (entry.file.startsWith(mirrorPrefix)) files.add(entry.file);
+  }
+
+  // Names mentioned in the test file source — intersect with map names.
+  // Cheap regex tokenisation, no parser. Catches imported identifiers,
+  // bare references, JSX tags, and screen.getByText('Foo'). Ignored:
+  // strings, comments — but we let those pass since the false-positive
+  // cost is low (they just expand the slice slightly).
+  const allNames = new Set<string>();
+  for (const c of map.components) allNames.add(c.name);
+  for (const h of map.helpers) allNames.add(h.name);
+  for (const t of map.types) allNames.add(t.name);
+  if (allNames.size > 0) {
+    const fullPath = join(repoRoot, testFile);
+    if (existsSync(fullPath)) {
+      try {
+        const src = readFileSync(fullPath, "utf8");
+        const tokens = src.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+        for (const tok of tokens) {
+          if (allNames.has(tok)) names.add(tok);
+        }
+      } catch {
+        /* swallow — slice will still work via files alone */
+      }
+    }
+  }
+
+  return { files, names };
+}
+
+function renderTargetSliceHeader(
+  targetTestId: string,
+  testFile: string | null,
+  scope: { files: Set<string>; names: Set<string> },
+  slice: CodeMap
+): string {
+  const lines: string[] = [];
+  lines.push(`<!-- Per-iter target slice. Regenerated by slowcook before every turn. -->`);
+  lines.push("");
+  lines.push(`> **Target:** \`${targetTestId}\``);
+  if (testFile) lines.push(`> **Test file:** \`${testFile}\``);
+  lines.push(
+    `> **Scope:** ${scope.files.size} co-located file(s), ${scope.names.size} name match(es). ` +
+      `Showing ${slice.api_routes.length + slice.pages.length + slice.components.length + slice.helpers.length + slice.types.length} entries.`
+  );
+  lines.push(`> Full map at \`${CODE_MAP_MD_PATH}\` if you need cross-cutting context.`);
+  lines.push("");
+  return lines.join("\n");
 }
 
 /**

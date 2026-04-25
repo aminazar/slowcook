@@ -287,6 +287,7 @@ export function gitignoreSection(): string {
 # regenerate locally as needed.
 .brewing/code-map.json
 .brewing/code-map.md
+.brewing/code-map.target.md
 ${SLOWCOOK_GITIGNORE_MARKER_END}
 `;
 }

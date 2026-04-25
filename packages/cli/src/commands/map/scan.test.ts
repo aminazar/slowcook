@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateMap } from "./scan.js";
+import { generateMap, sliceCodeMap } from "./scan.js";
+import type { CodeMap } from "./scan.js";
 import { mapsEqual } from "./render.js";
 
 function mkRepo(): string {
@@ -319,6 +320,100 @@ void isolated;
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+});
+
+describe("sliceCodeMap — Phase 2B per-target slicing", () => {
+  function fixture(): CodeMap {
+    return {
+      schema_version: 1,
+      slowcook_version: "t",
+      generated_at: "2026-04-25T00:00:00Z",
+      repo_root: ".",
+      api_routes: [
+        { method: "POST", path: "/api/bookmarks", file: "src/app/api/bookmarks/route.ts", function: "POST", imports: [] },
+        { method: "GET", path: "/api/feed", file: "src/app/api/feed/route.ts", function: "GET", imports: [] },
+      ],
+      pages: [
+        { path: "/bookmarks", file: "src/app/bookmarks/page.tsx", component: "BookmarksPage" },
+        { path: "/feed", file: "src/app/feed/page.tsx", component: "FeedPage" },
+      ],
+      components: [
+        { name: "BookmarkItem", file: "src/components/bookmarks/item.tsx", exportKind: "named" },
+        { name: "FeedItem", file: "src/components/feed/item.tsx", exportKind: "named" },
+      ],
+      helpers: [
+        { name: "sanitiseUrl", kind: "function", file: "src/lib/bookmarks/sanitise.ts", signature: "function sanitiseUrl(u: string): string" },
+        { name: "rateLimit", kind: "function", file: "src/lib/util/rate-limit.ts", signature: "function rateLimit()" },
+      ],
+      types: [
+        { name: "Bookmark", kind: "interface", file: "src/types/bookmark.ts", declaration: "interface Bookmark {}" },
+        { name: "FeedEntry", kind: "interface", file: "src/types/feed.ts", declaration: "interface FeedEntry {}" },
+      ],
+    };
+  }
+
+  it("returns the full map when scope is empty (no useful slicing possible)", () => {
+    const m = fixture();
+    const sliced = sliceCodeMap(m, {});
+    expect(sliced.helpers).toHaveLength(2);
+    expect(sliced.components).toHaveLength(2);
+  });
+
+  it("filters to entries whose file is in scope.files (api_routes + pages by file only)", () => {
+    const m = fixture();
+    const sliced = sliceCodeMap(m, {
+      files: new Set([
+        "src/app/api/bookmarks/route.ts",
+        "src/components/bookmarks/item.tsx",
+        "src/lib/bookmarks/sanitise.ts",
+        "src/types/bookmark.ts",
+      ]),
+    });
+    expect(sliced.api_routes.map((r) => r.method)).toEqual(["POST"]);
+    expect(sliced.components.map((c) => c.name)).toEqual(["BookmarkItem"]);
+    expect(sliced.helpers.map((h) => h.name)).toEqual(["sanitiseUrl"]);
+    expect(sliced.types.map((t) => t.name)).toEqual(["Bookmark"]);
+    // Pages were not in scope — should be empty.
+    expect(sliced.pages).toHaveLength(0);
+  });
+
+  it("includes components/helpers/types whose name matches scope.names even if file is out-of-scope", () => {
+    const m = fixture();
+    const sliced = sliceCodeMap(m, {
+      names: new Set(["sanitiseUrl", "Bookmark"]),
+    });
+    expect(sliced.helpers.map((h) => h.name)).toEqual(["sanitiseUrl"]);
+    expect(sliced.types.map((t) => t.name)).toEqual(["Bookmark"]);
+    // api_routes/pages are file-scoped only — names don't apply.
+    expect(sliced.api_routes).toHaveLength(0);
+    expect(sliced.pages).toHaveLength(0);
+  });
+
+  it("unions file + name scopes (file matches OR name matches)", () => {
+    const m = fixture();
+    const sliced = sliceCodeMap(m, {
+      files: new Set(["src/lib/bookmarks/sanitise.ts"]),
+      names: new Set(["FeedItem"]),
+    });
+    expect(sliced.helpers.map((h) => h.name)).toEqual(["sanitiseUrl"]);
+    expect(sliced.components.map((c) => c.name)).toEqual(["FeedItem"]);
+  });
+
+  it("preserves schema metadata (version, generated_at, repo_root)", () => {
+    const m = fixture();
+    const sliced = sliceCodeMap(m, { names: new Set(["sanitiseUrl"]) });
+    expect(sliced.schema_version).toBe(m.schema_version);
+    expect(sliced.slowcook_version).toBe(m.slowcook_version);
+    expect(sliced.generated_at).toBe(m.generated_at);
+    expect(sliced.repo_root).toBe(m.repo_root);
+  });
+
+  it("does not mutate the input map", () => {
+    const m = fixture();
+    const before = JSON.stringify(m);
+    sliceCodeMap(m, { names: new Set(["sanitiseUrl"]) });
+    expect(JSON.stringify(m)).toBe(before);
   });
 });
 

@@ -3,6 +3,14 @@ import type { CodeMap } from "./scan.js";
 export const CODE_MAP_JSON_PATH = ".brewing/code-map.json";
 export const CODE_MAP_MD_PATH = ".brewing/code-map.md";
 
+/**
+ * Phase 2B (0.12.8+) — per-iter target-scoped slice. Brew rewrites this
+ * before every turn with just the entries the current target test is
+ * likely to need. The full map at CODE_MAP_MD_PATH stays intact for
+ * fallback cross-cutting questions.
+ */
+export const CODE_MAP_TARGET_MD_PATH = ".brewing/code-map.target.md";
+
 export function renderJson(map: CodeMap): string {
   return JSON.stringify(map, null, 2) + "\n";
 }
