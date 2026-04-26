@@ -6,6 +6,30 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.3 — Hard-signal synthesizers + two spec-body-synth bug fixes
+
+Cut 2026-04-26.
+
+End-to-end validation against rewo (issue #138 + PR #129) revealed three problems caught autonomously while testing the brownfield foundation. Fixed in this cut.
+
+### Bugs fixed
+
+- **`/u/alice` route bug**: `spec-body-synth` produced `path: /u/alice, file: src/app/(main)/u/alice/page.tsx` for story-015 because the dynamic-segment regex didn't recognize Express-style `:handle` segments — only `[handle]` (Next.js) and `<handle>` (spec shorthand). The story-015 spec used `:handle` throughout (api_contract: `/api/profiles/:handle/pins`), so `/u/:handle` got truncated and `/u/alice` from a prose example became the only `/u/*` route. Fix: regex accepts `:name` segments + lifts dynamic names from api_contract paths to synthesise `/u/[handle]` siblings of literal `/u/alice` mentions, then coalesces.
+- **Schema TODO bug**: `deriveSchema` bailed to a `-- TODO` placeholder when invariants clearly implied a new table. Fix: proper `CREATE TABLE` synthesis from invariants + api_contract response shapes. Type inference by suffix convention (`_id` → uuid + FK to existing entity from `.brewing/diagrams/schema.mmd`, `_at` → timestamptz, `_count` → integer, default → text). Brew can now act on the proposal; previously it had to bail.
+
+### V7 — hard-signal backstop for `ui_layout` + `fixtures`
+
+Per the "soft steering vs hard signals" memory, the 0.13.6 prompt steering to elevate brownfield context into structured proposals proved **soft**: on rewo story-015 the agent put real tokens in prose `ui_behavior` (`bg-tint-celebrate`, `text-foreground/60`, `border-card-border`) but skipped the structured `proposals.ui_layout` block. Same with fixtures — clear data-display story, no `proposals.fixtures` block.
+
+Two new synthesizers in `proposals-synth.ts`:
+
+- **`deriveUiLayout`**: scans `ui_behavior` prose for token usage (`bg-…`, `var(--…)`) and component path mentions (`src/components/...`); validates each against `.brewing/diagrams/tokens.md`; classifies as `tokens_to_reuse` vs `tokens_to_add`. Backtick-wrapped PascalCase names get a weak-signal entry `\`Foo\` (path TBD)`.
+- **`deriveFixtures`**: detects "data display" stories (api_contract has GET + ui_behavior implies listing); emits an empty-seed shell. The shell still triggers `writeMockFixtures` to emit `.mock.ts` + `.ts` stub files (with empty arrays), unblocking the data-layer seam. Real fixture rows still need LLM/PM authoring.
+
+8 new tests in `proposals-synth.test.ts` (15 total in that file; 387 cli total).
+
+---
+
 ## 0.14.0-alpha.2 — Sibling stub `<domain>.ts` (data-layer seam, brew-target side)
 
 Cut 2026-04-25.

@@ -82,15 +82,48 @@ describe("synthesizeProposalsFromSpec", () => {
     ).toBe(true);
   });
 
-  it("synthesises schema placeholder when invariants imply DDL", () => {
+  it("synthesises a real CREATE TABLE skeleton when invariants imply a new table (0.14.0-α.3)", () => {
+    // Regression from rewo story-015: pre-α.3 this emitted a `-- TODO`
+    // placeholder. Brew can't act on a TODO, so the synth now produces
+    // a CREATE TABLE skeleton with conventional column types.
     const spec: Spec = {
       ...base,
-      invariants: ["Unique constraint on `bookmarks(member_id, rewo_id)` enforces idempotent saves."],
+      invariants: [
+        "Unique constraint on `bookmarks(member_id, rewo_id)` enforces idempotent saves.",
+      ],
     };
     const out = synthesizeProposalsFromSpec(spec);
     expect(out.schema?.proposed_by).toBe("spec-body-synth");
-    expect(out.schema?.sql).toContain("TODO");
-    expect(out.schema?.sql).toContain("bookmarks");
+    const sql = out.schema?.sql ?? "";
+    expect(sql).toContain("create table bookmarks");
+    expect(sql).toContain("id uuid primary key default gen_random_uuid()");
+    expect(sql).toContain("member_id uuid not null");
+    expect(sql).toContain("rewo_id uuid not null");
+    expect(sql).toContain("created_at timestamptz not null default now()");
+  });
+
+  it("schema synth: api_contract response columns join invariant columns (0.14.0-α.3)", () => {
+    // story-015 had `pinned_at` only in api_contract responses, never
+    // in invariants. The columns union catches it.
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "Unique constraint on `rewo_pins(member_id, rewo_id)` — a rewo cannot be pinned twice.",
+      ],
+      api_contract: [
+        {
+          method: "GET",
+          path: "/api/profiles/:handle/pins",
+          responses: {
+            "200": "{ items: Array<{ id: string, rewo_id: string, pinned_at: string }> }",
+          },
+        },
+      ] as Spec["api_contract"],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const sql = out.schema?.sql ?? "";
+    expect(sql).toContain("create table rewo_pins");
+    expect(sql).toContain("pinned_at timestamptz");
   });
 
   it("skips schema when no DDL signals are present", () => {
@@ -123,6 +156,151 @@ describe("synthesizeProposalsFromSpec", () => {
     expect(paths).toContain("/u/[handle]");
     expect(paths).not.toContain("/u/amin");
     // File mapping uses the dynamic form.
+    const entry = out.routes?.paths.find((p) => p.path === "/u/[handle]");
+    expect(entry?.file).toBe("src/app/(main)/u/[handle]/page.tsx");
+  });
+
+  it("synthesises ui_layout from ui_behavior prose tokens + components (V7)", () => {
+    // Regression from rewo story-015: 0.13.6 prompt told the agent to
+    // emit proposals.ui_layout when ui_behavior present, but the agent
+    // skipped the structured block and put tokens in prose only.
+    // The synth now backfills it from the prose.
+    const spec: Spec = {
+      ...base,
+      ui_behavior: {
+        desktop_light:
+          "Strip cards use `bg-tint-celebrate` with `border border-card-border`, " +
+          "title in `text-foreground`, footer in `text-foreground/60`. " +
+          "Each row renders via `RewoCard` from `src/components/rewo/rewo-card.tsx`.",
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const ui = out.ui_layout;
+    expect(ui).toBeDefined();
+    expect(ui?.proposed_by).toBe("spec-body-synth");
+    expect(ui?.tokens_to_reuse).toContain("bg-tint-celebrate");
+    expect(ui?.tokens_to_reuse).toContain("border-card-border");
+    expect(ui?.tokens_to_reuse).toContain("text-foreground");
+    expect(ui?.components_to_reuse).toContain("src/components/rewo/rewo-card.tsx");
+    // The PascalCase backtick name is kept as a weaker-signal entry.
+    expect(
+      ui?.components_to_reuse?.some((c) => c.includes("RewoCard"))
+    ).toBe(true);
+  });
+
+  it("ui_layout synth: skips when ui_behavior is empty (no UI surface)", () => {
+    const spec: Spec = { ...base }; // no ui_behavior
+    const out = synthesizeProposalsFromSpec(spec);
+    expect(out.ui_layout).toBeUndefined();
+  });
+
+  it("synthesises an empty-seed fixtures shell for data-display stories (V7)", () => {
+    const spec: Spec = {
+      ...base,
+      ui_behavior: { desktop_light: "Renders a horizontal strip of pinned cards." },
+      api_contract: [
+        { method: "GET", path: "/api/profiles/:handle/pins" },
+        { method: "POST", path: "/api/pins" },
+      ] as Spec["api_contract"],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const fx = out.fixtures;
+    expect(fx).toBeDefined();
+    expect(fx?.proposed_by).toBe("spec-body-synth");
+    expect(fx?.by_domain).toHaveProperty("pins");
+    expect(fx?.by_domain?.pins.seed).toEqual({ list: [] });
+  });
+
+  it("fixtures synth: skips when no GET endpoint", () => {
+    const spec: Spec = {
+      ...base,
+      ui_behavior: { desktop_light: "Renders a list of items." },
+      api_contract: [
+        { method: "POST", path: "/api/pins" },
+      ] as Spec["api_contract"],
+    };
+    expect(synthesizeProposalsFromSpec(spec).fixtures).toBeUndefined();
+  });
+
+  it("fixtures synth: skips when ui_behavior doesn't imply listing/displaying", () => {
+    const spec: Spec = {
+      ...base,
+      ui_behavior: { desktop_light: "Settings page with a form." },
+      api_contract: [
+        { method: "GET", path: "/api/settings" },
+      ] as Spec["api_contract"],
+    };
+    expect(synthesizeProposalsFromSpec(spec).fixtures).toBeUndefined();
+  });
+
+  it("fixtures synth: preserves LLM-emitted fixtures (no overwrite)", () => {
+    const spec: Spec = {
+      ...base,
+      ui_behavior: { desktop_light: "list of cards" },
+      api_contract: [
+        { method: "GET", path: "/api/feed" },
+      ] as Spec["api_contract"],
+      proposals: {
+        fixtures: {
+          status: "approved",
+          proposed_by: "refine-agent",
+          by_domain: { feed: { seed: { list: [{ id: "f-1" }] } } },
+        },
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    expect(out.fixtures?.proposed_by).toBe("refine-agent");
+    expect(out.fixtures?.by_domain?.feed.seed).toEqual({ list: [{ id: "f-1" }] });
+  });
+
+  it("ui_layout synth: preserves LLM-emitted ui_layout (no overwrite)", () => {
+    const spec: Spec = {
+      ...base,
+      ui_behavior: { desktop_light: "uses `bg-coral`" },
+      proposals: {
+        ui_layout: {
+          status: "approved",
+          proposed_by: "refine-agent",
+          components_to_reuse: ["existing-llm-pick"],
+        },
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    expect(out.ui_layout?.proposed_by).toBe("refine-agent");
+    expect(out.ui_layout?.status).toBe("approved");
+    expect(out.ui_layout?.components_to_reuse).toEqual(["existing-llm-pick"]);
+  });
+
+  it("normalises Express-style :name dynamic segments + synthesises /u/[handle] from /u/alice when api_contract has :handle (0.14.0-α.3)", () => {
+    // Regression from rewo story-015 (2026-04-26): spec used :handle
+    // throughout (api_contract: /api/profiles/:handle/pins) but pre-α.3
+    // regex only recognized [name] and <name>, so /u/:handle in prose
+    // was truncated to /u (or skipped), and /u/alice from an acceptance
+    // scenario became the only /u/* route. Result: spec-body-synth
+    // emitted `path: /u/alice, file: src/app/(main)/u/alice/page.tsx`.
+    //
+    // Fix: regex accepts :name segments + lifts dynamic names from
+    // api_contract paths to synthesise /u/[handle] siblings of literal
+    // /u/alice mentions, then coalesces.
+    const spec: Spec = {
+      ...base,
+      api_contract: [
+        { method: "GET", path: "/api/profiles/:handle/pins" },
+        { method: "POST", path: "/api/pins" },
+      ] as Spec["api_contract"],
+      preconditions: ["The profile at `/u/:handle` exists."],
+      ui_behavior: {
+        desktop_light: "On `/u/:handle`, when pins exist OR viewer is owner: a strip renders.",
+      },
+      acceptance_scenarios: [
+        "Given an unauthenticated visitor loading `/u/alice` where alice has 0 pins, When the page renders, Then no strip is shown.",
+      ],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const paths = out.routes?.paths.map((p) => p.path) ?? [];
+    expect(paths).toContain("/u/[handle]");
+    expect(paths).not.toContain("/u/alice");
+    expect(paths).not.toContain("/u");
     const entry = out.routes?.paths.find((p) => p.path === "/u/[handle]");
     expect(entry?.file).toBe("src/app/(main)/u/[handle]/page.tsx");
   });
