@@ -273,6 +273,31 @@ api_shape:
         "401": "{ error: string, code: 'unauthenticated' }"
 \`\`\`
 
+**9. \`fixtures\`** (0.14.0-α.1+) — when the story has \`api_contract\` GET endpoints AND \`ui_behavior\` implies displaying that data. Mockup-first refinement (0.14) emits \`src/lib/data/<domain>.mock.ts\` from this block so the generated mockup is behaviorally complete before brew wires up real data.
+
+\`\`\`yaml
+fixtures:
+  status: pending
+  proposed_by: refine-agent
+  rationale: "Mockup needs concrete notifications data to make unread/read state, empty state, and pagination visible at preview time."
+  by_domain:
+    notifications:
+      seed:
+        list:
+          - { id: "n-1", actor_handle: "@alice",  message: "reacted celebrate to your rewo", read_at: null,                       created_at: "2026-04-25T12:30:00Z" }
+          - { id: "n-2", actor_handle: "@bob",    message: "started following you",          read_at: "2026-04-25T11:00:00Z",     created_at: "2026-04-24T09:00:00Z" }
+          - { id: "n-3", actor_handle: "@carol",  message: "reacted appreciate to your rewo", read_at: null,                       created_at: "2026-04-23T17:45:00Z" }
+        unread_count: 2
+\`\`\`
+
+Rules of thumb for fixture authoring:
+
+- **Domain naming.** One domain per primary resource the story introduces. Lowercase, hyphen / underscore allowed: \`notifications\`, \`bookmarks\`, \`feed\`, \`member-reactions\`. Refine writes ONE \`<domain>.mock.ts\` per key.
+- **Seed shape.** Keys of \`seed\` become the named exports of the generated module. Use plain TS-identifier names: \`list\`, \`count\`, \`unread_count\`, \`byId\`. Avoid \`bad-name\`, \`-leading\`, etc. Values become \`as const\` exports — JSON-serializable.
+- **Coverage.** 3–5 sample items, deliberately mixing edge cases the spec calls out: read vs unread, paginated vs empty, owned vs not-owned. The mockup will SHOW these states; the fixtures must let the PM see + click them.
+- **Naming alignment.** Field names in fixture rows MUST match the field names in \`api_contract\` response schemas (so the generated UI imports + the eventual real data layer agree). If the API returns \`{ items: [{ recipient_id, ... }] }\`, fixtures use \`recipient_id\`, not \`recipientId\`.
+- **Skip when:** the story is a styling polish, a backend-only change, or a non-data UI like a settings page with no list/feed surface. Fixtures only earn their cost when the mockup needs data to be reviewable.
+
 ### When NOT to emit proposals
 
 - The issue explicitly specifies the category (e.g., a mockup is attached, or the issue quotes SQL) — honor the explicit input; don't override

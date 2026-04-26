@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.1.5 — Refine prompt steering for `proposals.fixtures`
+
+Cut 2026-04-25.
+
+α.1 added the schema field + writer infra; α.1.5 teaches the agent when to populate it.
+
+`REFINEMENT_ANALYST_SYSTEM` (in `@slowcook-ai/llm-anthropic`) gains category 9: `fixtures`. Steering covers:
+
+- **When** to emit: story has `api_contract` GET endpoints AND `ui_behavior` implies displaying that data.
+- **Domain naming**: lowercase, hyphen/underscore, one per primary resource (`notifications`, `member-reactions`, `feed`).
+- **Seed shape**: keys become named exports of `<domain>.mock.ts` (`list`, `count`, `byId`).
+- **Coverage**: 3–5 sample items mixing edge cases the spec calls out (read/unread, paginated/empty, owned/not-owned).
+- **Naming alignment**: field names match `api_contract` response schemas (so generated UI imports + future real data layer agree).
+- **Skip when**: styling polish, backend-only, settings UI with no list/feed surface.
+
+Pure prompt change. Pairs with α.1 to make the data-layer seam self-driving.
+
+---
+
 ## 0.14.0-alpha.1 — Mockup-first data-layer seam (mock fixtures)
 
 Cut 2026-04-25.
