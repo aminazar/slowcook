@@ -7,7 +7,11 @@
 
 ## Status
 
-**0.13.5 — brownfield extraction foundation for 0.14 mockup-first. Cut 2026-04-25.** New `slowcook extract` runs in ~315ms with no `npm ci`; walks `supabase/migrations/` + `**/*.css`; writes `.brewing/diagrams/{schema.mmd,tokens.md}`. Refine + investigate workflows auto-run it before each agent invocation, and refine's project-context now appends both extracts so proposals reuse existing entity names + design tokens (`var(--coral)`, `bg-tint-celebrate`) instead of inventing. Validated on rewo: 10 entities + 21 light + 21 dark + 10 @theme tokens extracted correctly. The 0.13.x series after the bug-flow cut: 0.13.2 (`map --emit-schema`), 0.13.3 (`map --emit-tokens` + Tailwind v4 parser fix), 0.13.4 (refine reads extracts), 0.13.5 (`slowcook extract` command + workflow auto-extraction). 368 tests green.
+**0.15 — `plate` + `brew`: parallel-then-converge UI pipeline. Designing now (2026-04-26).** New architecture: insert a `plate` agent that produces and PM-iterates the mockup BEFORE testgen, so the running mockup (not test prose) is the canonical target image for `brew`. Today's monolithic brew becomes a narrower test-reconciliation step that minimally edits plate's PR to satisfy tests — it can no longer redesign components to satisfy a literal-but-wrong test contract. Plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md). Validated empirically on rewo PR #142 where today's brew shipped 26 green tests with structurally wrong UI (duplicated cards, non-functional Pin button) — failure mode that plate+brew structurally prevents.
+
+**0.14.0-α.1 → α.6 — mockup-first prereqs. Shipped 2026-04-25 → 2026-04-26.** Data-layer seam (`src/lib/data/<domain>.{mock.ts,ts}` with `@slowcook-stub` marker) + `proposals.fixtures.by_domain` schema in `core@0.12.0` + V7 hard-signal synthesizer backstops for `proposals.{ui_layout, fixtures}` + spec-emit content validator (catches LLM-truncation bugs like `var(--tint-in`). Six alphas, six bugs caught + fixed during V6 end-to-end validation against rewo. The α.6+ slices in the original 0.14 plan (full mockup generation by refine) are **superseded by 0.15** in favor of the cleaner `vibe → plate → recipe → brew` separation.
+
+**0.13.0–0.13.6 — brownfield extraction foundation. Shipped 2026-04-25.** `slowcook map --emit-schema` (Supabase migrations → Mermaid erDiagram), `--emit-tokens` (CSS `:root` + `@theme` → tokens catalog), top-level `slowcook extract` command, `buildProjectContext` reads both, refine prompts steer agent to reuse existing entities + tokens by exact name. Validated on rewo: 10 entities + 21 light + 21 dark + 10 @theme tokens parsed in 315ms.
 
 **0.13.0 — bug-flow + chef orchestrator + `testgen` → `recipe` rename. Cut 2026-04-25.** Slowcook now runs two parallel pipelines:
 
@@ -30,7 +34,7 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 
 Latest stable on npm: `cli@0.12.13`, `forge-github@0.9.8`, `core@0.11.0`, `stack-ts@0.9.3`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`. The `0.13.0`–`0.13.5` cli + `forge-github@0.10.0`–`0.10.1` + `llm-anthropic@0.9.0` are committed and tagged but **not yet published**.
 
-The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md); the canonical post-0.11 plan is [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (now historical) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Active plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md). Recent history: [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped, α.7+ superseded by 0.15) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
 ## The idea
 
@@ -112,7 +116,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for per-command detail.
 
 ## Roadmap
 
-The 0.7→0.11 plan that drove the bulk of the redesign is in [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md). The next major (mockup-first refinement) is in [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md).
+Active plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md). Recent history: [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped, α.7+ superseded by 0.15) and [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). Closed: [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
 | Version | Brings | Status |
 |---|---|---|
@@ -130,12 +134,31 @@ The 0.7→0.11 plan that drove the bulk of the redesign is in [`docs/plans/roadm
 | 0.12.x | Phase 2 brownfield-retrieval (code-map line+callers, per-target slice, `.brewing/patterns/`) + testgen prevention checks (page-link, schema-presence) + cost-marker fixes (restaurant-bill rollup) | ✅ shipped |
 | 0.13.0 | Bug-flow + chef orchestrator: parallel `investigate → recipe --regression → sift` pipeline; `chef` watches all PRs and classifies failures; `testgen` renamed to `recipe` for kitchen-metaphor consistency | ✅ shipped (cut 2026-04-25) |
 | 0.13.2–0.13.6 | Brownfield extraction foundation: `slowcook map --emit-schema` (Supabase migrations → Mermaid ERD), `--emit-tokens` (CSS `:root` + `@theme` → tokens catalog), top-level `slowcook extract` command, refine reads both via `buildProjectContext`, refine + investigate workflow templates auto-run extraction | ✅ shipped |
-| 0.14.0-alpha.1–α.5 | Mockup-first data-layer seam: `proposals.fixtures.by_domain` schema + `<domain>.mock.ts` writer + sibling `<domain>.ts` stub with `@slowcook-stub` marker + V7 hard-signal synthesizer backstops for `proposals.{ui_layout, fixtures}` (so the LLM-side prompt steering doesn't have to win every time). End-to-end validated against rewo issue #138 + PR #129. | ✅ shipped (cut 2026-04-26) |
-| 0.14.0-α.6 | Refine writes `src/**/page.tsx` + components for the story (the actual mockup) | 🔜 first PM mockup-feedback checkpoint |
-| 0.14.0-α.7 | Preview-URL convention in `.brewing/context.md` (Cloudflare/Vercel rebuild handles preview) | 🔜 next |
-| 0.14.0-α.8 | `/refine` resubmit reads PR review comments + annotated-screenshot attachments → vision-capable diff against branch state | 🔜 next |
+| 0.14.0-α.1–α.6 | Mockup-first prereqs: data-layer seam (`<domain>.mock.ts` + `@slowcook-stub` marker), `proposals.fixtures.by_domain` schema in `core@0.12.0`, V7 hard-signal synthesizer backstops, spec-emit content validator. Six bugs caught + fixed during V6 end-to-end validation against rewo. | ✅ shipped (cut 2026-04-26) |
+| 0.14.0-α.7+ | Original plan: refine emits `src/**/page.tsx` directly + preview URL + vision-capable amendment | ⛔ superseded by 0.15 |
+| **0.15** | **`plate` + `brew` parallel-converge UI pipeline.** New `vibe` agent emits the mockup; new `plate` agent manages PM iteration on it; existing `recipe` writes tests against plate's actual rendered DOM (not imagined design); existing `brew` keeps its name + role but on UI stories starts from plate's PR with `do NOT redesign` constraint. Mockup is the canonical target image, not test prose — addresses the slippery slope of "tests don't measure UX → brew ships wrong design → tighten spec → repeat." | 🔜 designing 2026-04-26 |
 
 The original design ([`docs/DESIGN.md`](./docs/DESIGN.md)) described a standalone `@slowcook-ai/dashboard` package for HITL review; the reconciled roadmap descopes that in favor of GitHub-native surfaces (PR comments + native review UI + drag-drop annotated screenshots).
+
+### 0.15 pipeline at a glance
+
+```
+human spec ─┬─ refine → spec.yaml ─────────────────────┐
+            │                                          ▼
+            └─ vibe → mockup → PM feedback → plate → recipe (sees plate's PR + spec) → tests
+                                                ↓                                       ↓
+                                                          brew ← ← ← ← ← ← ← ← ← ← ← ← ┘
+                                                            ↓
+                                                       served (final PR, tests green)
+```
+
+- `refine` and `vibe` run in parallel from the same human input.
+- `plate` is the mockup-iteration loop (PM clicks through running mock data, comments, plate amends).
+- `recipe` waits for both tracks to converge before writing tests — tests target the actual DOM, not an imagined one.
+- `brew` is the existing agent; on UI stories it picks up plate's PR as starting code with a tighter system prompt ("do not redesign components; replace mock data with real fetches").
+- `served` is the label for the final brew-merged PR.
+
+For non-UI stories (backend-only, infra), the `plate` track is skipped and `brew` runs in its today-equivalent mode.
 
 ## Architecture
 
