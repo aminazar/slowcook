@@ -7,7 +7,9 @@
 
 ## Status
 
-**0.15 — `plate` + `brew`: parallel-then-converge UI pipeline. Designing now (2026-04-26).** New architecture: insert a `plate` agent that produces and PM-iterates the mockup BEFORE testgen, so the running mockup (not test prose) is the canonical target image for `brew`. Today's monolithic brew becomes a narrower test-reconciliation step that minimally edits plate's PR to satisfy tests — it can no longer redesign components to satisfy a literal-but-wrong test contract. Plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md). Validated empirically on rewo PR #142 where today's brew shipped 26 green tests with structurally wrong UI (duplicated cards, non-functional Pin button) — failure mode that plate+brew structurally prevents.
+**0.16 — singular mock app + element-anchored review. Cut began 2026-04-27.** Architectural reset of 0.15 (which mixed mock data into `src/`). Mock now lives at `mock/` — a singular per-consumer Next.js app, totally separate from `src/`, runnable in docker on the consumer's box. Vibe + plate evolve it incrementally per story; brew copies its components into `src/` and adds real-data wiring. Plan: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) (canonical reference for the architecture).
+
+Shipped in 0.16 so far: `@slowcook-ai/mock-runtime@0.1.0` + `Scenario` types in `@slowcook-ai/core@0.13.0` + `slowcook init mock` CLI. Open work: vibe v2 (writes mock/scenarios/story-N.ts); SSH preview deploy; review-overlay package; plate v2 (element-anchored comments + spec-vs-mock classifier); `slowcook port` deterministic copy step; brew --mode plate v2; orchestration trigger chain.
 
 **0.14.0-α.1 → α.6 — mockup-first prereqs. Shipped 2026-04-25 → 2026-04-26.** Data-layer seam (`src/lib/data/<domain>.{mock.ts,ts}` with `@slowcook-stub` marker) + `proposals.fixtures.by_domain` schema in `core@0.12.0` + V7 hard-signal synthesizer backstops for `proposals.{ui_layout, fixtures}` + spec-emit content validator (catches LLM-truncation bugs like `var(--tint-in`). Six alphas, six bugs caught + fixed during V6 end-to-end validation against rewo. The α.6+ slices in the original 0.14 plan (full mockup generation by refine) are **superseded by 0.15** in favor of the cleaner `vibe → plate → recipe → brew` separation.
 
@@ -34,7 +36,7 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 
 Latest stable on npm: `cli@0.12.13`, `forge-github@0.9.8`, `core@0.11.0`, `stack-ts@0.9.3`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`. The `0.13.0`–`0.13.5` cli + `forge-github@0.10.0`–`0.10.1` + `llm-anthropic@0.9.0` are committed and tagged but **not yet published**.
 
-The detailed design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Active plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md). Recent history: [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped, α.7+ superseded by 0.15) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+**Active plan**: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) — canonical architecture reference. Detailed initial design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (abandoned; lessons informed 0.16) → [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
 ## The idea
 
