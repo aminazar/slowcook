@@ -43,7 +43,12 @@ export type HaltReason =
   // 0.11.16+: per-iter scoped runs miss transitive regressions in
   // tests outside the story manifest. Full-suite gate at brew
   // completion catches them before opening the PR.
-  | "TRANSITIVE_REGRESSION";
+  | "TRANSITIVE_REGRESSION"
+  // 0.15.0-α.4 (plate-mode brew): a test cannot be satisfied without
+  // editing files plate's mockup committed to main. Brew halts so PM
+  // can choose: amend the mockup via /plate, amend the spec via
+  // /refine, or accept the conflict + override-merge.
+  | "MOCKUP_DESIGN_CONFLICT";
 
 export interface IterationDiff {
   iteration: number;
@@ -307,6 +312,24 @@ export function defaultSuggestedActions(
           id: "hand_patch_or_widen_manifest",
           label: "Hand-patch the regression OR widen this brew's manifest",
           description: "Two options: (a) keep brew's existing checkpoints, hand-fix the broken external test, push, retrigger brew on the now-clean baseline. (b) include the broken tests in this story's manifest so the next brew sees them as in-scope.",
+        },
+      ];
+    case "MOCKUP_DESIGN_CONFLICT":
+      return [
+        {
+          id: "amend_mockup_via_plate",
+          label: "Amend the mockup via /plate on the original mockup PR",
+          description: "If brew's failure says the test wants behavior the current mockup doesn't show (a missing button, different layout), the mockup needs to change. Comment `/plate <prose>` on the slowcook-mockup PR for this story; plate amends; merge; brew re-runs cleanly.",
+        },
+        {
+          id: "amend_spec_via_refine",
+          label: "Amend the spec via /refine on the spec PR",
+          description: "If the test asserts an invariant the mockup-as-shipped genuinely can't satisfy (e.g., \"no duplicate rendering\" but the mockup has duplicates by design), the spec is too strict OR the mockup is wrong. Comment `/refine <prose>` on the spec PR to adjust the invariant; recipe regenerates tests; brew re-runs.",
+        },
+        {
+          id: "manual_override_merge",
+          label: "Manually edit the brew PR + override-merge",
+          description: "Last resort: if you've decided the conflict is acceptable (the test is wrong AND the spec is right AND the mockup is right), edit the brew PR by hand to fix the test or skip it, then merge with admin override. Document the decision in the PR comments so future agents don't re-hit the same wall.",
         },
       ];
   }

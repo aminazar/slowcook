@@ -8,4 +8,5 @@ export {
   BREW_TOOLS,
   turnPrompt,
   turnPromptParts,
+  BREW_PLATE_MODE_ADDENDUM,
 } from "@slowcook-ai/llm-anthropic";

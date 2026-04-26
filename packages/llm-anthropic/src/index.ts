@@ -29,6 +29,10 @@ export {
   BREW_TOOLS,
   turnPrompt,
   turnPromptParts,
+  // 0.11.1 (paired with cli 0.15.0-α.4) — addendum appended to BREW_SYSTEM
+  // when brew runs in `--mode plate`. The mockup is on main; brew does
+  // data-layer + API + migrations only.
+  BREW_PLATE_MODE_ADDENDUM,
 } from "./prompts/brew.js";
 export {
   SPEC_CHECKLIST_MD,

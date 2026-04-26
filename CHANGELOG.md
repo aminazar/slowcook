@@ -6,6 +6,42 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.15.0-alpha.4 + llm-anthropic 0.11.1 — `brew --mode plate` + MOCKUP_DESIGN_CONFLICT halt
+
+Cut 2026-04-26.
+
+α.4 closes the brew side of the plate-pipeline. With this version, the failure mode that produced rewo PR #117 + PR #142 is structurally impossible.
+
+### What's new
+
+- **`slowcook brew --mode plate|legacy|auto`** — new flag (default `auto`). Mode resolution:
+  - `auto`: spec has populated `proposals.fixtures.by_domain.*` AND a merged `slowcook-mockup` PR for the story exists → `plate`. Otherwise `legacy`.
+  - `plate`: brew's allowed-paths restricted to `src/lib/data/**`, `src/app/api/**`, `supabase/migrations/**`, `tests/**`. The agent CANNOT edit `src/**/*.tsx`, `src/components/**`, or `src/lib/data/<domain>.mock.ts` — those are plate's frozen design contract.
+  - `legacy`: today's behavior, unchanged. For backend-only stories.
+- **Hard-signal frozen-paths check in plate-mode** — even though `src/lib/data/**` is in allowed-paths so brew can swap stubs, a runtime check in the agent's iteration loop rejects any write to `*.mock.ts`, `src/components/**`, or `src/**/*.tsx`. The agent's diff is reverted with `note: "plate-mode protects UI: <path>. Mockup files are owned by plate."`
+- **`BREW_PLATE_MODE_ADDENDUM`** in `@slowcook-ai/llm-anthropic@0.11.1` — appended to `BREW_SYSTEM` when mode=plate. Tells the agent: the mockup is on main, treat it as frozen, your job is data-layer + API + migrations only. Documents the `<halt class="MOCKUP_DESIGN_CONFLICT">` shape for when a test cannot be satisfied without editing a frozen file.
+- **New halt class `MOCKUP_DESIGN_CONFLICT`** with three suggested PM resolutions: `/plate <prose>` to amend the mockup, `/refine <prose>` to relax the invariant, or manual override-merge.
+- **Vibe PR body now includes local-pull instructions** — `git fetch + checkout + npm install + npm run dev` snippet so PMs can review the running mockup on localhost without waiting for a preview-deploy infrastructure (which doesn't exist on rewo yet).
+
+### Three layers of defense (now all live)
+
+| Layer | Where | Effect |
+|---|---|---|
+| 1: mechanical allowed-paths | brew agent's diff scope check + frozen-paths guard | Agent diff that touches a UI file gets reverted before commit |
+| 2: structural — recipe runs after plate's PR merges | (recipe runs unchanged; tests target plate's actual DOM) | Recipe never references a stub path that doesn't exist; brew can't be tricked into "fleshing out" a stub |
+| 3: prompt steering | `BREW_PLATE_MODE_ADDENDUM` | Agent instructed to halt with `MOCKUP_DESIGN_CONFLICT` instead of fighting the guard |
+
+### What's NOT in α.4
+
+- α.5: full orchestration trigger chain (mockup-merged → recipe → brew --mode plate). Each piece is shipped independently; the auto-fire glue lands α.5.
+- α.6+: docker-on-the-runner preview deploys (per session conversation; will be added to the 0.15 plan as a separate slice).
+
+### Test count
+
+425 cli tests pass (no new tests this cut — α.4 is mostly threading + a system-prompt addendum; the existing brew test suite covers the mode dispatch via the `mode` context field being optional/defaulted).
+
+---
+
 ## 0.15.0-alpha.3 + llm-anthropic 0.11.0 + forge-github 0.10.3 — `plate` agent (mockup amendment loop)
 
 Cut 2026-04-26.

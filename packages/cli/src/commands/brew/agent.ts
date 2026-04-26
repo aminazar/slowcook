@@ -38,6 +38,7 @@ import {
   BREW_TOOLS,
   turnPrompt,
   turnPromptParts,
+  BREW_PLATE_MODE_ADDENDUM,
 } from "./prompts.js";
 import {
   writeHaltReport,
@@ -87,6 +88,22 @@ export interface BrewContext {
   runLogPath?: string;
   /** slowcook CLI version; threaded into the code map's `slowcook_version` field. */
   cliVersion: string;
+  /**
+   * 0.15.0-α.4 — execution mode.
+   *
+   * `legacy`: today's behavior. Brew has wide allowed_paths and writes
+   *   implementation from empty stubs. Used for backend-only stories
+   *   and any story where the plate track was skipped.
+   *
+   * `plate`: the mockup is on main (committed by plate after PM
+   *   approval). Brew's allowed_paths exclude UI files entirely; the
+   *   system prompt is augmented with "do NOT redesign components".
+   *   Brew's job collapses to swapping `<domain>.ts` stubs for real
+   *   fetches + writing API handlers + writing migrations. Halts with
+   *   MOCKUP_DESIGN_CONFLICT when a test cannot be satisfied without
+   *   editing a frozen UI file.
+   */
+  mode?: "legacy" | "plate";
 }
 
 export interface FrozenPaths {
@@ -572,6 +589,45 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       appendRunLog(
         ctx,
         `ITER ${iteration} REJECT frozen-path  ${frozenHit}  (also touched ${diff.changedPaths.length - 1} other file(s))  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+      );
+      continue;
+    }
+
+    // 0.15.0-α.4 — plate-mode protects the mockup files. Even though
+    // `src/lib/data/` is in allowed_paths so the agent can swap stubs,
+    // `*.mock.ts` files inside that directory are plate's territory
+    // and must NOT be edited. Same hard-signal logic as frozen-paths.
+    const platePathHit =
+      ctx.mode === "plate"
+        ? diff.changedPaths.find((p) =>
+            /\.mock\.ts$/.test(p) ||
+            /^src\/components\//.test(p) ||
+            /^src\/.*\.tsx$/.test(p)
+          )
+        : null;
+    if (platePathHit) {
+      revertToSnapshot(ctx, snapshot);
+      iterationLogs.push({
+        iteration,
+        target_test_id: currentTarget,
+        outcome: "rejected-frozen-path",
+        note: `plate-mode protects UI: ${platePathHit}. Mockup files are owned by plate.`,
+        files_touched: diff.changedPaths,
+        lines_added: diff.linesAdded,
+        lines_removed: diff.linesRemoved,
+        spend_delta_usd: turnResult.spendDelta,
+        rationale: turnResult.rationale,
+      });
+      priorAttempts.push({
+        iteration,
+        outcome: "reverted-no-progress",
+        note: `rejected: plate-mode wrote to mockup path ${platePathHit}. If your test requires this edit, halt with MOCKUP_DESIGN_CONFLICT instead.`,
+        files_touched: diff.changedPaths,
+      });
+      stagnation += 1;
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} REJECT plate-mockup-path  ${platePathHit}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
     }
@@ -1094,7 +1150,10 @@ async function runTurn(
       system: [
         {
           type: "text",
-          text: BREW_SYSTEM,
+          text:
+            ctx.mode === "plate"
+              ? BREW_SYSTEM + BREW_PLATE_MODE_ADDENDUM
+              : BREW_SYSTEM,
           cache_control: { type: "ephemeral" },
         },
       ] as never,

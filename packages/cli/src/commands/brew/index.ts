@@ -21,6 +21,8 @@ interface BrewArgs {
   wallClockMs: number;
   model: string;
   baseBranch: string;
+  /** "auto" detects from spec + mockup-PR state. "plate" or "legacy" force the mode. */
+  mode: "auto" | "plate" | "legacy";
 }
 
 function parseArgs(argv: string[]): BrewArgs {
@@ -32,6 +34,7 @@ function parseArgs(argv: string[]): BrewArgs {
     wallClockMs: 60 * 60 * 1000, // 1 hour
     model: "claude-sonnet-4-6",
     baseBranch: "main",
+    mode: "auto",
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -45,6 +48,14 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--wall-clock-minutes" && next) { args.wallClockMs = parseInt(next, 10) * 60 * 1000; i++; }
     else if (arg === "--model" && next) { args.model = next; i++; }
     else if (arg === "--base" && next) { args.baseBranch = next; i++; }
+    else if (arg === "--mode" && next) {
+      if (next !== "auto" && next !== "plate" && next !== "legacy") {
+        console.error(`--mode must be one of: auto, plate, legacy. Got: ${next}`);
+        process.exit(64);
+      }
+      args.mode = next as "auto" | "plate" | "legacy";
+      i++;
+    }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -93,6 +104,92 @@ Exit codes:
 `);
 }
 
+/**
+ * 0.15.0-α.4 — resolve brew's execution mode.
+ *
+ * `requested === "plate"` or `"legacy"` → return as-is.
+ *
+ * `requested === "auto"` → detect from spec + GitHub state:
+ *   plate-mode requires BOTH (a) the spec has at least one populated
+ *   `proposals.fixtures.by_domain.<domain>` entry (UI surface), AND (b)
+ *   a slowcook-mockup PR for this story has been merged on the repo.
+ *   If either condition is unmet → legacy.
+ *
+ * GitHub check uses `gh pr list` to look for closed PRs whose head
+ * branch matches `slowcook/mockup/story-<id>`. Cheaper than fetching
+ * a single PR by branch name (which 404s instead of returning empty).
+ */
+async function resolveBrewMode(args: {
+  requested: "auto" | "plate" | "legacy";
+  repoRoot: string;
+  storyId: string;
+  owner: string;
+  repo: string;
+  githubToken: string;
+}): Promise<"plate" | "legacy"> {
+  if (args.requested === "plate") return "plate";
+  if (args.requested === "legacy") return "legacy";
+
+  // auto path
+  const specPath = join(args.repoRoot, "specs", `story-${args.storyId}.yaml`);
+  let specYaml = "";
+  try {
+    specYaml = require("node:fs").readFileSync(specPath, "utf8") as string;
+  } catch {
+    return "legacy";
+  }
+  // Same hasUiSurface heuristic as the vibe command.
+  const proposalsIdx = specYaml.search(/^proposals\s*:\s*$/m);
+  if (proposalsIdx < 0) return "legacy";
+  const tail = specYaml.slice(proposalsIdx);
+  const fixturesMatch = tail.match(/^(\s+)fixtures\s*:\s*$/m);
+  if (!fixturesMatch) return "legacy";
+  const fixturesBlockStart =
+    tail.indexOf(fixturesMatch[0]) + fixturesMatch[0].length;
+  const byDomainMatch = tail
+    .slice(fixturesBlockStart)
+    .match(/^(\s+)by_domain\s*:\s*$/m);
+  if (!byDomainMatch) return "legacy";
+  const byDomainIndentLen = byDomainMatch[1]!.length;
+  const after = tail.slice(
+    fixturesBlockStart +
+      tail.slice(fixturesBlockStart).indexOf(byDomainMatch[0]) +
+      byDomainMatch[0].length
+  );
+  const entryRe = new RegExp(
+    `^( {${byDomainIndentLen + 1},}|\\t+)([a-z][a-z0-9_-]*)\\s*:\\s*$`,
+    "m"
+  );
+  if (!entryRe.test(after)) return "legacy";
+
+  // Check for a merged slowcook-mockup PR.
+  try {
+    const branch = `slowcook/mockup/story-${args.storyId}`;
+    const out = execSync(
+      `gh pr list --state merged --head ${JSON.stringify(branch)} --json number --limit 1`,
+      {
+        cwd: args.repoRoot,
+        encoding: "utf8",
+        env: { ...process.env, GH_TOKEN: args.githubToken },
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    ).trim();
+    const arr = JSON.parse(out) as Array<{ number: number }>;
+    if (arr.length === 0) {
+      console.log(
+        `(brew auto-detect: spec has fixtures but no merged slowcook-mockup PR for story-${args.storyId} found → legacy mode)`
+      );
+      return "legacy";
+    }
+    return "plate";
+  } catch (e) {
+    console.warn(
+      `(brew auto-detect: gh pr list failed — ${(e as Error).message}; defaulting to legacy)`
+    );
+    return "legacy";
+  }
+}
+
 function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
   try {
     const url = execSync("git remote get-url origin", {
@@ -134,10 +231,36 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   const stackConfig = readStackConfig(args.repoRoot);
   const frozenPaths = readFrozenPaths(args.repoRoot);
 
-  // Allowed paths: honour spec's `api_contract` paths if declared; else empty (wide).
-  // For 0.6, we don't strictly parse allowed_paths from the spec — it's a future field.
-  // Treat absence as "anywhere outside frozen is fine" (allowedPaths=[]).
-  const allowedPaths: string[] = [];
+  // 0.15.0-α.4 — mode resolution. `auto` checks: does the spec have
+  // `proposals.fixtures.by_domain.*` populated AND has a slowcook-mockup
+  // PR for this story merged? If both yes → plate. Otherwise → legacy.
+  // Force-modes (plate / legacy) skip the check.
+  const resolvedMode = await resolveBrewMode({
+    requested: args.mode,
+    repoRoot: args.repoRoot,
+    storyId: args.storyId,
+    owner,
+    repo,
+    githubToken,
+  });
+  console.log(`brew mode: ${resolvedMode}${args.mode === "auto" ? " (auto-detected)" : ""}`);
+
+  // 0.15.0-α.4 — plate-mode pulls the latest mockup files onto main BEFORE
+  // brew starts, so the agent reads them as ground truth. The
+  // slowcook-mockup PR is expected to be MERGED before brew fires.
+  // We don't re-fetch here; the caller workflow pulls origin/main.
+
+  // Allowed paths. In plate-mode, restrict to data-layer + API + migrations
+  // + tests. Frozen-paths guard then physically rejects any UI edit.
+  // In legacy mode, fall through to today's "wide allowed_paths" behavior.
+  const allowedPaths: string[] = resolvedMode === "plate"
+    ? [
+        "src/lib/data/**",   // brew rewrites .ts stub; .mock.ts protected by extension check
+        "src/app/api/**",
+        "supabase/migrations/**",
+        "tests/**",
+      ]
+    : [];
 
   const forge = new GitHubAdapter({ owner, repo, token: githubToken });
   const anthropic = new Anthropic({ apiKey: anthropicKey });
@@ -181,6 +304,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     haltDir,
     runLogPath,
     cliVersion,
+    mode: resolvedMode,
   };
 
   try {
