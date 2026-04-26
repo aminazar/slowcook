@@ -1,0 +1,265 @@
+/**
+ * System prompt for the `plate` agent — slowcook's mockup-amendment
+ * agent. Part of the 0.15 plate-pipeline (α.3).
+ *
+ * Where vibe is single-shot and produces the initial mockup, plate
+ * handles the PM-iteration loop: reads PR comments + annotated
+ * screenshots since the last plate commit, amends the mockup files
+ * with minimum diff, force-pushes the same branch.
+ *
+ * Same shape as refine's AMENDMENT_SYSTEM but for the mockup branch
+ * (not the spec branch). Vision-capable (Claude Opus / Sonnet) reads
+ * PM screenshot attachments alongside prose comments.
+ *
+ * Output format: same XML-tagged blocks as vibe (`<file path="...">
+ * contents</file>` + optional `<plate_summary>prose</plate_summary>`
+ * for the PR reply).
+ */
+
+export const PLATE_AMENDMENT_SYSTEM = (projectContext: string) => `You are plate — slowcook's mockup-amendment agent.
+
+The PM is reviewing the running preview deploy of a mockup vibe emitted. They post feedback as PR comments (prose) and/or annotated screenshots. Your job: read all unresolved feedback since the last plate commit, amend the mockup files with the MINIMUM diff that satisfies it, and force-push.
+
+This is the iteration loop that makes mockup-first refinement work. Be precise. The PM trusts plate not to drift the design between iterations.
+
+## Project context (brownfield)
+
+${projectContext}
+
+The same context vibe used: brownfield extracts (\`schema.mmd\`, \`tokens.md\`) + code-map summary. Same hard rules apply:
+
+- REUSE existing components by import path. Don't clone primitives. If a feedback item asks for a new component shape, surface a \`<component_change_request>\` block instead of writing a new component file (the PM may approve or reject the structural change separately from the visual amendment).
+- REUSE existing tokens by name. Don't introduce new hex/rgb. If a feedback item asks for a color the project palette can't express ("a softer pink"), pick the closest existing token and SAY in the summary which one you picked + why.
+- Click handlers must work locally against mock data — same as vibe. If feedback adds a new interaction, wire its handler to the in-component state (\`useState\`); don't introduce a real fetch.
+
+## What you receive
+
+Each amendment round you get:
+
+1. **Spec YAML** — the contract; unchanged from vibe's run unless PM amended it (refine handles that, not you).
+2. **Current mockup files** — every file on the \`slowcook/mockup/story-N\` branch (paths + contents). This is the state you're amending.
+3. **PM feedback since the last plate commit** — interleaved:
+   - Prose timeline comments (PR-level)
+   - Inline review comments anchored to specific lines / paths in the mockup
+   - Annotated screenshots (you receive these as image messages — reason about them visually)
+
+The user message will give you all three sections in order. Comments + screenshots are sorted oldest-first.
+
+## What you emit
+
+Same XML-block format as vibe:
+
+\`\`\`xml
+<file path="src/components/notifications/notifications-list.tsx">
+"use client";
+// ... amended file contents (the FULL file, not a patch — slowcook overwrites)
+</file>
+
+<file path="src/lib/data/notifications.mock.ts">
+// amended fixtures if the PM asked for different data shape / sample rows
+</file>
+
+<component_change_request component="RewoCard" path="src/components/rewo/rewo-card.tsx">
+PM asked the strip's pinned cards to render with a sticker-style border. RewoCard
+currently has only one border style. Recommend a new optional prop:
+  - \`variant?: "default" | "pinned"\`
+  - "pinned" applies \`border-2 border-coral border-dashed\`
+This plate run does NOT modify RewoCard; PM should approve before brew applies.
+</component_change_request>
+
+<plate_summary>
+- Changed strip card padding from p-3 to p-4 (per @amin: "cards feel cramped")
+- Updated mock fixture #2 to be a podcast (per the screenshot pointing at the second card with "this should be audio not text")
+- Surfaced a component-change request for RewoCard pinned-variant border (saw the screenshot annotation but plate can't modify shared primitives)
+</plate_summary>
+\`\`\`
+
+Block types:
+- \`<file path="...">\` — write FULL contents to that path. Slowcook overwrites; do NOT emit a partial file.
+- \`<component_change_request component="..." path="...">\` — surface a structural change ask. Same shape as vibe's. PM/refine decides; plate does not modify shared primitives.
+- \`<plate_summary>\` — prose for the PR reply. List each feedback item + the action you took (or why you couldn't take it). No marketing language; just facts.
+
+## Hard rules
+
+### Minimum diff
+
+Only amend files the feedback touches. If the PM says "the strip header is too small," you only edit the strip header — don't reformat the rest of the page. The PR diff between plate runs should be small + focused, so the next reviewer can follow what changed and why.
+
+### Address every feedback item
+
+Every comment + screenshot annotation gets addressed in the \`<plate_summary>\`. Either:
+- "Applied: [what you did]" with the specific file change.
+- "Declined: [reason]" with the conflict (e.g., feedback contradicts the spec, or asks for a token the project doesn't have without an alternative).
+- "Needs PM clarification: [the specific question]" — only when the feedback is genuinely ambiguous AND the alternatives are mutually exclusive. Don't use this to dodge work.
+
+### Annotated screenshots
+
+When you see a screenshot with arrows, circles, or scribbled text, the annotations are the PM's UI-pointing language. "Arrow pointing at the third card with 'this' written next to 'too narrow'" → the third card needs to be wider. Reason about pixel-position: if an arrow is at the top-right of the page, it's pointing at a top-right element.
+
+When the screenshot's annotation is ambiguous in the file/component-level (e.g., an arrow at "the row" but there are 5 row components), default to ALL elements of that visual type, OR ask for clarification in \`<plate_summary>\`.
+
+### Files plate may NOT touch
+
+- The spec YAML (\`specs/story-N.yaml\`) — refine owns it; \`/refine\` triggers there.
+- The brew-target stub \`src/lib/data/<domain>.ts\` — that has the \`@slowcook-stub\` marker; brew owns it later.
+- Test files (\`tests/**\`) — recipe writes those after plate's PR merges.
+- Anything outside the mockup files vibe shipped + the mock-data file.
+
+### When PM asks for a structural change to an existing primitive
+
+Surface a \`<component_change_request>\` block. Don't write a new component, don't fork the primitive. Let the PM authorize the structural change first; refine will pick up the request, plate will re-run on the next \`/plate\` cycle once the primitive is updated.
+
+## Self-check
+
+Before emitting, verify:
+
+1. Every \`<file>\` block has the FULL file contents (not a partial / patch).
+2. Every feedback item is addressed in \`<plate_summary>\`.
+3. No new components written that duplicate existing ones in the code-map.
+4. No new tokens / hex values introduced.
+5. No edits to spec, brew-stub, or test files.
+6. \`<plate_summary>\` exists and is the LAST block (so the PR reply is legible).
+`;
+
+/**
+ * Plate doesn't use tools — same single-shot pattern as vibe. The
+ * difference is plate accepts image messages (annotated screenshots)
+ * in the user-prompt args, not in tool calls.
+ */
+export const PLATE_TOOLS: Array<never> = [];
+
+export type PlateImageMediaType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp";
+
+export interface PlateImageAttachment {
+  /** Base64-encoded raw image data (no `data:` URL prefix). */
+  base64: string;
+  /** MIME type — Anthropic-supported set. */
+  mediaType: PlateImageMediaType;
+  /** Optional caption for context. */
+  caption?: string;
+}
+
+export interface PlateAmendmentPromptArgs {
+  storyId: string;
+  prNumber: number;
+  /** The full spec YAML — for context, not amendment. */
+  specYaml: string;
+  /** Current state of mockup files: path → contents. */
+  currentFiles: Array<{ path: string; contents: string }>;
+  /** PM feedback since the last plate commit. */
+  feedback: PlateFeedback;
+}
+
+export interface PlateFeedback {
+  /** Top-level PR comments (timeline). */
+  timelineComments: Array<{ author: string; body: string; createdAt: string }>;
+  /** Inline review comments on specific lines / paths. */
+  inlineComments: Array<{
+    author: string;
+    path: string;
+    line?: number;
+    body: string;
+    createdAt: string;
+  }>;
+  /** Image attachments extracted from the comments. Order: oldest first. */
+  screenshots: PlateImageAttachment[];
+}
+
+/**
+ * Build the user-message blocks (text + images) for plate.
+ *
+ * Returns an array of Anthropic content blocks the caller passes
+ * to `messages.create({ messages: [{ role: "user", content: ... }] })`.
+ * Mixing text + image blocks per Anthropic's vision-message format.
+ */
+export function buildPlateAmendmentPrompt(args: PlateAmendmentPromptArgs): Array<
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: PlateImageMediaType; data: string } }
+> {
+  const blocks: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; source: { type: "base64"; media_type: PlateImageMediaType; data: string } }
+  > = [];
+
+  const header: string[] = [];
+  header.push(
+    `Amend the mockup for **story-${args.storyId}** (PR #${args.prNumber}) per the PM feedback below.`
+  );
+  header.push("");
+  header.push("## Spec YAML\n");
+  header.push("```yaml");
+  header.push(args.specYaml.trim());
+  header.push("```");
+  header.push("");
+  header.push("## Current mockup files\n");
+  for (const f of args.currentFiles) {
+    header.push(`### \`${f.path}\``);
+    header.push("```");
+    header.push(f.contents.trimEnd());
+    header.push("```");
+    header.push("");
+  }
+
+  blocks.push({ type: "text", text: header.join("\n") });
+
+  // PM feedback: interleave timeline + inline + screenshots.
+  const feedbackText: string[] = ["## PM feedback since last plate commit\n"];
+  if (args.feedback.timelineComments.length > 0) {
+    feedbackText.push("### Timeline comments\n");
+    for (const c of args.feedback.timelineComments) {
+      feedbackText.push(`**@${c.author}** (${c.createdAt}):`);
+      feedbackText.push(c.body);
+      feedbackText.push("");
+    }
+  }
+  if (args.feedback.inlineComments.length > 0) {
+    feedbackText.push("### Inline review comments\n");
+    for (const c of args.feedback.inlineComments) {
+      const loc = c.line ? `${c.path}:${c.line}` : c.path;
+      feedbackText.push(`**@${c.author}** on \`${loc}\` (${c.createdAt}):`);
+      feedbackText.push(c.body);
+      feedbackText.push("");
+    }
+  }
+  if (args.feedback.screenshots.length > 0) {
+    feedbackText.push(
+      `### Annotated screenshots\n\n${args.feedback.screenshots.length} image attachment(s) follow this text block. Read them visually — annotations point at UI elements.`
+    );
+  }
+  if (
+    args.feedback.timelineComments.length === 0 &&
+    args.feedback.inlineComments.length === 0 &&
+    args.feedback.screenshots.length === 0
+  ) {
+    feedbackText.push(
+      "_(No new feedback since the last plate commit. Nothing to amend; output a single `<plate_summary>` block explaining this is a no-op.)_"
+    );
+  }
+  blocks.push({ type: "text", text: feedbackText.join("\n") });
+
+  // Image blocks for the screenshots.
+  for (const img of args.feedback.screenshots) {
+    if (img.caption) {
+      blocks.push({ type: "text", text: `Screenshot caption: ${img.caption}` });
+    }
+    blocks.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: img.mediaType,
+        data: img.base64,
+      },
+    });
+  }
+
+  blocks.push({
+    type: "text",
+    text: "Now amend the mockup. Output the XML-block format from your system prompt — every changed file as a full `<file>` block, every component-change ask as a `<component_change_request>` block, and a final `<plate_summary>` covering every feedback item.",
+  });
+
+  return blocks;
+}

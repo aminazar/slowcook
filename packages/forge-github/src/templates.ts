@@ -668,6 +668,8 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-chef.yml", contents: slowcookChefWorkflow() },
     // 0.15.0-α.2 — vibe agent (mockup generator) workflow.
     { path: ".github/workflows/slowcook-vibe.yml", contents: slowcookVibeWorkflow() },
+    // 0.15.0-α.3 — plate agent (mockup amendment) workflow.
+    { path: ".github/workflows/slowcook-plate.yml", contents: slowcookPlateWorkflow() },
   ];
 }
 
@@ -1040,6 +1042,131 @@ ${RESOLVE_PIN_STEP}
         run: |
           set -eu
           npx --yes "$SLOWCOOK_CLI" vibe --spec "$STORY_ID"
+`;
+}
+
+/**
+ * 0.15.0-alpha.3 — slowcook-plate workflow. Mirror of slowcook-refine
+ * for the mockup branch. Fires on \`/plate\` PR comments + reviews on
+ * a slowcook-mockup PR. Plate reads PM feedback + amends mockup files
+ * + force-pushes the same branch.
+ */
+function slowcookPlateWorkflow(): string {
+  return `name: slowcook plate
+
+# 0.15.0-alpha.3 — mockup amendment loop. Triggered by \`/plate <prose>\`
+# PR comments + reviews on a slowcook-mockup PR. Reads PM feedback,
+# amends mockup files with minimum diff, force-pushes the branch.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+# Concurrency keyed on PR + event so wrapping reviews don't cancel
+# inline-comment runs (same shape as slowcook-refine).
+concurrency:
+  group: slowcook-plate-\${{ github.event.issue.number || github.event.pull_request.number }}-\${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  plate:
+    if: >-
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        contains(github.event.issue.labels.*.name, 'slowcook-mockup') &&
+        startsWith(github.event.comment.body, '/plate') &&
+        github.event.comment.user.type != 'Bot'
+      )
+      ||
+      (
+        github.event_name == 'pull_request_review_comment' &&
+        contains(github.event.pull_request.labels.*.name, 'slowcook-mockup') &&
+        startsWith(github.event.comment.body, '/plate') &&
+        github.event.comment.user.type != 'Bot'
+      )
+      ||
+      (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.pull_request.labels.*.name, 'slowcook-mockup') &&
+        startsWith(github.event.review.body, '/plate') &&
+        github.event.review.user.type != 'Bot'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Detect target PR + review-comment-id
+        id: target
+        env:
+          EVENT_NAME: \${{ github.event_name }}
+          ISSUE_NUM: \${{ github.event.issue.number }}
+          PR_NUM: \${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          case "$EVENT_NAME" in
+            pull_request_review_comment)
+              echo "pr=$PR_NUM" >> "$GITHUB_OUTPUT"
+              echo "review_comment_id=\${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
+              ;;
+            pull_request_review)
+              echo "pr=$PR_NUM" >> "$GITHUB_OUTPUT"
+              ;;
+            issue_comment)
+              echo "pr=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Fetch PR head ref
+        id: pr-branch
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          BRANCH=$(gh pr view \${{ steps.target.outputs.pr }} --repo \${{ github.repository }} --json headRefName -q .headRefName)
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: \${{ steps.pr-branch.outputs.branch }}
+          token: \${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve slowcook CLI pin (from main)
+        # Same convention as refine: agent tooling tracks main, not the
+        # branch (which may be older).
+        run: |
+          git fetch --depth=1 origin main
+          VERSION=$(git show origin/main:.brewing/slowcook-cli-version | tr -d '[:space:]')
+          echo "SLOWCOOK_CLI=@slowcook-ai/cli@$VERSION" >> $GITHUB_ENV
+
+      - name: Configure git identity for plate commits
+        run: |
+          git config user.name  "slowcook-plate[bot]"
+          git config user.email "slowcook-plate@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Plate
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+        run: |
+          set -eu
+          EXTRA=""
+          if [ -n "\${{ steps.target.outputs.review_comment_id }}" ]; then
+            EXTRA="--review-comment-id \${{ steps.target.outputs.review_comment_id }}"
+          fi
+          npx --yes "$SLOWCOOK_CLI" plate --pr \${{ steps.target.outputs.pr }} $EXTRA
 `;
 }
 

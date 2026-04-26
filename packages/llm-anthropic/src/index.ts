@@ -45,3 +45,16 @@ export {
   buildVibeUserPrompt,
   type VibeUserPromptArgs,
 } from "./prompts/vibe.js";
+// 0.11.0 — plate agent (0.15 plate-pipeline α.3) — mockup-amendment
+// agent. Reads PR comments + annotated screenshots since the last
+// plate commit; amends mockup files with minimum diff; force-pushes.
+// Vision-capable.
+export {
+  PLATE_AMENDMENT_SYSTEM,
+  PLATE_TOOLS,
+  buildPlateAmendmentPrompt,
+  type PlateAmendmentPromptArgs,
+  type PlateFeedback,
+  type PlateImageAttachment,
+  type PlateImageMediaType,
+} from "./prompts/plate.js";

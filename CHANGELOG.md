@@ -6,6 +6,42 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.15.0-alpha.3 + llm-anthropic 0.11.0 + forge-github 0.10.3 — `plate` agent (mockup amendment loop)
+
+Cut 2026-04-26.
+
+α.1 + α.2 shipped vibe (initial mockup emit). α.3 closes the iteration loop with `plate` — the agent that processes PM feedback and amends the mockup with minimum diff.
+
+### What's new
+
+- **New CLI command** `slowcook plate --pr <number>` — reads a slowcook-mockup PR, fetches PM feedback (timeline + inline comments) since the last plate commit, runs the LLM with vision-capable Claude (Opus default), parses the `<file>` block output, writes amended files, force-pushes the same branch, posts a `<plate_summary>` PR reply.
+- **New prompt** `PLATE_AMENDMENT_SYSTEM` in `@slowcook-ai/llm-anthropic@0.11.0`. Same hard rules as vibe (REUSE existing components + tokens; no new hex/rgb; click handlers must work locally) plus iteration-specific rules (minimum diff; address every feedback item in the summary; surface structural-change requests for shared primitives instead of forking them; soft-fail when feedback contradicts spec).
+- **New workflow template** `.github/workflows/slowcook-plate.yml` in `forge-github@0.10.3`. Mirror of `slowcook-refine`'s `/refine`-comment trigger pattern: fires on issue_comment, pull_request_review_comment, and pull_request_review where the body starts with `/plate` on a PR labeled `slowcook-mockup`.
+- **Vision-message scaffolding** — `PlateImageAttachment` + `buildPlateAmendmentPrompt` produce Anthropic `image` content blocks alongside text. The CLI doesn't fetch image attachments from PR comments yet (α.3.1 follow-up); the prompt + agent are wired so the addition is a CLI-only change.
+- **5 new tests** in `plate/agent.test.ts` covering summary parsing + multi-file emission edge cases. 425 cli tests pass total.
+
+### What's NOT in α.3
+
+- Image-attachment fetching from PR comments (α.3.1 — small, additive)
+- Threaded `--review-comment-id` reply implementation (the flag is parsed; the index doesn't yet pass it through to the comment-post call — same gap as α.3.1)
+- α.4: `brew --mode plate` allowed-paths constraint enforcement
+- α.5: Auto-detection trigger chain (mockup-merged → recipe → brew)
+
+### Iteration shape (PM perspective)
+
+```
+1. PM reviews preview deploy of slowcook-mockup PR
+2. PM comments: /plate make the strip cards wider, the empty-state copy is too long
+3. slowcook-plate workflow fires
+4. plate reads the comment + every prior unresolved one + PR's current files
+5. plate amends src/components/.../strip.tsx + page.tsx with minimum diff
+6. plate force-pushes; posts a `### slowcook · plate amendment` reply with bullet-per-feedback summary
+7. Cloudflare/Vercel rebuilds preview (~60s)
+8. PM re-reviews → approves OR /plate again
+```
+
+---
+
 ## 0.15.0-alpha.2 + forge-github 0.10.2 — vibe workflow + eligibility gate
 
 Cut 2026-04-26.

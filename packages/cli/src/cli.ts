@@ -19,6 +19,7 @@ import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
 import { extract } from "./commands/extract/index.js";
 import { vibe } from "./commands/vibe/index.js";
+import { plate } from "./commands/plate/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 
@@ -56,6 +57,7 @@ Usage:
   slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
   slowcook extract [--schema] [--tokens] [--cwd <path>]
   slowcook vibe --spec <id> [--cwd <path>] [--owner <login>] [--repo <name>] [--dry-run]
+  slowcook plate --pr <number> [--cwd <path>] [--owner <login>] [--repo <name>] [--review-comment-id <id>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook version
@@ -78,6 +80,7 @@ Commands available in ${VERSION}:
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
   extract            Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.
   vibe               (0.15-α.1) Design-first mockup generator. Reads spec + brownfield + code-map; emits runnable React mockup to slowcook/mockup/story-N PR.
+  plate              (0.15-α.3) Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
 Coming in later versions:
@@ -167,6 +170,12 @@ async function main(): Promise<void> {
       // Reads spec + brownfield extracts + code-map; emits a runnable
       // React mockup to slowcook/mockup/story-N branch + PR.
       await vibe(args.slice(1), VERSION);
+      return;
+    case "plate":
+      // 0.15.0-α.3 — mockup amendment agent. Triggered by `/plate`
+      // PR comments on a slowcook-mockup PR; reads PM feedback +
+      // amends mockup files; force-pushes the same branch.
+      await plate(args.slice(1), VERSION);
       return;
     case "dispatch":
       await dispatch(args.slice(1));
