@@ -112,6 +112,7 @@ describe("planMockFiles", () => {
       });
       const pkg = files.find((f) => f.path === "mock/package.json")!;
       expect(pkg.contents).toContain('"@slowcook-ai/mock-runtime": "^0.5.0"');
+      // (helper default in this version is ^0.1.1 — covered by initMock paths)
       const layout = files.find((f) => f.path === "mock/src/app/layout.tsx")!;
       expect(layout.contents).toContain('from "@slowcook-ai/mock-runtime"');
       const page = files.find((f) => f.path === "mock/src/app/page.tsx")!;

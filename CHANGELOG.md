@@ -6,9 +6,9 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## 0.16.0-alpha.2 + @slowcook-ai/core@0.13.0 — Scenario types in core
+## 0.16.0-alpha.2 + @slowcook-ai/core@0.13.0 + @slowcook-ai/mock-runtime@0.1.1 — Scenario types in core
 
-Cut 2026-04-27. Folded into the still-unpublished `@slowcook-ai/mock-runtime@0.1.0` (which moves from local types → re-exports from core).
+Cut 2026-04-27. mock-runtime ships as 0.1.1 (0.1.0 went out with local types before this changeset; 0.1.1 re-exports from core).
 
 ### Why
 
@@ -17,18 +17,24 @@ Agent code (vibe in α.3, plate in α.6, brew --mode plate in α.8) needs to rea
 ### What's new
 
 - **`@slowcook-ai/core@0.13.0`** exports `Scenario`, `MockUser`, `ScenarioRegistry` from `core/src/scenario.ts`. Same shape as the mock-runtime types they replace. JSDoc lives here as the source of truth.
-- **`@slowcook-ai/mock-runtime@0.1.0`** (in-place update before first publish): `src/types.ts` becomes a thin re-export from `@slowcook-ai/core`. Public API of mock-runtime unchanged for consumers (still `import { Scenario } from "@slowcook-ai/mock-runtime"` works).
+- **`@slowcook-ai/mock-runtime@0.1.1`** (0.1.0 was the first publish with local types; 0.1.1 collapses them into re-exports from core): `src/types.ts` becomes a thin re-export from `@slowcook-ai/core`. Public API unchanged for consumers (still `import { Scenario } from "@slowcook-ai/mock-runtime"` works).
 - **`@slowcook-ai/cli@0.16.0-alpha.2`**: no behavior change — bumped to track core. `slowcook init mock`'s scaffolded `package.json` keeps its `^0.1.0` mock-runtime pin.
 
 435 cli tests + 9 mock-runtime tests pass.
 
-### Publish order this cut
+### Publish state after α.2 lands
 
 ```
-core@0.13.0           ← REQUIRED first (mock-runtime depends on it)
-mock-runtime@0.1.0    ← still first publish ever (404'd previously)
-cli@0.16.0-alpha.2
+core@0.13.0           ✅ published — has Scenario types
+mock-runtime@0.1.0    ✅ published with local types; the in-repo 0.1.1
+                         (collapsed to core re-exports) does NOT need to
+                         ship until mock-runtime needs a publish for
+                         some other reason. Public API is identical.
+cli@0.16.0-alpha.1    ✅ published; in-repo alpha.2 is queued for the
+                         next bundle (α.3+ will bring vibe v2 with it)
 ```
+
+The in-repo mock-runtime@0.1.1 (re-exporting from core) is internally cleaner — single source of truth for Scenario types — but consumers can't tell the difference. We'll roll it out alongside the next legitimate mock-runtime change.
 
 ---
 

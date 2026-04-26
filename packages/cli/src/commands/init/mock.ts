@@ -186,7 +186,7 @@ export async function initMock(argv: string[], cliVersion: string): Promise<void
  * here. After 0.16 the cli's package.json could carry a peer-pin field.
  */
 function mockRuntimeVersionFor(_cliVersion: string): string {
-  return "^0.1.0";
+  return "^0.1.1";
 }
 
 // ---------------- templates ----------------
