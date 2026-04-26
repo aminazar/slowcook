@@ -4,6 +4,7 @@ import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
 import { writeMockFixtures } from "./mock-fixtures.js";
+import { validateAndRepairSpec } from "./spec-validate.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import type {
   ForgeAdapter,
@@ -230,6 +231,17 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
 
   // Spec emitted → write, update index, open draft PR
   const spec = parsed.spec;
+  // 0.14.0-α.6+ — content-level repair before persisting. Catches LLM
+  // truncation that Zod missed (e.g. unterminated `var(--tint-in`).
+  const validationFindings = validateAndRepairSpec(spec);
+  if (validationFindings.length > 0) {
+    console.warn(
+      `[refine] spec post-emit validation: ${validationFindings.length} finding(s) — corrupt token entries pruned:`
+    );
+    for (const f of validationFindings) {
+      console.warn(`  - ${f.path}: ${f.message} (${f.action})`);
+    }
+  }
   const specPath = writeSpec(ctx.repoRoot, spec);
 
   const index = readIndex(ctx.repoRoot);
@@ -834,6 +846,17 @@ export async function runResubmitRefinement(
       isFollowUp = pr.state === "closed" && pr.merged;
     } catch {
       // If we can't fetch PR state, behave like older versions.
+    }
+  }
+
+  // 0.14.0-α.6+ — content-level repair before persisting (amendment path).
+  const amendmentFindings = validateAndRepairSpec(parsed.spec);
+  if (amendmentFindings.length > 0) {
+    console.warn(
+      `[refine amend] spec post-emit validation: ${amendmentFindings.length} finding(s) — corrupt token entries pruned:`
+    );
+    for (const f of amendmentFindings) {
+      console.warn(`  - ${f.path}: ${f.message} (${f.action})`);
     }
   }
 

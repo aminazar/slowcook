@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.6 — Spec-emit validator catches LLM truncation (BUG-E)
+
+Cut 2026-04-26.
+
+V6 PM-judgment validation arc found a real LLM-truncation bug — story-016 spec emit ended its 12-token list mid-entry with `var(--tint-in` (unterminated). YAML parsed (valid string) so Zod shape-validation didn't catch it; downstream brew/testgen would see a fake project token.
+
+- **New module** `packages/cli/src/commands/refine/spec-validate.ts` exporting `validateAndRepairSpec(spec)`. Walks `proposals.ui_layout.{tokens_to_reuse, tokens_to_add, components_to_reuse}` for: unterminated `var(...)`, class-prefix-only entries (`bg-`, `text-`), empty / non-string entries. Mutates spec in place; returns findings for caller to log.
+- **Wired into both refine call sites** (initial emit + amendment) right before `writeSpec`. Findings logged via console.warn, prefixed `[refine]` or `[refine amend]`.
+- **6 new unit tests** in `spec-validate.test.ts` (397 cli total).
+- **Live-validated** by re-running `/refine` on PR #140 — the amendment correctly emitted all 12 emotion tints by name (`var(--tint-celebrate)` … `var(--tint-mourn)`). With α.6 deployed, even a re-truncated emit would prune the bad entry instead of writing it.
+
+Pairs with V6 validation arc that drove story-015 → story-016 from `slowcook-refine@0.14.0-alpha.2` to `0.14.0-alpha.5`. The alpha.5 schema/route/UI synth was already much better; α.6 closes the remaining content-validation gap.
+
+---
+
 ## 0.14.0-alpha.5 — Two ui_layout-synth polish items
 
 Cut 2026-04-26.
