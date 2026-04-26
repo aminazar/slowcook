@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import type { Spec, SpecProposals } from "@slowcook-ai/core";
 
 /**
@@ -227,13 +228,13 @@ function deriveUiLayout(spec: Spec): SpecProposals["ui_layout"] | null {
 
 function readExistingTokens(): Set<string> {
   // Read token names from .brewing/diagrams/tokens.md if present.
+  // Same fix as readExistingEntities — top-level import instead of
+  // require() under ES modules.
   const set = new Set<string>();
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require("node:fs") as typeof import("node:fs");
     const path = ".brewing/diagrams/tokens.md";
-    if (!fs.existsSync(path)) return set;
-    const content = fs.readFileSync(path, "utf8");
+    if (!existsSync(path)) return set;
+    const content = readFileSync(path, "utf8");
     // Tokens render as table rows: `| \`--color-coral\` | …`
     for (const m of content.matchAll(/\|\s*`(--[a-z0-9_-]+)`/gi)) {
       set.add(m[1]!.toLowerCase());
@@ -292,44 +293,12 @@ function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
     paths.add(normalised);
   }
 
-  // Also lift dynamic segments out of api_contract paths — even though
-  // the api/* paths themselves are filtered out (step 1), they contain
-  // signal about the canonical dynamic vocabulary. e.g. an api path
-  // `/api/profiles/:handle/pins` tells us `:handle` is the canonical
-  // dynamic segment, which lets the prose-scan synthesise a `/u/[handle]`
-  // sibling when prose only mentions `/u/alice`.
-  for (const entry of spec.api_contract ?? []) {
-    const p = (entry as { path?: string }).path;
-    if (typeof p !== "string") continue;
-    // Find ":handle" or "<handle>" segments in api paths and synthesise
-    // page-route counterparts when the prose mentions a literal sibling.
-    const dynNames = new Set<string>();
-    for (const dyn of p.matchAll(/[:<](?:([a-z_][a-z0-9_]*))[>]?/gi)) {
-      if (dyn[1]) dynNames.add(dyn[1]);
-    }
-    // Walk current literal-segment paths and rewrite a single segment
-    // to a dynamic segment when its name matches a known dynamic name.
-    // Conservative: only the LAST segment, only when the synthesised
-    // dynamic version isn't already present.
-    for (const path of Array.from(paths)) {
-      const segs = path.split("/");
-      const last = segs[segs.length - 1];
-      if (!last || last.startsWith("[")) continue;
-      // The literal segment doesn't carry the dynamic name itself
-      // (e.g. /u/alice has `alice`, not `handle`). We can only synthesise
-      // when the SUFFIX of the literal path matches a /u/:handle-shaped
-      // canonical from api_contract — but api paths use /api/profiles/...
-      // not /u/... So instead: when prose has /u/alice AND api has
-      // /api/profiles/:handle/pins, synthesise /u/[handle] iff there
-      // exists ANY canonical dynamic name. Defer the actual addition to
-      // the coalesce pass — for now just record the candidate.
-      if (dynNames.size === 1) {
-        const [dynName] = dynNames;
-        const synth = [...segs.slice(0, -1), `[${dynName!}]`].join("/");
-        paths.add(synth);
-      }
-    }
-  }
+  // Note (BUG-D, 0.14.0-α.4): an earlier α.3 attempt to lift dynamic
+  // segment names from api_contract and rewrite EVERY literal path's
+  // last segment was reverted because it generated `/[handle]` from
+  // `/feed` when api_contract had `:handle`. The :name regex extension
+  // above alone catches the common case (`/u/:handle` in prose) without
+  // requiring this aggressive lift.
 
   if (paths.size === 0) return null;
 
@@ -467,8 +436,14 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
   const hints: string[] = [];
   const tableMentions = new Map<string, Set<string>>();
 
-  // Heuristic 1: "<table>(col1, col2)" pattern in invariants (constraint shape).
-  const tableColRe = /`?([a-z_][a-z0-9_]*)`?\s*\(\s*([a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)\s*\)/gi;
+  // Heuristic 1: "`<table>(col1, col2)`" or "`<table>`(col1, col2)" pattern
+  // in invariants — REQUIRES at least the LEADING backtick. Pre-α.4 both
+  // backticks were optional, which swept English prepositions/verbs
+  // ("for (member_id, rewo_id)") into the candidate-tables set.
+  // See BUG-C. The closing backtick after the name is optional because
+  // the most common spec convention wraps table+parens together as one
+  // backticked identifier.
+  const tableColRe = /`([a-z_][a-z0-9_]*)`?\s*\(\s*([a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)\s*\)/g;
   for (const inv of invariants) {
     const text = typeof inv === "string" ? inv : "";
     if (
@@ -477,26 +452,96 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
       hints.push(text);
     }
     let m: RegExpExecArray | null;
-    const re = new RegExp(tableColRe.source, "gi");
+    const re = new RegExp(tableColRe.source, "g");
     while ((m = re.exec(text)) !== null) {
       const tbl = m[1]!.toLowerCase();
-      // Skip false positives: function names (auth.uid, gen_random_uuid, etc.)
-      if (/^(?:auth|now|gen_random_uuid|max|min|count|sum|coalesce)$/i.test(tbl)) continue;
+      // Skip false positives: function names + SQL reserved words.
+      if (/^(?:auth|now|gen_random_uuid|max|min|count|sum|coalesce|select|insert|update|delete|from|where|join|table|create|alter|drop|grant|set|with|on|by|as|in|is|or|and|not|all|any|some|exists)$/i.test(tbl)) continue;
       const cols = m[2]!.split(/\s*,\s*/).map((c) => c.trim().toLowerCase()).filter(Boolean);
       if (!tableMentions.has(tbl)) tableMentions.set(tbl, new Set());
       const set = tableMentions.get(tbl)!;
       for (const c of cols) set.add(c);
     }
 
-    // Heuristic 2: "<table> row" / "rows in `<table>`" — capture as
-    // table mention even without explicit columns, so we still emit a
-    // CREATE TABLE shell (better than dropping it entirely).
-    const tableMentionRe = /`([a-z_][a-z0-9_]*)`\s+(?:row|rows|table|insert|delete)/gi;
+    // Heuristic 1b: split-form constraint convention — "`(col1, col2)` in `<table>`"
+    // or "constraint on `(col1, col2)` for `<table>`". Common in Postgres-doc-style
+    // specs where the column list and table name live in separate backticks.
+    // story-015 used this form; α.3 missed it (member_id was dropped from rewo_pins).
+    const splitFormRe = /`\(\s*([a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)\s*\)`(?:\s+(?:in|on|for|of|to)\s+)`([a-z_][a-z0-9_]*)`/gi;
     let mm: RegExpExecArray | null;
-    while ((mm = tableMentionRe.exec(text)) !== null) {
-      const tbl = mm[1]!.toLowerCase();
+    while ((mm = splitFormRe.exec(text)) !== null) {
+      const cols = mm[1]!.split(/\s*,\s*/).map((c) => c.trim().toLowerCase()).filter(Boolean);
+      const tbl = mm[2]!.toLowerCase();
       if (!tableMentions.has(tbl)) tableMentions.set(tbl, new Set());
+      const set = tableMentions.get(tbl)!;
+      for (const c of cols) set.add(c);
     }
+  }
+
+  // Heuristic 2: any backticked snake_case identifier mentioned >= 2 times
+  // across invariants is a strong table-name signal. Walks all invariants
+  // (not just per-line) so multi-mention counting works. Pre-α.4 this used
+  // a narrow `<word> row|insert|delete` pattern which missed `rewo_pins`
+  // (the actual main table in story-015) because the prose said
+  // "rows in `rewo_pins` at any time" — `at` doesn't match the suffix list.
+  //
+  // Blacklist: error codes and column names that appear in api_contract
+  // responses as quoted "code" values (e.g. `pin_limit_reached`,
+  // `already_pinned`) — those are API contract identifiers, not tables.
+  // Pre-α.4 these slipped through and produced spurious `create table
+  // pin_limit_reached` etc. (caught on rewo story-015 re-run).
+  const errorCodeBlacklist = new Set<string>();
+  for (const e of apiContract) {
+    const responses = e.responses ?? {};
+    for (const respValue of Object.values(responses)) {
+      if (typeof respValue !== "string") continue;
+      // Pull "<name>" from `code: "..."` patterns and `code: name | other_name`.
+      for (const m of respValue.matchAll(/code\s*:\s*['"]?([a-z_][a-z0-9_]*)['"]?/gi)) {
+        errorCodeBlacklist.add(m[1]!.toLowerCase());
+      }
+      // Also pull from `"x" | "y" | "z"` enums after `code:`.
+      const codeEnumMatch = respValue.match(/code\s*:\s*((?:['"]?[a-z_][a-z0-9_]*['"]?\s*\|\s*)+['"]?[a-z_][a-z0-9_]*['"]?)/i);
+      if (codeEnumMatch) {
+        for (const part of codeEnumMatch[1]!.split("|")) {
+          const name = part.trim().replace(/^['"]|['"]$/g, "");
+          if (/^[a-z_][a-z0-9_]*$/i.test(name)) errorCodeBlacklist.add(name.toLowerCase());
+        }
+      }
+    }
+  }
+  // Also blacklist anything that follows "raising" / "raises" in prose —
+  // standard pattern for declaring trigger-raised error codes.
+  for (const inv of invariants) {
+    const text = typeof inv === "string" ? inv : "";
+    for (const m of text.matchAll(/(?:raising|raises|throws|throwing|with code)\s+`?([a-z_][a-z0-9_]*)`?/gi)) {
+      errorCodeBlacklist.add(m[1]!.toLowerCase());
+    }
+  }
+
+  const tickedCounts = new Map<string, number>();
+  const allInvariants = invariants.map((inv) => (typeof inv === "string" ? inv : "")).join("\n");
+  for (const m of allInvariants.matchAll(/`([a-z_][a-z0-9_]+)`/g)) {
+    const id = m[1]!.toLowerCase();
+    // Skip identifiers that contain operators/spaces (like `pinned_at = now()`)
+    // — those wouldn't match the regex anyway, but defensive.
+    // Skip likely-column-names (single short word with no underscore).
+    if (id.length < 4) continue;
+    if (errorCodeBlacklist.has(id)) continue;
+    tickedCounts.set(id, (tickedCounts.get(id) ?? 0) + 1);
+  }
+  for (const [id, count] of tickedCounts) {
+    if (count < 2) continue;
+    // Require either (a) a snake_case shape with at least one underscore
+    // (table names usually multi-word like `rewo_pins`), OR (b) appears
+    // alongside a SQL action word in the same invariant.
+    const hasUnderscore = id.includes("_");
+    const hasActionContext = invariants.some((inv) => {
+      const text = typeof inv === "string" ? inv : "";
+      return text.includes("`" + id + "`") &&
+        /\b(?:row|rows|insert|delete|select|update|table|trigger|constraint)\b/i.test(text);
+    });
+    if (!hasUnderscore && !hasActionContext) continue;
+    if (!tableMentions.has(id)) tableMentions.set(id, new Set());
   }
 
   // Heuristic 3: api_contract path tail = candidate domain table name
@@ -558,15 +603,16 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
 
 function readExistingEntities(_spec: Spec): Set<string> {
   // Read entity names from .brewing/diagrams/schema.mmd if present.
-  // Done lazily here (not at module load) so the synth stays unit-testable
-  // without touching the filesystem in most test paths.
+  // Pre-α.4 this used a lazy `require("node:fs")` call which throws
+  // ReferenceError under ES modules — the swallowing try/catch left
+  // existingEntities empty in production runs (no FK validation, no
+  // FK clauses on synthesised CREATE TABLEs). Switched to top-level
+  // imports.
   const set = new Set<string>();
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require("node:fs") as typeof import("node:fs");
     const path = ".brewing/diagrams/schema.mmd";
-    if (!fs.existsSync(path)) return set;
-    const content = fs.readFileSync(path, "utf8");
+    if (!existsSync(path)) return set;
+    const content = readFileSync(path, "utf8");
     for (const m of content.matchAll(/^ {2}([A-Z_]+)\s*\{/gm)) {
       set.add(m[1]!.toLowerCase());
     }

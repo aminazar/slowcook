@@ -160,6 +160,52 @@ describe("synthesizeProposalsFromSpec", () => {
     expect(entry?.file).toBe("src/app/(main)/u/[handle]/page.tsx");
   });
 
+  it("schema synth: handles split-form `(cols)` in `<table>` convention (0.14.0-α.4)", () => {
+    // Regression: story-015 spec used the Postgres-doc convention
+    // "Unique constraint on `(member_id, rewo_id)` in `rewo_pins`" —
+    // column list and table name live in separate backticks. Pre-α.4
+    // this dropped `member_id` from the synthesised CREATE TABLE.
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "Unique constraint on `(member_id, rewo_id)` in `rewo_pins` — a rewo cannot be pinned twice by the same member.",
+      ],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const sql = out.schema?.sql ?? "";
+    expect(sql).toContain("create table rewo_pins");
+    expect(sql).toContain("member_id uuid");
+    expect(sql).toContain("rewo_id uuid");
+  });
+
+  it("schema synth: blacklists API error codes — `raising` + `code:` patterns (0.14.0-α.4)", () => {
+    // Regression from rewo story-015 re-run: pre-α.4 these slipped through
+    // as fake `create table pin_limit_reached` / `pin_requires_reaction`.
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "Each member has at most 5 rows in `rewo_pins` at any time. The 6th insert fails at the DB level via a `BEFORE INSERT` trigger raising `pin_limit_reached`.",
+        "Pin requires a matching `rewo_reactions` row for `(member_id, rewo_id)`. Enforced by a `BEFORE INSERT` trigger raising `pin_requires_reaction` when no reaction exists.",
+        "Unique constraint on `rewo_pins(member_id, rewo_id)`",
+      ],
+      api_contract: [
+        {
+          method: "POST",
+          path: "/api/pins",
+          responses: {
+            "409": '{ error: string, code: "pin_limit_reached" | "already_pinned" | "pin_requires_reaction" }',
+          },
+        },
+      ] as Spec["api_contract"],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const sql = out.schema?.sql ?? "";
+    expect(sql).toContain("create table rewo_pins");
+    expect(sql).not.toContain("create table pin_limit_reached");
+    expect(sql).not.toContain("create table pin_requires_reaction");
+    expect(sql).not.toContain("create table already_pinned");
+  });
+
   it("synthesises ui_layout from ui_behavior prose tokens + components (V7)", () => {
     // Regression from rewo story-015: 0.13.6 prompt told the agent to
     // emit proposals.ui_layout when ui_behavior present, but the agent

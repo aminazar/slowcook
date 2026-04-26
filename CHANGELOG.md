@@ -6,6 +6,26 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.4 — α.3 follow-up bugs (route / schema synth false positives + ESM require)
+
+Cut 2026-04-26.
+
+α.3 synth changes were validated against rewo story-015 — three new bugs surfaced and were fixed:
+
+- **BUG-C: schema synth invented English words as table names.** `for (member_id, rewo_id)` and `delete (...)` matched the table-column regex because backticks were optional. Required leading backtick. Also expanded the SQL-reserved-words skip-list. **Then**: api error codes (`pin_limit_reached`, `pin_requires_reaction`) appeared as fake CREATE TABLEs because they're backticked snake_case identifiers mentioned >=2 times. Fix: extract `code: "..."` values from `api_contract.responses` + `raising/raises X` from invariants → blacklist.
+- **BUG-D: route synth invented `/[handle]` from `/feed`.** α.3 added an api_contract dynamic-name lift that rewrote EVERY literal path's last segment. Reverted; the `:name` regex extension alone (added in α.3 for BUG-A) is sufficient.
+- **Split-form `(cols)` in `<table>` convention not recognised.** story-015 used "Unique constraint on `(member_id, rewo_id)` in `rewo_pins`" — column list and table name in separate backticks. New heuristic 1b handles this; previously dropped `member_id` from the synthesised table.
+- **`require()` under ES modules silently returned empty entity catalog.** `readExistingEntities` + `readExistingTokens` lazy-required `node:fs` which throws ReferenceError under ESM — the swallowing try/catch left the brownfield extracts unused. Switched to top-level `import { existsSync, readFileSync } from "node:fs"`. Foreign keys now actually appear in synthesised CREATE TABLEs (`member_id uuid not null references profiles(id) on delete cascade`).
+- **3 new tests** in `proposals-synth.test.ts` (21 total in that file; 389 cli total).
+
+End-to-end re-validation against story-015's actual spec produces:
+- 1 right table (rewo_pins) with 7 real columns, 2 FKs validated against ERD
+- 3 routes (no /[handle] noise)
+- ui_layout with 5 reuse tokens, 4 add candidates (3 are tailwind built-ins → polish opportunity logged)
+- empty-shell fixtures for the data-display story
+
+---
+
 ## 0.14.0-alpha.3 — Hard-signal synthesizers + two spec-body-synth bug fixes
 
 Cut 2026-04-26.
