@@ -6,6 +6,23 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.2 — Sibling stub `<domain>.ts` (data-layer seam, brew-target side)
+
+Cut 2026-04-25.
+
+α.1 wrote `<domain>.mock.ts` (the fixture data). α.2 writes the sibling `<domain>.ts` stub that pages will actually import from. The stub re-exports the mock fixtures verbatim so the generated mockup renders during PM review; brew detects the `@slowcook-stub` marker and replaces the file with a real fetch implementation.
+
+- New `renderStubFile(domain, storyId)` exported from `mock-fixtures.ts`. One-line `export * from "./<domain>.mock.js"` body, with `@slowcook-stub` in the header comment.
+- `writeMockFixtures` now returns BOTH paths per domain (e.g. `notifications.mock.ts` + `notifications.ts`). Updated tests to expect 4 files per 2-domain spec.
+- New marker constant `SLOWCOOK_STUB_MARKER` exported for brew (later) to grep against when deciding what to replace.
+- 2 new tests + updated existing test (10 tests in mock-fixtures.test.ts; 378 cli total).
+
+The data-layer seam pattern is now complete on the refine side. Pages import from `@/lib/data/<domain>` (the stub); during mockup review the stub re-exports fixtures; when brew kicks in it replaces the stub body with real fetches and the import path stays stable.
+
+α.3 (the actual mockup generation: `src/**/page.tsx` + components) is the next slice and the first user mockup-feedback checkpoint.
+
+---
+
 ## 0.14.0-alpha.1.5 — Refine prompt steering for `proposals.fixtures`
 
 Cut 2026-04-25.

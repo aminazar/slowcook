@@ -36,6 +36,9 @@ export interface MockFixtureWriteResult {
   skippedReason?: string;
 }
 
+/** Marker brew searches for to identify files it should replace with real implementations. */
+export const SLOWCOOK_STUB_MARKER = "@slowcook-stub" as const;
+
 const VALID_DOMAIN = /^[a-z][a-z0-9_-]*$/;
 
 export function writeMockFixtures(
@@ -77,8 +80,36 @@ export function writeMockFixtures(
     mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, renderMockFile(domain, spec.story_id, seed), "utf8");
     written.push(relPath);
+
+    // 0.14.0-α.2 — sibling stub `<domain>.ts`. Re-exports the mock
+    // fixtures verbatim so the generated mockup renders during PM
+    // review. Marked with `@slowcook-stub` so brew can detect + replace
+    // it with a real fetch implementation later.
+    const stubRelPath = join("src/lib/data", `${domain}.ts`);
+    const stubFullPath = join(repoRoot, stubRelPath);
+    writeFileSync(stubFullPath, renderStubFile(domain, spec.story_id), "utf8");
+    written.push(stubRelPath);
   }
   return { written };
+}
+
+export function renderStubFile(domain: string, storyId: string): string {
+  return [
+    `// src/lib/data/${domain}.ts`,
+    `//`,
+    `// Auto-generated stub by \`slowcook refine\` for story-${storyId}`,
+    `// (0.14 mockup-first data-layer seam).`,
+    `//`,
+    `// Body: re-export the mock fixtures verbatim so the generated mockup`,
+    `// renders during PM review. When brew takes over, this file is`,
+    `// REPLACED with a real fetch implementation; the .mock.ts sibling`,
+    `// stays as reference data for tier-1 tests.`,
+    `//`,
+    `// ${SLOWCOOK_STUB_MARKER} — brew identifies + replaces files containing this marker.`,
+    ``,
+    `export * from "./${domain}.mock.js";`,
+    ``,
+  ].join("\n");
 }
 
 export function renderMockFile(

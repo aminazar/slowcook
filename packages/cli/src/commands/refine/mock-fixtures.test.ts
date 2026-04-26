@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeMockFixtures, renderMockFile } from "./mock-fixtures.js";
+import {
+  writeMockFixtures,
+  renderMockFile,
+  renderStubFile,
+  SLOWCOOK_STUB_MARKER,
+} from "./mock-fixtures.js";
 import type { Spec } from "@slowcook-ai/core";
 
 function mkRepo(): string {
@@ -92,6 +97,45 @@ describe("writeMockFixtures", () => {
     }
   });
 
+  it("writes a sibling .ts stub re-exporting the .mock.ts (α.2 data-layer seam)", () => {
+    const repo = mkRepo();
+    try {
+      writeMockFixtures(
+        repo,
+        baseSpec({
+          proposals: {
+            fixtures: {
+              status: "pending",
+              proposed_by: "refine-agent",
+              by_domain: {
+                notifications: { seed: { list: [{ id: "n-1" }] } },
+              },
+            },
+          },
+        })
+      );
+      const stub = readFileSync(
+        join(repo, "src/lib/data/notifications.ts"),
+        "utf8"
+      );
+      expect(stub).toContain(SLOWCOOK_STUB_MARKER);
+      expect(stub).toContain('export * from "./notifications.mock.js";');
+      expect(stub).toContain("Auto-generated stub by `slowcook refine` for story-042");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("renderStubFile produces a brew-detectable @slowcook-stub marker", () => {
+    const out = renderStubFile("bookmarks", "099");
+    expect(out).toContain(SLOWCOOK_STUB_MARKER);
+    expect(out).toContain('export * from "./bookmarks.mock.js";');
+    // Brew's detection regex (whatever it ends up being) should match
+    // both the marker AND the export line as separate signals.
+    expect(out).toMatch(/@slowcook-stub/);
+    expect(out).toMatch(/export \* from "\.\/bookmarks\.mock\.js"/);
+  });
+
   it("writes one .mock.ts file per domain into src/lib/data/", () => {
     const repo = mkRepo();
     try {
@@ -123,7 +167,9 @@ describe("writeMockFixtures", () => {
       );
       expect(result.written.sort()).toEqual([
         "src/lib/data/bookmarks.mock.ts",
+        "src/lib/data/bookmarks.ts",
         "src/lib/data/notifications.mock.ts",
+        "src/lib/data/notifications.ts",
       ]);
       const notif = readFileSync(
         join(repo, "src/lib/data/notifications.mock.ts"),
