@@ -6,6 +6,40 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.15.0-alpha.2 + forge-github 0.10.2 — vibe workflow + eligibility gate
+
+Cut 2026-04-26.
+
+α.1 shipped the agent + CLI; α.2 wires it into CI.
+
+### What's new
+
+- **New workflow template** `.github/workflows/slowcook-vibe.yml` in `forge-github@0.10.2`. Auto-fires when a PR with label `slowcook-spec` merges; also exposes `workflow_dispatch` for manual retry. Steps:
+  1. Resolve slowcook CLI pin from `.brewing/slowcook-cli-version` (per the existing pattern)
+  2. Run `slowcook extract` (brownfield extracts — vibe's reuse-vocabulary)
+  3. Run `slowcook map generate` (code-map — vibe's component-reuse inventory)
+  4. Detect story id from the merged PR's branch name (`slowcook/spec/story-N`) or the workflow_dispatch input
+  5. Skip if the mockup branch already exists (don't overwrite plate's iteration)
+  6. Run `slowcook vibe --spec <id>` — emits mockup + opens draft PR
+- **Eligibility gate in `slowcook vibe`** — `hasUiSurface(specYaml)` returns true only when `proposals.fixtures.by_domain` has at least one domain entry. Backend-only specs skip vibe with a soft-success exit so the workflow doesn't fail spuriously. Synth-shell fixtures (with empty `seed`) still trigger vibe — the spec implies UI even if the agent didn't populate fixture rows.
+- **Rewo dogfood workflow** at `.github/workflows/slowcook-vibe.yml` — manual `workflow_dispatch` only, builds slowcook from source so we can iterate on alphas without round-trips through npm publish. Mirrors the `slowcook-investigate (alpha)` pattern.
+- **8 new tests** in `vibe/index.test.ts` covering the eligibility gate. 420 cli tests pass total.
+
+### What's NOT in α.2
+
+Same as α.1 list minus the workflow piece (now shipped):
+- α.3: `plate` amendment loop with `/plate` PR-comment trigger
+- α.4: `brew --mode plate` allowed-paths constraint enforcement
+- α.5: Auto-detection trigger chain across the merged-mockup → recipe → brew flow
+
+### Upgrade path
+
+For consumers using slowcook-init scaffolding: re-run `slowcook init` to get the new `.github/workflows/slowcook-vibe.yml` template (skips other already-installed templates). Manual install: copy the workflow file from `node_modules/@slowcook-ai/forge-github/dist/templates.js` (search for `slowcook vibe`).
+
+For rewo specifically: bump `.brewing/slowcook-cli-version` to `0.15.0-alpha.2` after publish; the existing `slowcook-vibe (alpha)` workflow file is committed alongside this release for source-build validation.
+
+---
+
 ## 0.15.0-alpha.1 — `vibe` agent: design-first mockup generator (plate-pipeline α.1)
 
 Cut 2026-04-26.

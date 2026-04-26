@@ -666,6 +666,8 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-investigate.yml", contents: slowcookInvestigateWorkflow() },
     { path: ".github/workflows/slowcook-sift.yml", contents: slowcookSiftWorkflow() },
     { path: ".github/workflows/slowcook-chef.yml", contents: slowcookChefWorkflow() },
+    // 0.15.0-α.2 — vibe agent (mockup generator) workflow.
+    { path: ".github/workflows/slowcook-vibe.yml", contents: slowcookVibeWorkflow() },
   ];
 }
 
@@ -904,6 +906,140 @@ ${RESOLVE_PIN_STEP}
         run: |
           set -eu
           npx --yes "$SLOWCOOK_CLI" investigate --issue "$ISSUE_NUMBER"
+`;
+}
+
+/**
+ * 0.15.0-alpha.2 — slowcook-vibe workflow. Fires automatically when a
+ * spec PR (label \`slowcook-spec\`) merges; vibe reads the merged spec
+ * + brownfield extracts + code-map and emits a runnable mockup to a
+ * \`slowcook/mockup/story-N\` branch with a draft PR labeled
+ * \`slowcook-mockup\`. The vibe command itself does the eligibility
+ * check (skips when proposals.fixtures is absent or a mockup branch
+ * already exists), so this workflow can fire wide.
+ *
+ * Also exposes workflow_dispatch for manual retry.
+ */
+function slowcookVibeWorkflow(): string {
+  return `name: slowcook vibe
+
+# 0.15.0-alpha.2 — design-first mockup generator. Fires on spec-merged.
+# vibe reads the merged spec YAML + brownfield extracts + code-map;
+# emits a runnable React mockup to slowcook/mockup/story-<id> branch +
+# opens a draft PR labeled slowcook-mockup. The PM reviews the preview
+# deploy + comments \`/plate <prose>\` on the mockup PR to iterate
+# (handled by slowcook-plate.yml — α.3, not in this version).
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Story id to vibe a mockup for (e.g. 017)"
+        required: true
+        type: string
+
+concurrency:
+  group: slowcook-vibe-\${{ github.event.inputs.spec || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  vibe:
+    if: >-
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged == true &&
+        contains(github.event.pull_request.labels.*.name, 'slowcook-spec')
+      ) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: \${{ github.event.pull_request.merge_commit_sha || github.ref }}
+
+${RESOLVE_PIN_STEP}
+
+      - name: Configure git identity for agent commits
+        run: |
+          git config user.name  "slowcook-vibe[bot]"
+          git config user.email "slowcook-vibe@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Brownfield extracts (schema + tokens for vibe context)
+        # vibe's whole point is REUSE existing components + tokens. The
+        # extracts are the canonical inventory — without them vibe
+        # regresses to inventing tokens + components, exactly the
+        # failure mode 0.15 prevents. Skips silently on greenfield.
+        run: npx --yes "$SLOWCOOK_CLI" extract
+
+      - name: Code map (component vocabulary for vibe context)
+        # vibe reads .brewing/code-map.md to know which components
+        # already exist (so it imports them by real path instead of
+        # creating new ones at testgen-stub paths — the rewo PR #117 +
+        # PR #142 failure mode). Costs ~5s of ts-morph; cheap.
+        run: |
+          set -eu
+          if [ -f package.json ]; then
+            npm ci --silent || true
+          fi
+          npx --yes "$SLOWCOOK_CLI" map generate
+
+      - name: Detect spec id
+        id: spec
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          INPUT_SPEC: \${{ github.event.inputs.spec }}
+          PR_NUM: \${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          if [ -n "\${INPUT_SPEC:-}" ]; then
+            echo "story_id=\${INPUT_SPEC}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Auto path: derive from PR's branch name (slowcook/spec/story-N).
+          BRANCH=$(gh pr view "$PR_NUM" --repo "\${{ github.repository }}" --json headRefName -q .headRefName)
+          STORY_ID=$(echo "$BRANCH" | sed -nE 's|^slowcook/spec/story-([a-zA-Z0-9_-]+)$|\\1|p')
+          if [ -z "$STORY_ID" ]; then
+            echo "Could not derive story id from branch '$BRANCH'. Skipping vibe."
+            exit 0
+          fi
+          echo "story_id=$STORY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if mockup branch already exists
+        if: steps.spec.outputs.story_id != ''
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          STORY_ID: \${{ steps.spec.outputs.story_id }}
+        id: existing
+        run: |
+          set -eu
+          MOCKUP_BRANCH="slowcook/mockup/story-\${STORY_ID}"
+          if gh api "repos/\${{ github.repository }}/branches/\${MOCKUP_BRANCH}" >/dev/null 2>&1; then
+            echo "Mockup branch \${MOCKUP_BRANCH} already exists — skipping vibe (use workflow_dispatch with --regenerate to override, not yet implemented)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Vibe
+        if: steps.spec.outputs.story_id != '' && steps.existing.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+          STORY_ID: \${{ steps.spec.outputs.story_id }}
+        run: |
+          set -eu
+          npx --yes "$SLOWCOOK_CLI" vibe --spec "$STORY_ID"
 `;
 }
 

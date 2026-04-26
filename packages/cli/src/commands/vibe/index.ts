@@ -85,6 +85,42 @@ Environment:
 `);
 }
 
+/**
+ * Lightweight check for spec UI-surface eligibility. Looks for the
+ * `proposals: ... fixtures: ... by_domain:` shape with at least one
+ * domain entry. Avoids pulling in YAML parser for what's a regex
+ * sniff — but resilient to indentation variations.
+ *
+ * Returns true if the spec has at least one domain under
+ * `proposals.fixtures.by_domain`. Returns false otherwise (no fixtures
+ * block, empty by_domain, or unparseable spec).
+ */
+function hasUiSurface(specYaml: string): boolean {
+  // Anchor on the `proposals:` block at top-level (no leading
+  // whitespace). Then look for `fixtures:` indented under it.
+  const proposalsIdx = specYaml.search(/^proposals\s*:\s*$/m);
+  if (proposalsIdx < 0) return false;
+  const tail = specYaml.slice(proposalsIdx);
+  // Match `  fixtures:` (any positive indent).
+  const fixturesMatch = tail.match(/^(\s+)fixtures\s*:\s*$/m);
+  if (!fixturesMatch) return false;
+  const fixturesBlockStart = tail.indexOf(fixturesMatch[0]) + fixturesMatch[0].length;
+  // Look for `by_domain:` deeper than fixtures' indent.
+  const byDomainMatch = tail.slice(fixturesBlockStart).match(/^(\s+)by_domain\s*:\s*$/m);
+  if (!byDomainMatch) return false;
+  const byDomainIndentLen = byDomainMatch[1]!.length;
+  // After by_domain:, expect at least one entry indented strictly
+  // deeper. Match `^<indent_deeper><word>:` lines.
+  const after = tail.slice(
+    fixturesBlockStart + tail.slice(fixturesBlockStart).indexOf(byDomainMatch[0]) + byDomainMatch[0].length
+  );
+  const entryRe = new RegExp(
+    `^( {${byDomainIndentLen + 1},}|\\t+)([a-z][a-z0-9_-]*)\\s*:\\s*$`,
+    "m"
+  );
+  return entryRe.test(after);
+}
+
 function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
   try {
     const url = execSync("git remote get-url origin", {
@@ -181,6 +217,18 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
     process.exit(2);
   }
   const specYaml = readFileSync(specPath, "utf8");
+
+  // Eligibility gate: vibe only runs on UI stories (proposals.fixtures
+  // populated). Backend-only specs skip the plate track entirely; the
+  // existing brew handles them in legacy mode. Soft-fail (exit 0) so
+  // the calling workflow doesn't fail spuriously.
+  if (!hasUiSurface(specYaml)) {
+    console.log(
+      `slowcook vibe · story-${args.specId}: spec has no \`proposals.fixtures\` (or all seeds empty). This is a backend-only / non-UI story; skipping vibe.`
+    );
+    return;
+  }
+
   const projectContext = buildProjectContext(args.repoRoot);
 
   console.log(
