@@ -567,6 +567,13 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
   }
   for (const [id, count] of tickedCounts) {
     if (count < 2) continue;
+    // BUG-F (0.16) — exclude identifiers with column-name suffix shapes.
+    // `_id` (FK reference), `_at` (timestamp), `_count` (counter), `_url`,
+    // `_email`, `_name`, `_path`, `_slug` are conventional column suffixes;
+    // an identifier matching one of these is overwhelmingly likely to be
+    // a column being referenced — not a table being introduced. Caught
+    // when story-015 synth emitted `create table member_id (...)`.
+    if (/(^|_)(id|at|count|url|email|name|path|slug|by|to|from)$/.test(id)) continue;
     // Require either (a) a snake_case shape with at least one underscore
     // (table names usually multi-word like `rewo_pins`), OR (b) appears
     // alongside a SQL action word in the same invariant.
@@ -593,7 +600,14 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
       // `{ id: string, rewo_id: string, pinned_at: string }`.
       for (const colMatch of respValue.matchAll(/\b([a-z_][a-z0-9_]*)\s*:/gi)) {
         const name = colMatch[1]!.toLowerCase();
-        if (/^(items|status|error|code|next_cursor|message|count|total|data)$/.test(name)) continue;
+        // Response-envelope words that aren't real columns:
+        if (/^(items|status|error|code|next_cursor|message|count|total|data|response|request|body|headers|params|query|args)$/.test(name)) continue;
+        // BUG-F (0.16) — also reject English prose words that show up in
+        // freeform response descriptions like "object containing fields:" or
+        // "array containing items: ...". Conservative wordlist; these names
+        // would be unusual as actual API column names + their inclusion was
+        // the source of phantom `containing text` columns.
+        if (/^(containing|representing|describing|indicating|listing|showing|showing|including|excluding|matching|the|with|without|when|where|which|whose)$/.test(name)) continue;
         apiColumns.add(name);
       }
     }

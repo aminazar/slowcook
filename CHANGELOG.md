@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.3 — BUG-F fix: schema synth no longer treats `_id` columns as tables
+
+Cut 2026-04-27.
+
+Last residual bug from 0.15-era validation. Refine's `proposals-synth.ts` heuristic-2 (any backticked snake_case identifier mentioned >=2 times with action context becomes a candidate table) was too permissive: it caught column FK references like `member_id` (mentioned in trigger conditions, RLS policies, FK constraints) and emitted `create table member_id (...)`.
+
+### Fixes
+
+- **Skip column-suffix shapes** from heuristic-2 candidates: identifiers ending in `_id` / `_at` / `_count` / `_url` / `_email` / `_name` / `_path` / `_slug` / `_by` / `_to` / `_from` are conventional column suffixes, not tables.
+- **Reject English prose words** from `apiColumns` extraction (the column-name regex was matching freeform response descriptions like `"object containing fields: ..."` → `containing` became a column). Added `containing | representing | describing | indicating | listing | showing | including | excluding | matching | the | with | without | when | where | which | whose` to the response-prose blocklist.
+- **3 new regression tests** covering the `member_id`-as-table case, the `_at`/`_count` column-suffix case, and the `containing`-as-column English-prose case. All 26 proposals-synth tests pass; 438 cli tests pass total.
+
+This was the last 0.15-era bug carried into the 0.16 era. Refine's synth now stays clean on UI-light specs that previously tripped it.
+
+---
+
 ## 0.16.0-alpha.2 + @slowcook-ai/core@0.13.0 + @slowcook-ai/mock-runtime@0.1.1 — Scenario types in core
 
 Cut 2026-04-27. mock-runtime ships as 0.1.1 (0.1.0 went out with local types before this changeset; 0.1.1 re-exports from core).

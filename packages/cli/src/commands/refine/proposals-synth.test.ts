@@ -160,6 +160,69 @@ describe("synthesizeProposalsFromSpec", () => {
     expect(entry?.file).toBe("src/app/(main)/u/[handle]/page.tsx");
   });
 
+  it("schema synth: BUG-F (0.16) — does NOT treat `_id`-suffixed identifiers as tables", () => {
+    // Regression: prior heuristic-2 saw `member_id` backticked many
+    // times in invariants (FK references in trigger conditions, RLS
+    // policies, constraint expressions) + with action-context words
+    // ("trigger", "insert"). Result: `create table member_id (...)`.
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "RLS: a member can `INSERT` into `pins` only when `member_id` matches `auth.uid()`.",
+        "BEFORE INSERT trigger checks `member_id` exists in `profiles` before inserting into `pins`.",
+        "Index on `pins` `(member_id, pinned_at desc)` for fast feed lookups.",
+        "Cascade delete: when a row in `profiles` is deleted, the corresponding `member_id` rows in `pins` are removed.",
+      ],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const sql = out.schema?.sql ?? "";
+    expect(sql).not.toContain("create table member_id");
+    // pins should still get detected as a real table
+    // (mentioned 4+ times alongside action words).
+    expect(sql).toContain("create table pins");
+  });
+
+  it("schema synth: BUG-F (0.16) — also excludes `_at`, `_count`, etc. column suffixes", () => {
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "Trigger updates `pinned_at` whenever a `pins` row is touched.",
+        "Trigger updates `pinned_at` again on re-pin via the upsert path.",
+        "Counter `pin_count` is denormalised on `profiles` for fast-render.",
+        "Counter `pin_count` is updated by trigger on insert/delete.",
+      ],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const sql = out.schema?.sql ?? "";
+    expect(sql).not.toContain("create table pinned_at");
+    expect(sql).not.toContain("create table pin_count");
+  });
+
+  it("schema synth: BUG-F (0.16) — apiColumns reject English prose words like `containing`", () => {
+    // Regression: story-015 had api response prose like
+    // `{ items: Array<...> } - object containing fields: ...`
+    // and the `containing:` slipped past the column-name extractor.
+    const spec: Spec = {
+      ...base,
+      invariants: [
+        "Unique constraint on `(member_id, rewo_id)` in `pins`.",
+      ],
+      api_contract: [
+        {
+          method: "GET",
+          path: "/api/pins",
+          responses: {
+            "200": "object containing fields: { id: string, rewo_id: string, pinned_at: string }",
+          },
+        },
+      ] as Spec["api_contract"],
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const sql = out.schema?.sql ?? "";
+    expect(sql).toContain("create table pins");
+    expect(sql).not.toContain("containing text");
+  });
+
   it("schema synth: handles split-form `(cols)` in `<table>` convention (0.14.0-α.4)", () => {
     // Regression: story-015 spec used the Postgres-doc convention
     // "Unique constraint on `(member_id, rewo_id)` in `rewo_pins`" —
