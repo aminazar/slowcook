@@ -6,6 +6,32 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.2 + @slowcook-ai/core@0.13.0 — Scenario types in core
+
+Cut 2026-04-27. Folded into the still-unpublished `@slowcook-ai/mock-runtime@0.1.0` (which moves from local types → re-exports from core).
+
+### Why
+
+Agent code (vibe in α.3, plate in α.6, brew --mode plate in α.8) needs to reason about Scenario shapes to write/amend/read them. Today's mock-runtime owned the types, but mock-runtime carries React + Next peer deps — agents shouldn't pull React just to use types. Lifting Scenario / MockUser / ScenarioRegistry into core lets agents import them cleanly.
+
+### What's new
+
+- **`@slowcook-ai/core@0.13.0`** exports `Scenario`, `MockUser`, `ScenarioRegistry` from `core/src/scenario.ts`. Same shape as the mock-runtime types they replace. JSDoc lives here as the source of truth.
+- **`@slowcook-ai/mock-runtime@0.1.0`** (in-place update before first publish): `src/types.ts` becomes a thin re-export from `@slowcook-ai/core`. Public API of mock-runtime unchanged for consumers (still `import { Scenario } from "@slowcook-ai/mock-runtime"` works).
+- **`@slowcook-ai/cli@0.16.0-alpha.2`**: no behavior change — bumped to track core. `slowcook init mock`'s scaffolded `package.json` keeps its `^0.1.0` mock-runtime pin.
+
+435 cli tests + 9 mock-runtime tests pass.
+
+### Publish order this cut
+
+```
+core@0.13.0           ← REQUIRED first (mock-runtime depends on it)
+mock-runtime@0.1.0    ← still first publish ever (404'd previously)
+cli@0.16.0-alpha.2
+```
+
+---
+
 ## 0.16.0-alpha.1 + @slowcook-ai/mock-runtime@0.1.0 — singular mock app foundation
 
 Cut 2026-04-27.

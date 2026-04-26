@@ -78,6 +78,10 @@ importers:
         version: link:../core
 
   packages/mock-runtime:
+    dependencies:
+      '@slowcook-ai/core':
+        specifier: workspace:^
+        version: link:../core
     devDependencies:
       '@types/react':
         specifier: ^19.0.0

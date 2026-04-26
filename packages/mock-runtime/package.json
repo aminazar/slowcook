@@ -41,6 +41,9 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "tsc -b"
   },
+  "dependencies": {
+    "@slowcook-ai/core": "workspace:^"
+  },
   "peerDependencies": {
     "next": ">=15",
     "react": ">=19",
