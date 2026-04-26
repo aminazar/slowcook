@@ -86,39 +86,35 @@ Environment:
 }
 
 /**
- * Lightweight check for spec UI-surface eligibility. Looks for the
- * `proposals: ... fixtures: ... by_domain:` shape with at least one
- * domain entry. Avoids pulling in YAML parser for what's a regex
- * sniff — but resilient to indentation variations.
+ * 0.16.0-α.4 — Lightweight check for spec UI-surface eligibility.
+ * Looks for a non-empty top-level `ui_behavior:` block. The spec
+ * convention since 0.11 has been: stories with UI carry `ui_behavior`
+ * with at least one viewport entry (`desktop_light:`, `mobile_dark:`,
+ * etc.); backend-only stories omit it entirely OR set it to an empty
+ * mapping.
  *
- * Returns true if the spec has at least one domain under
- * `proposals.fixtures.by_domain`. Returns false otherwise (no fixtures
- * block, empty by_domain, or unparseable spec).
+ * Avoids pulling in a YAML parser for a regex sniff, but resilient to
+ * indentation variations.
+ *
+ * Returns true when the spec's `ui_behavior:` block has at least one
+ * indented child (any viewport entry). Returns false otherwise.
  */
 function hasUiSurface(specYaml: string): boolean {
-  // Anchor on the `proposals:` block at top-level (no leading
-  // whitespace). Then look for `fixtures:` indented under it.
-  const proposalsIdx = specYaml.search(/^proposals\s*:\s*$/m);
-  if (proposalsIdx < 0) return false;
-  const tail = specYaml.slice(proposalsIdx);
-  // Match `  fixtures:` (any positive indent).
-  const fixturesMatch = tail.match(/^(\s+)fixtures\s*:\s*$/m);
-  if (!fixturesMatch) return false;
-  const fixturesBlockStart = tail.indexOf(fixturesMatch[0]) + fixturesMatch[0].length;
-  // Look for `by_domain:` deeper than fixtures' indent.
-  const byDomainMatch = tail.slice(fixturesBlockStart).match(/^(\s+)by_domain\s*:\s*$/m);
-  if (!byDomainMatch) return false;
-  const byDomainIndentLen = byDomainMatch[1]!.length;
-  // After by_domain:, expect at least one entry indented strictly
-  // deeper. Match `^<indent_deeper><word>:` lines.
-  const after = tail.slice(
-    fixturesBlockStart + tail.slice(fixturesBlockStart).indexOf(byDomainMatch[0]) + byDomainMatch[0].length
-  );
-  const entryRe = new RegExp(
-    `^( {${byDomainIndentLen + 1},}|\\t+)([a-z][a-z0-9_-]*)\\s*:\\s*$`,
-    "m"
-  );
-  return entryRe.test(after);
+  const uiIdx = specYaml.search(/^ui_behavior\s*:\s*$/m);
+  if (uiIdx < 0) {
+    // Could be inline mapping `ui_behavior: { desktop: "..." }` — accept that too
+    if (/^ui_behavior\s*:\s*\{[\s\S]*?[a-z]/m.test(specYaml)) return true;
+    return false;
+  }
+  const tail = specYaml.slice(uiIdx).split("\n").slice(1); // lines after "ui_behavior:"
+  for (const line of tail) {
+    if (line.trim() === "") continue;
+    // Stop at the next top-level key (zero indent + identifier + colon).
+    if (/^[a-z_]/.test(line)) break;
+    // Look for a child entry: indented + identifier + colon.
+    if (/^\s+[a-z_][a-z0-9_]*\s*:/.test(line)) return true;
+  }
+  return false;
 }
 
 function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
@@ -185,20 +181,111 @@ function buildProjectContext(repoRoot: string): string {
     try {
       const c = readFileSync(codeMapPath, "utf8").trim();
       sections.push(
-        "## Code-map (existing components, pages, helpers)\n\n" +
+        "## Production code-map (reference only — vibe writes into mock/, not src/)\n\n" +
           c +
-          "\n\nReuse components by their import path verbatim. NEVER duplicate functionality of an existing component under a new name."
+          "\n\nThis is the production app's surface. Vibe doesn't touch it; brew copies your mock components there later via `slowcook port`. Useful as a vocabulary reference for what the production app already looks like."
       );
     } catch {
       // ignore
     }
   }
 
+  // 0.16.0-α.4 — mock-app inventory. Lists scenarios already registered
+  // + components already in mock/src/components/. Vibe MUST reuse these
+  // before adding new ones.
+  const mockInventory = buildMockInventory(repoRoot);
+  if (mockInventory) {
+    sections.push(mockInventory);
+  }
+
   if (sections.length === 0) {
-    return "_(No `.brewing/diagrams/` or `.brewing/code-map.md` extracts found. Vibe will run blind — strongly recommend running `slowcook map generate --emit-schema --emit-tokens` first.)_";
+    return "_(No `.brewing/diagrams/`, `.brewing/code-map.md`, or `mock/` directory found. Vibe will run blind — strongly recommend running `slowcook map generate --emit-schema --emit-tokens` and `slowcook init mock` first.)_";
   }
 
   return sections.join("\n\n---\n\n");
+}
+
+/**
+ * 0.16.0-α.4 — list what's already in the consumer's mock app so vibe
+ * knows what to reuse vs add. Reads:
+ *  - mock/scenarios/*.ts → registered story ids
+ *  - mock/src/components/**\/*.tsx → existing components by relative path
+ *  - mock/src/lib/scenario-registry.ts → currently registered list
+ *
+ * Returns a markdown section, or null when no mock/ directory exists.
+ */
+function buildMockInventory(repoRoot: string): string | null {
+  const mockDir = join(repoRoot, "mock");
+  if (!existsSync(mockDir)) {
+    return "## Mock app status\n\n_No `mock/` directory found. The consumer hasn't run `slowcook init mock` yet. After that runs, vibe can extend the mock incrementally._";
+  }
+
+  const scenariosDir = join(repoRoot, "mock/scenarios");
+  const componentsDir = join(repoRoot, "mock/src/components");
+
+  const out: string[] = [];
+  out.push("## Mock app inventory");
+  out.push("");
+  out.push("Vibe extends THIS app. Reuse what exists; add only what's missing.");
+  out.push("");
+
+  // Scenarios
+  if (existsSync(scenariosDir)) {
+    try {
+      const files = require("node:fs").readdirSync(scenariosDir) as string[];
+      const scenarioFiles = files.filter((f) => /^story-[\w-]+\.ts$/.test(f));
+      if (scenarioFiles.length > 0) {
+        out.push("### Scenarios already registered\n");
+        for (const f of scenarioFiles.sort()) out.push(`- \`mock/scenarios/${f}\``);
+      } else {
+        out.push("### Scenarios already registered\n\n_(none yet — this would be the first)_");
+      }
+    } catch { /* skip */ }
+  }
+  out.push("");
+
+  // Components
+  if (existsSync(componentsDir)) {
+    try {
+      const files = walkComponents(componentsDir);
+      if (files.length > 0) {
+        out.push("### Components in `mock/src/components/`");
+        out.push("");
+        out.push("REUSE these by import path; only add a new file when none of these fit the spec's UI:");
+        out.push("");
+        for (const f of files.sort()) {
+          const rel = f.slice(repoRoot.length + 1);
+          out.push(`- \`${rel}\``);
+        }
+      } else {
+        out.push("### Components in `mock/src/components/`\n\n_(none yet — first vibe run typically adds the foundational primitives the story needs)_");
+      }
+    } catch { /* skip */ }
+  }
+
+  return out.join("\n");
+}
+
+function walkComponents(dir: string, acc: string[] = []): string[] {
+  const fs = require("node:fs") as typeof import("node:fs");
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return acc;
+  }
+  for (const name of entries) {
+    if (name.startsWith(".")) continue;
+    const full = `${dir}/${name}`;
+    let st;
+    try { st = fs.statSync(full); } catch { continue; }
+    if (st.isDirectory()) {
+      walkComponents(full, acc);
+    } else if (/\.tsx?$/.test(name)) {
+      acc.push(full);
+    }
+  }
+  return acc;
 }
 
 export async function vibe(argv: string[], cliVersion: string): Promise<void> {
@@ -218,13 +305,13 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   }
   const specYaml = readFileSync(specPath, "utf8");
 
-  // Eligibility gate: vibe only runs on UI stories (proposals.fixtures
-  // populated). Backend-only specs skip the plate track entirely; the
-  // existing brew handles them in legacy mode. Soft-fail (exit 0) so
-  // the calling workflow doesn't fail spuriously.
+  // 0.16.0-α.4 — Eligibility gate. Vibe runs when the spec has a UI
+  // surface (non-empty `ui_behavior` block). Backend-only specs skip
+  // the mock track entirely; brew handles them as today. Soft-fail
+  // (exit 0) so the calling workflow doesn't fail spuriously.
   if (!hasUiSurface(specYaml)) {
     console.log(
-      `slowcook vibe · story-${args.specId}: spec has no \`proposals.fixtures\` (or all seeds empty). This is a backend-only / non-UI story; skipping vibe.`
+      `slowcook vibe · story-${args.specId}: spec has no \`ui_behavior\` block. This is a backend-only / non-UI story; skipping vibe.`
     );
     return;
   }
@@ -332,36 +419,39 @@ function buildPrBody(
   const branch = `slowcook/mockup/story-${specId}`;
   const out: string[] = [];
   out.push(
-    `## Mockup for story-${specId}\n\nGenerated by \`slowcook vibe@${cliVersion}\` (spend $${spendUsd.toFixed(4)}).`
+    `## Mockup scenario for story-${specId}\n\nGenerated by \`slowcook vibe@${cliVersion}\` (spend $${spendUsd.toFixed(4)}).`
   );
   out.push(
-    `\nThis is a runnable mockup with mock data. The PM reviews + comments \`/plate <prose>\` on this PR to iterate. Brew (\`--mode plate\`, after recipe writes tests against this branch's DOM) replaces \`src/lib/data/<domain>.ts\` stubs with real fetches and adds API handlers + migrations — UI files frozen.\n`
+    `\nThis PR extends the mock app at \`mock/\` with a new scenario for story-${specId}. The mock is the **design contract** — vibe writes scenarios + (rarely) new components into it; brew copies its components into \`src/\` and wires real data after this PR + the recipe-tests PR both merge.`
   );
-  out.push(`\n## Review the mockup locally\n`);
+  out.push(`\n## Review the mockup`);
   out.push(
-    `\`\`\`bash\n` +
+    `\nOnce \`slowcook preview deploy\` runs (0.16-α.5), the comment thread on this PR will get a live preview URL on the consumer's box. Until then, run locally:`
+  );
+  out.push(
+    `\n\`\`\`bash\n` +
       `git fetch origin ${branch}\n` +
       `git checkout ${branch}\n` +
-      `npm install   # or pnpm install\n` +
-      `npm run dev   # http://localhost:3000\n` +
+      `cd mock && npm install\n` +
+      `npm run dev   # http://localhost:3100\n` +
       `\`\`\``
   );
   out.push(
-    `\nThe data layer is mock-only — no Supabase, no real API. Click through to test interactions; the buttons mutate local React state. Comment \`/plate <prose>\` here when you want changes; plate amends the mockup with minimum diff.`
+    `\nOpen the scenario picker at the homepage, or deep-link directly: \`http://localhost:3100/?scenario=${specId}\`. Click through real interactions; the buttons mutate local React state — no real API calls. Comment \`/plate <prose>\` here when you want changes; plate amends the scenario or component(s) with minimum diff.`
   );
   out.push(`\n## Files emitted (${writtenPaths.length})\n`);
   for (const p of writtenPaths) out.push(`- \`${p}\``);
   if (changeRequests.length > 0) {
     out.push(`\n## Component-change requests (${changeRequests.length})\n`);
     out.push(
-      `Vibe identified existing components that would benefit from a structural change (new prop, etc.) but did NOT modify them. PM reviews + plate applies on iteration.\n`
+      `Vibe identified existing mock components that would benefit from a structural change (new prop, etc.) but did NOT modify them. PM reviews + plate applies on iteration.\n`
     );
     for (const cr of changeRequests) {
       out.push(`### \`${cr.component}\` — \`${cr.path}\`\n\n${cr.rationale}\n`);
     }
   }
   out.push(
-    `\n---\nMerge this PR after PM approval to fire \`recipe\` (writes tests against this branch's DOM) → \`brew --mode plate\` (real data layer + API + migrations).`
+    `\n---\nMerge this PR after PM approval. \`recipe\` (in parallel) writes tier-1 tests blind to the mock against the spec; \`slowcook port\` then deterministically copies new mock components into \`src/\`; \`brew --mode plate\` wires real data + API handlers + migrations to make tests green without touching UI.`
   );
   return out.join("\n");
 }

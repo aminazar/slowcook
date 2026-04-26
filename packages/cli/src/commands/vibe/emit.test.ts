@@ -90,9 +90,21 @@ Needs an unreadBadge prop.
 describe("validateAndResolveVibePath", () => {
   const root = "/tmp/repo";
 
-  it("accepts a normal nested path", () => {
-    const p = validateAndResolveVibePath(root, "src/components/Foo.tsx");
-    expect(p).toBe("/tmp/repo/src/components/Foo.tsx");
+  it("accepts a normal mock/ path", () => {
+    const p = validateAndResolveVibePath(root, "mock/src/components/Foo.tsx");
+    expect(p).toBe("/tmp/repo/mock/src/components/Foo.tsx");
+  });
+
+  it("0.16.0-α.4: rejects writes outside mock/", () => {
+    expect(() =>
+      validateAndResolveVibePath(root, "src/components/Foo.tsx")
+    ).toThrow(/refusing write outside mock\//);
+    expect(() =>
+      validateAndResolveVibePath(root, "specs/story-N.yaml")
+    ).toThrow(/refusing write outside mock\//);
+    expect(() =>
+      validateAndResolveVibePath(root, "tests/integration/foo.test.ts")
+    ).toThrow(/refusing write outside mock\//);
   });
 
   it("rejects absolute paths", () => {
@@ -109,35 +121,33 @@ describe("validateAndResolveVibePath", () => {
 
   it("rejects paths that normalize to escape", () => {
     expect(() =>
-      validateAndResolveVibePath(root, "src/../../escape")
-    ).toThrow(/parent-dir|escaped/);
+      validateAndResolveVibePath(root, "mock/../../escape")
+    ).toThrow(/parent-dir|escaped|outside mock/);
   });
 });
 
 describe("writeVibeFiles", () => {
-  it("writes each file at its specified path under repoRoot, creating dirs", () => {
+  it("writes each file at its specified mock/ path under repoRoot, creating dirs", () => {
     const repo = mkRepo();
     try {
       const written = writeVibeFiles(repo, [
         {
-          path: "src/app/(main)/notifications/page.tsx",
-          contents: "export default function P() { return null; }\n",
+          path: "mock/scenarios/story-017.ts",
+          contents: "export default { id: '017' };\n",
         },
         {
-          path: "src/lib/data/notifications.mock.ts",
-          contents: "export const list = [];\n",
+          path: "mock/src/lib/scenario-registry.ts",
+          contents: "export const registry = [];\n",
         },
       ]);
       expect(written.sort()).toEqual([
-        "src/app/(main)/notifications/page.tsx",
-        "src/lib/data/notifications.mock.ts",
+        "mock/scenarios/story-017.ts",
+        "mock/src/lib/scenario-registry.ts",
       ]);
+      expect(existsSync(join(repo, "mock/scenarios/story-017.ts"))).toBe(true);
       expect(
-        existsSync(join(repo, "src/app/(main)/notifications/page.tsx"))
-      ).toBe(true);
-      expect(
-        readFileSync(join(repo, "src/lib/data/notifications.mock.ts"), "utf8")
-      ).toContain("export const list");
+        readFileSync(join(repo, "mock/src/lib/scenario-registry.ts"), "utf8")
+      ).toContain("export const registry");
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
@@ -148,10 +158,24 @@ describe("writeVibeFiles", () => {
     try {
       expect(() =>
         writeVibeFiles(repo, [
-          { path: "src/safe.ts", contents: "" },
+          { path: "mock/safe.ts", contents: "" },
           { path: "../escape.ts", contents: "" },
         ])
       ).toThrow(/refusing parent-dir escape/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("0.16.0-α.4: rejects any non-mock/ path before any write", () => {
+    const repo = mkRepo();
+    try {
+      expect(() =>
+        writeVibeFiles(repo, [
+          { path: "mock/safe.ts", contents: "" },
+          { path: "src/components/leaked.tsx", contents: "" },
+        ])
+      ).toThrow(/refusing write outside mock\//);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

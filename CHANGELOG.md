@@ -6,6 +6,45 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.4 + @slowcook-ai/llm-anthropic@0.12.0 — vibe v2 + recipe-blind-to-mock
+
+Cut 2026-04-26.
+
+First agent rewrite for the 0.16 mock-app architecture. Vibe now writes into `mock/` (extending the consumer's singular mock app); recipe (testgen) is explicitly told it is BLIND to the mock — author behavior assertions, never import scenario files.
+
+### What's new
+
+- **`vibe` v2** — emits scenarios + extends the mock-side scenario registry:
+  - New `VIBE_SYSTEM` (in `@slowcook-ai/llm-anthropic@0.12.0`) targets `mock/scenarios/story-N.ts` + extends `mock/src/lib/scenario-registry.ts`. Hard rules: REUSE existing mock components by import path, REUSE existing tokens by name, click handlers must mutate local React state (no `fetch`), no test-writes, no production-src writes.
+  - Eligibility gate switched from the old `proposals.fixtures.by_domain` heuristic to a structural sniff for a non-empty top-level `ui_behavior:` block in the spec. Backend-only specs skip vibe with exit 0.
+  - Project-context blob now includes a "Mock app inventory" section listing scenarios already registered + components already in `mock/src/components/` (recursive walk). The single most important steering signal: vibe sees what's there and reuses instead of duplicating.
+  - PR body rewritten for the new architecture — points at the local-dev preview URL (`http://localhost:3100/?scenario=N`) until α.5 brings SSH preview deploy.
+- **`emit.validateAndResolveVibePath`** — structural guard rejects any write whose path doesn't start with `mock/`. Slowcook's emit logic now refuses to leak vibe output into `src/` even if the agent's prompt steering fails. Defense-in-depth alongside the prompt-level rule.
+- **`recipe` (testgen)** — new "0.16.0-α.4 — recipe is BLIND to the mock app" addendum in `TESTGEN_SYSTEM`: never import from `mock/`, `@/scenarios/`, or `scenario-registry`; write behavior assertions against the production component path; author from spec's `ui_behavior` block alone (don't peek at vibe's emitted JSX); fixtures are local to the test, not imports of mock scenarios. Recipe runs in parallel with vibe from spec-merge — the parallelism only works if recipe stays blind.
+
+### Why blind?
+
+If recipe over-fits to vibe's exact JSX tree (e.g., asserts on the same prop names vibe invented), brew has no degrees of freedom to reconcile mock vs production. Behavior assertions ("clicking Pin toggles the button text") survive the deterministic `slowcook port` step in α.8 and the brew reconciliation in α.9.
+
+### Tests
+
+- 8 new tests for the `ui_behavior`-based `hasUiSurface` (block-style, inline-mapping, single viewport, absent, empty, blank-only, prose mention, real story-017-shaped spec).
+- New regression test `0.16.0-α.4: rejects writes outside mock/` in `emit.test.ts`.
+- 440 cli tests pass total.
+
+### Publish state
+
+```
+core@0.13.0                   ✅ published
+mock-runtime@0.1.0            ✅ published
+llm-anthropic@0.12.0          🟡 in-repo (changes in vibe.ts + testgen.ts)
+cli@0.16.0-alpha.4            🟡 in-repo
+```
+
+Next: α.5 — SSH preview deploy CI (`slowcook preview deploy/teardown`, workflow templates, `docs/operating-guide.md`).
+
+---
+
 ## 0.16.0-alpha.3 — BUG-F fix: schema synth no longer treats `_id` columns as tables
 
 Cut 2026-04-27.

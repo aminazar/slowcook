@@ -69,6 +69,12 @@ export function parseVibeOutput(body: string): VibeOutput {
  * Rejects absolute paths, parent-dir escapes, and paths that normalize
  * outside the repo.
  *
+ * 0.16.0-α.4 — also requires the path start with `mock/`. Vibe writes
+ * ONLY into the mock app (per the singular-mock-app architecture); any
+ * write to `src/` or elsewhere is a sign the prompt steering failed.
+ * The hard signal here is structural — the agent can't accidentally
+ * leak into production source.
+ *
  * Returns the absolute target path on success; throws on rejection.
  */
 export function validateAndResolveVibePath(
@@ -84,6 +90,14 @@ export function validateAndResolveVibePath(
   if (normalized.startsWith("..") || normalized === "..") {
     throw new Error(
       `Vibe path safety: refusing parent-dir escape: ${JSON.stringify(relPath)}`
+    );
+  }
+  // 0.16.0-α.4 — vibe writes only into mock/ (the singular mock app).
+  // The mock + production filesystems are kept separate; any leak into
+  // src/ or root would break the architecture's structural guarantees.
+  if (!normalized.startsWith("mock/") && normalized !== "mock") {
+    throw new Error(
+      `Vibe path safety: refusing write outside mock/: ${JSON.stringify(relPath)}. Vibe writes ONLY into the mock app; production src/ is brew's territory.`
     );
   }
   // Defense in depth: after join, ensure result starts with repoRoot.

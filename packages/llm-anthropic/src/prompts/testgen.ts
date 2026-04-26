@@ -278,6 +278,17 @@ import { ProfileEditForm } from "@/components/profile/ProfileEditForm";
 
 Vitest 4 removed \`environmentMatchGlobs\` — the per-file pragma is the only supported jsdom opt-in. Without it, \`render()\` throws "document is not defined."
 
+### 0.16.0-α.4 — recipe is BLIND to the mock app
+
+The mock app under \`mock/\` is vibe's territory; recipe must NOT import from it or reference it in test code. Specifically:
+
+- **NEVER import from \`mock/\`, \`@/scenarios/\`, or any \`scenario-registry\` path.** Tests run against the production import path (\`@/components/<feature>/<Component>\`); the component will be ported over from the mock by \`slowcook port\` before brew runs. Whether the implementation lives in mock/ at test-author time is irrelevant — your assertion targets the production location.
+- **Write BEHAVIOR assertions**, not structural-component-tree assertions. Query the rendered DOM for the spec's promised UI behavior: "the Pin button toggles state on click", "the empty-state copy is visible when items.length === 0". You're contracting WHAT the user sees and does, not WHICH component file emits it.
+- **Author from the spec's \`ui_behavior\` block alone** — don't peek at vibe's emitted JSX. The point of recipe being blind is that brew has a real reconciliation problem to solve; if recipe over-fits to vibe's exact tree, brew has no degrees of freedom to fix divergence.
+- **Fixtures are local to the test.** Hand-write the minimal prop / fixture shape the test needs from the spec's \`api_contract\` response shape; do NOT \`import scenario from "mock/scenarios/story-N"\`. Mock scenarios are for the human PM previewing the UI, not for the test runner.
+
+If you find yourself wanting to reach into mock/, stop — write the assertion against the public component contract instead.
+
 ### Assertion style
 
 - **Query by role/label/text**, not by class name: \`getByRole("alert")\`, \`getByLabelText(/handle/i)\`, \`getByText(...)\`. Tests survive class renames that way.

@@ -1,99 +1,52 @@
 import { describe, it, expect } from "vitest";
 
 /**
- * Re-import the local helper for unit testing. Not exported from index.ts
- * so we re-declare a copy here that mirrors the implementation. This is
- * intentional — keeps index.ts's API surface narrow (only `vibe` is
- * exported) while still letting us cover the gating logic.
+ * 0.16.0-α.4 — eligibility gate now keys on `ui_behavior` block.
+ * Re-implements the helper here so we can unit-test without exporting
+ * it from index.ts (keeps the public surface narrow — only `vibe` is
+ * exported).
  */
 function hasUiSurface(specYaml: string): boolean {
-  const proposalsIdx = specYaml.search(/^proposals\s*:\s*$/m);
-  if (proposalsIdx < 0) return false;
-  const tail = specYaml.slice(proposalsIdx);
-  const fixturesMatch = tail.match(/^(\s+)fixtures\s*:\s*$/m);
-  if (!fixturesMatch) return false;
-  const fixturesBlockStart = tail.indexOf(fixturesMatch[0]) + fixturesMatch[0].length;
-  const byDomainMatch = tail.slice(fixturesBlockStart).match(/^(\s+)by_domain\s*:\s*$/m);
-  if (!byDomainMatch) return false;
-  const byDomainIndentLen = byDomainMatch[1]!.length;
-  const after = tail.slice(
-    fixturesBlockStart + tail.slice(fixturesBlockStart).indexOf(byDomainMatch[0]) + byDomainMatch[0].length
-  );
-  const entryRe = new RegExp(
-    `^( {${byDomainIndentLen + 1},}|\\t+)([a-z][a-z0-9_-]*)\\s*:\\s*$`,
-    "m"
-  );
-  return entryRe.test(after);
+  const uiIdx = specYaml.search(/^ui_behavior\s*:\s*$/m);
+  if (uiIdx < 0) {
+    if (/^ui_behavior\s*:\s*\{[\s\S]*?[a-z]/m.test(specYaml)) return true;
+    return false;
+  }
+  const tail = specYaml.slice(uiIdx).split("\n").slice(1);
+  for (const line of tail) {
+    if (line.trim() === "") continue;
+    if (/^[a-z_]/.test(line)) break;
+    if (/^\s+[a-z_][a-z0-9_]*\s*:/.test(line)) return true;
+  }
+  return false;
 }
 
 describe("vibe — eligibility gate (hasUiSurface)", () => {
-  it("returns true for a spec with proposals.fixtures.by_domain populated", () => {
+  it("returns true for a spec with non-empty ui_behavior block (block-style)", () => {
     const spec = `story_id: "017"
-proposals:
-  schema:
-    status: pending
-  fixtures:
-    status: pending
-    by_domain:
-      pins:
-        seed:
-          list: []
+ui_behavior:
+  desktop_light: "On /u/:handle, render a strip above the reactions list."
+  mobile_light: "1.2-card peek on mobile."
+acceptance_scenarios:
+  - "When..."
 `;
     expect(hasUiSurface(spec)).toBe(true);
   });
 
-  it("returns true even when seed is empty (synth shell still implies UI)", () => {
-    const spec = `proposals:
-  fixtures:
-    status: pending
-    by_domain:
-      notifications:
-        seed:
-          list: []
+  it("returns true for an inline-mapping ui_behavior", () => {
+    const spec = `ui_behavior: { desktop: "render here", mobile: "peek" }
 `;
     expect(hasUiSurface(spec)).toBe(true);
   });
 
-  it("returns true for multiple domains", () => {
-    const spec = `proposals:
-  fixtures:
-    by_domain:
-      pins:
-        seed: { list: [] }
-      bookmarks:
-        seed: { list: [] }
+  it("returns true with only one viewport entry", () => {
+    const spec = `ui_behavior:
+  desktop_light: "render"
 `;
     expect(hasUiSurface(spec)).toBe(true);
   });
 
-  it("returns false when proposals block has no fixtures key", () => {
-    const spec = `proposals:
-  schema:
-    status: pending
-  routes:
-    paths: []
-`;
-    expect(hasUiSurface(spec)).toBe(false);
-  });
-
-  it("returns false when fixtures.by_domain is empty (no domains)", () => {
-    const spec = `proposals:
-  fixtures:
-    status: pending
-    by_domain: {}
-`;
-    expect(hasUiSurface(spec)).toBe(false);
-  });
-
-  it("returns false when fixtures has no by_domain key at all", () => {
-    const spec = `proposals:
-  fixtures:
-    status: rejected
-`;
-    expect(hasUiSurface(spec)).toBe(false);
-  });
-
-  it("returns false for a backend-only spec (no proposals block)", () => {
+  it("returns false when ui_behavior block is absent", () => {
     const spec = `story_id: "099"
 title: backend cron
 invariants:
@@ -102,12 +55,44 @@ invariants:
     expect(hasUiSurface(spec)).toBe(false);
   });
 
-  it("returns false for a spec where proposals appears in prose only (not at indentation 0)", () => {
-    const spec = `invariants:
-  - "the proposals section is unimportant here"
+  it("returns false when ui_behavior block is present but empty (next top-level key follows immediately)", () => {
+    const spec = `ui_behavior:
 acceptance_scenarios:
-  - "When checking proposals: ..."
+  - "..."
 `;
     expect(hasUiSurface(spec)).toBe(false);
+  });
+
+  it("returns false when ui_behavior block has only blank lines", () => {
+    const spec = `ui_behavior:
+
+
+acceptance_scenarios:
+  - "..."
+`;
+    expect(hasUiSurface(spec)).toBe(false);
+  });
+
+  it("returns false when 'ui_behavior' appears only in prose (acceptance_scenarios)", () => {
+    const spec = `invariants:
+  - "the ui_behavior section is unimportant here"
+acceptance_scenarios:
+  - "When checking ui_behavior: ..."
+`;
+    expect(hasUiSurface(spec)).toBe(false);
+  });
+
+  it("returns true for a real story-017-shaped spec", () => {
+    const spec = `story_id: "017"
+title: Pinned rewos strip
+status: active
+ui_behavior:
+  desktop_light: "render strip with 3 cards visible"
+  mobile_light: "1.2-card peek; cards stack inside"
+  mobile_dark: "dark variant of tints"
+acceptance_scenarios:
+  - "..."
+`;
+    expect(hasUiSurface(spec)).toBe(true);
   });
 });
