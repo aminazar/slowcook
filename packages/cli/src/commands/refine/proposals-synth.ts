@@ -169,11 +169,20 @@ function deriveUiLayout(spec: Spec): SpecProposals["ui_layout"] | null {
   // Also match backtick-wrapped PascalCase names — e.g. "renders each row
   // via `RewoCard`". These are weaker signal but useful for the consumer
   // when the spec doesn't include a path.
+  //
+  // POLISH-2 (α.5): require a recognized component-name suffix to filter
+  // out button-label strings like `Pin`, `Pinned`, `Unpin` that appeared
+  // in story-015. Real React components in rewo follow conventions:
+  // Card/Page/Form/List/Item/Picker/Toggle/Menu/Logo/Detail/Button/Layout/
+  // Provider/Container/Wrapper/Row/Column/Avatar/Badge/Modal/Dialog/Tooltip.
+  const COMPONENT_SUFFIX_RE = /(?:Card|Page|Form|List|Item|Picker|Toggle|Menu|Logo|Detail|Button|Layout|Provider|Container|Wrapper|Row|Column|Avatar|Badge|Modal|Dialog|Tooltip|Header|Footer|Sidebar|Nav|NavLink|Strip|Preview|View|Section|Grid|Cell|Field|Input|Select|Switch|Tab|Tabs|Pill|Chip|Tag|Bar|Drawer|Sheet|Panel|Slide|Slider|Toast|Spinner|Loader|Empty|Placeholder)$/;
   const componentNames = new Set<string>();
   for (const m of prose.matchAll(/`([A-Z][A-Za-z0-9]+)`/g)) {
     const name = m[1]!;
     // Crude filter: skip tags that look like SQL constants (UUID, JSON)
     if (/^(UUID|JSON|HTML|CSS|SQL|API|URL|HTTP|RLS|FK)$/.test(name)) continue;
+    // Require a recognized component-name suffix.
+    if (!COMPONENT_SUFFIX_RE.test(name)) continue;
     componentNames.add(name);
   }
 
@@ -192,8 +201,14 @@ function deriveUiLayout(spec: Spec): SpecProposals["ui_layout"] | null {
       tokensToReuse.push(t);
       continue;
     }
-    const stem = t.replace(/^(?:bg|text|border|divide|ring|fill|stroke)-/, "");
+    const stem = t.replace(/^(?:bg|text|border|divide|ring|fill|stroke|fill|font)-/, "");
     const stemNoOpacity = stem.replace(/\/\d+$/, "");
+    // Skip Tailwind built-in utilities — they're not project tokens, not
+    // tokens to add. Includes typography (text-{xs,sm,base,lg,xl,...}),
+    // weight (font-{thin,normal,medium,bold,...}), border-{dashed,dotted,solid,
+    // none,2,4,8}, ring sizes, opacity etc. Pre-α.4 polish: these polluted
+    // tokens_to_add for story-015 (text-sm, text-xs, border-dashed).
+    if (isTailwindBuiltin(t)) continue;
     if (catalog.has(t) || catalog.has(stem) || catalog.has(stemNoOpacity)) {
       tokensToReuse.push(t);
     } else if (catalog.has("--" + stemNoOpacity) || catalog.has("--color-" + stemNoOpacity)) {
@@ -224,6 +239,27 @@ function deriveUiLayout(spec: Spec): SpecProposals["ui_layout"] | null {
     tokens_to_reuse: tokensToReuse.length > 0 ? tokensToReuse : undefined,
     tokens_to_add: tokensToAdd.length > 0 ? tokensToAdd : undefined,
   };
+}
+
+/**
+ * Recognize standard Tailwind utility classes that aren't project-defined
+ * design tokens — text sizes, font weights, border styles, etc. These
+ * shouldn't appear in either tokens_to_reuse OR tokens_to_add (the former
+ * is for project-token reuse, the latter for invented project tokens).
+ * Standard utility classes are just framework primitives.
+ */
+function isTailwindBuiltin(token: string): boolean {
+  // Strip the property prefix.
+  const stem = token.replace(/^(?:bg|text|border|divide|ring|fill|stroke|font)-/, "");
+  const stemNoOpacity = stem.replace(/\/\d+$/, "");
+  return (
+    /^(?:xs|sm|base|md|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/.test(stemNoOpacity) ||
+    /^(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/.test(stemNoOpacity) ||
+    /^(?:dashed|dotted|solid|double|none|hidden)$/.test(stemNoOpacity) ||
+    /^(?:0|1|2|4|8|px)$/.test(stemNoOpacity) ||
+    /^(?:left|center|right|justify|start|end)$/.test(stemNoOpacity) ||
+    /^(?:auto|inherit|current|transparent|initial)$/.test(stemNoOpacity)
+  );
 }
 
 function readExistingTokens(): Set<string> {

@@ -6,6 +6,18 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.14.0-alpha.5 — Two ui_layout-synth polish items
+
+Cut 2026-04-26.
+
+- **POLISH-1**: ui_layout synth no longer puts standard Tailwind utility classes in `tokens_to_add`. Filters `text-{xs,sm,base,lg,…}`, `font-{thin,…,bold}`, `border-{dashed,dotted,solid,none,2,4,8}`, alignment, opacity, etc. They're framework primitives, not project tokens.
+- **POLISH-2**: ui_layout synth filters PascalCase component candidates by recognized suffix (Card/Page/Form/List/Item/Picker/…) — prevents button-label strings (`Pin`, `Pinned`, `Unpin`) from polluting `components_to_reuse`. Was caught on story-015 re-validation.
+- 2 new tests (391 cli total).
+
+α.5 leaves the data-layer seam track ready. Next slice is α.6 (the actual mockup generation: `src/**/page.tsx` + components) which is the first user mockup-feedback checkpoint.
+
+---
+
 ## 0.14.0-alpha.4 — α.3 follow-up bugs (route / schema synth false positives + ESM require)
 
 Cut 2026-04-26.

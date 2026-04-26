@@ -234,6 +234,48 @@ describe("synthesizeProposalsFromSpec", () => {
     ).toBe(true);
   });
 
+  it("ui_layout synth: filters PascalCase candidates by recognized component suffix (POLISH-2)", () => {
+    // Regression: pre-α.5 polish, story-015 had `Pin`, `Pinned`, `Unpin`
+    // (button-label strings) in components_to_reuse because they're
+    // backticked PascalCase. Real components (RewoCard, ProfilePage, etc.)
+    // have recognized suffixes; button labels don't.
+    const spec: Spec = {
+      ...base,
+      ui_behavior: {
+        desktop_light:
+          "On click `Pin`, the row toggles to `Pinned`. " +
+          "Each row uses `RewoCard` and the empty state shows a `EmptyPlaceholder`. " +
+          "Footer label is `Unpin`.",
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const components = out.ui_layout?.components_to_reuse ?? [];
+    expect(components.some((c) => c.includes("RewoCard"))).toBe(true);
+    expect(components.some((c) => c.includes("EmptyPlaceholder"))).toBe(true);
+    expect(components.every((c) => !c.includes("`Pin`"))).toBe(true);
+    expect(components.every((c) => !c.includes("`Pinned`"))).toBe(true);
+    expect(components.every((c) => !c.includes("`Unpin`"))).toBe(true);
+  });
+
+  it("ui_layout synth: skips Tailwind built-in utility classes (POLISH-1)", () => {
+    // Regression: pre-α.4 polish, story-015 had `text-sm`, `text-xs`,
+    // `border-dashed` in tokens_to_add even though they're standard
+    // Tailwind utilities, not project tokens.
+    const spec: Spec = {
+      ...base,
+      ui_behavior: {
+        desktop_light:
+          "Card uses `bg-card-bg` with `text-foreground` and footer `text-sm` `text-foreground/60`. " +
+          "Empty state has `border-dashed` border.",
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    const adds = out.ui_layout?.tokens_to_add ?? [];
+    expect(adds).not.toContain("text-sm");
+    expect(adds).not.toContain("text-xs");
+    expect(adds).not.toContain("border-dashed");
+  });
+
   it("ui_layout synth: skips when ui_behavior is empty (no UI surface)", () => {
     const spec: Spec = { ...base }; // no ui_behavior
     const out = synthesizeProposalsFromSpec(spec);
