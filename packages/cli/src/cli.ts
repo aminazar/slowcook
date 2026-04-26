@@ -18,6 +18,7 @@ import { catchup } from "./commands/catchup/index.js";
 import { brew } from "./commands/brew/index.js";
 import { map } from "./commands/map/index.js";
 import { extract } from "./commands/extract/index.js";
+import { vibe } from "./commands/vibe/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 
@@ -54,6 +55,7 @@ Usage:
   slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
   slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
   slowcook extract [--schema] [--tokens] [--cwd <path>]
+  slowcook vibe --spec <id> [--cwd <path>] [--owner <login>] [--repo <name>] [--dry-run]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook version
@@ -75,6 +77,7 @@ Commands available in ${VERSION}:
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
   extract            Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.
+  vibe               (0.15-α.1) Design-first mockup generator. Reads spec + brownfield + code-map; emits runnable React mockup to slowcook/mockup/story-N PR.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
 Coming in later versions:
@@ -158,6 +161,12 @@ async function main(): Promise<void> {
       // for refine / investigate workflows that want project-awareness
       // context without paying for `map generate`'s full ts-morph scan.
       await extract(args.slice(1), VERSION);
+      return;
+    case "vibe":
+      // 0.15.0-α.1 — design-first mockup generator (plate-pipeline α.1).
+      // Reads spec + brownfield extracts + code-map; emits a runnable
+      // React mockup to slowcook/mockup/story-N branch + PR.
+      await vibe(args.slice(1), VERSION);
       return;
     case "dispatch":
       await dispatch(args.slice(1));

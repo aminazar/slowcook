@@ -36,3 +36,12 @@ export {
   REFINEMENT_ANALYST_SYSTEM,
   AMENDMENT_SYSTEM,
 } from "./prompts/refine.js";
+// 0.10.0 — vibe agent (0.15 plate-pipeline α.1) — design-first mockup
+// generator. Reads spec + brownfield extracts + code-map; emits a
+// runnable React mockup with mock data + brew-target stubs.
+export {
+  VIBE_SYSTEM,
+  VIBE_TOOLS,
+  buildVibeUserPrompt,
+  type VibeUserPromptArgs,
+} from "./prompts/vibe.js";

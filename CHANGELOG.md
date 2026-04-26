@@ -6,6 +6,36 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.15.0-alpha.1 — `vibe` agent: design-first mockup generator (plate-pipeline α.1)
+
+Cut 2026-04-26.
+
+First slice of the 0.15 plate-brew architecture (see [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md)). Pairs with `@slowcook-ai/llm-anthropic@0.10.0`.
+
+### What's new
+
+- **New CLI command** `slowcook vibe --spec <id>` — reads `specs/story-<id>.yaml` + brownfield extracts (`.brewing/diagrams/{schema.mmd,tokens.md}`) + code-map summary; calls Claude with a single-shot mockup-generation prompt; parses XML-tagged file blocks; writes mockup files to `slowcook/mockup/story-<id>` branch + opens a draft PR labeled `slowcook-mockup`. `--dry-run` skips git/PR ops for offline validation.
+- **New module** `packages/cli/src/commands/vibe/{index,agent,emit,prompts}.ts` + tests.
+- **New prompt** `VIBE_SYSTEM` in `@slowcook-ai/llm-anthropic@0.10.0`. Emphasizes: REUSE existing components by import path; REUSE existing tokens by name; click handlers must work locally; no real API calls; no tests.
+- **New emit format** — multi-artifact XML blocks: `<file path="...">contents</file>` plus optional `<component_change_request component="..." path="...">prose</component_change_request>` for surfacing structural-change asks plate handles separately.
+- **Path safety** in `validateAndResolveVibePath` — rejects absolute paths, parent-dir escapes, and paths that normalize outside `repoRoot`.
+- **Format-compliance retry** — single nudge if the agent's first round emits no `<file>` blocks (mirrors investigate's α.2c pattern).
+
+### What's NOT in α.1
+
+- `slowcook-vibe.yml` workflow template (α.2)
+- `plate` amendment loop (α.3)
+- `brew --mode plate` constraint enforcement (α.4)
+- Auto-detection trigger chain (α.5)
+
+α.1 is locally validatable via `--dry-run`; full workflow integration ships α.2.
+
+### Test count
+
+412 cli tests pass (15 new for vibe — emit-parsing edge cases, path safety, file writing).
+
+---
+
 ## 0.14.0-alpha.6 — Spec-emit validator catches LLM truncation (BUG-E)
 
 Cut 2026-04-26.
