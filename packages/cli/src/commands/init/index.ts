@@ -137,6 +137,14 @@ function applyAction(cwd: string, a: FileAction): void {
 }
 
 export async function init(argv: string[], cliVersion: string): Promise<void> {
+  // 0.16.0-α.1 — `slowcook init mock` subcommand. Scaffolds the
+  // consumer-side shell of the mock app (per docs/plans/0.16-mock-app.md);
+  // imports its runtime from @slowcook-ai/mock-runtime.
+  if (argv[0] === "mock") {
+    const { initMock } = await import("./mock.js");
+    return initMock(argv.slice(1), cliVersion);
+  }
+
   const args = parseArgs(argv);
   const reader = makeReader(args.cwd);
 

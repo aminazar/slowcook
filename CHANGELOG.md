@@ -6,6 +6,60 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.1 + @slowcook-ai/mock-runtime@0.1.0 — singular mock app foundation
+
+Cut 2026-04-27.
+
+Architectural reset after the 0.15 data-layer-seam approach was rejected (PR #145 closed). New shape: **a per-consumer singular mock app at `mock/`, evolving incrementally**, totally separate from `src/`. Vibe + plate write into `mock/`; brew copies to `src/` and wires real data. Full architecture in [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) (drafting next).
+
+### What's new
+
+- **NEW package `@slowcook-ai/mock-runtime@0.1.0`** — runtime for the per-consumer mock app:
+  - `Scenario`, `MockUser`, `ScenarioRegistry` types
+  - `defineScenarios([...])` builder (validates id-uniqueness)
+  - `resolveScenario(registry, queryParam)` resolver (env / default fallback)
+  - `<ScenarioRegistryProvider registry>` React context
+  - `useScenario()` + `useScenarioFixture<T>(domain)` hooks
+  - `<ScenarioPicker />` default homepage component
+  - 9 unit tests covering the non-React surface
+
+- **NEW CLI subcommand `slowcook init mock`** in `cli@0.16.0-alpha.1`:
+  - Scaffolds the consumer's `mock/` directory (~12 files): `package.json` (depends on `@slowcook-ai/mock-runtime`), `Dockerfile`, `tsconfig.json`, `next.config.js` (with turbopack-root fix baked in), `postcss.config.mjs`, `layout.tsx`, `page.tsx`, `globals.css` (copied from `src/app/globals.css` if present, else minimal Tailwind directives), `scenario-registry.ts`, `.gitignore`, `README.md`
+  - Refuses to overwrite existing files unless `--force`
+  - `--dry-run` lists planned actions
+  - 10 unit tests covering arg parsing, file plan, dry-run, write, force, skip-existing
+
+### Key architectural rules now structurally enforced
+
+1. **Mock + production are separate filesystems.** Mock has its own `package.json`, own `Dockerfile`, own `next.config.js`. Brew never touches `mock/`; vibe/plate never touch `src/`.
+2. **Mock is UI-only — NO backend.** No Supabase shape, no API. Scenarios are plain TS modules; React hooks read them; mutations are local component state.
+3. **Mock is singular and grows incrementally.** No per-story shadow copies. Stories add scenario files; rarely add components.
+4. **Slowcook owns the runtime; consumer owns the shell.** Runtime updates ship via `npm bump @slowcook-ai/mock-runtime`. Consumer-side files (layout, page, globals.css, scenario-registry.ts) are owned + customizable.
+5. **Slowcook is stateless re: hosting.** Each consumer provides their own SSH-reachable box (Docker + reverse proxy). 0.16-α.4 ships the SSH preview-deploy CI tooling.
+
+### What's NOT in α.1 (per the 9-alpha plan)
+
+- α.2: `Scenario` types in `@slowcook-ai/core` (today they live only in `mock-runtime`)
+- α.3: vibe rewritten to write `mock/scenarios/story-N.ts` + extend `scenario-registry.ts`
+- α.4: SSH preview-deploy CI; consumer provides box
+- α.5: `@slowcook-ai/review-overlay` package (per the 0.13.1 plan)
+- α.6: plate v2 — element-anchored comments + spec-vs-mock classifier
+- α.7: `slowcook port` deterministic copy step (mock → src)
+- α.8: brew --mode plate v2 — real-data wiring on top of ported UI
+- α.9: orchestration (mockup-merged → recipe runs in parallel; brew waits)
+
+### Test count
+
+435 cli tests pass (10 new for `init mock`); 9 mock-runtime tests pass.
+
+### What 0.15 leaves behind
+
+- The data-layer-seam pattern (`<domain>.{mock.ts, ts}` in `src/lib/data/`) — superseded; 0.16 separates mock + production filesystems entirely
+- `slowcook vibe`, `slowcook plate`, `brew --mode plate` from 0.15 — the agents work mechanically but emit to the wrong filesystem (`src/` instead of `mock/`). Will be rewritten in 0.16-α.3 / α.6 / α.8 to target the correct paths
+- The 0.13.1 review-overlay plan resurfaces in 0.16-α.5 unchanged in spirit, paired with a "spec-vs-mock classifier" extension on plate
+
+---
+
 ## 0.15.0-alpha.4 + llm-anthropic 0.11.1 — `brew --mode plate` + MOCKUP_DESIGN_CONFLICT halt
 
 Cut 2026-04-26.

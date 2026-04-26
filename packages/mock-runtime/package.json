@@ -1,0 +1,61 @@
+{
+  "name": "@slowcook-ai/mock-runtime",
+  "version": "0.1.0",
+  "description": "Runtime for slowcook's per-consumer UI mock app — Scenario types, registry, React hooks, ScenarioPicker UI. Imported by the mock/ scaffolding `slowcook init mock` writes. The mock is the design contract: vibe + plate evolve it; brew copies its components into production with real-data wiring.",
+  "license": "MIT",
+  "author": "aminazar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aminazar/slowcook.git",
+    "directory": "packages/mock-runtime"
+  },
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/mock-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/aminazar/slowcook/issues"
+  },
+  "keywords": [
+    "slowcook",
+    "mock",
+    "ui",
+    "scenarios",
+    "design-contract",
+    "react",
+    "next"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
+  },
+  "peerDependencies": {
+    "next": ">=15",
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "devDependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@types/react": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
