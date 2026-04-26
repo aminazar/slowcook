@@ -112,51 +112,93 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for per-command detail.
 
 ## Roadmap
 
-Active roadmap in [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+The 0.7→0.11 plan that drove the bulk of the redesign is in [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md). The next major (mockup-first refinement) is in [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md).
 
-| Version | Brings |
-|---|---|
-| 0.1 ✅ | `guard` — frozen-paths enforcement |
-| 0.2 ✅ | `manifest record\|verify` |
-| 0.3 ✅ | `init` — consumer scaffolding |
-| 0.4 ✅ | `refine` — refinement agent |
-| 0.5 ✅ | `testgen` — spec → tests |
-| 0.6 ✅ | `brew` — single-lane ratchet |
-| 0.7.0–0.7.7 ✅ | forge/stack refactor, refine `follow_up`, halt diagnostics, PR-gate tests, audit-trail comments, tier-1 UI (helpers + testgen + brew) |
-| 0.8 | Tier-2 acceptance runner (Playwright + real sandbox) + screenshot capture |
-| 0.9 | Gates 1 + 2 + 3 via GitHub comments (mechanical UI asserts + Claude vision + PM review via PR comments — no standalone dashboard) |
-| 0.10 | R&R swap — tier-1 helpers backed by captured fixtures |
-| 0.11 | Brownfield cooker — `slowcook bootstrap` → `.brewing/DISCOVERY.md` with semantic code-map enrichment |
+| Version | Brings | Status |
+|---|---|---|
+| 0.1 | `guard` — frozen-paths enforcement | ✅ shipped |
+| 0.2 | `manifest record\|verify` | ✅ shipped |
+| 0.3 | `init` — consumer scaffolding | ✅ shipped |
+| 0.4 | `refine` — refinement agent | ✅ shipped |
+| 0.5 | `testgen` — spec → tests | ✅ shipped |
+| 0.6 | `brew` — single-lane ratchet | ✅ shipped |
+| 0.7.0–0.7.x | forge/stack refactor, refine `follow_up`, halt diagnostics, PR-gate tests, audit-trail comments, tier-1 UI (helpers + testgen + brew), three pipeline-gap fixes (page-link, schema-presence, styling) | ✅ shipped |
+| 0.8 | Tier-2 acceptance runner (Playwright + real sandbox) + screenshot capture | ✅ shipped |
+| 0.9 | `@slowcook-ai/llm-anthropic` carve-out + Gate 1 (axe) live | ✅ shipped |
+| 0.10 | `@slowcook-ai/recorder` (R&R fixture format) + `@slowcook-ai/gates@0.10.0` (Gate package) + tier-2 infra live on rewo | ✅ shipped |
+| 0.11 | Textual proposals (schema/ui_layout/routes/auth/perf/observability/infra/api_shape) + Mermaid in PR body + `/refine` resubmit + brew reading proposals + spec-body-synth backstop + first end-to-end clean ship (rewo PR #114, $1.92) | ✅ shipped |
+| 0.12.x | Phase 2 brownfield-retrieval (code-map line+callers, per-target slice, `.brewing/patterns/`) + testgen prevention checks (page-link, schema-presence) + cost-marker fixes (restaurant-bill rollup) | ✅ shipped |
+| 0.13.0 | Bug-flow + chef orchestrator: parallel `investigate → recipe --regression → sift` pipeline; `chef` watches all PRs and classifies failures; `testgen` renamed to `recipe` for kitchen-metaphor consistency | ✅ shipped (cut 2026-04-25) |
+| 0.13.2–0.13.6 | Brownfield extraction foundation: `slowcook map --emit-schema` (Supabase migrations → Mermaid ERD), `--emit-tokens` (CSS `:root` + `@theme` → tokens catalog), top-level `slowcook extract` command, refine reads both via `buildProjectContext`, refine + investigate workflow templates auto-run extraction | ✅ shipped |
+| 0.14.0-alpha.1–α.5 | Mockup-first data-layer seam: `proposals.fixtures.by_domain` schema + `<domain>.mock.ts` writer + sibling `<domain>.ts` stub with `@slowcook-stub` marker + V7 hard-signal synthesizer backstops for `proposals.{ui_layout, fixtures}` (so the LLM-side prompt steering doesn't have to win every time). End-to-end validated against rewo issue #138 + PR #129. | ✅ shipped (cut 2026-04-26) |
+| 0.14.0-α.6 | Refine writes `src/**/page.tsx` + components for the story (the actual mockup) | 🔜 first PM mockup-feedback checkpoint |
+| 0.14.0-α.7 | Preview-URL convention in `.brewing/context.md` (Cloudflare/Vercel rebuild handles preview) | 🔜 next |
+| 0.14.0-α.8 | `/refine` resubmit reads PR review comments + annotated-screenshot attachments → vision-capable diff against branch state | 🔜 next |
 
-The original design ([`docs/DESIGN.md`](./docs/DESIGN.md)) described a standalone `@slowcook-ai/dashboard` package for HITL review; 0.7.7's reconciled roadmap descopes that in favor of GitHub-native surfaces (PR comments + native review UI + drag-drop annotated screenshots).
+The original design ([`docs/DESIGN.md`](./docs/DESIGN.md)) described a standalone `@slowcook-ai/dashboard` package for HITL review; the reconciled roadmap descopes that in favor of GitHub-native surfaces (PR comments + native review UI + drag-drop annotated screenshots).
 
 ## Architecture
 
-slowcook is a pnpm workspace monorepo:
+slowcook is a pnpm workspace monorepo. Packages publish independently and depend on each other via `workspace:^` (rewritten to real versions at publish time).
 
-| Package | Purpose |
-|---|---|
-| `@slowcook-ai/core` | Types, ratchet logic, halt schema — pure functions, no I/O |
-| `@slowcook-ai/cli` | `slowcook` CLI binary (refine / testgen / brew / guard / manifest / map / init / catchup / on-*-merged) |
-| `@slowcook-ai/stack-ts` | TypeScript/JS adapter — Vitest discovery + run, init-time scaffolding |
-| `@slowcook-ai/forge-github` | GitHub adapter — labels, statuses, PRs, issue comments, all workflow templates |
+| Package | Purpose | Depends on |
+|---|---|---|
+| `@slowcook-ai/core` | Spec / index / proposals types, ratchet logic, halt schema, change-of-mind algebra — pure functions, no I/O | — |
+| `@slowcook-ai/llm-anthropic` | Anthropic-tuned prompts for every agent (refine / testgen / brew / investigate / sift) + a thin `LlmClient` wrapper. Exists so swapping LLMs in future is a package swap, not a refactor | core |
+| `@slowcook-ai/recorder` | R&R (record + replay) fixture format. Supabase calls captured at brew time, replayed in tier-1 tests | core |
+| `@slowcook-ai/gates` | Gate 1 (axe / WCAG), Gate 2 (Claude vision), Gate 3 (PM review via PR comments) | core |
+| `@slowcook-ai/stack-ts` | TypeScript / JS stack adapter — Vitest discovery + run, init-time scaffolding | core |
+| `@slowcook-ai/forge-github` | GitHub adapter — labels, statuses, PRs, issue comments, all workflow templates | core |
+| `@slowcook-ai/cli` | `slowcook` CLI binary — full agent set (refine / recipe / brew / investigate / sift / chef) + tools (guard / manifest / map / extract / init / catchup / on-*-merged / dispatch / fixtures) | all of the above |
 
-Forge-agnostic and stack-agnostic by design; GitLab and Python adapters are fast-follows (0.12+).
+Forge-agnostic + stack-agnostic by design. GitLab and Python adapters are fast-follows that drop into the existing interfaces; no core changes needed.
 
 ## Consumer dogfood
 
-[`reworthy/app`](https://github.com/reworthy/app) is slowcook's first consumer and integration-test project. Most features in this changelog were motivated by running slowcook against rewo and fixing what broke.
+[`reworthy/app`](https://github.com/reworthy/app) is slowcook's first consumer and integration-test project. **Most features and bug fixes in the changelog were motivated by running slowcook against rewo and fixing what broke.** The 0.14.0-alpha.3–α.5 arc is a recent example: five distinct synth bugs were caught by re-running new code against rewo's real story specs (see `feedback_run_synth_against_real_specs` memory).
+
+When changing anything in `proposals-synth.ts`, `mock-fixtures.ts`, or any `prompts/*.ts`, run it against an actual rewo spec before cutting an alpha — unit tests with synthetic inputs miss real-world prose conventions.
 
 ## Development
 
 ```bash
+# Setup
 pnpm install
-pnpm build       # required before publish — see feedback_build_before_publish memory
-pnpm test
+pnpm -r build           # build all packages — REQUIRED before publish
+pnpm test               # vitest across the workspace (~390 tests today)
 pnpm typecheck
+
+# Per-package targeted test
+cd packages/cli && pnpm test -- --reporter=basic --run <pattern>
+
+# Validate a synth change against a real consumer spec (see memory)
+cd /path/to/rewo
+git fetch origin slowcook/spec/story-XXX
+git show origin/slowcook/spec/story-XXX:specs/story-XXX.yaml > /tmp/spec.yaml
+node /tmp/synth-test.mjs   # tiny driver — see feedback_run_synth_against_real_specs
+
+# Run the brownfield extract locally
+npx slowcook@alpha extract  # writes .brewing/diagrams/{schema.mmd,tokens.md}
 ```
 
-Publishing: every package has `prepublishOnly: "tsc -b"` so `pnpm publish` re-builds `dist/` automatically. Still worth running `pnpm -r build` + `grep -l "<new-export>" packages/<pkg>/dist/*.js` manually as a cross-check.
+### Publishing
+
+Every package has `prepublishOnly: "tsc -b"` so `npm publish` re-builds `dist/` automatically. Still:
+
+1. Run `pnpm -r build` + spot-check the dist tree before publishing (the 0.7.4–0.7.6 stale-dist incident produced the `feedback_build_before_publish` memory — script-level guards aren't a substitute for a manual eyeball).
+2. Pre-release versions (`0.14.0-alpha.N`) **must** publish with `--tag alpha` so they don't become `latest` for stable consumers. The 2026-04-25 `cli@0.14.0-alpha.2` publish accidentally took `latest`; fix is `npm dist-tag add @slowcook-ai/cli@<stable> latest`.
+3. Dependency order on a multi-package release: `core` → `llm-anthropic` / `recorder` / `gates` (no cross-deps) → `stack-ts` / `forge-github` (depend on core) → `cli` (depends on everything). Publish in that order so `workspace:^` rewrites resolve correctly.
+
+### Validation against rewo
+
+`reworthy/app`'s CI is the real integration test. Every behaviour change should ride through one of:
+
+- A `/refine` round on an open issue (story-flow validation)
+- A `/refine` comment on an open spec PR (amendment validation)
+- A merge of a `slowcook-bug-profile` PR (sift / bug-flow validation)
+- An issue labeled `bug` (investigate validation)
+
+Live runs cost ~$0.30–$2 per round on Opus, $0.10–$0.50 on Sonnet. Bound the spend with explicit budget caps in the config; the `slowcook · shipped` rollup renders the per-agent breakdown.
 
 ## License
 
