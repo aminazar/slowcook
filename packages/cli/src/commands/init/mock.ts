@@ -369,11 +369,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <ScenarioRegistryProvider registry={registry}>
           {children}
           {/*
-            Review-overlay mount-point. Once @slowcook-ai/review-overlay
-            ships (slowcook 0.16-α.5), import + render <SlowcookReviewOverlay />
-            here. The overlay provides a floating toggle for nav-mode ↔
-            comment-mode and POSTs element-anchored comments to the GitHub
-            PR for plate to consume.
+            Review-overlay mount-point.
+              npm install @slowcook-ai/review-overlay
+              import { SlowcookReviewOverlay } from "@slowcook-ai/review-overlay/react";
+              <SlowcookReviewOverlay
+                enabled={process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] === "1"}
+                owner={process.env["NEXT_PUBLIC_SLOWCOOK_OWNER"] ?? ""}
+                repo={process.env["NEXT_PUBLIC_SLOWCOOK_REPO"] ?? ""}
+                prNumber={parseInt(process.env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] ?? "0", 10)}
+                storyId={process.env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] ?? null}
+              />
+            Slowcook's preview-deploy workflow sets the env vars from the PR
+            context. Production builds keep NEXT_PUBLIC_SLOWCOOK_REVIEW unset
+            so the overlay tree-shakes out.
           */}
         </ScenarioRegistryProvider>
       </body>

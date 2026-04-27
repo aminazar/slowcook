@@ -152,12 +152,28 @@ export async function deploy(argv: string[], cliVersion: string): Promise<void> 
   scpUpload(target, tarball, remoteTarball);
 
   // Step 3: extract + build remotely.
+  // 0.16.0-α.6 — pass the review-overlay env vars as build args so the
+  // mock's compile-time `process.env.NEXT_PUBLIC_SLOWCOOK_*` references
+  // resolve to the right values (Next inlines NEXT_PUBLIC_* at build time).
+  const owner = parsed.owner ?? detectOwner(parsed.repoRoot) ?? "";
+  const repo = parsed.repo ?? detectRepo(parsed.repoRoot) ?? "";
   console.log(`  ssh    docker build ${imageTag}`);
+  const buildEnv = [
+    `NEXT_PUBLIC_SLOWCOOK_REVIEW=1`,
+    `NEXT_PUBLIC_SLOWCOOK_OWNER=${shellQuote(owner)}`,
+    `NEXT_PUBLIC_SLOWCOOK_REPO=${shellQuote(repo)}`,
+    `NEXT_PUBLIC_SLOWCOOK_PR_NUMBER=${parsed.pr}`,
+  ].join(" ");
   const buildScript = [
     `cd ${shellQuote(remoteDir)}`,
     `rm -rf ${shellQuote(cfg.mockDir)}`,
     `tar xzf mock-src.tgz`,
     `cd ${shellQuote(cfg.mockDir)}`,
+    // Write the env vars to .env.production so `next build` picks them up.
+    // (Build args via --build-arg would also work but require Dockerfile
+    // edits in the consumer's repo; .env.production keeps the contract
+    // backward-compatible with the init-mock template.)
+    `printf '%s\\n' ${shellQuote(buildEnv.split(" ").join("\\n"))} > .env.production`,
     `docker build -t ${shellQuote(imageTag)} -f Dockerfile ..`,
   ].join(" && ");
   sshExec(target, buildScript);
@@ -184,8 +200,6 @@ export async function deploy(argv: string[], cliVersion: string): Promise<void> 
   console.log(`  url    ${url}`);
 
   const githubToken = process.env["GITHUB_TOKEN"];
-  const owner = parsed.owner ?? detectOwner(parsed.repoRoot);
-  const repo = parsed.repo ?? detectRepo(parsed.repoRoot);
   if (githubToken && owner && repo) {
     await upsertPreviewComment({
       owner, repo, pr: parsed.pr, url, hostPort, cliVersion, githubToken,

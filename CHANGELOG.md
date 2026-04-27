@@ -6,6 +6,49 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.6 + @slowcook-ai/review-overlay@0.1.0 — element-anchored review overlay
+
+Cut 2026-04-26.
+
+The PM-feedback surface for the mockup PR. Mounted into the consumer's mock app, it floats a Nav / 💬 Comment / ✅ Approve toggle; in Comment mode, clicking any element opens a sidebar where the PM types prose. On submit, a structured review-comment lands in the mockup PR — markdown for humans, JSON-payload-in-HTML-comment for plate to parse in α.7.
+
+### What's new
+
+- **NEW package `@slowcook-ai/review-overlay@0.1.0`**:
+  - **Two entry points**: `/` (framework-free core — selector extraction, comment formatter, GitHub submit, PAT storage) and `/react` (the mounted overlay component).
+  - **Selector strategy** in priority order: `id` (skipping React `useId`/Radix/Headless UI patterns) → `data-testid` → `role + accessible-name` (aria-label, aria-labelledby, `<label for>`, button/link textContent) → `tag.classes:nth-child(N)` (filtering Tailwind utilities + emotion `css-XXXX` + CSS-modules hashes) → XPath fallback. Always non-empty.
+  - **Comment payload** carries: selector + fallback selector + strategy + tag + text hint + bbox; viewport (width/height/colorScheme/dpr); URL; user agent; timestamp; story id; prose. Marker `slowcook:review-overlay` lets plate find the JSON via grep.
+  - **Approve mode** posts a comment requesting the `slowcook-mockup-approved` label; plate refuses to amend after the label lands so a stray comment doesn't bounce a finalized mockup.
+  - **PAT storage** via `localStorage["slowcook.review-overlay.pat.{owner}/{repo}"]`. Per-repo scoping; first submit prompts; `clearPat()` for revocation.
+  - **Submit** via direct `POST /repos/{owner}/{repo}/issues/{pr}/comments` (Mode A from the 0.13.1 design). Returns tagged result for per-failure-mode UI rendering. Mode B (consumer-hosted submit endpoint) deferred.
+- **Preview-deploy env-var injection** (`cli@0.16.0-alpha.6`): `slowcook preview deploy` now writes `.env.production` in the mock dir before `docker build`, populating `NEXT_PUBLIC_SLOWCOOK_REVIEW=1` + `_OWNER` + `_REPO` + `_PR_NUMBER`. Next inlines `NEXT_PUBLIC_*` at build time so the overlay component's `enabled={...}` gate resolves to true in preview builds.
+- **Mock-layout scaffold update** (`slowcook init mock`): the `mock/src/app/layout.tsx` placeholder comment now includes the actual import + JSX snippet for `<SlowcookReviewOverlay />`. Consumers opt in by uncommenting after `npm install @slowcook-ai/review-overlay` — production builds keep the env var unset and the overlay tree-shakes.
+
+### Architectural notes
+
+- **Bundle weight target met**: `/` core ~3 KB gz; `/react` overlay ~6 KB gz. No html2canvas (auto-screenshot deferred); α.6 captures bbox + selector + viewport, which is enough for plate to anchor + the PM can paste a screenshot manually.
+- **Three-mode design** preserved from 0.13.1: Nav (default — pure pass-through), Comment (red-orange tint + crosshair-style click capture), Approve (green tint + one-click approval). ESC + the toggle exit any non-Nav mode.
+- **Inline styles** (not Tailwind classes) on every visible element so the overlay renders correctly even in mock apps that strip unknown classes.
+
+### Tests
+
+- 37 new tests in `packages/review-overlay/src/`:
+  - `comment-format.test.ts` (10): payload build + markdown render + parse round trip + payload-marker handling.
+  - `github.test.ts` (10): PAT storage scoping + per-repo isolation; `submitComment` URL/headers/body shape; 401/500/network-error result tagging; apiBase override.
+  - `selector.test.ts` (17): full priority cascade, React `useId`/Radix/Headless UI skip, Tailwind/emotion/CSS-modules class filtering, nth-child disambiguation, accessible-name fallbacks, XPath fallback, text-hint truncation/whitespace.
+- 463 cli tests still green; 37 new in review-overlay; 500 total across the workspace.
+
+### Publish state
+
+```
+review-overlay@0.1.0          🟡 in-repo (NEW package)
+cli@0.16.0-alpha.6            🟡 in-repo
+```
+
+Next: α.7 — plate v2: parse the JSON payloads off the PR thread; classify each comment as cosmetic / spec-altering / mock-divergence; amend mock with min-diff for cosmetic; escalate spec-altering to PM for confirm; refuse all amendments after `slowcook-mockup-approved` lands.
+
+---
+
 ## 0.16.0-alpha.5 + @slowcook-ai/forge-github@0.11.0 — SSH preview deploy CI
 
 Cut 2026-04-26.
