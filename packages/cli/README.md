@@ -2,11 +2,21 @@
 
 CLI for the slowcook brewing harness. Installs the `slowcook` binary.
 
+> ⚠️ **Active development — expect breaking changes.** Slowcook is pre-1.0 and the architecture itself is iterating in public. The 0.15 line was scrapped mid-cut and replaced by today's 0.16 mock-app architecture. CLI commands, file layouts, prompt contracts, and the package surface can and will change between alpha versions.
+>
+> If you're adopting slowcook today: pin exact versions in your consumer (`.brewing/slowcook-cli-version`), read each release entry in [the changelog](https://github.com/aminazar/slowcook/blob/main/CHANGELOG.md) before bumping, and treat it as a partnership — feedback from real consumers is what drives the next cut.
+
 ## Install
 
 ```bash
+# Stable line (0.13.x today; story-flow + bug-flow + chef orchestrator)
 npm i -D @slowcook-ai/cli
+
+# 0.16 alpha track (singular mock app + element-anchored review)
+npm i -D @slowcook-ai/cli@alpha @slowcook-ai/mock-runtime@latest
 ```
+
+The `latest` tag points at the most recent stable cut; the `alpha` tag points at the in-progress 0.16 architecture. The two are NOT installable together — pick one per consumer.
 
 ## Commands (v0.4)
 

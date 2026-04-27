@@ -5,11 +5,31 @@
 [![npm](https://img.shields.io/npm/v/@slowcook-ai/cli.svg)](https://www.npmjs.com/package/@slowcook-ai/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+> ⚠️ **Active development — expect breaking changes.** Slowcook is pre-1.0; the architecture itself is iterating in public. The 0.15 line was scrapped mid-cut (PR #145 closed) and replaced by today's 0.16 mock-app architecture. Public APIs, CLI commands, file layouts, and prompt contracts can and will change between alpha versions. Pin exact versions in your consumer (`.brewing/slowcook-cli-version`); read each release entry in [`CHANGELOG.md`](./CHANGELOG.md) before bumping. If you adopt slowcook today, treat it as a partnership — the project is still finding its shape and feedback from real consumers is what drives the next cut.
+
 ## Status
 
-**0.16 — singular mock app + element-anchored review. Cut began 2026-04-27.** Architectural reset of 0.15 (which mixed mock data into `src/`). Mock now lives at `mock/` — a singular per-consumer Next.js app, totally separate from `src/`, runnable in docker on the consumer's box. Vibe + plate evolve it incrementally per story; brew copies its components into `src/` and adds real-data wiring. Plan: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) (canonical reference for the architecture).
+**0.16 — singular mock app + element-anchored review (in progress).** Architectural reset of 0.15. The mock layer now lives at `mock/` — a singular per-consumer Next.js app, totally separate from `src/`, runnable in docker on the consumer's box. Vibe writes scenarios into the mock; recipe writes tests in parallel, blind to the mock; a deterministic `slowcook port` copies new mock components into `src/`; brew (`--mode plate`) reconciles UI with real data + handlers. Canonical architecture reference: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md).
 
-Shipped in 0.16 so far: `@slowcook-ai/mock-runtime@0.1.0` + `Scenario` types in `@slowcook-ai/core@0.13.0` + `slowcook init mock` CLI. Open work: vibe v2 (writes mock/scenarios/story-N.ts); SSH preview deploy; review-overlay package; plate v2 (element-anchored comments + spec-vs-mock classifier); `slowcook port` deterministic copy step; brew --mode plate v2; orchestration trigger chain.
+**Shipped so far in 0.16 (alpha track, not on `latest`):**
+
+- `@slowcook-ai/mock-runtime@0.1.0` — Scenario types, `defineScenarios([])`, `<ScenarioRegistryProvider>`, `useScenarioFixture<T>()`, `<ScenarioPicker />` ✅ published
+- `@slowcook-ai/core@0.13.0` — `Scenario`, `MockUser`, `ScenarioRegistry` types lifted to core ✅ published
+- `cli@0.16.0-alpha.1` — `slowcook init mock` scaffolds the mock app ✅ published
+- `cli@0.16.0-alpha.2` — core retrack, no behavior change 🟡 in-repo
+- `cli@0.16.0-alpha.3` — BUG-F refine-synth fixes (`_id`/`_at` columns no longer treated as tables; English-prose words rejected from apiColumns) 🟡 in-repo
+- `cli@0.16.0-alpha.4` + `llm-anthropic@0.12.0` — vibe v2 (writes into `mock/`, REUSE-existing-components prompt rules, `mock/` path-safety guard) + recipe-blind-to-mock testgen addendum 🟡 in-repo
+
+**Open work (numbered alphas through α.10):**
+
+| Alpha | Brings |
+|---|---|
+| α.5 | `.brewing/preview.yaml` schema + `slowcook preview deploy/teardown` CLI + workflow templates + `docs/operating-guide.md` (consumer's box: Docker + reverse proxy + wildcard cert + SSH user) |
+| α.6 | `@slowcook-ai/review-overlay` package — floating toggle on the preview deploy with nav/comment/approve modes + element-anchored selectors (id > data-testid > role+name > tag.classes:nth-child > XPath fallback) + screenshot via canvas API + GitHub PAT submit |
+| α.7 | `plate` v2 — parses element-anchored comments, classifies as cosmetic / spec-altering / mock-divergence, escalates spec-altering ones (PM confirms before refine round) |
+| α.8 | `slowcook port` — deterministic mock → src copy CLI; pre-brew CI step; runs without an LLM |
+| α.9 | `brew --mode plate` v2 — narrower scope after port (UI shape is fixed; brew handles wiring, handlers, migrations, real data); new `SPEC_AMBIGUITY_DETECTED` halt class |
+| α.10 | Orchestration trigger chain — `slowcook-mockup-merged.yml` + both-merged trigger that fires brew once both the mockup PR and the recipe-tests PR are in |
 
 **0.14.0-α.1 → α.6 — mockup-first prereqs. Shipped 2026-04-25 → 2026-04-26.** Data-layer seam (`src/lib/data/<domain>.{mock.ts,ts}` with `@slowcook-stub` marker) + `proposals.fixtures.by_domain` schema in `core@0.12.0` + V7 hard-signal synthesizer backstops for `proposals.{ui_layout, fixtures}` + spec-emit content validator (catches LLM-truncation bugs like `var(--tint-in`). Six alphas, six bugs caught + fixed during V6 end-to-end validation against rewo. The α.6+ slices in the original 0.14 plan (full mockup generation by refine) are **superseded by 0.15** in favor of the cleaner `vibe → plate → recipe → brew` separation.
 
@@ -34,9 +54,22 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 - **0.13.0 (cut 2026-04-25, tag `0.13.0`)** — `recipe` alias for `testgen`; full `investigate` + `sift` + `chef` agents; `recipe --regression` with both deterministic stub + LLM-backed real-test modes; PR opening + auto-trigger workflows. Pipeline now has parallel story-flow + bug-flow; chef watches both.
 - **0.13.2–0.13.5 — brownfield extraction foundation for 0.14.** `map --emit-schema` (Supabase migrations → Mermaid erDiagram), `map --emit-tokens` (CSS `:root` + `@theme` → token catalog with light/dark/Tailwind-v4 split), `slowcook extract` focused command, refine reads both as project-awareness context, refine + investigate workflow templates auto-run extraction before each agent invocation. Validated on rewo: 10 entities + 21+21+10 tokens parsed in 315ms.
 
-Latest stable on npm: `cli@0.12.13`, `forge-github@0.9.8`, `core@0.11.0`, `stack-ts@0.9.3`, `llm-anthropic@0.8.0`, `recorder@0.9.1`, `gates@0.10.0`. The `0.13.0`–`0.13.5` cli + `forge-github@0.10.0`–`0.10.1` + `llm-anthropic@0.9.0` are committed and tagged but **not yet published**.
+**Latest published versions:**
 
-**Active plan**: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) — canonical architecture reference. Detailed initial design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (abandoned; lessons informed 0.16) → [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+| Package | `latest` (stable) | `alpha` (pre-release) |
+|---|---|---|
+| `@slowcook-ai/cli` | `0.13.x` line — published, but install with care; the 0.16 alpha may be ahead of `latest` for active features | `0.16.0-alpha.1` — `npm i @slowcook-ai/cli@alpha` |
+| `@slowcook-ai/core` | `0.13.0` | — |
+| `@slowcook-ai/llm-anthropic` | `0.11.x` | `0.12.0` (in-repo for α.4) |
+| `@slowcook-ai/mock-runtime` | `0.1.0` (NEW — 0.16 only) | — |
+| `@slowcook-ai/forge-github` | `0.10.x` | — |
+| `@slowcook-ai/stack-ts` | `0.9.3` | — |
+| `@slowcook-ai/recorder` | `0.9.1` | — |
+| `@slowcook-ai/gates` | `0.10.0` | — |
+
+> **Pin to the alpha range when adopting 0.16.** The `latest` tag points at the 0.13.x stable line; the 0.16 architecture is on the `alpha` tag. Run `npm i @slowcook-ai/cli@alpha` (and `@slowcook-ai/mock-runtime@latest` — the only versioned line for that package). Breaking changes between alphas are likely; pin exact versions in `.brewing/slowcook-cli-version`.
+
+**Active plan**: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) — canonical architecture reference for the singular-mock-app + element-anchored-review pipeline. Detailed initial design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (**abandoned** mid-cut — the data-layer-seam approach mixed mock data into `src/`, which broke separation; lessons informed 0.16) → [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
 ## The idea
 
@@ -118,7 +151,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for per-command detail.
 
 ## Roadmap
 
-Active plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md). Recent history: [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped, α.7+ superseded by 0.15) and [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). Closed: [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+Active plan: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (abandoned mid-cut — replaced by 0.16) and [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped, α.7+ superseded). Closed: [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
 | Version | Brings | Status |
 |---|---|---|
@@ -138,29 +171,34 @@ Active plan: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md).
 | 0.13.2–0.13.6 | Brownfield extraction foundation: `slowcook map --emit-schema` (Supabase migrations → Mermaid ERD), `--emit-tokens` (CSS `:root` + `@theme` → tokens catalog), top-level `slowcook extract` command, refine reads both via `buildProjectContext`, refine + investigate workflow templates auto-run extraction | ✅ shipped |
 | 0.14.0-α.1–α.6 | Mockup-first prereqs: data-layer seam (`<domain>.mock.ts` + `@slowcook-stub` marker), `proposals.fixtures.by_domain` schema in `core@0.12.0`, V7 hard-signal synthesizer backstops, spec-emit content validator. Six bugs caught + fixed during V6 end-to-end validation against rewo. | ✅ shipped (cut 2026-04-26) |
 | 0.14.0-α.7+ | Original plan: refine emits `src/**/page.tsx` directly + preview URL + vision-capable amendment | ⛔ superseded by 0.15 |
-| **0.15** | **`plate` + `brew` parallel-converge UI pipeline.** New `vibe` agent emits the mockup; new `plate` agent manages PM iteration on it; existing `recipe` writes tests against plate's actual rendered DOM (not imagined design); existing `brew` keeps its name + role but on UI stories starts from plate's PR with `do NOT redesign` constraint. Mockup is the canonical target image, not test prose — addresses the slippery slope of "tests don't measure UX → brew ships wrong design → tighten spec → repeat." | 🔜 designing 2026-04-26 |
+| 0.15 | First take on the `vibe + plate + recipe + brew` parallel-converge pipeline. Started shipping (vibe agent, emit module, data-layer seam in `src/lib/data/<domain>.{mock.ts,ts}`) but mid-cut feedback rejected the approach: mixing mock data into `src/` broke the mock + production filesystem separation. PR #145 closed; lessons folded into 0.16. | ⛔ abandoned mid-cut |
+| **0.16** | **Singular mock app + element-anchored review.** New per-consumer `mock/` Next.js app, totally separate from `src/`, runnable in docker on the consumer's box. Vibe extends the mock incrementally per story (no per-story shadow copies); recipe writes behavior tests blind to the mock; deterministic `slowcook port` copies new mock components into `src/`; `brew --mode plate` reconciles UI with real data + handlers + migrations. Element-anchored review overlay ships as a separate package; plate v2 classifies PM comments and escalates spec-altering ones. **In progress** — α.1–α.4 shipped; α.5–α.10 listed in the Status section above. | 🚧 cutting 2026-04-26 → ongoing |
 
 The original design ([`docs/DESIGN.md`](./docs/DESIGN.md)) described a standalone `@slowcook-ai/dashboard` package for HITL review; the reconciled roadmap descopes that in favor of GitHub-native surfaces (PR comments + native review UI + drag-drop annotated screenshots).
 
-### 0.15 pipeline at a glance
+### 0.16 pipeline at a glance
 
 ```
-human spec ─┬─ refine → spec.yaml ─────────────────────┐
-            │                                          ▼
-            └─ vibe → mockup → PM feedback → plate → recipe (sees plate's PR + spec) → tests
-                                                ↓                                       ↓
-                                                          brew ← ← ← ← ← ← ← ← ← ← ← ← ┘
-                                                            ↓
-                                                       served (final PR, tests green)
+human spec ─→ refine → spec.yaml (merged) ─┬─ vibe → mock/scenarios/story-N.ts ─→ plate iterations ─→ mockup PR merged ─┐
+                                           │                                                                              │
+                                           └─ recipe (BLIND to mock) → tests/integration/story-N*.test.ts ─→ tests PR ───┤
+                                                                                                                          ▼
+                                                                                                            slowcook port (mock → src, deterministic)
+                                                                                                                          ↓
+                                                                                                            brew --mode plate (real data, handlers, migrations)
+                                                                                                                          ↓
+                                                                                                                       served
 ```
 
-- `refine` and `vibe` run in parallel from the same human input.
-- `plate` is the mockup-iteration loop (PM clicks through running mock data, comments, plate amends).
-- `recipe` waits for both tracks to converge before writing tests — tests target the actual DOM, not an imagined one.
-- `brew` is the existing agent; on UI stories it picks up plate's PR as starting code with a tighter system prompt ("do not redesign components; replace mock data with real fetches").
-- `served` is the label for the final brew-merged PR.
+- **`mock/` is a singular per-consumer Next.js app** that grows incrementally. Vibe writes ONLY into `mock/`; brew writes ONLY into `src/` (after `slowcook port`).
+- **`refine` is the upstream gate**; vibe + recipe both wait for spec-merge, then run in parallel.
+- **`plate` is the mockup-iteration loop** — PM clicks through the live preview deploy, leaves element-anchored comments via the review overlay, plate amends scenarios/components or escalates to refine when the comment alters spec.
+- **`recipe` is BLIND to the mock** — writes behavior assertions against the production component path; never imports from `mock/` or scenario files. Parallelism only works because recipe doesn't over-fit to vibe's exact JSX.
+- **`slowcook port` is deterministic** (no LLM) — copies new mock components into `src/` before brew runs. Brew never copies, never UI.
+- **`brew --mode plate`** focuses on the wiring problem: real data, real handlers, schema migrations, tests-green. UI shape is fixed at port-time.
+- **`served`** is the label for the final brew-merged PR.
 
-For non-UI stories (backend-only, infra), the `plate` track is skipped and `brew` runs in its today-equivalent mode.
+For non-UI stories (backend-only, infra), vibe's eligibility gate sniffs the spec's `ui_behavior` block and skips with exit 0; brew runs in its today-equivalent mode.
 
 ## Architecture
 
