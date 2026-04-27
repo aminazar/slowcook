@@ -6,6 +6,68 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.10 + @slowcook-ai/forge-github@0.11.1 — orchestration trigger chain
+
+Cut 2026-04-26. **Final α before 0.16 cuts.**
+
+Closes the pipeline: `slowcook-brew-auto.yml` now waits for BOTH the mockup PR AND the tests PR to be merged on main for the same `story-N` before dispatching brew. Operating-guide ships the consumer-side `slowcook-brew.yml` snippet with the mandatory `slowcook port` step for plate-mode.
+
+### What's new
+
+- **Updated `slowcook-brew-auto.yml`** (in `forge-github@0.11.1`):
+  - Trigger expanded: fires on PR merged with EITHER `slowcook-tests` OR `slowcook-mockup` label.
+  - For each story id from the merging PR's branch (preferred — unambiguous since branches are `slowcook/{kind}/story-N`) or title:
+    1. Looks up the OTHER half by querying `gh pr list --state merged --head slowcook/{otherKind}/story-N`.
+    2. Both halves merged → dispatches `slowcook-brew.yml` with `mode=plate`.
+    3. Only tests merged + no mockup PR ever existed (`--state all` shows zero matches) → dispatches with `mode=legacy` (backend-only / non-UI story).
+    4. Otherwise → posts a `::notice::Waiting for $OTHER_LABEL PR (branch ...) to merge before brew can fire for story-N` and exits cleanly. The next merge of the missing half re-fires this workflow, which finds both halves and dispatches.
+  - Concurrency: keyed per-story so simultaneous merges don't double-fire.
+- **Operating guide section "Brew workflow changes for 0.16"** (in `docs/operating-guide.md`): the consumer-maintained `slowcook-brew.yml` needs a new `mode` workflow_dispatch input + a conditional `slowcook port --story` step before brew when `mode=plate`. Snippet inline; older brew workflows silently ignore `mode` and run in their default mode (backwards-compatible — no consumer break, just no plate-mode benefits until the snippet is adopted).
+
+### Why the gating logic
+
+The 0.16 architecture has vibe + recipe running in parallel from spec-merge; both produce PRs that merge independently in arbitrary order. The PM might merge the mockup PR first (after PM approval via the review-overlay), or the tests PR first (when CI flips green). Brew can only fire once both arrived because:
+
+- **Brew --mode plate needs the ported src/** (from the mockup) AND the **tier-1 tests** (from recipe).
+- **Brew --mode legacy** is fine without a mockup, but only when there's no mockup track at all (vibe's eligibility gate skipped the spec — backend-only).
+
+The auto-trigger handles both cases; the PM doesn't have to think about merge order.
+
+### Architectural notes
+
+- **Branch-name-first parsing** for story id extraction (vs title scan): branches are mechanically named (`slowcook/{spec,mockup,tests,brew}/story-N`); titles are LLM-authored prose and could plausibly mention multiple stories. Branch is canonical.
+- **Closed-cleanly when waiting** — the auto-trigger writes a `::notice::` and returns success when the other half hasn't merged yet. Avoids GitHub Actions failure-noise spam in the merging PM's notifications.
+- **Documentation, not template change, for slowcook-brew.yml**: that workflow is consumer-maintained today (it varies wildly by stack — install steps, secrets, etc.), so we ship the snippet rather than overwrite. Future work could add a `slowcook init brew-workflow` scaffold that generates a known-good shape.
+- **No new tests**: the workflow YAML doesn't have unit-test infrastructure (would need an Actions runner to validate). End-to-end validation lands when a real consumer runs the new auto-trigger; rewo dogfood is the natural gate.
+
+### Publish state
+
+```
+forge-github@0.11.1           🟡 in-repo (slowcook-brew-auto.yml replaced)
+cli@0.16.0-alpha.10           🟡 in-repo
+```
+
+### 0.16 ARC at α.10 — what's the picture?
+
+Ten alphas across four days. The architecture went from "data-layer seam in src/" (0.15 — abandoned) to "singular mock app + element-anchored review + deterministic port + brew --mode plate" (0.16). What's shipped:
+
+| Α | Brings |
+|---|---|
+| α.1 | mock-runtime package + slowcook init mock |
+| α.2 | Scenario types lifted to core |
+| α.3 | BUG-F refine-synth fixes |
+| α.4 | vibe v2 (writes mock/) + recipe-blind-to-mock testgen tweak |
+| α.5 | SSH preview deploy + operating-guide.md |
+| α.6 | review-overlay package (selector + comment + GitHub PAT) |
+| α.7 | plate v2 (overlay parser + classifier + escalation) |
+| α.8 | slowcook port (deterministic mock → src copy) |
+| α.9 | brew --mode plate v2 (marker-aware reject + SPEC_AMBIGUITY halt) |
+| α.10 | brew-auto gating + operating-guide brew-workflow snippet |
+
+What's NOT yet validated end-to-end: a real rewo run. That's the next milestone — pick a small story and run it through refine → vibe ‖ recipe → preview deploy → PM review via overlay → plate amendment → mockup-merged + tests-merged → port → brew → served. Expected catches: the heuristic classifier's spec-altering false-positive rate (or false-negative — the dangerous one), the `mock_dir` Caddy proxy specifics, and brew's actual cost in plate-mode (target $0.50–$2 per story). Any of those would be a follow-up alpha; the architecture itself is now structurally correct.
+
+---
+
 ## 0.16.0-alpha.9 + @slowcook-ai/llm-anthropic@0.12.1 — brew --mode plate v2 (post-port)
 
 Cut 2026-04-26.

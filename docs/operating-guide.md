@@ -235,8 +235,68 @@ The CLI can't reach the GitHub API. Confirm `GITHUB_TOKEN` is in scope (it shoul
 
 Wildcard certs from Let's Encrypt require DNS-01 challenge (Caddy can't do HTTP-01 for a wildcard). Make sure your Caddyfile's `tls` block names a DNS provider plugin and you've installed it. Common providers: `caddy-dns/cloudflare`, `caddy-dns/route53`, `caddy-dns/digitalocean`. Build a custom Caddy with the plugin via [xcaddy](https://github.com/caddyserver/xcaddy).
 
+## Brew workflow changes for 0.16
+
+Slowcook 0.16-α.10 gates `slowcook-brew-auto.yml` on **both** the mockup PR AND the tests PR being merged on main for the same `story-N`. When both halves arrive, it dispatches `slowcook-brew.yml` with the new `mode` input:
+
+- **`mode: plate`** — both halves merged. Brew runs in narrow plate-mode (UI is frozen; brew writes data layer + handlers + migrations only).
+- **`mode: legacy`** — only the tests PR merged + no mockup PR ever existed. Brew runs in legacy mode against the spec alone (backend-only / non-UI stories).
+
+For plate-mode runs, `slowcook port --story <id>` must run **before** `slowcook brew` so the deterministic `mock/` → `src/` copy lands first. The recommended brew workflow snippet:
+
+```yaml
+# .github/workflows/slowcook-brew.yml — consumer-maintained.
+on:
+  workflow_dispatch:
+    inputs:
+      story_id:    { required: true,  type: string }
+      budget_usd:  { required: false, type: string, default: "10" }
+      max_iterations: { required: false, type: string, default: "10" }
+      model:       { required: false, type: string, default: "claude-sonnet-4-6" }
+      mode:        { required: false, type: string, default: "legacy" }
+                   # ^^ "plate" when both halves merged; "legacy" otherwise.
+
+jobs:
+  brew:
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+      # ...resolve pin, setup-node, install deps...
+
+      # NEW for 0.16-α.10 — port before brew when in plate-mode.
+      - name: slowcook port (mode=plate only)
+        if: github.event.inputs.mode == 'plate'
+        run: npx --yes "$SLOWCOOK_CLI" port --story "${{ inputs.story_id }}"
+
+      - name: Commit ported files
+        if: github.event.inputs.mode == 'plate'
+        run: |
+          git config user.name "slowcook-port[bot]"
+          git config user.email "slowcook-port@users.noreply.github.com"
+          git add src/
+          if ! git diff --cached --quiet; then
+            git commit -m "port: copy mock/ → src/ for story-${{ inputs.story_id }}"
+          fi
+
+      - name: Run brew
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes "$SLOWCOOK_CLI" brew \
+            --story "${{ inputs.story_id }}" \
+            --mode "${{ inputs.mode }}" \
+            --budget-usd "${{ inputs.budget_usd }}" \
+            --max-iterations "${{ inputs.max_iterations }}" \
+            --model "${{ inputs.model }}"
+```
+
+Until you adopt this snippet, the `mode` input is silently ignored by older brew workflows + brew runs in its default mode. Stories without a mockup PR still work via the `mode: legacy` branch the auto-trigger picks.
+
 ## See also
 
 - [`docs/plans/0.16-mock-app.md`](./plans/0.16-mock-app.md) — the architecture this fits into.
 - `slowcook preview --help` — CLI reference.
+- `slowcook port --help` — deterministic mock → src copy.
 - `slowcook init mock --help` — scaffolds the mock app whose Dockerfile this guide assumes exists.

@@ -305,13 +305,30 @@ ${RESOLVE_PIN_STEP}
 }
 
 function slowcookBrewAutoWorkflow(): string {
-  return `name: slowcook brew — auto on tests merged
+  return `name: slowcook brew — auto on tests + mockup merged
 
-# Auto-triggers the \`slowcook-brew\` workflow when a tests PR (label
-# \`slowcook-tests\`) merges to main. Extracts the story id(s) from the
-# PR title and fires one brew run per story. Sonnet 4.6 default keeps
-# cost around $0.05–$0.50 per story; \`slowcook-brew.yml\`'s concurrency
-# rules serialize runs per story.
+# 0.16.0-alpha.10 — gated dispatcher.
+#
+# Fires when EITHER a tests PR (label \`slowcook-tests\`) OR a mockup
+# PR (label \`slowcook-mockup\`) merges to main. For each story id
+# mentioned in the merging PR's title:
+#
+#   1. Looks up whether the OTHER half is also merged on main.
+#   2. If yes → dispatches slowcook-brew.yml with mode=plate (mock
+#      present) or mode=legacy (no mock — backend-only story).
+#   3. If no  → posts a "waiting for the other half" notice and exits;
+#      the next merge of the missing half re-fires this workflow,
+#      which finds both halves and dispatches.
+#
+# This keeps consumers from having to coordinate the merge order, and
+# gives the PM a clear signal in CI logs about which half is missing
+# when brew doesn't fire.
+#
+# slowcook-brew.yml is consumer-maintained today; for plate-mode runs
+# it should invoke \`slowcook port --story \\$STORY_ID\` BEFORE \`slowcook
+# brew\` so the deterministic mock → src copy lands first. See
+# docs/operating-guide.md#brew-workflow-changes-for-016 for the
+# snippet.
 
 on:
   pull_request:
@@ -321,38 +338,111 @@ jobs:
   trigger:
     if: >-
       github.event.pull_request.merged == true &&
-      contains(github.event.pull_request.labels.*.name, 'slowcook-tests')
+      (
+        contains(github.event.pull_request.labels.*.name, 'slowcook-tests') ||
+        contains(github.event.pull_request.labels.*.name, 'slowcook-mockup')
+      )
     runs-on: ubuntu-latest
     permissions:
       actions: write
       contents: read
+      pull-requests: read
+      issues: write
     steps:
-      - name: Extract story ids from PR title
+      - name: Extract story ids + label kind
         id: parse
         env:
           TITLE: \${{ github.event.pull_request.title }}
+          BRANCH: \${{ github.event.pull_request.head.ref }}
+          LABELS: \${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -eu
-          IDS=$(printf '%s\\n' "$TITLE" | grep -oE 'story-[0-9]+' | sed 's/story-//' | sort -u | tr '\\n' ' ' || true)
+          # Story ids: prefer branch name (slowcook/{kind}/story-N is unambiguous),
+          # fall back to title scan.
+          BRANCH_IDS=$(printf '%s\\n' "$BRANCH" | grep -oE 'story-[a-zA-Z0-9_-]+' | sed 's/story-//' | sort -u | tr '\\n' ' ' || true)
+          TITLE_IDS=$(printf '%s\\n' "$TITLE"  | grep -oE 'story-[a-zA-Z0-9_-]+' | sed 's/story-//' | sort -u | tr '\\n' ' ' || true)
+          if [ -n "$BRANCH_IDS" ]; then
+            IDS="$BRANCH_IDS"
+          else
+            IDS="$TITLE_IDS"
+          fi
           if [ -z "$IDS" ]; then
-            echo "::notice::No story ids found in PR title '$TITLE' — skipping auto-brew."
+            echo "::notice::No story ids found in PR title or branch — skipping auto-brew."
+          fi
+          # Which kind merged? mockup or tests.
+          if printf '%s' "$LABELS" | grep -q 'slowcook-mockup'; then
+            KIND="mockup"
+          else
+            KIND="tests"
           fi
           echo "story_ids=$IDS" >> "$GITHUB_OUTPUT"
+          echo "kind=$KIND" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch brew per story
+      - name: Per-story gate + dispatch
         if: steps.parse.outputs.story_ids != ''
         env:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          KIND: \${{ steps.parse.outputs.kind }}
         run: |
           set -eu
           for id in \${{ steps.parse.outputs.story_ids }}; do
-            echo "Dispatching slowcook-brew.yml for story-$id"
-            gh workflow run slowcook-brew.yml \\
+            echo "── story-$id (this merge: $KIND) ──"
+
+            # Look up whether the OTHER kind is also merged on main.
+            # We search closed+merged PRs by branch prefix; that's
+            # unambiguous (slowcook/spec/, slowcook/mockup/, slowcook/tests/).
+            if [ "$KIND" = "mockup" ]; then
+              OTHER_BRANCH="slowcook/tests/story-$id"
+              OTHER_LABEL="slowcook-tests"
+            else
+              OTHER_BRANCH="slowcook/mockup/story-$id"
+              OTHER_LABEL="slowcook-mockup"
+            fi
+
+            OTHER_MERGED=$(gh pr list \\
               --repo \${{ github.repository }} \\
-              -f story_id=$id \\
-              -f budget_usd=10 \\
-              -f max_iterations=10 \\
-              -f model=claude-sonnet-4-6
+              --state merged \\
+              --head "$OTHER_BRANCH" \\
+              --json number,mergedAt \\
+              --jq '. | length' || echo "0")
+
+            if [ "$OTHER_MERGED" -ge 1 ]; then
+              MODE="plate"
+              echo "Both halves merged for story-$id; dispatching brew (mode=$MODE)."
+              gh workflow run slowcook-brew.yml \\
+                --repo \${{ github.repository }} \\
+                -f story_id=$id \\
+                -f budget_usd=10 \\
+                -f max_iterations=10 \\
+                -f model=claude-sonnet-4-6 \\
+                -f mode=$MODE || true
+            else
+              # If this is the tests half merging and there's no mockup,
+              # this is likely a backend-only / non-UI story — dispatch
+              # legacy brew. We detect this by looking for the mockup
+              # branch in the OPEN state too; if it doesn't exist at all
+              # (open OR merged), assume backend-only.
+              if [ "$KIND" = "tests" ]; then
+                ANY_MOCKUP=$(gh pr list \\
+                  --repo \${{ github.repository }} \\
+                  --state all \\
+                  --head "slowcook/mockup/story-$id" \\
+                  --json number \\
+                  --jq '. | length' || echo "0")
+                if [ "$ANY_MOCKUP" -eq 0 ]; then
+                  echo "No mockup PR ever existed for story-$id; treating as backend-only. Dispatching brew (mode=legacy)."
+                  gh workflow run slowcook-brew.yml \\
+                    --repo \${{ github.repository }} \\
+                    -f story_id=$id \\
+                    -f budget_usd=10 \\
+                    -f max_iterations=10 \\
+                    -f model=claude-sonnet-4-6 \\
+                    -f mode=legacy || true
+                  continue
+                fi
+              fi
+              echo "::notice::Waiting for $OTHER_LABEL PR (branch $OTHER_BRANCH) to merge before brew can fire for story-$id."
+            fi
           done
 `;
 }
