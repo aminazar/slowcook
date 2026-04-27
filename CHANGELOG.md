@@ -6,6 +6,48 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.5 + @slowcook-ai/forge-github@0.11.0 — SSH preview deploy CI
+
+Cut 2026-04-26.
+
+Closes the loop for the mockup-PR workflow: PMs no longer have to checkout the branch and `npm run dev` to review a vibe-generated mock. Slowcook ships the docker build remotely to the consumer's box, runs it on a free port, and posts the live URL back to the PR.
+
+Slowcook stays **stateless** about hosting — each consumer provides their own SSH-reachable box (Docker engine + reverse proxy + wildcard cert). This release adds the CLI plumbing + workflow templates that talk to it; `docs/operating-guide.md` covers the box-side setup.
+
+### What's new
+
+- **`.brewing/preview.yaml` schema + parser** in the cli (no separate package; flat schema, hand-parsed). Required: `type: ssh`, `host`, `user`, `key_secret`, `url_template` (must contain `{port}`), `remote_root`. Optional: `port` (default 22), `port_range` (default `[4000, 4099]`), `mock_dir` (default `mock`).
+- **`slowcook preview deploy --pr <n>`** — tar the local `mock/` dir → scp to `${remote_root}/pr-N/` → `docker build` remotely → allocate a free port from `port_range` via `ss -ltn` → `docker run -d --name slowcook-mock-pr-N --restart unless-stopped --label slowcook.pr=N -p $PORT:3100` → upsert a preview-URL comment on the PR (idempotent on re-deploy).
+- **`slowcook preview teardown --pr <n>`** — `docker rm -f` the per-PR container, `rm -rf` the staging dir, mark the PR comment as torn-down. Idempotent. `--prune-image` also removes the per-PR image (default off so reopened PRs redeploy fast).
+- **Workflow templates** (in `forge-github@0.11.0`):
+  - `slowcook-preview-deploy.yml` — fires on `pull_request: [opened, reopened, synchronize, labeled]` for PRs with the `slowcook-mockup` label. Stages the SSH key from `secrets.SLOWCOOK_PREVIEW_SSH_KEY` into `~/.ssh/id_slowcook_preview`, then runs `slowcook preview deploy --pr $PR_NUMBER`.
+  - `slowcook-preview-teardown.yml` — fires on `pull_request: [closed]`. Optional `prune_image` workflow_dispatch input.
+  - Both keyed on `concurrency: slowcook-preview-${pr}` so each push supersedes the prior deploy.
+- **`docs/operating-guide.md`** — box-side recipe: deploy user + docker group, SSH key generation, GitHub secret setup, Caddy reverse-proxy config (with wildcard DNS-01 cert via Let's Encrypt), firewall, capacity planning (~250 MB image + ~100 MB extracted source per PR; 4 GB / 50 GB box handles ~30 concurrent), troubleshooting (publickey rejected / docker permission denied / port range exhausted / Caddy cert pitfalls).
+
+### Architectural decisions
+
+- **Build remotely**, not locally. Avoids docker registry dep + scp-ing 200+ MB of layers per push. The mock app already has a Dockerfile from `slowcook init mock`; we just ssh + `docker build` against it.
+- **Shell out to `ssh` + `scp`**, not a JS ssh library. When deploys fail, the failing command is something an ops person can copy + paste. Saves a maintenance surface.
+- **Container labels for traceability**. Every preview container gets `--label slowcook.pr=N`, so `docker ps --filter label=slowcook.pr` enumerates them without snagging unrelated containers.
+- **Port allocation via `ss -ltn`**, not deterministic-from-PR. Universal on modern Linux; collision-free; trivial to reason about. Workflow scans the configured range on each deploy.
+
+### Tests
+
+- 23 new unit tests in `packages/cli/src/commands/preview/`: config parser (12), arg parsers (7), URL + naming helpers (4). All boundary cases covered (missing fields, malformed port_range, type ≠ ssh, url_template without `{port}`, `_id`-suffix and quote-stripping behaviors).
+- 463 cli tests pass total.
+
+### Publish state
+
+```
+cli@0.16.0-alpha.5            🟡 in-repo
+forge-github@0.11.0           🟡 in-repo
+```
+
+Next: α.6 — `@slowcook-ai/review-overlay` package (floating toggle on the preview deploy with nav/comment/approve modes + element-anchored selectors + screenshot via canvas API + GitHub PAT submit).
+
+---
+
 ## 0.16.0-alpha.4 + @slowcook-ai/llm-anthropic@0.12.0 — vibe v2 + recipe-blind-to-mock
 
 Cut 2026-04-26.

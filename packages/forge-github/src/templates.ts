@@ -670,7 +670,182 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-vibe.yml", contents: slowcookVibeWorkflow() },
     // 0.15.0-α.3 — plate agent (mockup amendment) workflow.
     { path: ".github/workflows/slowcook-plate.yml", contents: slowcookPlateWorkflow() },
+    // 0.16.0-α.5 — SSH preview deploy + teardown for the mock app.
+    { path: ".github/workflows/slowcook-preview-deploy.yml", contents: slowcookPreviewDeployWorkflow() },
+    { path: ".github/workflows/slowcook-preview-teardown.yml", contents: slowcookPreviewTeardownWorkflow() },
   ];
+}
+
+/**
+ * 0.16.0-α.5 — SSH preview deploy. Fires on PR opened/synchronized when
+ * the PR carries the `slowcook-mockup` label. Uses the consumer's
+ * `SLOWCOOK_PREVIEW_SSH_KEY` secret to ssh into their box, build the
+ * mock app remotely via Docker, run the container on a free port from
+ * `.brewing/preview.yaml#preview.port_range`, and post (or update) a
+ * preview-URL comment on the PR.
+ *
+ * Concurrency keyed on PR number with cancel-in-progress so each push
+ * supersedes the prior deploy.
+ */
+function slowcookPreviewDeployWorkflow(): string {
+  return `name: slowcook preview deploy
+
+# 0.16.0-alpha.5 — SSH preview deploy for the mock app. Fires when a
+# slowcook-mockup PR is opened, edited, synchronized, or labeled. The
+# consumer must:
+#   1. Create .brewing/preview.yaml with type: ssh + host/user/key_secret
+#      /port_range/url_template/remote_root.  See docs/operating-guide.md.
+#   2. Set the SLOWCOOK_PREVIEW_SSH_KEY repo secret to the deploy user's
+#      private SSH key (matched by an entry in
+#      ~deploy-user/.ssh/authorized_keys on the box).
+#   3. Run a reverse proxy on the box that maps the URL pattern in
+#      url_template to the docker host port (e.g., Caddy with a wildcard
+#      subdomain matcher).
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to deploy (manual override)"
+        required: true
+        type: string
+
+concurrency:
+  group: slowcook-preview-\${{ github.event.pull_request.number || github.event.inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'slowcook-mockup')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: \${{ github.event.pull_request.head.sha || github.ref }}
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Stage SSH private key
+        env:
+          SLOWCOOK_PREVIEW_SSH_KEY: \${{ secrets.SLOWCOOK_PREVIEW_SSH_KEY }}
+        run: |
+          set -eu
+          if [ -z "\${SLOWCOOK_PREVIEW_SSH_KEY:-}" ]; then
+            echo "::error::SLOWCOOK_PREVIEW_SSH_KEY secret is not set. See docs/operating-guide.md for how to provision the deploy key."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$SLOWCOOK_PREVIEW_SSH_KEY" > ~/.ssh/id_slowcook_preview
+          chmod 600 ~/.ssh/id_slowcook_preview
+          echo "SLOWCOOK_PREVIEW_SSH_KEY_PATH=$HOME/.ssh/id_slowcook_preview" >> $GITHUB_ENV
+
+      - name: Deploy preview
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: \${{ github.event.pull_request.number || github.event.inputs.pr }}
+        run: |
+          set -eu
+          npx --yes "$SLOWCOOK_CLI" preview deploy --pr "$PR_NUMBER"
+`;
+}
+
+/**
+ * 0.16.0-α.5 — SSH preview teardown. Fires when a slowcook-mockup PR
+ * closes (merged or not). Stops + removes the per-PR container, cleans
+ * up the staging directory on the box, marks the PR comment as torn-down.
+ *
+ * Idempotent — safe to run twice. No --prune-image by default so a
+ * reopened PR can redeploy without rebuilding.
+ */
+function slowcookPreviewTeardownWorkflow(): string {
+  return `name: slowcook preview teardown
+
+# 0.16.0-alpha.5 — SSH preview teardown. Fires when a slowcook-mockup
+# PR closes. Removes the per-PR container + staging dir on the box;
+# updates the preview comment to reflect the teardown.
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to teardown (manual override)"
+        required: true
+        type: string
+      prune_image:
+        description: "Also docker rmi the per-PR image"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: slowcook-preview-\${{ github.event.pull_request.number || github.event.inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  teardown:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'slowcook-mockup')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Stage SSH private key
+        env:
+          SLOWCOOK_PREVIEW_SSH_KEY: \${{ secrets.SLOWCOOK_PREVIEW_SSH_KEY }}
+        run: |
+          set -eu
+          if [ -z "\${SLOWCOOK_PREVIEW_SSH_KEY:-}" ]; then
+            echo "::warning::SLOWCOOK_PREVIEW_SSH_KEY secret is not set; skipping teardown."
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$SLOWCOOK_PREVIEW_SSH_KEY" > ~/.ssh/id_slowcook_preview
+          chmod 600 ~/.ssh/id_slowcook_preview
+          echo "SLOWCOOK_PREVIEW_SSH_KEY_PATH=$HOME/.ssh/id_slowcook_preview" >> $GITHUB_ENV
+
+      - name: Teardown preview
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: \${{ github.event.pull_request.number || github.event.inputs.pr }}
+          PRUNE_IMAGE: \${{ github.event.inputs.prune_image || 'false' }}
+        run: |
+          set -eu
+          ARGS="--pr $PR_NUMBER"
+          if [ "$PRUNE_IMAGE" = "true" ]; then
+            ARGS="$ARGS --prune-image"
+          fi
+          npx --yes "$SLOWCOOK_CLI" preview teardown $ARGS
+`;
 }
 
 /**
