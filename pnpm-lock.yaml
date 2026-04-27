@@ -38,6 +38,9 @@ importers:
       '@slowcook-ai/recorder':
         specifier: workspace:^
         version: link:../recorder
+      '@slowcook-ai/review-overlay':
+        specifier: workspace:^
+        version: link:../review-overlay
       '@slowcook-ai/stack-ts':
         specifier: workspace:^
         version: link:../stack-ts

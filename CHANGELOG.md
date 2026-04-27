@@ -6,6 +6,49 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.7 — plate v2: element-anchored comment classifier + escalation
+
+Cut 2026-04-26.
+
+Plate now consumes the structured review-overlay comments from α.6, classifies each as cosmetic / spec-altering / mock-divergence, and escalates spec-altering ones instead of silently amending the mock against them. Also moves plate's allowed-paths into the new mock/ filesystem (was src/), and refuses any amendment after the `slowcook-mockup-approved` label is set.
+
+### What's new
+
+- **Approval-label refusal**: plate exits 0 with a clear message when the PR carries `slowcook-mockup-approved`. PM removes the label to reopen iteration. Stops a stray `/plate` or review-overlay comment from bouncing a finalized mockup.
+- **Review-overlay parsing**: each timeline comment is run through `parseReviewComment` (from `@slowcook-ai/review-overlay`). Hits become structured `{ payload, classification, rationale }` records; misses fall back to the existing prose-comment path.
+- **Three-way classifier** (`packages/cli/src/commands/plate/classify.ts`):
+  - **Spec-altering** — spec term + structural verb ("remove the pinned strip", "replace pinned with bookmarked"). Highest priority; ESCALATE rather than amend.
+  - **Cosmetic** — any cosmetic word (color/padding/font/spacing/etc.), with or without a spec term, no structural verb. The PM is restyling a known element. Plate amends with min-diff.
+  - **Mock-divergence** — spec terms with no structural verb and no styling cue. Likely "mock shows X but spec says Y". Plate amends to align mock to spec.
+  - **Default fallthrough** is mock-divergence (rather than cosmetic) — false-positive cost is low; keeps the agent's LLM in the reasoning loop.
+  - Heuristic is intentionally conservative on spec-altering to favor PM-confirm rounds over silent spec weakening.
+- **Escalation reply** for each spec-altering comment: posts a structured PR comment naming the matched spec terms + the rationale + three-option resolution path (amend the spec via `/refine`; keep the spec via `/plate keep-spec`; confirm via `/plate confirm-spec-change` — the third lands in α.7.1).
+- **Cosmetic + mock-divergence comments** are forwarded to the existing plate agent as `[cosmetic] selector \`#x\`: …` / `[mock-divergence] selector \`#y\`: …` prose with the classifier rationale appended in italic. Agent gets full context to decide the right amendment.
+- **mock/-only allowed paths**: `listBranchFiles` now scans `mock/scenarios/story-*.ts`, `mock/src/lib/scenario-registry.ts`, `mock/src/components/**/*.tsx`, `mock/src/app/**/page.tsx`. The pre-0.16 `src/` patterns are gone — that filesystem is now brew + slowcook-port territory.
+
+### Tests
+
+- 14 new tests in `packages/cli/src/commands/plate/classify.test.ts` covering: spec-term extraction (acceptance / invariants / api_contract / ui_behavior), each classification rule with realistic story-017 prose, conservative escalation when cosmetic + structural verb collide, fallthrough behavior. Crystal example: "Replace pinned with bookmarked" → spec-altering; "background tint for the strip card" → cosmetic with spec-term context noted.
+- 477 cli tests pass total (was 463; +14 classify).
+- 537 across the workspace (cli 477 + review-overlay 37 + others).
+
+### Architectural notes
+
+- The classifier is **pure deterministic** (no LLM) at α.7. False-negatives on spec-altering would let plate silently weaken the spec — exactly the failure mode the architecture is designed to prevent — so the heuristic favors escalation. LLM-backed classifier is queued for α.7.1 if the heuristic shows real misses on rewo dogfood.
+- The classifier feeds rationale into the agent's prose context for cosmetic/divergence comments. Plate's LLM still has the final amendment decision; the classifier adds a hint, not a hard gate.
+- Escalation comments are NOT marked with the cost-rollup marker (no LLM spend); they're free informational posts.
+
+### Publish state
+
+```
+review-overlay@0.1.0          🟡 in-repo (NEW since α.6)
+cli@0.16.0-alpha.7            🟡 in-repo
+```
+
+Next: α.8 — `slowcook port`: deterministic CLI that copies new `mock/` components into `src/` before brew runs. No LLM; same input → same output; auditable diff.
+
+---
+
 ## 0.16.0-alpha.6 + @slowcook-ai/review-overlay@0.1.0 — element-anchored review overlay
 
 Cut 2026-04-26.

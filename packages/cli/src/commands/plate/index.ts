@@ -13,9 +13,13 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
+import { parseReviewComment, type ReviewCommentPayload } from "@slowcook-ai/review-overlay";
 import { runPlate, type PlateContext } from "./agent.js";
 import { writeVibeFiles } from "../vibe/emit.js";
+import { classifyComment, type Classification } from "./classify.js";
 import type { PlateFeedback } from "./prompts.js";
+
+const APPROVED_LABEL = "slowcook-mockup-approved";
 
 interface PlateArgs {
   prNumber: number;
@@ -213,11 +217,14 @@ function lastPlateCommitDate(repoRoot: string, branch: string): string | null {
 }
 
 function listBranchFiles(repoRoot: string, branch: string): Array<{ path: string; contents: string }> {
-  // Files plate is allowed to amend live under src/ + src/lib/data/*.mock.ts.
-  // We list everything under src/ on the branch and let the agent's own
-  // hard rules govern what to amend.
+  // 0.16.0-α.7 — files plate amends now live under mock/, not src/.
+  // The 0.16 architecture keeps mock + production in separate
+  // filesystems; brew + slowcook port handle the src/ side.
+  // Vibe writes: mock/scenarios/story-N.ts (always), mock/src/lib/
+  // scenario-registry.ts (extends), mock/src/components/.../*.tsx
+  // (rarely — only new primitives). Plate amends any of these.
   const out: Array<{ path: string; contents: string }> = [];
-  const patterns = ["src/**/*.tsx", "src/**/*.ts"];
+  const patterns = ["mock/**/*.tsx", "mock/**/*.ts"];
   for (const pat of patterns) {
     const lsOut = execSync(
       `git -C ${JSON.stringify(repoRoot)} ls-tree -r --name-only ${JSON.stringify(branch)} -- ${JSON.stringify(pat)}`,
@@ -226,13 +233,12 @@ function listBranchFiles(repoRoot: string, branch: string): Array<{ path: string
     for (const line of lsOut.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      // Only include files that vibe would have written: page.tsx,
-      // src/components/**, src/lib/data/*.mock.ts. Skip the brew-target
-      // <domain>.ts stubs (plate must not touch them).
-      const isPage = /\/page\.tsx$/.test(trimmed);
-      const isComponent = trimmed.startsWith("src/components/");
-      const isMockData = /^src\/lib\/data\/[^/]+\.mock\.ts$/.test(trimmed);
-      if (!isPage && !isComponent && !isMockData) continue;
+      // Only include files vibe writes / plate may amend.
+      const isScenario = /^mock\/scenarios\/story-[\w-]+\.ts$/.test(trimmed);
+      const isRegistry = trimmed === "mock/src/lib/scenario-registry.ts";
+      const isMockComponent = trimmed.startsWith("mock/src/components/") && /\.tsx$/.test(trimmed);
+      const isMockPage = /^mock\/src\/app\/.*page\.tsx$/.test(trimmed);
+      if (!isScenario && !isRegistry && !isMockComponent && !isMockPage) continue;
       try {
         const contents = execSync(
           `git -C ${JSON.stringify(repoRoot)} show ${JSON.stringify(branch + ":" + trimmed)}`,
@@ -279,6 +285,18 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
       `PR #${pr.number} head branch '${pr.headBranch}' doesn't match slowcook/mockup/story-N convention. Refusing to act.`
     );
     process.exit(2);
+  }
+
+  // 0.16.0-α.7 — refuse to amend after the PM applied the
+  // slowcook-mockup-approved label. A stray review-overlay comment
+  // (or accidental /plate) shouldn't bounce a finalized mockup.
+  // PM can remove the label to reopen plate iteration.
+  if (pr.labels.includes(APPROVED_LABEL)) {
+    console.log(
+      `PR #${pr.number} carries label \`${APPROVED_LABEL}\`. Plate refuses to amend approved mockups. ` +
+        `Remove the label to reopen iteration.`
+    );
+    return;
   }
 
   const storyId = pr.headBranch.replace(/^slowcook\/mockup\/story-/, "");
@@ -339,17 +357,94 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
   const filterByDate = (c: { createdAt: string }): boolean =>
     cutoffDate ? c.createdAt > cutoffDate : true;
 
-  const feedback: PlateFeedback = {
-    timelineComments: fetchTimelineComments(pr.number).filter(filterByDate),
-    inlineComments: fetchInlineComments(pr.number).filter(filterByDate),
-    screenshots: [], // α.3.1 will populate from comment attachments
-  };
+  const rawTimeline = fetchTimelineComments(pr.number).filter(filterByDate);
+  const inlineComments = fetchInlineComments(pr.number).filter(filterByDate);
+
+  // 0.16.0-α.7 — split timeline comments into review-overlay (structured,
+  // classified) vs free-prose (unstructured, treated as before).
+  const overlayComments: Array<{
+    payload: ReviewCommentPayload;
+    classification: Classification;
+    rationale: string;
+    matchedSpecTerms: string[];
+    raw: { author: string; body: string; createdAt: string };
+  }> = [];
+  const proseTimeline: Array<{ author: string; body: string; createdAt: string }> = [];
+  for (const c of rawTimeline) {
+    const payload = parseReviewComment(c.body);
+    if (payload) {
+      const cls = classifyComment({ prose: payload.prose, specYaml });
+      overlayComments.push({
+        payload,
+        classification: cls.classification,
+        rationale: cls.rationale,
+        matchedSpecTerms: cls.matchedSpecTerms,
+        raw: c,
+      });
+    } else {
+      proseTimeline.push(c);
+    }
+  }
+
+  const specAltering = overlayComments.filter((o) => o.classification === "spec-altering");
+  const cosmeticOrDivergent = overlayComments.filter(
+    (o) => o.classification !== "spec-altering"
+  );
 
   console.log(
-    `Feedback to act on: ${feedback.timelineComments.length} timeline comment(s), ${feedback.inlineComments.length} inline comment(s).`
+    `Feedback to act on: ${proseTimeline.length} prose comment(s), ${overlayComments.length} review-overlay comment(s) ` +
+      `(${cosmeticOrDivergent.length} amendable, ${specAltering.length} spec-altering — escalating), ` +
+      `${inlineComments.length} inline comment(s).`
   );
-  if (feedback.timelineComments.length === 0 && feedback.inlineComments.length === 0) {
-    console.log("Nothing to amend. Exiting cleanly.");
+
+  // 0.16.0-α.7 — for each spec-altering comment, post an escalation
+  // reply on the PR and EXCLUDE it from the agent's feedback. The PM
+  // can confirm via /plate confirm-spec-change (handled in α.7.1)
+  // OR via amending the spec PR upstream.
+  if (specAltering.length > 0) {
+    const githubAdapter = new GitHubAdapter({ owner, repo, token: githubToken });
+    for (const sa of specAltering) {
+      await githubAdapter.createIssueComment(
+        pr.number,
+        buildEscalationBody(sa, cliVersion)
+      );
+    }
+    console.log(
+      `Posted ${specAltering.length} escalation reply/replies for spec-altering comments. They will NOT influence this plate amendment.`
+    );
+  }
+
+  // For mock-divergence + cosmetic, render their structured prose into
+  // the timeline-comment shape the agent already understands. The
+  // classification rationale becomes a hint the agent sees in context.
+  const classifiedTimelineForAgent: Array<{ author: string; body: string; createdAt: string }> = [
+    ...proseTimeline,
+    ...cosmeticOrDivergent.map((o) => ({
+      author: o.raw.author,
+      body:
+        `[${o.classification}] selector \`${o.payload.element.selector}\` (${o.payload.element.tag}` +
+        `${o.payload.element.text_hint ? ` · "${o.payload.element.text_hint}"` : ""}):\n\n` +
+        o.payload.prose +
+        `\n\n_(Plate classifier: ${o.rationale})_`,
+      createdAt: o.raw.createdAt,
+    })),
+  ];
+
+  const feedback: PlateFeedback = {
+    timelineComments: classifiedTimelineForAgent,
+    inlineComments,
+    screenshots: [], // α.3.1 / α.7.x will populate from comment attachments
+  };
+
+  if (
+    feedback.timelineComments.length === 0 &&
+    feedback.inlineComments.length === 0
+  ) {
+    if (specAltering.length > 0) {
+      console.log("Only spec-altering feedback present — escalations posted; no amendment to make.");
+    } else {
+      console.log("Nothing to amend. Exiting cleanly.");
+    }
     return;
   }
 
@@ -438,6 +533,59 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     )
   );
   console.log(`Plate amendment pushed + summary posted on PR #${pr.number}.`);
+}
+
+/**
+ * 0.16.0-α.7 — build the escalation reply for a spec-altering review-
+ * overlay comment. The PM either:
+ *   (a) confirms via /plate confirm-spec-change → α.7.1+ (TODO)
+ *   (b) amends the spec via /refine on the spec PR upstream
+ *   (c) discards via /plate keep-spec
+ *
+ * Until α.7.1 lands, options (a) + (c) are advisory; option (b) is
+ * the working path. The PM must amend the spec, re-merge, and the
+ * mockup PR's vibe will get the new spec on next iteration.
+ */
+function buildEscalationBody(
+  sa: {
+    payload: { element: { selector: string; tag: string; text_hint: string | null }; prose: string };
+    rationale: string;
+    matchedSpecTerms: string[];
+  },
+  cliVersion: string
+): string {
+  const lines: string[] = [];
+  lines.push("### slowcook · plate · spec-altering feedback (escalated)");
+  lines.push("");
+  lines.push(
+    `Plate classified the previous review-overlay comment on \`${sa.payload.element.selector}\` ` +
+      `as **spec-altering** and is NOT amending the mock for it. The reasoning:`
+  );
+  lines.push("");
+  lines.push(`> ${sa.rationale}`);
+  if (sa.matchedSpecTerms.length > 0) {
+    lines.push("");
+    lines.push(
+      `Matched spec terms: ${sa.matchedSpecTerms.map((t) => `\`${t}\``).join(", ")}`
+    );
+  }
+  lines.push("");
+  lines.push("**To proceed, choose one:**");
+  lines.push("");
+  lines.push(
+    `- **Amend the spec** (recommended): \`/refine\` on the spec PR upstream and the next mockup iteration picks up the new contract.`
+  );
+  lines.push(
+    `- **Keep the spec, discard this comment**: comment \`/plate keep-spec\` and plate will skip this on the next iteration.`
+  );
+  lines.push(
+    `- **Confirm the spec change inline**: comment \`/plate confirm-spec-change\` (lands in α.7.1; until then use the spec PR path).`
+  );
+  lines.push("");
+  lines.push(
+    `<!-- slowcook:cost agent=plate type=escalation cli=${cliVersion} -->`
+  );
+  return lines.join("\n");
 }
 
 function plateReplyBody(
