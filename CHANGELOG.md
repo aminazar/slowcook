@@ -6,6 +6,60 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.8 — `slowcook port`: deterministic mock → src copy
+
+Cut 2026-04-26.
+
+The reconciliation step between vibe's mock and brew's production work. No LLM; same input → same output; auditable diff in the brew PR. Runs as a CI step before brew so brew's allowed-paths can shrink dramatically (UI shape becomes fixed at port time).
+
+### What's new
+
+- **`slowcook port --story <id>`** (`packages/cli/src/commands/port/`):
+  - Walks `mock/src/components/` + `mock/src/app/` (recursive .ts/.tsx).
+  - For each file, computes the destination via `mockPathToSrcPath`: `mock/src/<rest>` → `src/<rest>`. Excludes `mock/scenarios/`, `mock/src/lib/scenario-registry.ts`, anything outside `mock/src/`.
+  - Applies the deterministic transforms in `transform.ts`:
+    1. `import { useScenarioFixture } from "@slowcook-ai/mock-runtime"` → `import { useDataDomain } from "@/lib/data"`.
+    2. `useScenarioFixture<T>("domain")` → `useDataDomain<T>("domain")` at every call site.
+    3. Strip `// @slowcook-mock-only` markers.
+    4. Prepend port-provenance header: `// @slowcook-port-from mock/ (story-N)` (placed AFTER `"use client";` if present).
+  - Idempotent: re-running on a previously-ported file is a no-op.
+  - Refuses to overwrite an existing `src/` file that does NOT carry the `@slowcook-port-from` marker (signals a hand-edited prod file). `--force` overrides.
+  - `--dry-run` prints planned actions without writing.
+  - Exit codes: `0` success / `2` blocked-conflict.
+- **CLI dispatch + USAGE updated**: `slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]`.
+
+### What brew (--mode plate, α.9) inherits
+
+Because port is deterministic + auditable + runs first:
+
+- Brew's allowed-paths can be narrow: `src/lib/data/**`, `src/app/api/**`, `supabase/migrations/**`, `tests/**`. Frozen-paths guard rejects writes to `src/**/*.tsx` and `src/components/**` because port owns them.
+- The placeholder import target `@/lib/data#useDataDomain` is brew's territory: brew writes the actual hook against the real Supabase data layer per spec's `api_contract` response shapes.
+- The port-provenance header gives brew a clear "DO NOT TOUCH" signal in every UI file.
+
+### Tests
+
+- 14 new tests in `packages/cli/src/commands/port/transform.test.ts`:
+  - `mockPathToSrcPath` — happy paths + every excluded shape (scenarios, registry, non-mock paths, mock subtrees outside `src/` like Dockerfile / package.json / README).
+  - `transformForPort` — useScenarioFixture rewrite (import + call site); preserved sibling imports from mock-runtime; no-op on irrelevant files; mock-only marker stripping; port-provenance header insertion (with + without "use client"); idempotent on re-run; full integration (real mock component → ported src component, all 4 transforms firing).
+- 491 cli tests pass total (was 477; +14).
+- 528 across the workspace.
+
+### Architectural notes
+
+- **Why deterministic**: brew's reward function is "tests pass". If brew owned the UI port, every iteration could subtly redesign the component to make a test pass. With port being a string-rewrite step that runs once before brew, the UI shape is frozen at brew's start. Brew's only paths to green are: write better data layer / fix handler / add migration. That's the wiring problem brew is good at.
+- **Why a stub `useDataDomain` rather than direct Supabase**: keeps the port transform regex-only. Brew writes the real `@/lib/data` body with the typed hook signature derived from the spec's `api_contract`. The port's output compiles against a stub barrel; brew fills it.
+- **Block-on-conflict default**: catches the consumer's hand-merged production code before port silently overwrites it. The `@slowcook-port-from` marker is the bright line — files that have it are port-owned; files that don't are off-limits without `--force`.
+
+### Publish state
+
+```
+cli@0.16.0-alpha.8            🟡 in-repo
+```
+
+Next: α.9 — brew --mode plate v2 with narrower allowed-paths (port-fronted), `SPEC_AMBIGUITY_DETECTED` halt class for tests-vs-rendered-DOM mismatch, no UI writes (frozen-paths guard rejects).
+
+---
+
 ## 0.16.0-alpha.7 — plate v2: element-anchored comment classifier + escalation
 
 Cut 2026-04-26.

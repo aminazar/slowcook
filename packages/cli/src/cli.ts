@@ -20,6 +20,7 @@ import { map } from "./commands/map/index.js";
 import { extract } from "./commands/extract/index.js";
 import { vibe } from "./commands/vibe/index.js";
 import { plate } from "./commands/plate/index.js";
+import { port } from "./commands/port/index.js";
 import { preview } from "./commands/preview/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
@@ -59,6 +60,7 @@ Usage:
   slowcook extract [--schema] [--tokens] [--cwd <path>]
   slowcook vibe --spec <id> [--cwd <path>] [--owner <login>] [--repo <name>] [--dry-run]
   slowcook plate --pr <number> [--cwd <path>] [--owner <login>] [--repo <name>] [--review-comment-id <id>]
+  slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]
   slowcook preview (deploy|teardown) --pr <number> [--ssh-key <path>] [--cwd <path>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
@@ -83,6 +85,7 @@ Commands available in ${VERSION}:
   extract            Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.
   vibe               (0.15-α.1) Design-first mockup generator. Reads spec + brownfield + code-map; emits runnable React mockup to slowcook/mockup/story-N PR.
   plate              (0.15-α.3) Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
+  port               (0.16-α.8) Deterministic mock/ → src/ copy. Walks mock/src/, applies useScenarioFixture → useDataDomain rewrite, prepends provenance header. Pre-brew CI step.
   preview            (0.16-α.5) SSH preview deploy. \`deploy --pr N\`: build + run the mock app on the consumer's box; post URL to PR. \`teardown --pr N\`: stop + remove.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
@@ -179,6 +182,12 @@ async function main(): Promise<void> {
       // PR comments on a slowcook-mockup PR; reads PM feedback +
       // amends mockup files; force-pushes the same branch.
       await plate(args.slice(1), VERSION);
+      return;
+    case "port":
+      // 0.16.0-α.8 — deterministic copy of mock/src/* → src/*.
+      // No LLM; same input → same output; auditable diff. Runs as a
+      // CI step before brew so brew's allowed-paths can shrink.
+      await port(args.slice(1), VERSION);
       return;
     case "preview":
       // 0.16.0-α.5 — SSH preview deploy. Reads .brewing/preview.yaml,
