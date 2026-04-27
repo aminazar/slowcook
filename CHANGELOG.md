@@ -6,6 +6,40 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.9 + @slowcook-ai/llm-anthropic@0.12.1 — brew --mode plate v2 (post-port)
+
+Cut 2026-04-26.
+
+Tightens `brew --mode plate` for the post-α.8 world where the `src/` UI was deterministically copied from `mock/` by `slowcook port`. Brew now rejects edits to any file carrying the `@slowcook-port-from` marker (defense-in-depth alongside the path-based check), and the system prompt addendum names two distinct halt classes for tests-vs-UI mismatches.
+
+### What's new
+
+- **Marker-aware path protection** (`packages/cli/src/commands/brew/agent.ts`): the plate-mode reject check now reads each changed file's first 2 KB and bails if it sees `@slowcook-port-from`. Catches edits a future path regex might miss; survives renames + relocations of UI files. Fails open on read errors (path-based checks still run).
+- **`SPEC_AMBIGUITY_DETECTED` halt class** (in `BREW_PLATE_MODE_ADDENDUM`): a new framing for "test queries `/Pinned/`; UI renders `Saved`" — both internally consistent (recipe wrote the test from spec; vibe wrote the UI from spec; they interpreted ambiguity differently). Distinct from `MOCKUP_DESIGN_CONFLICT`, which is "the UI shape itself doesn't render this affordance at all". Same XML shape; the difference is in framing the PM reads.
+- **Plate-mode addendum rewritten** for the new architecture:
+  - Explicit "ported via `slowcook port`" framing instead of "plate writes UI directly".
+  - Names the `useDataDomain<T>("domain")` import as the brew-side body to fill (matches α.8's transform output).
+  - "MUST NOT edit" list now includes "ANY file with the `@slowcook-port-from` marker" alongside the path-based `src/**/*.tsx` and `src/components/**`.
+  - Forbids edits to anything under `mock/` (vibe + plate territory).
+  - Two halt examples — MOCKUP_DESIGN_CONFLICT (Pin button missing entirely) vs SPEC_AMBIGUITY_DETECTED (label says "Saved" instead of "Pinned").
+
+### Architectural notes
+
+- **Why marker + path**: the path regexes are good enough today, but as the project layout evolves they could miss (e.g., a new `src/widgets/` directory). The marker is structural — it doesn't depend on the path naming convention staying constant. Cheap (<1ms per file head read) so it's worth keeping both.
+- **Two halt classes, same shape**: the PM acts on the *recommendation* in the halt body, not the class name. Distinct names help the recommendation stay precise — "amend the spec OR /plate the UI" is different from "pick which spelling the spec means".
+- **No new tests**: the change is in steering (prompt addendum) + a structural guard (marker check). The path-based reject already had test coverage in the existing brew agent tests; adding marker coverage would require simulating a full brew iteration, which is not unit-testable in this architecture. End-to-end validation lands when α.10 wires the pipeline + a real brew runs against rewo.
+
+### Publish state
+
+```
+llm-anthropic@0.12.1          🟡 in-repo (BREW_PLATE_MODE_ADDENDUM rewritten)
+cli@0.16.0-alpha.9            🟡 in-repo
+```
+
+Next: α.10 — orchestration trigger chain. `slowcook-mockup-merged.yml` (mirrors slowcook-spec-merged) + a both-merged trigger that fires `slowcook port` then brew once both the mockup PR and the recipe-tests PR are in.
+
+---
+
 ## 0.16.0-alpha.8 — `slowcook port`: deterministic mock → src copy
 
 Cut 2026-04-26.

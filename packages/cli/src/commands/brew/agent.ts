@@ -597,13 +597,29 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // `src/lib/data/` is in allowed_paths so the agent can swap stubs,
     // `*.mock.ts` files inside that directory are plate's territory
     // and must NOT be edited. Same hard-signal logic as frozen-paths.
+    //
+    // 0.16.0-α.9 — also reject ANY file that carries the
+    // `@slowcook-port-from` marker (the deterministic port step from
+    // α.8 stamps every UI file it copies). Defense-in-depth: even if a
+    // future path regex misses, the marker is a structural signal that
+    // the file is port-owned, NOT brew-owned.
     const platePathHit =
       ctx.mode === "plate"
-        ? diff.changedPaths.find((p) =>
-            /\.mock\.ts$/.test(p) ||
-            /^src\/components\//.test(p) ||
-            /^src\/.*\.tsx$/.test(p)
-          )
+        ? diff.changedPaths.find((p) => {
+            if (/\.mock\.ts$/.test(p)) return true;
+            if (/^src\/components\//.test(p)) return true;
+            if (/^src\/.*\.tsx$/.test(p)) return true;
+            // 0.16.0-α.9 — marker check. Reading the working-tree
+            // version because the agent's edit IS the working tree.
+            try {
+              const fullPath = join(ctx.repoRoot, p);
+              if (existsSync(fullPath)) {
+                const head = readFileSync(fullPath, "utf8").slice(0, 2048);
+                if (head.includes("@slowcook-port-from")) return true;
+              }
+            } catch { /* ignore — fall through to other checks */ }
+            return false;
+          })
         : null;
     if (platePathHit) {
       revertToSnapshot(ctx, snapshot);
