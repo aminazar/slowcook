@@ -91,6 +91,23 @@ What it writes:
 `);
 }
 
+function detectMockPackageName(args: MockInitArgs): string {
+  // Try the parent package.json's name; fall back to "slowcook-mock".
+  // npm rejects `${...}` in name, so the previous literal placeholder
+  // broke `npm install` — bug fix in 0.16.0-alpha.11.
+  try {
+    const parent = JSON.parse(
+      readFileSync(join(args.cwd, "package.json"), "utf8")
+    ) as { name?: string };
+    if (parent.name && /^[a-z0-9_-]/i.test(parent.name)) {
+      // Strip leading @scope/
+      const base = parent.name.replace(/^@[^/]+\//, "");
+      return `${base}-mock`;
+    }
+  } catch { /* ignore */ }
+  return "slowcook-mock";
+}
+
 export function planMockFiles(args: MockInitArgs): FileToWrite[] {
   const productionGlobals = join(args.cwd, "src/app/globals.css");
   let globalsContents: string;
@@ -107,8 +124,9 @@ export function planMockFiles(args: MockInitArgs): FileToWrite[] {
     globalsContents = MINIMAL_GLOBALS_CSS;
     globalsNote = "(no src/app/globals.css found; wrote minimal Tailwind directives — extend manually)";
   }
+  const pkgName = detectMockPackageName(args);
   return [
-    { path: "mock/package.json", contents: PACKAGE_JSON(args.runtimeVersion), skipIfExists: true },
+    { path: "mock/package.json", contents: PACKAGE_JSON(args.runtimeVersion, pkgName), skipIfExists: true },
     { path: "mock/Dockerfile", contents: DOCKERFILE, skipIfExists: true },
     { path: "mock/tsconfig.json", contents: TSCONFIG, skipIfExists: true },
     { path: "mock/next.config.js", contents: NEXT_CONFIG, skipIfExists: true },
@@ -186,13 +204,15 @@ export async function initMock(argv: string[], cliVersion: string): Promise<void
  * here. After 0.16 the cli's package.json could carry a peer-pin field.
  */
 function mockRuntimeVersionFor(_cliVersion: string): string {
-  return "^0.1.1";
+  // Pin to ^0.1.0 — what's actually on npm. ^ picks up 0.1.x patches
+  // when they publish; bumping past 0.2 needs an intentional cli release.
+  return "^0.1.0";
 }
 
 // ---------------- templates ----------------
 
-const PACKAGE_JSON = (runtimeVersion: string) => `{
-  "name": "${"$"}{REPO_NAME}-mock",
+const PACKAGE_JSON = (runtimeVersion: string, name: string) => `{
+  "name": "${name}",
   "version": "0.0.0",
   "private": true,
   "description": "Singular UI mock app. Run with \`npm run dev\` on :3100. See mock/README.md.",

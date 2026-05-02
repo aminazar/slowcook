@@ -6,6 +6,27 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.11 — `slowcook init mock` bug fixes (caught at first rewo dogfood)
+
+Cut 2026-05-02. Two bugs caught immediately when running `init mock` on rewo for the first time:
+
+1. **`mock/package.json` pinned `@slowcook-ai/mock-runtime` to `^0.1.1`** — but only `0.1.0` is published on npm. `npm install` would fail until `0.1.1` ships. Changed pin to `^0.1.0`; semver caret picks up patches when they publish.
+2. **`mock/package.json#name` was the literal `${REPO_NAME}-mock`** — a placeholder that never got substituted (the source had `${"$"}{REPO_NAME}-mock` which renders as the literal string). npm rejects names with curly braces, so `npm install` would fail. Replaced with `detectMockPackageName()` that reads the parent `package.json#name`, strips any leading `@scope/`, and appends `-mock` (falls back to `slowcook-mock`).
+
+Both bugs would have stopped any consumer cold on the first `cd mock && npm install`. The fix is mechanical — no spec changes, no workflow changes — just template-output corrections.
+
+10 init/mock tests still pass (they assert structure, not these two specific values; adding regression assertions for them next session).
+
+### Publish state
+
+```
+cli@0.16.0-alpha.11           🟡 in-repo (init-mock fix)
+```
+
+Next: actually run vibe end-to-end on rewo's story-017 once the publish queue clears + ANTHROPIC_API_KEY is available.
+
+---
+
 ## 0.16.0-alpha.10 + @slowcook-ai/forge-github@0.11.1 — orchestration trigger chain
 
 Cut 2026-04-26. **Final α before 0.16 cuts.**
