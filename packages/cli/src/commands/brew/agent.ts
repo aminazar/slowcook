@@ -282,15 +282,34 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     `BASELINE_FULL  total=${fullBaseline.tests.length} green=${fullBaselineGreen.size} red=${fullBaseline.tests.length - fullBaselineGreen.size}`
   );
   if (!baseline.ran) {
-    return haltFor(ctx, {
-      reason: "TEST_RUNNER_BROKEN",
-      iterations: 0,
-      checkpoints: 0,
-      greenCount: 0,
-      totalCount: expectedTestIds.size,
-      spendUsd: 0,
-      summary: `Test runner failed to produce usable output on the baseline run. Error: ${baseline.error ?? "(unknown)"}. Fix the runner before brewing.`,
-    });
+    // 0.16.0-α.28 — partial-degradation: if SOME suites produced tests
+    // (e.g. backend vitest passed) but others failed (e.g. playwright
+    // acceptance crashed because Next webServer couldn't boot without
+    // .env.acceptance), proceed with what we got + log the degradation
+    // instead of halting TEST_RUNNER_BROKEN. Halt only when nothing ran.
+    if (baseline.tests.length === 0) {
+      return haltFor(ctx, {
+        reason: "TEST_RUNNER_BROKEN",
+        iterations: 0,
+        checkpoints: 0,
+        greenCount: 0,
+        totalCount: expectedTestIds.size,
+        spendUsd: 0,
+        summary: `Test runner failed to produce usable output on the baseline run. Error: ${baseline.error ?? "(unknown)"}. Fix the runner before brewing.`,
+      });
+    }
+    const failedSuiteNames = baseline.suites
+      .filter((s) => s.exit_code !== 0)
+      .map((s) => s.suite)
+      .join(", ") || "(unknown)";
+    console.log(
+      `⚠ baseline DEGRADED — suite(s) "${failedSuiteNames}" couldn't boot; proceeding with ${baseline.tests.length} test(s) from suite(s) that did run.`
+    );
+    console.log(`   degradation reason: ${(baseline.error ?? "").slice(0, 300)}`);
+    appendRunLog(
+      ctx,
+      `BASELINE_DEGRADED  failed_suites=${failedSuiteNames}  surviving_tests=${baseline.tests.length}  reason="${(baseline.error ?? "").slice(0, 200).replace(/"/g, "'")}"`
+    );
   }
 
   // Fix 1 (0.7.14): keep a lookup of failure messages per test id so
@@ -714,7 +733,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // story's manifest files (0.11.16+) for fast feedback. Full
     // suite runs at brew completion as the correctness gate.
     const result = runTestSuite(ctx, storyTestFiles);
-    if (!result.ran) {
+    if (!result.ran && result.tests.length === 0) {
+      // 0.16.0-α.28 — only halt when zero tests came back. Same
+      // degrade-on-partial policy as the baseline run: if SOME suite
+      // produced tests, proceed with what we got.
       revertToSnapshot(ctx, snapshot);
       iterationLogs.push({
         iteration,

@@ -6,6 +6,43 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.28 — brew auto-degrades when one suite can't boot
+
+Cut 2026-05-03. Follow-up to α.27 — same shape, different surface: brew should resolve "one suite is unrunnable in this environment" by proceeding with the suite that DID run, not by halting `TEST_RUNNER_BROKEN`.
+
+### Trigger
+
+Rewo brew --mode plate dispatched on the Contabo runner; baseline acceptance suite (`ACCEPTANCE=1 npx playwright test`) booted Next as a webServer; Next crashed at the Supabase client step because `.env.acceptance` wasn't written (no acceptance creds in the rewo CI). Backend vitest suite passed fine and produced 24 tests, but stack-ts returned `ran: false` because the playwright suite errored — and brew halted at iteration 0 with $0 spent.
+
+### Behavior change
+
+Per-suite degradation: if `runTests` returns `ran: false` but `tests.length > 0`, brew now logs a `BASELINE_DEGRADED` notice + proceeds with the surviving tests. Same for the per-iter mid-brew run.
+
+| Run state | Old | New |
+|---|---|---|
+| All suites OK | continue | continue |
+| All suites failed (zero tests) | HALT TEST_RUNNER_BROKEN | HALT TEST_RUNNER_BROKEN |
+| Some suites failed (some tests) | **HALT TEST_RUNNER_BROKEN** | **DEGRADE — proceed with surviving tests** |
+
+### Architectural rhyme with α.27
+
+Both releases follow the same principle: the agent should resolve its own friction instead of asking the operator to hand-fix CI.
+
+- α.27: port resolves destination collisions (skip-with-notice, not abort)
+- α.28: brew resolves per-suite boot failures (degrade-with-notice, not abort)
+
+In both cases the operator's "hand fix" was a one-line CI patch — a smell that the harness was off-loading its own resilience to the consumer.
+
+### What's still on the operator
+
+If the entire test runner is unrunnable (zero tests at all from any suite), brew still halts. That's a real "fix it before brewing" signal.
+
+### Files
+
+- `packages/cli/src/commands/brew/agent.ts` — degrade-on-partial logic in baseline + per-iter halt paths
+
+---
+
 ## 0.16.0-alpha.27 — port resolves conflicts itself (no abort, no hardcoded shell list)
 
 Cut 2026-05-03. Follow-up to α.26's hardcoded layout/page/globals.css exclusions. User feedback: "when there is a port conflict, port should be able to resolve it, not you hand fix it."
