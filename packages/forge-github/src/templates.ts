@@ -364,7 +364,7 @@ function slowcookBrewAutoWorkflow(): string {
 #
 #   1. Looks up whether the OTHER half is also merged on main.
 #   2. If yes → dispatches slowcook-brew.yml with mode=plate (mock
-#      present) or mode=legacy (no mock — backend-only story).
+#      present). 0.17.0+ removed the legacy fallback — mock is mandatory.
 #   3. If no  → posts a "waiting for the other half" notice and exits;
 #      the next merge of the missing half re-fires this workflow,
 #      which finds both halves and dispatches.
@@ -469,31 +469,15 @@ jobs:
                 -f model=claude-sonnet-4-6 \\
                 -f mode=$MODE || true
             else
-              # If this is the tests half merging and there's no mockup,
-              # this is likely a backend-only / non-UI story — dispatch
-              # legacy brew. Detect by looking for any mockup PR (open
-              # or merged) with a title containing this story-id.
-              if [ "$KIND" = "tests" ]; then
-                ANY_MOCKUP=$(gh pr list \\
-                  --repo \${{ github.repository }} \\
-                  --state all \\
-                  --label "slowcook-mockup" \\
-                  --json number,title \\
-                  --jq "[.[] | select(.title | contains(\\"story-$id\\"))] | length" \\
-                  || echo "0")
-                if [ "$ANY_MOCKUP" -eq 0 ]; then
-                  echo "No mockup PR ever existed for story-$id; treating as backend-only. Dispatching brew (mode=legacy)."
-                  gh workflow run slowcook-brew.yml \\
-                    --repo \${{ github.repository }} \\
-                    -f story_id=$id \\
-                    -f budget_usd=10 \\
-                    -f max_iterations=10 \\
-                    -f model=claude-sonnet-4-6 \\
-                    -f mode=legacy || true
-                  continue
-                fi
-              fi
-              echo "::notice::Waiting for a merged $OTHER_LABEL PR with story-$id in its title before brew can fire."
+              # 0.17.0 — brew NEVER runs without a mock + PM-reviewed plate
+              # amendments. The legacy backend-only fallback is removed —
+              # even cron / admin endpoints need a mockup (an API tester
+              # page, error states, etc.) so the PM has a reviewable
+              # surface before brew commits real code. Stories that
+              # genuinely have NO UI at all opt in via explicit
+              # \`slowcook-no-mock-required\` label on the spec PR (rare;
+              # not auto-detected here).
+              echo "::notice::Waiting for a merged $OTHER_LABEL PR with story-$id in its title before brew can fire. Brew requires a mock + PM-reviewed plate amendments."
             fi
           done
 `;
