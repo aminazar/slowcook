@@ -50,12 +50,16 @@ export function parseByReporterFormat(
     case "vitest-json":
       return parseVitestList(output);
     case "playwright-list-lines":
+    case "playwright-list":
+    // For compat with stack.json files written before 0.17.0-alpha.3
+    // when the template inadvertently emitted `playwright-list` (the
+    // parser only ever knew `playwright-list-lines`). Accept both.
     case "playwright-json":
       return parsePlaywrightList(output);
     default:
       throw new Error(
         `Unknown reporter_format: ${JSON.stringify(format)}. ` +
-          `Supported: vitest-list-lines. Coming: playwright-list-lines.`
+          `Supported: vitest-list-lines, playwright-list-lines (or alias playwright-list).`
       );
   }
 }
