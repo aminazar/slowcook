@@ -39,6 +39,7 @@ import {
   saveCachedComments,
   fetchPrLabels,
   addLabelsToPr,
+  submitPrApproval,
   APPROVED_LABEL,
   type RepoCoord,
   type OverlayCommentRecord,
@@ -240,11 +241,16 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         setFeedback("Approval cancelled — no PAT.");
         return;
       }
-      // 0.4.2 — apply the label first (this is the load-bearing signal
-      // plate reads), then post the human-readable comment. If the
-      // label add fails (PAT lacks permission, label doesn't exist on
-      // the repo, etc.), the comment still goes out so the PM has a
-      // record + can manually apply.
+      // 0.5.2 — three things land on approve, in order:
+      //   1. Label add (the load-bearing signal plate reads)
+      //   2. PR review with event=APPROVE (so GitHub's PR header
+      //      shows the green ✓ approval — what the PM expects when
+      //      they click an "Approve" button on a PR)
+      //   3. Audit-trail comment summarizing what fired + what didn't
+      //
+      // Each step degrades independently (label add can fail without
+      // blocking the PR review; PR-review self-approval can fail
+      // without blocking the label). The comment names which fired.
       const labelOk = await addLabelsToPr({
         owner: repoCoord.owner,
         repo: repoCoord.repo,
@@ -252,11 +258,22 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         pat,
         labels: [APPROVED_LABEL],
       });
-      const body = `### ✅ Mockup approved\n\nPM approved the mockup via the review overlay (\`${overlayVersion}\`).${
-        labelOk
-          ? `\n\nLabel \`${APPROVED_LABEL}\` applied; plate will refuse further amendments.`
-          : `\n\n⚠️ Could NOT auto-apply \`${APPROVED_LABEL}\` (PAT may lack write scope OR label may not exist on the repo). Please apply it manually.`
-      }`;
+      const reviewResult = await submitPrApproval({
+        owner: repoCoord.owner,
+        repo: repoCoord.repo,
+        pr: prNumber,
+        pat,
+        body: `Mockup approved via slowcook review overlay (\`${overlayVersion}\`). Plate will refuse further amendments while \`${APPROVED_LABEL}\` is set.`,
+      });
+      const reviewOk = reviewResult.ok;
+      const reviewNote = reviewOk
+        ? `PR review submitted with event=APPROVE.`
+        : `⚠️ PR review (event=APPROVE) failed: ${reviewResult.status ?? "?"} ${reviewResult.message ?? ""}` +
+          ` (GitHub forbids approving your own PR; if this is your PR, the label + comment still mark intent.)`;
+      const labelNote = labelOk
+        ? `Label \`${APPROVED_LABEL}\` applied; plate will refuse further amendments.`
+        : `⚠️ Could NOT auto-apply \`${APPROVED_LABEL}\` (PAT may lack write scope OR label may not exist on the repo). Please apply it manually.`;
+      const body = `### ✅ Mockup approved\n\nPM approved the mockup via the review overlay (\`${overlayVersion}\`).\n\n${labelNote}\n\n${reviewNote}`;
       const result = await submitComment({
         owner: repoCoord.owner,
         repo: repoCoord.repo,
@@ -265,11 +282,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         body,
       });
       if (result.ok) {
-        setFeedback(
-          labelOk
-            ? `Approved · label applied · comment #${result.commentId}.`
-            : `Comment #${result.commentId} posted, but label add failed — apply manually.`
-        );
+        const parts: string[] = [];
+        if (labelOk) parts.push("label applied");
+        if (reviewOk) parts.push("PR approved");
+        parts.push(`comment #${result.commentId}`);
+        setFeedback(`Approved · ${parts.join(" · ")}.`);
         setMode("nav");
         if (labelOk) setIsApproved(true); // optimistic; focus-refresh confirms
       } else {

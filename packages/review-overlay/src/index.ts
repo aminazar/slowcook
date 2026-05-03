@@ -51,6 +51,7 @@ export {
   emptyStats,
   fetchPrLabels,
   addLabelsToPr,
+  submitPrApproval,
   APPROVED_LABEL,
   type RepoCoord,
   type SubmitArgs,

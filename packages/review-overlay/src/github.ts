@@ -376,6 +376,55 @@ export async function addLabelsToPr(args: {
 }
 
 /**
+ * 0.5.2 — submit a PR review with `event: "APPROVE"`. Used by the
+ * approve flow alongside the label add + comment so the PR shows
+ * a real green ✓ approval in GitHub's PR header.
+ *
+ * Note: GitHub forbids self-approving by default ("Pull request
+ * reviews cannot be requested from pull request authors"). On
+ * single-author repos / dogfood repos this works because the PAT
+ * holder approves a bot-authored PR. Returns false on the
+ * self-approval rejection so the overlay degrades gracefully.
+ */
+export async function submitPrApproval(args: {
+  owner: string;
+  repo: string;
+  pr: number;
+  pat: string;
+  body?: string;
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ ok: boolean; status?: number; message?: string }> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/pulls/${args.pr}/reviews`;
+  try {
+    const res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({
+        event: "APPROVE",
+        body: args.body ?? "Mockup approved via slowcook review overlay.",
+      }),
+    });
+    if (res.ok) return { ok: true };
+    let detail = "";
+    try {
+      const j = (await res.json()) as { message?: string };
+      detail = j.message ?? "";
+    } catch { /* non-json */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+}
+
+/**
  * 0.4.2 — fetch the labels currently on a PR. Used by the overlay to
  * detect approval state on mount + by the scenario-stats aggregator.
  */

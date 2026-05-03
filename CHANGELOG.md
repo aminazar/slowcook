@@ -6,6 +6,37 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.21 + @slowcook-ai/review-overlay@0.5.2 — approve also submits PR review
+
+Cut 2026-05-03. Closes a real-bug gap: clicking ✅ Approve in the overlay applied the label + posted a comment, but never submitted an actual GitHub PR review with `event: "APPROVE"`. So the PR header didn't show the green ✓ check that PMs expect when they "approve a PR".
+
+### review-overlay@0.5.2
+
+- **`submitPrApproval`** new exported helper — POSTs to `/repos/{owner}/{repo}/pulls/{pr}/reviews` with `event: "APPROVE"` + body. Returns `{ ok, status?, message? }` so callers can handle GitHub's self-approval rejection gracefully.
+- **`submitApproval` in the React overlay** now does three things in order, each degrading independently:
+  1. Apply `slowcook-mockup-approved` label (the load-bearing signal plate reads — α.4.2)
+  2. Submit PR review with `event: "APPROVE"` (the visible-on-PR-header signal — α.5.2)
+  3. Post audit-trail comment summarizing what fired + what didn't
+- The audit-trail comment now lists each step's outcome explicitly: `Label X applied; PR review submitted with event=APPROVE; comment #N`.
+- The feedback toast in the overlay summarizes: `Approved · label applied · PR approved · comment #N`.
+
+### Self-approval caveat
+
+GitHub forbids approving your own PR by default. On bot-authored mockup PRs (the slowcook-vibe[bot] or slowcook-plate[bot] author), the human PAT-holder can approve cleanly. On hand-authored mockup PRs, the PR review fails — but the label + comment still mark intent + plate still respects the label refusal. The audit comment notes this when it happens.
+
+### Tests
+
+- 37 overlay + 501 cli tests still pass. The new helper is exercised through the existing submit-comment test patterns in github.test.ts (same mock-fetch shape).
+
+### Publish state
+
+```
+review-overlay@0.5.2          🟡 in-repo
+cli@0.16.0-alpha.21           🟡 in-repo
+```
+
+---
+
 ## 0.16.0-alpha.20 + @slowcook-ai/review-overlay@0.5.1 — overlay auto-detect + hydration-mismatch fix
 
 Cut 2026-05-03. Two queue items addressed:
