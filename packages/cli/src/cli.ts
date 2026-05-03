@@ -9,6 +9,7 @@ import { refine } from "./commands/refine/index.js";
 import { onSpecMerged } from "./commands/on-spec-merged/index.js";
 import { onTestsMerged } from "./commands/on-tests-merged/index.js";
 import { onBrewMerged } from "./commands/on-brew-merged/index.js";
+import { onMockupApproved } from "./commands/on-mockup-approved/index.js";
 import { testgen } from "./commands/testgen/index.js";
 import { investigate } from "./commands/investigate/index.js";
 import { recipeRegression } from "./commands/recipe-regression/index.js";
@@ -126,6 +127,12 @@ async function main(): Promise<void> {
       return;
     case "on-brew-merged":
       await onBrewMerged(args.slice(1));
+      return;
+    case "on-mockup-approved":
+      // 0.16.0-α.23 — fires from the slowcook-mockup-approved.yml
+      // workflow on label-add. Posts a cost-rollup audit comment on
+      // the source issue (looked up via spec.source_issue).
+      await onMockupApproved(args.slice(1));
       return;
     case "testgen":
     case "recipe":

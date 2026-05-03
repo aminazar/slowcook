@@ -6,6 +6,58 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.23 + @slowcook-ai/forge-github@0.11.3 — mockup PRs link issues + on-mockup-approved cost-rollup
+
+Cut 2026-05-03. Two iter-9 dogfood asks: humans track work via GitHub issues; "story-17" alone in a PR title doesn't help anyone find the issue that originated it.
+
+### vibe (cli@α.23) — `Closes #N` in mockup PR
+
+- New `parseSourceIssueNumber(specYaml)` extracts `source_issue: "#138"` from the spec.
+- Mockup PR body now starts with `Closes #138` so GitHub auto-links bidirectionally + auto-closes the issue when the PR merges.
+- PR title also gets the issue ref appended: `mockup: story-017 (#138)`.
+- Plate amendments don't need this — they comment on the existing PR thread which already carries the link.
+
+### NEW `slowcook on-mockup-approved` (cli@α.23)
+
+CLI subcommand triggered by a workflow on `pull_request.labeled` with `slowcook-mockup-approved`. Walks the mockup PR's comment thread, extracts every `<!-- slowcook:cost agent=X usd=Y ... -->` marker (vibe's initial emit + every plate amendment), groups by agent, sums total, posts an audit comment on the source issue:
+
+```
+### slowcook · mockup approved (story-017)
+
+Mockup PR #147 signed off; slowcook-mockup-approved label applied.
+Plate refuses further amendments. Next: merge the PR to fire
+brew --mode plate (once recipe-tests PR is also merged).
+
+#### Spend so far on this story
+
+| Agent | Runs |     $ |
+|-------|-----:|------:|
+| plate |    4 | 2.92 |
+| vibe  |    1 | 0.88 |
+| Total |    5 | 3.80 |
+
+Post-merge brew run will add its own cost line; the on-brew-merged
+comment will fire when that lands.
+```
+
+### NEW workflow `slowcook-mockup-approved.yml` (forge-github@0.11.3)
+
+Fires on `pull_request: [labeled]` when the label === `slowcook-mockup-approved` AND PR carries `slowcook-mockup`. Calls `slowcook on-mockup-approved --pr N`. Sister to slowcook-spec-merged / slowcook-tests-merged / slowcook-brew-merged so the issue thread tells the full pipeline story end-to-end.
+
+### Tests
+
+- 501 cli tests still pass.
+- New on-mockup-approved subcommand needs an integration test against a mock GitHub API; queued for α.24 (the cost-marker regex is exercised by manual review of the live PR #147 thread).
+
+### Publish state
+
+```
+forge-github@0.11.3           🟡 in-repo (slowcook-mockup-approved.yml)
+cli@0.16.0-alpha.23           🟡 in-repo (vibe Closes-N + on-mockup-approved subcommand)
+```
+
+---
+
 ## 0.16.0-alpha.22 + @slowcook-ai/mock-runtime@0.3.3 — mobile-responsive APPROVED + run-mock auto-update slowcook deps
 
 Cut 2026-05-03. Two iter-8 dogfood findings:

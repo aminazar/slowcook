@@ -151,6 +151,55 @@ ${RESOLVE_PIN_STEP}
 `;
 }
 
+/**
+ * 0.16.0-α.23 — slowcook-mockup-approved workflow. Fires when the
+ * `slowcook-mockup-approved` label is added to a slowcook-mockup PR
+ * (overlay's approve flow does this, or PM does it manually). Posts
+ * a cost-rollup audit comment on the originating GitHub issue so
+ * the issue thread tracks the half-way mark of the pipeline.
+ *
+ * Sister to slowcook-spec-merged / slowcook-tests-merged / slowcook-
+ * brew-merged. Approval is the "design contract signed off" event;
+ * brew runs after the PR actually merges.
+ */
+function slowcookMockupApprovedWorkflow(): string {
+  return `name: slowcook — mockup approved
+
+# Posts a cost-rollup audit comment on the source issue when a
+# mockup PR gets the slowcook-mockup-approved label. Approval is
+# "design contract signed off"; brew runs after the PR merges.
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  comment:
+    if: >-
+      github.event.label.name == 'slowcook-mockup-approved' &&
+      contains(github.event.pull_request.labels.*.name, 'slowcook-mockup')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Post cost-rollup on source issue
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes "$SLOWCOOK_CLI" on-mockup-approved --pr \${{ github.event.pull_request.number }}
+`;
+}
+
 function slowcookTestsMergedWorkflow(): string {
   return `name: slowcook — tests merged
 
@@ -747,6 +796,7 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-refine.yml", contents: slowcookRefineWorkflow() },
     { path: ".github/workflows/slowcook-spec-merged.yml", contents: slowcookSpecMergedWorkflow() },
     { path: ".github/workflows/slowcook-tests-merged.yml", contents: slowcookTestsMergedWorkflow() },
+    { path: ".github/workflows/slowcook-mockup-approved.yml", contents: slowcookMockupApprovedWorkflow() },
     { path: ".github/workflows/slowcook-brew-merged.yml", contents: slowcookBrewMergedWorkflow() },
     { path: ".github/workflows/slowcook-testgen.yml", contents: slowcookTestgenWorkflow() },
     { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
