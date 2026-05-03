@@ -410,7 +410,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 }
 `;
 
-const PAGE_TSX = `import { ScenarioPicker } from "@slowcook-ai/mock-runtime";
+const PAGE_TSX = `"use client";
+
+import { ScenarioPicker } from "@slowcook-ai/mock-runtime";
+import { useScenarioCommentStats } from "@slowcook-ai/review-overlay/react";
 
 /**
  * Mock app homepage = scenario picker (provided by the runtime).
@@ -418,9 +421,19 @@ const PAGE_TSX = `import { ScenarioPicker } from "@slowcook-ai/mock-runtime";
  * Replaces this with a custom picker if you want different grouping/
  * filtering. The runtime's hooks + registry API are stable; this UI
  * is a default that consumers can swap.
+ *
+ * The \`useScenarioCommentStats\` hook (review-overlay 0.4.0+) walks
+ * every mockup PR's comments + groups by story_id. Cards then show
+ * comment / applied / unresolved / spec-altering counts. Only fires
+ * when NEXT_PUBLIC_SLOWCOOK_REVIEW=1 + a PAT is in localStorage.
  */
 export default function Page() {
-  return <ScenarioPicker />;
+  const stats = useScenarioCommentStats({
+    owner: process.env["NEXT_PUBLIC_SLOWCOOK_OWNER"] ?? "",
+    repo: process.env["NEXT_PUBLIC_SLOWCOOK_REPO"] ?? "",
+    enabled: process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] === "1",
+  });
+  return <ScenarioPicker commentStats={stats ?? undefined} />;
 }
 `;
 

@@ -6,6 +6,62 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.16 + @slowcook-ai/review-overlay@0.4.0 + @slowcook-ai/mock-runtime@0.3.0 — per-scenario comment stats on the picker
+
+Cut 2026-05-03. Cards on the scenarios homepage now show comment / applied / unresolved / spec-altering / declined / noop counts so PMs can see at-a-glance which scenarios have outstanding feedback.
+
+### review-overlay@0.4.0
+
+- **`fetchAllMockupPrs`** — lists every PR in the repo with the `slowcook-mockup` label (open + closed), parses story ids from titles.
+- **`fetchScenarioStats`** — per-scenario aggregation: walks every mockup PR's comments + groups by `payload.story_id`. Plate's breadcrumb (α.15) provides the status; absent breadcrumb counts as unresolved. One round-trip per PR + one for the listing; Promise.all parallelises.
+- **`useScenarioCommentStats`** React hook — wraps the fetch + localStorage cache + focus-refresh. Returns `Record<scenarioId, ScenarioCommentStats>` or `null` until first hit. Doesn't prompt for PAT (picker is the wrong place for that interruption).
+- localStorage cache key: `slowcook.review-overlay.scenario-stats.{owner}/{repo}`.
+
+### mock-runtime@0.3.0
+
+- **`ScenarioPicker` accepts `commentStats?: Record<string, ScenarioCommentStats>` prop**. Type re-exported as `ScenarioCommentStats` so consumers can pipe the hook's output through verbatim.
+- New **`<CommentStatsRow />`** subcomponent renders per-card badges with the review-pill's color palette (green ✓ applied, coral ● unresolved, yellow ! spec-altering, gray ⊘ declined / · noop, gray 💬 total). Zero-valued categories hidden so the row stays tight on quiet scenarios.
+- Stays UI-agnostic — no GitHub dependency. The hook lives in review-overlay; the picker just renders.
+
+### cli@0.16.0-alpha.16
+
+- **`slowcook init mock`** scaffolded `page.tsx` updated to wire `useScenarioCommentStats` by default. Existing consumers patch their `mock/src/app/page.tsx` to:
+
+  ```tsx
+  "use client";
+  import { ScenarioPicker } from "@slowcook-ai/mock-runtime";
+  import { useScenarioCommentStats } from "@slowcook-ai/review-overlay/react";
+
+  export default function Page() {
+    const stats = useScenarioCommentStats({
+      owner: process.env["NEXT_PUBLIC_SLOWCOOK_OWNER"] ?? "",
+      repo: process.env["NEXT_PUBLIC_SLOWCOOK_REPO"] ?? "",
+      enabled: process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] === "1",
+    });
+    return <ScenarioPicker commentStats={stats ?? undefined} />;
+  }
+  ```
+
+### Architecture
+
+- **mock-runtime stays GitHub-free.** The data hook lives in review-overlay; mock-runtime just renders the badges from a plain prop. Keeps mock-runtime's bundle minimal for consumers who don't use the overlay.
+- **`payload.story_id` is the join key.** Every overlay payload carries the active scenario's id at submit time; aggregation is `{ story_id → counts }`. PR-title parsing is the fallback when the payload didn't carry the id (older payloads).
+
+### Tests
+
+- 501 cli + 37 review-overlay + 9 mock-runtime tests still pass.
+- New regression coverage for `fetchScenarioStats` aggregation queued for α.17 (needs a fetch mock + GitHub fixture; deferred for the dogfood iteration).
+
+### Publish state
+
+```
+mock-runtime@0.3.0            🟡 in-repo (commentStats prop + CommentStatsRow)
+review-overlay@0.4.0          🟡 in-repo (stats hook + multi-PR aggregation)
+cli@0.16.0-alpha.16           🟡 in-repo (init-mock page.tsx wires the hook)
+```
+
+---
+
 ## 0.16.0-alpha.15 + @slowcook-ai/review-overlay@0.3.0 — Figma-style anchored comment pins
 
 Cut 2026-05-03. The review pill now shows previously-left comments as anchored pins (Figma-style) with status icons reflecting plate's reply, AND plate emits a structured breadcrumb so the pin layer correlates replies to comments by id (no timestamp heuristics).

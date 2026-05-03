@@ -193,6 +193,141 @@ export function saveCachedComments(storage: Storage, repo: RepoCoord, pr: number
 }
 
 /**
+ * 0.4.0 — per-scenario comment stats. The scenarios picker renders one
+ * badge cluster per card: total / applied / unresolved / spec-altering
+ * / declined / noop. Aggregated across every open + closed mockup PR
+ * in the repo, grouped by story_id from each overlay comment's payload.
+ */
+export interface ScenarioCommentStats {
+  total: number;
+  unresolved: number;
+  applied: number;
+  declined: number;
+  specAltering: number;
+  noop: number;
+}
+
+export function emptyStats(): ScenarioCommentStats {
+  return { total: 0, unresolved: 0, applied: 0, declined: 0, specAltering: 0, noop: 0 };
+}
+
+interface FetchPrsArgs extends RepoCoord {
+  pat: string;
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * List every PR (open + closed) on the repo that carries the
+ * `slowcook-mockup` label. Each result includes the PR number, the
+ * derived storyId from the branch name (`slowcook/mockup/story-N`),
+ * and the comments-list URL for paginated comment fetch.
+ */
+export async function fetchAllMockupPrs(args: FetchPrsArgs): Promise<Array<{ pr: number; storyId: string }>> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues?labels=slowcook-mockup&state=all&per_page=100`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  const issues = (await res.json()) as Array<{
+    number: number;
+    pull_request?: { url?: string };
+    title?: string;
+  }>;
+  const out: Array<{ pr: number; storyId: string }> = [];
+  for (const issue of issues) {
+    if (!issue.pull_request) continue;
+    // The branch name carries the unambiguous story id; fall back to
+    // title regex if branch fetch isn't available in this issues
+    // response (it usually isn't — would need a second PR fetch).
+    // Title pattern from vibe: "mockup: story-N".
+    const titleMatch = (issue.title ?? "").match(/story-([\w-]+)/);
+    if (!titleMatch || !titleMatch[1]) continue;
+    out.push({ pr: issue.number, storyId: titleMatch[1] });
+  }
+  return out;
+}
+
+/**
+ * Aggregate per-scenario comment stats by walking every mockup PR's
+ * comments + grouping by overlay-payload.story_id. Plate's breadcrumb
+ * provides the status (applied / declined / spec-altering / noop);
+ * absent breadcrumb counts as unresolved.
+ *
+ * One round-trip per PR + 1 for the listing. For most consumers the
+ * total is <20 PRs; in-flight Promise.all keeps the wall-clock fast.
+ */
+export async function fetchScenarioStats(args: FetchPrsArgs): Promise<Record<string, ScenarioCommentStats>> {
+  const prs = await fetchAllMockupPrs(args);
+  if (prs.length === 0) return {};
+  const allRecords = await Promise.all(
+    prs.map((p) => fetchOverlayComments({ ...args, pr: p.pr }).catch(() => []))
+  );
+  const stats: Record<string, ScenarioCommentStats> = {};
+  for (let i = 0; i < prs.length; i++) {
+    const { storyId } = prs[i]!;
+    const records = allRecords[i]!;
+    if (!stats[storyId]) stats[storyId] = emptyStats();
+    const s = stats[storyId];
+    for (const rec of records) {
+      // Prefer the payload's story_id when present (more reliable than
+      // PR-title parsing); fall back to the PR's storyId otherwise.
+      const targetId = rec.payload.story_id ?? storyId;
+      if (!stats[targetId]) stats[targetId] = emptyStats();
+      const target = stats[targetId];
+      target.total += 1;
+      const status = rec.plateReply?.status;
+      switch (status) {
+        case "applied":       target.applied += 1; break;
+        case "declined":      target.declined += 1; break;
+        case "spec-altering": target.specAltering += 1; break;
+        case "noop":          target.noop += 1; break;
+        default:              target.unresolved += 1; break;
+      }
+    }
+    // Suppress unused — `s` was only kept as a clarity anchor; if there
+    // were no records, `stats[storyId]` was initialised but stays zero.
+    void s;
+  }
+  return stats;
+}
+
+const SCENARIO_STATS_CACHE_KEY_PREFIX = "slowcook.review-overlay.scenario-stats.";
+
+export function scenarioStatsCacheKey(repo: RepoCoord): string {
+  return `${SCENARIO_STATS_CACHE_KEY_PREFIX}${repo.owner}/${repo.repo}`;
+}
+
+export function loadCachedScenarioStats(storage: Storage, repo: RepoCoord): Record<string, ScenarioCommentStats> | null {
+  const raw = storage.getItem(scenarioStatsCacheKey(repo));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, ScenarioCommentStats>;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCachedScenarioStats(storage: Storage, repo: RepoCoord, stats: Record<string, ScenarioCommentStats>): void {
+  try {
+    storage.setItem(scenarioStatsCacheKey(repo), JSON.stringify(stats));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+/**
  * POST a comment to the given PR. Returns a tagged result rather than
  * throwing so the React layer can render specific UI per failure mode.
  */

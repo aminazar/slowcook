@@ -4,6 +4,34 @@ import Link from "next/link";
 import { useScenarioRegistry } from "./registry-context.js";
 
 /**
+ * 0.3.0 — per-scenario comment stats. Optional prop; when present,
+ * each card renders a small badge cluster. Hook for fetching the data
+ * lives in `@slowcook-ai/review-overlay/react#useScenarioCommentStats`
+ * to keep mock-runtime UI-agnostic + free of GitHub deps.
+ *
+ * Shape mirrors review-overlay's `ScenarioCommentStats` so consumers
+ * can pass the hook's output through verbatim.
+ */
+export interface ScenarioCommentStats {
+  total: number;
+  unresolved: number;
+  applied: number;
+  declined: number;
+  specAltering: number;
+  noop: number;
+}
+
+export interface ScenarioPickerProps {
+  /**
+   * Optional per-scenario comment stats keyed by scenario id. When set,
+   * each card renders a small badge cluster (💬 total + ✓ applied +
+   * 💬 unresolved + ! spec-altering + ⊘ declined + • noop). Zero-valued
+   * categories are hidden so the row stays tight.
+   */
+  commentStats?: Record<string, ScenarioCommentStats>;
+}
+
+/**
  * Default homepage for a slowcook mock app. Lists every registered
  * scenario; each row links to that scenario's `initialPath` with
  * `?scenario=<id>` set so client components resolve correctly.
@@ -29,9 +57,10 @@ import { useScenarioRegistry } from "./registry-context.js";
  * tighter use of the consumer's existing tokens (`var(--color-coral)`,
  * `card-bg`, `card-border`).
  */
-export function ScenarioPicker() {
+export function ScenarioPicker(props: ScenarioPickerProps = {}) {
   const registry = useScenarioRegistry();
   const scenarios = registry.list;
+  const commentStats = props.commentStats;
 
   return (
     <div
@@ -185,6 +214,9 @@ export function ScenarioPicker() {
                         ))}
                       </ul>
                     )}
+                    {commentStats && commentStats[s.id] && commentStats[s.id]!.total > 0 && (
+                      <CommentStatsRow stats={commentStats[s.id]!} />
+                    )}
                   </Link>
                 </li>
               ))}
@@ -253,6 +285,49 @@ const codeStyle: React.CSSProperties = {
   fontSize: 12,
   fontFamily: "ui-monospace, SFMono-Regular, monospace",
 };
+
+/**
+ * 0.3.0 — per-card comment stats row. Renders only the categories with
+ * non-zero counts so the row stays tight on cards without much activity.
+ * Color cues match the review-pill's pin palette so the visual language
+ * is consistent across surfaces.
+ */
+function CommentStatsRow(props: { stats: ScenarioCommentStats }) {
+  const { stats } = props;
+  const items: Array<{ count: number; glyph: string; color: string; bg: string; label: string }> = [
+    { count: stats.total,        glyph: "💬", color: "#94a3b8", bg: "rgba(148, 163, 184, 0.12)", label: "comments" },
+    { count: stats.applied,      glyph: "✓",  color: "#22c55e", bg: "rgba(34, 197, 94, 0.12)",   label: "applied" },
+    { count: stats.unresolved,   glyph: "●",  color: "#FF6B6B", bg: "rgba(255, 107, 107, 0.12)", label: "unresolved" },
+    { count: stats.specAltering, glyph: "!",  color: "#facc15", bg: "rgba(250, 204, 21, 0.16)",  label: "spec-altering" },
+    { count: stats.declined,     glyph: "⊘",  color: "#94a3b8", bg: "rgba(148, 163, 184, 0.12)", label: "declined" },
+    { count: stats.noop,         glyph: "·",  color: "#94a3b8", bg: "rgba(148, 163, 184, 0.12)", label: "noop" },
+  ].filter((i) => i.count > 0);
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--card-border, rgba(255,255,255,0.08))" }}>
+      {items.map((i) => (
+        <span
+          key={i.label}
+          title={`${i.count} ${i.label}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "2px 8px",
+            borderRadius: 999,
+            background: i.bg,
+            color: i.color,
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: "ui-monospace, SFMono-Regular, monospace",
+          }}
+        >
+          <span aria-hidden="true">{i.glyph}</span>
+          <span>{i.count}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Brand mark for the picker header — slowcook logo + wordmark.
