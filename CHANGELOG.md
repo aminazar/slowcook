@@ -6,6 +6,46 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.27 — port resolves conflicts itself (no abort, no hardcoded shell list)
+
+Cut 2026-05-03. Follow-up to α.26's hardcoded layout/page/globals.css exclusions. User feedback: "when there is a port conflict, port should be able to resolve it, not you hand fix it."
+
+α.26 fixed the brew failure but kept piling up file-name checks. The right shape is for port to **never abort on a destination collision** and to **never need a hardcoded shell list** — collisions resolve themselves at write-time.
+
+### Behavior change
+
+| Destination state | α.26 | α.27 |
+|---|---|---|
+| Missing | CREATE | CREATE |
+| Has `@slowcook-port-from` marker | UPDATE | UPDATE |
+| Identical to our output | NO-OP | NO-OP |
+| Hand-written (no marker) | **BLOCK + exit 2** unless `--force` | **SKIP with notice** unless `--force` |
+
+The hand-written file is the consumer's source of truth. Port now silently leaves it alone with a console notice and continues with the rest of the files. `--force` still overwrites if the consumer truly wants the mock version.
+
+### File-level opt-out marker
+
+New `@slowcook-port-skip` marker — when present in the first 20 lines of a mock file, port walks past it without writing anything to src/. Use this for mock-only shims (e.g. `mock/src/lib/mock-emotions.ts` band-aid for pre-α.12 vibe output).
+
+### Removed
+
+Hardcoded exclusions for `mock/src/app/{layout,page,globals.css}` are gone — they're handled by the generic skip-on-collision rule (consumer's real shell exists at the destination, no marker → skipped).
+
+### Net win
+
+- Port no longer aborts the brew workflow on a non-issue
+- Consumer doesn't need to know which mock-shell files port hardcodes
+- Consumer can mark any mock-only file with `@slowcook-port-skip` without touching slowcook
+- Same-day rewo fix: tag `mock/src/lib/mock-emotions.ts` band-aid with the marker; remove ad-hoc exclusion thinking from the architecture
+
+### Files
+
+- `packages/cli/src/commands/port/transform.ts` — drop layout/page/globals.css exclusions; add `isMockOnlyFile`
+- `packages/cli/src/commands/port/index.ts` — `BLOCKED` → `skip-handwritten` / `skip-mock-only` action kinds; no exit 2; updated help + summary
+- `packages/cli/src/commands/port/transform.test.ts` — replace shell-exclusion test with collision-resolved-at-write-time + `isMockOnlyFile` cases
+
+---
+
 ## 0.16.0-alpha.26 — port skips mock-app-shell scaffolds (layout / page / globals.css)
 
 Cut 2026-05-03. First end-to-end brew --mode plate run on rewo (manual dispatch since brew-auto's branch-name bug also bit) failed at the port step with: "Refusing to port: 2 file(s) at the destination path don't carry the @slowcook-port-from marker." Port correctly refused to overwrite rewo's REAL `src/app/layout.tsx` + `src/lib/emotions/index.ts` — exactly the safety check the architecture is designed for. But it shouldn't have tried these in the first place — they're mock-app-shell files, not story-specific UI.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transformForPort, mockPathToSrcPath } from "./transform.js";
+import { transformForPort, mockPathToSrcPath, isMockOnlyFile } from "./transform.js";
 
 describe("mockPathToSrcPath", () => {
   it("maps mock/src/components/* → src/components/*", () => {
@@ -27,11 +27,14 @@ describe("mockPathToSrcPath", () => {
     expect(mockPathToSrcPath("specs/story-N.yaml")).toBeNull();
   });
 
-  it("0.16.0-α.26: returns null for mock-app-shell scaffold files", () => {
-    // These would clobber the consumer's production app shell:
-    expect(mockPathToSrcPath("mock/src/app/layout.tsx")).toBeNull();
-    expect(mockPathToSrcPath("mock/src/app/page.tsx")).toBeNull();
-    expect(mockPathToSrcPath("mock/src/app/globals.css")).toBeNull();
+  it("translates mock/src/app/layout.tsx → src/app/layout.tsx (collision is resolved at write-time, not here)", () => {
+    // Path translation is pure; the walker checks @slowcook-port-from
+    // on the existing src/ file before deciding to overwrite/skip.
+    // No hardcoded shell list — any unmarked destination is treated
+    // as a hand-written prod file and skipped.
+    expect(mockPathToSrcPath("mock/src/app/layout.tsx")).toBe("src/app/layout.tsx");
+    expect(mockPathToSrcPath("mock/src/app/page.tsx")).toBe("src/app/page.tsx");
+    expect(mockPathToSrcPath("mock/src/app/globals.css")).toBe("src/app/globals.css");
   });
 
   it("still ports nested app routes (story-specific pages)", () => {
@@ -134,6 +137,36 @@ export function X() { return null; }
     const r = transformForPort(input, { storyId: "017" });
     expect(r.output).toBe(input);
     expect(r.rewrites).toEqual([]);
+  });
+});
+
+describe("isMockOnlyFile — file-level @slowcook-port-skip marker", () => {
+  it("detects the marker in a top-of-file comment block", () => {
+    const input = `/**
+ * Mock-only emotions catalog.
+ * @slowcook-port-skip
+ */
+export const EMOTIONS = [];
+`;
+    expect(isMockOnlyFile(input)).toBe(true);
+  });
+
+  it("detects the marker on a single-line comment", () => {
+    const input = `// @slowcook-port-skip — band-aid for legacy vibe output
+export const x = 1;
+`;
+    expect(isMockOnlyFile(input)).toBe(true);
+  });
+
+  it("returns false for files without the marker", () => {
+    const input = `export const EMOTIONS = [];\n`;
+    expect(isMockOnlyFile(input)).toBe(false);
+  });
+
+  it("only scans the first 20 lines (avoids false positives deep in big files)", () => {
+    const padding = Array(25).fill("// pad").join("\n");
+    const input = `${padding}\n// @slowcook-port-skip\n`;
+    expect(isMockOnlyFile(input)).toBe(false);
   });
 });
 

@@ -1,26 +1,35 @@
 /**
- * `slowcook port` — 0.16.0-α.8.
+ * `slowcook port` — deterministic mock → src copy step.
  *
- * Deterministic copy step from mock/ → src/. No LLM. Same input →
- * same output. Runs as a CI step before brew on the brew PR's branch.
+ * Runs as a CI step before brew on the brew PR's branch. No LLM.
+ * Same input → same output.
  *
  * Walks `mock/src/components/` + `mock/src/app/`, copies each file to
  * the mirrored src/ path, applying small import + hook rewrites so the
  * production component reads via `@/lib/data#useDataDomain` instead of
- * the mock-runtime hook. Brew (α.9) writes the actual data layer.
+ * the mock-runtime hook. Brew writes the actual data layer.
  *
- * Excluded from the copy: `mock/scenarios/`, `mock/src/lib/scenario-
- * registry.ts`, anything mock-only infrastructure.
+ * Excluded from the copy:
+ *   - mock/scenarios/, mock/src/lib/scenario-registry* (mock-only infra)
+ *   - any mock file with a `@slowcook-port-skip` marker in its first
+ *     20 lines (file-level opt-out for shims like mock-emotions.ts)
+ *
+ * Conflict resolution at the destination (no abort, no hardcoded
+ * exclusions for layout.tsx / page.tsx / globals.css):
+ *   - destination missing                    → CREATE
+ *   - destination matches our output         → NO-OP
+ *   - destination has @slowcook-port-from    → UPDATE
+ *   - destination is hand-written (no marker)→ SKIP with notice
+ *     (consumer's prod file is the source of truth; --force to override)
  *
  * What "deterministic" buys us: the diff is auditable in the PR, brew
- * has a clear scope (anything outside src/lib/data + src/app/api +
- * supabase/migrations is off-limits), and a future tooling pass could
- * re-run port to detect drift.
+ * has a clear scope, and a future tooling pass could re-run port to
+ * detect drift.
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { transformForPort, mockPathToSrcPath } from "./transform.js";
+import { transformForPort, mockPathToSrcPath, isMockOnlyFile } from "./transform.js";
 
 interface PortArgs {
   story: string;
@@ -57,7 +66,7 @@ function parseArgs(argv: string[]): PortArgs {
 
 function printHelp(): void {
   console.log(`
-slowcook port — deterministic mock → src copy (0.16-α.8)
+slowcook port — deterministic mock → src copy
 
 Walks mock/src/components/ + mock/src/app/, copies each file to the
 mirrored src/ path, and applies small import + hook rewrites so the
@@ -71,14 +80,15 @@ Options:
   --story <id>       Story id (e.g. 017). Used in the port-provenance header.
   --cwd <path>       Repo root (default: cwd).
   --dry-run          Print planned actions; don't write.
-  --force            Overwrite existing src/ files even if they don't
-                     carry the @slowcook-port-from marker. Default: refuse
-                     so a hand-edited file isn't accidentally clobbered.
+  --force            Overwrite hand-written src/ files (no @slowcook-port-from
+                     marker). Default: skip them and log a notice — the
+                     consumer's hand-written file wins.
 
 What's NOT ported:
-  mock/scenarios/                       (scenario fixtures — mock-only)
-  mock/src/lib/scenario-registry.ts     (consumer-managed)
-  mock/Dockerfile, mock/package.json    (mock-app shell — mock-only)
+  mock/scenarios/                          (scenario fixtures — mock-only)
+  mock/src/lib/scenario-registry*          (consumer-managed)
+  any file containing @slowcook-port-skip  (file-level opt-out marker;
+                                            use for mock-only shims)
 
 What's transformed:
   import { useScenarioFixture } from "@slowcook-ai/mock-runtime";
@@ -88,16 +98,22 @@ What's transformed:
   // @slowcook-mock-only lines stripped
   port-provenance header prepended (// @slowcook-port-from mock/ (story-N))
 
-Exit codes:
-  0  success (or dry-run completed; or no files to port)
-  2  refusing to overwrite a non-port file (use --force)
+Conflict resolution (no abort):
+  destination missing                       →  CREATE
+  destination identical to our output       →  NO-OP
+  destination has @slowcook-port-from       →  UPDATE
+  destination is hand-written (no marker)   →  SKIP (--force overrides)
+
+Exit code: always 0 unless an unexpected I/O error occurs.
 `);
 }
+
+type ActionKind = "create" | "update" | "no-op" | "skip-mock-only" | "skip-handwritten";
 
 interface PlannedAction {
   src: string;
   dest: string;
-  kind: "create" | "update" | "no-op" | "blocked";
+  kind: ActionKind;
   rewrites: string[];
   reason?: string;
 }
@@ -119,9 +135,7 @@ export async function port(argv: string[], _cliVersion: string): Promise<void> {
     const destRel = mockPathToSrcPath(relMockPath);
     if (!destRel) continue;
     const inputBody = readFileSync(absPath, "utf8");
-    const { output, rewrites } = transformForPort(inputBody, { storyId: args.story });
-    void output; // populated below in writePhase
-    actions.push(buildPlanned(args.repoRoot, relMockPath, destRel, inputBody, rewrites, args.force, args.story));
+    actions.push(buildPlanned(args.repoRoot, relMockPath, destRel, inputBody, args.force, args.story));
   }
 
   if (actions.length === 0) {
@@ -137,22 +151,14 @@ export async function port(argv: string[], _cliVersion: string): Promise<void> {
     return;
   }
 
-  // 0.16.0-α.8 — refuse if any action is blocked. Better to surface
-  // the conflict than overwrite a hand-edited production file.
-  const blocked = actions.filter((a) => a.kind === "blocked");
-  if (blocked.length > 0) {
-    console.error(
-      `\nRefusing to port: ${blocked.length} file(s) at the destination ` +
-        `path don't carry the @slowcook-port-from marker. Pass --force to overwrite, ` +
-        `or hand-merge first.`
-    );
-    process.exit(2);
-  }
-
   let written = 0;
   let unchanged = 0;
+  let skippedHandwritten = 0;
+  let skippedMockOnly = 0;
   for (const a of actions) {
     if (a.kind === "no-op") { unchanged += 1; continue; }
+    if (a.kind === "skip-handwritten") { skippedHandwritten += 1; continue; }
+    if (a.kind === "skip-mock-only") { skippedMockOnly += 1; continue; }
     const inputBody = readFileSync(join(args.repoRoot, a.src), "utf8");
     const { output } = transformForPort(inputBody, { storyId: args.story });
     const destAbs = join(args.repoRoot, a.dest);
@@ -160,7 +166,15 @@ export async function port(argv: string[], _cliVersion: string): Promise<void> {
     writeFileSync(destAbs, output, "utf8");
     written += 1;
   }
-  console.log(`\nDone. ${written} file(s) written; ${unchanged} unchanged.`);
+  const skipNotes: string[] = [];
+  if (skippedHandwritten > 0) {
+    skipNotes.push(`${skippedHandwritten} skipped (hand-written prod file — pass --force to override)`);
+  }
+  if (skippedMockOnly > 0) {
+    skipNotes.push(`${skippedMockOnly} skipped (@slowcook-port-skip)`);
+  }
+  const tail = skipNotes.length > 0 ? "; " + skipNotes.join("; ") : "";
+  console.log(`\nDone. ${written} file(s) written; ${unchanged} unchanged${tail}.`);
 }
 
 function buildPlanned(
@@ -168,12 +182,23 @@ function buildPlanned(
   src: string,
   dest: string,
   inputBody: string,
-  rewrites: string[],
   force: boolean,
   story: string
 ): PlannedAction {
+  // File-level opt-out: mock-only shims (e.g. mock/src/lib/mock-emotions.ts)
+  // tagged with @slowcook-port-skip never write to src/.
+  if (isMockOnlyFile(inputBody)) {
+    return {
+      src,
+      dest,
+      kind: "skip-mock-only",
+      rewrites: [],
+      reason: "file marked @slowcook-port-skip (mock-only shim)",
+    };
+  }
+
   const destAbs = join(repoRoot, dest);
-  const { output } = transformForPort(inputBody, { storyId: story });
+  const { output, rewrites } = transformForPort(inputBody, { storyId: story });
   const destExists = existsSync(destAbs);
   if (!destExists) {
     return { src, dest, kind: "create", rewrites };
@@ -182,18 +207,19 @@ function buildPlanned(
   if (existing === output) {
     return { src, dest, kind: "no-op", rewrites: [] };
   }
-  // Allow overwrite when the existing file is a previously-ported file
-  // (carries the marker) OR --force is set.
+  // Update only if the existing file is a previously-ported file
+  // (carries the marker) OR --force is set. Otherwise skip — the
+  // consumer's hand-written file is the source of truth.
   if (existing.includes("@slowcook-port-from") || force) {
     return { src, dest, kind: "update", rewrites };
   }
   return {
     src,
     dest,
-    kind: "blocked",
+    kind: "skip-handwritten",
     rewrites: [],
     reason:
-      "destination file exists, doesn't carry @slowcook-port-from marker, --force not set",
+      "destination is hand-written (no @slowcook-port-from marker); skipping. Use --force to overwrite.",
   };
 }
 
@@ -201,7 +227,8 @@ function printAction(a: PlannedAction): void {
   const tag =
     a.kind === "create" ? "CREATE" :
     a.kind === "update" ? "UPDATE" :
-    a.kind === "blocked" ? "BLOCK " :
+    a.kind === "skip-handwritten" ? "SKIP  " :
+    a.kind === "skip-mock-only" ? "SKIP  " :
     "NO-OP ";
   console.log(`  ${tag}  ${a.src}  →  ${a.dest}`);
   if (a.reason) console.log(`         ${a.reason}`);

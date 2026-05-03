@@ -105,6 +105,13 @@ export function transformForPort(input: string, opts?: { storyId?: string }): Po
  *   mock/src/app/(main)/u/[handle]/page.tsx → src/app/(main)/u/[handle]/page.tsx
  *   mock/src/lib/scenario-registry.ts  →  null  (mock-only; never ports)
  *   mock/scenarios/story-017.ts        →  null  (mock-only; never ports)
+ *
+ * Note: collisions with the consumer's hand-written src/ files (e.g.
+ * mock/src/app/layout.tsx vs the consumer's real src/app/layout.tsx)
+ * are NOT filtered here. The walker handles them at write-time by
+ * checking for the @slowcook-port-from marker on the destination —
+ * unmarked destinations are skipped, never overwritten. That keeps
+ * this mapping a pure path translation (no hardcoded shell list).
  */
 export function mockPathToSrcPath(mockPath: string): string | null {
   if (!mockPath.startsWith("mock/")) return null;
@@ -114,20 +121,23 @@ export function mockPathToSrcPath(mockPath: string): string | null {
   if (mockPath === "mock/src/lib/scenario-registry.ts") return null;
   if (mockPath.startsWith("mock/src/lib/scenario-registry/")) return null;
 
-  // 0.16.0-α.26 — mock-app-shell files: scaffolded by `slowcook init
-  // mock` (NOT story-specific UI). Never port — they would clobber the
-  // consumer's production app shell:
-  //   layout.tsx — mounts ScenarioRegistryProvider + overlay; consumer's
-  //                src/app/layout.tsx is THEIR production app shell
-  //   page.tsx   — the picker UI (homepage); consumer has their own
-  //   globals.css — mock's tailwind directives + tokens
-  if (mockPath === "mock/src/app/layout.tsx") return null;
-  if (mockPath === "mock/src/app/page.tsx") return null;
-  if (mockPath === "mock/src/app/globals.css") return null;
-
   // mock/src/* → src/* ; mock/<other>/* → don't port (only src/ maps cleanly).
   if (mockPath.startsWith("mock/src/")) {
     return "src/" + mockPath.slice("mock/src/".length);
   }
   return null;
+}
+
+/**
+ * File-level skip marker. A mock file that contains
+ * `@slowcook-port-skip` in its first 20 lines is treated as
+ * mock-only — port walks past it without writing anything in src/.
+ *
+ * Use this for mock-only shims (e.g. a `mock/src/lib/mock-foo.ts`
+ * that exists only so the mock app builds; the corresponding prod
+ * code lives elsewhere).
+ */
+export function isMockOnlyFile(input: string): boolean {
+  const head = input.split("\n", 20).join("\n");
+  return /@slowcook-port-skip\b/.test(head);
 }
