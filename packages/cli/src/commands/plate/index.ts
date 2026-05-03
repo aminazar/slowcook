@@ -217,36 +217,46 @@ function lastPlateCommitDate(repoRoot: string, branch: string): string | null {
 }
 
 function listBranchFiles(repoRoot: string, branch: string): Array<{ path: string; contents: string }> {
-  // 0.16.0-α.7 — files plate amends now live under mock/, not src/.
+  // 0.16.0-α.7 → α.14 — files plate amends now live under mock/, not src/.
   // The 0.16 architecture keeps mock + production in separate
   // filesystems; brew + slowcook port handle the src/ side.
   // Vibe writes: mock/scenarios/story-N.ts (always), mock/src/lib/
   // scenario-registry.ts (extends), mock/src/components/.../*.tsx
   // (rarely — only new primitives). Plate amends any of these.
+  //
+  // 0.16.0-α.14 fix: list ALL paths in the branch and filter in code.
+  // Previous version passed `mock/**/*.tsx` as a git ls-tree pathspec,
+  // which doesn't expand `**` globs by default. Result was zero matches
+  // (caught on rewo PR #147 dogfood). The fix is mechanical: drop the
+  // pathspec, list everything, filter via the existing regex predicates.
+  // Negligible perf cost on a per-PR branch with O(thousands) of files.
   const out: Array<{ path: string; contents: string }> = [];
-  const patterns = ["mock/**/*.tsx", "mock/**/*.ts"];
-  for (const pat of patterns) {
-    const lsOut = execSync(
-      `git -C ${JSON.stringify(repoRoot)} ls-tree -r --name-only ${JSON.stringify(branch)} -- ${JSON.stringify(pat)}`,
+  let lsOut: string;
+  try {
+    lsOut = execSync(
+      `git -C ${JSON.stringify(repoRoot)} ls-tree -r --name-only ${JSON.stringify(branch)}`,
       { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
     );
-    for (const line of lsOut.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // Only include files vibe writes / plate may amend.
-      const isScenario = /^mock\/scenarios\/story-[\w-]+\.ts$/.test(trimmed);
-      const isRegistry = trimmed === "mock/src/lib/scenario-registry.ts";
-      const isMockComponent = trimmed.startsWith("mock/src/components/") && /\.tsx$/.test(trimmed);
-      const isMockPage = /^mock\/src\/app\/.*page\.tsx$/.test(trimmed);
-      if (!isScenario && !isRegistry && !isMockComponent && !isMockPage) continue;
-      try {
-        const contents = execSync(
-          `git -C ${JSON.stringify(repoRoot)} show ${JSON.stringify(branch + ":" + trimmed)}`,
-          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
-        );
-        out.push({ path: trimmed, contents });
-      } catch { /* skip files git can't show (binary, deleted) */ }
-    }
+  } catch {
+    return out;
+  }
+  for (const line of lsOut.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Only include files vibe writes / plate may amend.
+    const isScenario = /^mock\/scenarios\/story-[\w-]+\.ts$/.test(trimmed);
+    const isRegistry = trimmed === "mock/src/lib/scenario-registry.ts";
+    const isMockComponent = trimmed.startsWith("mock/src/components/") && /\.tsx$/.test(trimmed);
+    const isMockPage = /^mock\/src\/app\/.*page\.tsx$/.test(trimmed);
+    const isMockLib = trimmed.startsWith("mock/src/lib/") && /\.tsx?$/.test(trimmed);
+    if (!isScenario && !isRegistry && !isMockComponent && !isMockPage && !isMockLib) continue;
+    try {
+      const contents = execSync(
+        `git -C ${JSON.stringify(repoRoot)} show ${JSON.stringify(branch + ":" + trimmed)}`,
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+      );
+      out.push({ path: trimmed, contents });
+    } catch { /* skip files git can't show (binary, deleted) */ }
   }
   return out;
 }

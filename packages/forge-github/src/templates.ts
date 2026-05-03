@@ -1307,6 +1307,29 @@ ${RESOLVE_PIN_STEP}
         run: |
           set -eu
           npx --yes "$SLOWCOOK_CLI" vibe --spec "$STORY_ID"
+
+      # 0.16.0-alpha.14 — post-emit structural check. Verifies every
+      # import in mock/ stays inside mock/. Catches vibe-prompt
+      # slippage (e.g. \`@/lib/emotions\` cross-ref to consumer's
+      # production src/) BEFORE the PM hits Build Error on a local
+      # \`npm run dev\`. Fails the workflow if violations found.
+      - name: Check mock-isolation
+        if: steps.spec.outputs.story_id != '' && steps.existing.outputs.skip != 'true'
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          STORY_ID: \${{ steps.spec.outputs.story_id }}
+        run: |
+          set -eu
+          MOCKUP_BRANCH="slowcook/mockup/story-\${STORY_ID}"
+          git fetch origin "$MOCKUP_BRANCH"
+          git checkout "$MOCKUP_BRANCH"
+          if ! npx --yes "$SLOWCOOK_CLI" check mock-isolation; then
+            PR_NUM=$(gh pr list --repo "\${{ github.repository }}" --head "$MOCKUP_BRANCH" --state open --json number --jq '.[0].number')
+            if [ -n "$PR_NUM" ]; then
+              gh pr comment "$PR_NUM" --repo "\${{ github.repository }}" --body "⚠️ \\\`slowcook check mock-isolation\\\` failed on this mockup. Vibe emitted imports that reach outside \\\`mock/\\\`. See the workflow log for specifics; \\\`/plate\\\` to amend or close + retry vibe."
+            fi
+            exit 1
+          fi
 `;
 }
 
@@ -1319,9 +1342,16 @@ ${RESOLVE_PIN_STEP}
 function slowcookPlateWorkflow(): string {
   return `name: slowcook plate
 
-# 0.15.0-alpha.3 — mockup amendment loop. Triggered by \`/plate <prose>\`
-# PR comments + reviews on a slowcook-mockup PR. Reads PM feedback,
-# amends mockup files with minimum diff, force-pushes the branch.
+# 0.15.0-alpha.3 → 0.16.0-alpha.14 — mockup amendment loop.
+# Triggered by:
+#   - \`/plate <prose>\` PR comments + reviews on a slowcook-mockup PR
+#     (legacy text-prefix trigger)
+#   - any PR comment containing the \`slowcook:review-overlay\` marker
+#     (review-overlay submissions; no \`/plate\` prefix needed — the
+#     overlay POSTs structured comments and plate processes them
+#     automatically).
+# Adds workflow_dispatch so an operator can rerun plate against any
+# slowcook-mockup PR without posting a comment.
 
 on:
   issue_comment:
@@ -1330,36 +1360,53 @@ on:
     types: [created]
   pull_request_review:
     types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to process (manual override)"
+        required: true
+        type: string
 
 # Concurrency keyed on PR + event so wrapping reviews don't cancel
 # inline-comment runs (same shape as slowcook-refine).
 concurrency:
-  group: slowcook-plate-\${{ github.event.issue.number || github.event.pull_request.number }}-\${{ github.event_name }}
+  group: slowcook-plate-\${{ github.event.issue.number || github.event.pull_request.number || github.event.inputs.pr }}-\${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   plate:
     if: >-
+      github.event_name == 'workflow_dispatch'
+      ||
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
         contains(github.event.issue.labels.*.name, 'slowcook-mockup') &&
-        startsWith(github.event.comment.body, '/plate') &&
-        github.event.comment.user.type != 'Bot'
+        github.event.comment.user.type != 'Bot' &&
+        (
+          startsWith(github.event.comment.body, '/plate') ||
+          contains(github.event.comment.body, 'slowcook:review-overlay')
+        )
       )
       ||
       (
         github.event_name == 'pull_request_review_comment' &&
         contains(github.event.pull_request.labels.*.name, 'slowcook-mockup') &&
-        startsWith(github.event.comment.body, '/plate') &&
-        github.event.comment.user.type != 'Bot'
+        github.event.comment.user.type != 'Bot' &&
+        (
+          startsWith(github.event.comment.body, '/plate') ||
+          contains(github.event.comment.body, 'slowcook:review-overlay')
+        )
       )
       ||
       (
         github.event_name == 'pull_request_review' &&
         contains(github.event.pull_request.labels.*.name, 'slowcook-mockup') &&
-        startsWith(github.event.review.body, '/plate') &&
-        github.event.review.user.type != 'Bot'
+        github.event.review.user.type != 'Bot' &&
+        (
+          startsWith(github.event.review.body, '/plate') ||
+          contains(github.event.review.body, 'slowcook:review-overlay')
+        )
       )
     runs-on: ubuntu-latest
     permissions:
@@ -1373,6 +1420,7 @@ jobs:
           EVENT_NAME: \${{ github.event_name }}
           ISSUE_NUM: \${{ github.event.issue.number }}
           PR_NUM: \${{ github.event.pull_request.number }}
+          DISPATCH_PR: \${{ github.event.inputs.pr }}
         run: |
           set -eu
           case "$EVENT_NAME" in
@@ -1385,6 +1433,9 @@ jobs:
               ;;
             issue_comment)
               echo "pr=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_dispatch)
+              echo "pr=$DISPATCH_PR" >> "$GITHUB_OUTPUT"
               ;;
           esac
 

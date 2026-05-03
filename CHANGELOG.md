@@ -6,6 +6,54 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.14 + @slowcook-ai/llm-anthropic@0.12.3 + @slowcook-ai/forge-github@0.11.2 — plate v2 fixes (rewo dogfood iter 3)
+
+Cut 2026-05-03. Four plate-pipeline bugs caught when a real review-overlay comment fired the first end-to-end plate amendment on rewo PR #147.
+
+### What dogfood validated working
+
+- ✅ Overlay → POST → PR comment with structured `slowcook:review-overlay` JSON payload
+- ✅ Classifier correctly tagged "I prefer an icon here" feedback as cosmetic ($0 — pure heuristic)
+- ✅ Plate dispatched, called LLM ($0.52 Opus), generated an amendment
+- ✅ Path-safety guard blocked the wrong-path write (architecture's two-filesystems rule firing as designed)
+
+### What dogfood broke
+
+1. **Plate's `listBranchFiles` loaded 0 mock files for context.** Used `git ls-tree -- mock/**/*.tsx` as a literal pathspec; git ls-tree doesn't expand `**` globs by default. With no context, the agent invented a new component name (`PinnedRewosStrip.tsx`) instead of amending the existing `PinnedStrip.tsx` it couldn't see.
+2. **Plate's system prompt referenced `src/` paths** from 0.15-era code. Even if context had loaded, the agent's prompt steered it toward `src/components/` output. Path-safety guard caught it but failed the run.
+3. **Plate's workflow trigger required `/plate` prefix.** Review-overlay comments don't have it; the user had to manually post `/plate process this` to fire plate. Defeats the overlay's "submit and forget" UX.
+4. **No structural check for vibe's emit.** α.13 shipped `slowcook check mock-isolation` but it wasn't wired into vibe's workflow — bad emits still landed on PRs (consumers hit Build Error in browser instead of CI red).
+
+### Fixes
+
+- **`listBranchFiles` rewrite** (`packages/cli/src/commands/plate/index.ts`): drop the broken pathspec, list ALL files in the branch via `git ls-tree -r --name-only`, filter via the existing regex predicates in JS. Also added `mock/src/lib/**/*.tsx?` (was missing — vibe-emitted lib helpers weren't being loaded).
+- **Plate prompt rewrite** (`packages/llm-anthropic/src/prompts/plate.ts`):
+  - All `<file path>` examples now start with `mock/`. Old `src/components/...` examples removed.
+  - New "Hard runtime rules — DO NOT BREAK THESE" section (5 rules): mock/-only paths; reuse existing component file names from the user message; no `.js` extensions; whitelist of seven mock-runtime exports; no `@/` cross-imports.
+  - Self-check expanded from 6 → 11 items mirroring the new rules.
+  - "Files plate may NOT touch" now lists `src/` (brew's after port) + non-vibe-shipped mock files (consumer's app shell).
+- **Plate workflow trigger** (`packages/forge-github/src/templates.ts`):
+  - Now also fires when a comment contains the `slowcook:review-overlay` marker — review-overlay submissions trigger plate automatically with no `/plate` prefix.
+  - Added `workflow_dispatch` so an operator can rerun plate without comment-spam.
+  - Trigger logic split into `(prefix-trigger OR marker-trigger)` per event type so both paths share the user-type / label gates.
+- **Vibe workflow post-emit check** (`packages/forge-github/src/templates.ts`): after vibe pushes the mockup branch, the workflow checks out the branch + runs `slowcook check mock-isolation`. On violations, posts a ⚠️ comment on the PR explaining the failure and exits non-zero so the workflow shows red (PR red-flagged → PM doesn't merge a broken mockup).
+
+### Tests
+
+- 501 cli tests still pass (no test changes — plate's fixes are integration-shaped, exercised at workflow run time; new test coverage queued for α.15).
+
+### Publish state
+
+```
+forge-github@0.11.2          🟡 in-repo (plate trigger + vibe post-emit check)
+llm-anthropic@0.12.3         🟡 in-repo (plate prompt rewrite)
+cli@0.16.0-alpha.14          🟡 in-repo (listBranchFiles fix)
+```
+
+Next: α.15 — the three UX critiques from the dogfood (overlay auto-detect, localhost gh-proxy, `slowcook run-mock <story>`).
+
+---
+
 ## 0.16.0-alpha.13 — `slowcook check mock-isolation` (structural enforcement of mock-vs-prod separation)
 
 Cut 2026-05-03. Hard-signal companion to α.12's vibe-prompt steering: a static check that fails CI when any file under `mock/` imports outside `mock/`. Catches vibe-prompt slippage that would otherwise only surface when a consumer tries to render the mockup in the browser.

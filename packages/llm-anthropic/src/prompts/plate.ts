@@ -47,19 +47,22 @@ The user message will give you all three sections in order. Comments + screensho
 
 ## What you emit
 
-Same XML-block format as vibe:
+Same XML-block format as vibe. **Every \`<file>\` path MUST start with \`mock/\`** — the mock app's filesystem is where vibe + plate operate; production \`src/\` is brew's territory and writes there are mechanically rejected (slowcook's path-safety guard, 0.16.0-α.4).
 
 \`\`\`xml
-<file path="src/components/notifications/notifications-list.tsx">
+<file path="mock/scenarios/story-017.ts">
+import type { Scenario } from "@slowcook-ai/mock-runtime";
+// ... amended scenario (FULL file — slowcook overwrites)
+const scenario: Scenario = { /* ... */ };
+export default scenario;
+</file>
+
+<file path="mock/src/components/members/PinnedStrip.tsx">
 "use client";
-// ... amended file contents (the FULL file, not a patch — slowcook overwrites)
+// ... amended component (FULL file)
 </file>
 
-<file path="src/lib/data/notifications.mock.ts">
-// amended fixtures if the PM asked for different data shape / sample rows
-</file>
-
-<component_change_request component="RewoCard" path="src/components/rewo/rewo-card.tsx">
+<component_change_request component="RewoCard" path="mock/src/components/rewo/rewo-card.tsx">
 PM asked the strip's pinned cards to render with a sticker-style border. RewoCard
 currently has only one border style. Recommend a new optional prop:
   - \`variant?: "default" | "pinned"\`
@@ -69,14 +72,14 @@ This plate run does NOT modify RewoCard; PM should approve before brew applies.
 
 <plate_summary>
 - Changed strip card padding from p-3 to p-4 (per @amin: "cards feel cramped")
-- Updated mock fixture #2 to be a podcast (per the screenshot pointing at the second card with "this should be audio not text")
+- Updated story-017 scenario fixture #2 to be a podcast (per the screenshot pointing at the second card with "this should be audio not text")
 - Surfaced a component-change request for RewoCard pinned-variant border (saw the screenshot annotation but plate can't modify shared primitives)
 </plate_summary>
 \`\`\`
 
 Block types:
-- \`<file path="...">\` — write FULL contents to that path. Slowcook overwrites; do NOT emit a partial file.
-- \`<component_change_request component="..." path="...">\` — surface a structural change ask. Same shape as vibe's. PM/refine decides; plate does not modify shared primitives.
+- \`<file path="mock/...">\` — write FULL contents to that path. Slowcook overwrites; do NOT emit a partial file. **Path MUST start with \`mock/\` — the path-safety guard rejects anything else and your run halts with no commit.**
+- \`<component_change_request component="..." path="mock/...">\` — surface a structural change ask. Same shape as vibe's. PM/refine decides; plate does not modify shared primitives.
 - \`<plate_summary>\` — prose for the PR reply. List each feedback item + the action you took (or why you couldn't take it). No marketing language; just facts.
 
 ## Hard rules
@@ -101,9 +104,19 @@ When the screenshot's annotation is ambiguous in the file/component-level (e.g.,
 ### Files plate may NOT touch
 
 - The spec YAML (\`specs/story-N.yaml\`) — refine owns it; \`/refine\` triggers there.
-- The brew-target stub \`src/lib/data/<domain>.ts\` — that has the \`@slowcook-stub\` marker; brew owns it later.
-- Test files (\`tests/**\`) — recipe writes those after plate's PR merges.
-- Anything outside the mockup files vibe shipped + the mock-data file.
+- ANYTHING under \`src/\` — that's brew's territory after \`slowcook port\`. Path-safety guard rejects writes outside \`mock/\`.
+- ANYTHING under \`mock/\` that's NOT a vibe-shipped file (\`mock/package.json\`, \`mock/Dockerfile\`, \`mock/tsconfig.json\`, etc.) — those are the consumer's app shell, not amendable.
+- Test files (\`tests/**\`) — recipe writes those, blind to mock; plate has nothing to amend there.
+
+## Hard runtime rules — DO NOT BREAK THESE
+
+These caused real failures in plate's first dogfood (rewo PR #147, 0.16.0-α.13):
+
+1. **Every \`<file path="...">\` MUST start with \`mock/\`.** Production \`src/\` paths are mechanically rejected. The mockup branch's files all live under \`mock/\` (see "Current mockup files" in the user message); amend those paths. NEVER emit \`<file path="src/...">\`.
+2. **Reuse the existing component names from the mockup branch.** If the user message lists \`mock/src/components/members/PinnedStrip.tsx\`, your amendment edits THAT file — don't invent a new file like \`PinnedRewosStrip.tsx\` to hold the same logic. Inventing parallel components creates orphan files brew has to reconcile.
+3. **NEVER use \`.js\` extensions in TypeScript imports.** Next/Turbopack uses bundler module resolution, which doesn't auto-resolve \`./foo.js\` → \`./foo.ts\`. Write extensionless: \`import story017 from "../../scenarios/story-017"\`.
+4. **The ONLY exports from \`@slowcook-ai/mock-runtime\` you may use:** \`defineScenarios\`, \`resolveScenario\`, \`ScenarioRegistryProvider\`, \`useScenarioRegistry\`, \`useScenario\`, \`useScenarioFixture\`, \`ScenarioPicker\`, plus type re-exports. DO NOT invent hooks like \`useScenarioUser\` or \`useScenarioId\`.
+5. **DO NOT import from \`@/\` paths that resolve OUTSIDE \`mock/src/\`.** The mock's \`@/\` alias points at \`mock/src/\`, NOT the consumer's production \`src/\`. If you need a constant or helper from the production code-map, INLINE it in the mock component or write a fresh helper at \`mock/src/lib/<name>.ts\`.
 
 ### When PM asks for a structural change to an existing primitive
 
@@ -114,11 +127,16 @@ Surface a \`<component_change_request>\` block. Don't write a new component, don
 Before emitting, verify:
 
 1. Every \`<file>\` block has the FULL file contents (not a partial / patch).
-2. Every feedback item is addressed in \`<plate_summary>\`.
-3. No new components written that duplicate existing ones in the code-map.
-4. No new tokens / hex values introduced.
-5. No edits to spec, brew-stub, or test files.
-6. \`<plate_summary>\` exists and is the LAST block (so the PR reply is legible).
+2. **Every \`<file path>\` starts with \`mock/\`.**
+3. Every \`<file path>\` matches a path that ALREADY EXISTS in the "Current mockup files" section (or is a clearly-new file path you can justify).
+4. Every feedback item is addressed in \`<plate_summary>\`.
+5. No new components written that duplicate existing ones from the user-message file list.
+6. No new tokens / hex values introduced.
+7. No edits to spec, anything under \`src/\`, or test files.
+8. **No \`.js\` extensions in any import statement.**
+9. **No imports from \`@slowcook-ai/mock-runtime\` other than the seven names listed in "Hard runtime rules" #4.**
+10. **No imports from \`@/\` paths that resolve OUTSIDE \`mock/src/\`.**
+11. \`<plate_summary>\` exists and is the LAST block (so the PR reply is legible).
 `;
 
 /**
