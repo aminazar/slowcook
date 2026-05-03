@@ -186,41 +186,63 @@ When the target test is a UI component test (file path ends in \`-ui.test.tsx\`)
 `;
 
 /**
- * 0.15.0-α.4 → 0.16.0-α.9 — addendum appended to BREW_SYSTEM when brew
- * runs in \`--mode plate\`. The mockup is on main; brew's job is data-
- * layer + API + migrations only. Never the UI.
+ * 0.15.0-α.4 → 0.16.0-α.29 — addendum appended to BREW_SYSTEM when brew
+ * runs in \`--mode plate\`. The mockup is on main; brew's job is to wire
+ * the ported UI to real data while preserving its shape.
  *
- * 0.16.0-α.9 changes:
- *  - The UI files now arrived via the deterministic \`slowcook port\`
- *    step from \`mock/src/\` (instead of plate writing them directly).
- *    Every ported file carries \`// @slowcook-port-from mock/ (story-N)\`
- *    on its header — that's a load-bearing DO-NOT-TOUCH marker.
- *  - New halt class \`SPEC_AMBIGUITY_DETECTED\` for tests-vs-rendered-
- *    DOM mismatch (different from MOCKUP_DESIGN_CONFLICT, which is
- *    "I'd need to edit a frozen file to satisfy this test").
- *  - Allowed-paths shrunk to \`src/lib/data/**\`, \`src/app/api/**\`,
- *    \`supabase/migrations/**\` (+ tests/ for fixing flakies, rare).
+ * 0.16.0-α.29 contract refinement: "don't touch the UI" was too rigid.
+ * The data-wiring IS in the ported component (handlers POST, hooks
+ * fetch, forms submit). Forbidding all UI edits forces brew to find
+ * non-existent escape hatches and stalls. New contract:
+ *
+ *   - Preserve UI SHAPE (JSX structure, props, className, layout)
+ *   - SWAP mock data for real data (handlers, hooks, fetch calls)
+ *
+ * Brew CAN write to port-marked files (@slowcook-port-from). Brew
+ * CANNOT touch consumer's hand-written src/components/* or src/*.tsx
+ * (no marker = consumer's prod UI). Tier-2 acceptance / visual
+ * regression are the backstop for shape drift.
+ *
+ * 0.16.0-α.9 background:
+ *  - The UI files arrived via the deterministic 'slowcook port'
+ *    step from 'mock/src/' (instead of plate writing them directly).
+ *    Every ported file carries '// @slowcook-port-from mock/ (story-N)'
+ *    on its header.
+ *  - New halt class 'SPEC_AMBIGUITY_DETECTED' for tests-vs-rendered-
+ *    DOM mismatch.
+ *  - Allowed-paths cover src/lib/data, src/app/api, supabase/migrations,
+ *    plus port-marked files under src/components and src/. tests/ is
+ *    writable for fixing flakies (rare).
  */
 export const BREW_PLATE_MODE_ADDENDUM = `
 
-## Plate-mode constraints (this story has a PM-approved mockup on main)
+## Plate-mode contract
 
-The mockup app at \`mock/\` was approved by the PM. The deterministic \`slowcook port\` step then copied each \`mock/src/components/\` and \`mock/src/app/\` file to the corresponding \`src/\` path, applying the \`useScenarioFixture → useDataDomain\` rewrite. **Every ported file carries the \`// @slowcook-port-from\` marker** at its top — treat it as frozen. They were reviewed for visual + interaction correctness; you do not get to second-guess them.
+The mockup app at \`mock/\` was approved by the PM. The deterministic \`slowcook port\` step then copied each \`mock/src/components/\` and \`mock/src/app/\` file to the corresponding \`src/\` path, applying the \`useScenarioFixture → useDataDomain\` rewrite. **Every ported file carries the \`// @slowcook-port-from\` marker** at its top.
 
-Your job in plate-mode is narrower than legacy brew:
+**Two-part rule:**
 
-1. **Implement the data-layer hook.** The ported components import \`useDataDomain<T>("domain")\` from \`@/lib/data\`. That barrel + hook may not exist yet (or may be a stub). Write the body so that calling \`useDataDomain<Pin[]>("pins")\` returns the \`pins\` array per the spec's \`api_contract\`. Real fetches; real types.
-2. **Implement API route handlers.** Write \`src/app/api/...\` files that satisfy the \`api_contract\` entries. Authentication, validation, error shapes — all per the spec's invariants.
-3. **Write migrations from \`proposals.schema\`.** When \`proposals.schema.status === "approved"\`, add the migration file to \`supabase/migrations/\`. Do NOT write migrations for unapproved schemas.
+1. **Preserve the UI shape.** JSX structure, props signature, \`className\`, layout, and visual hierarchy of every \`@slowcook-port-from\` file are the design contract. Tier-2 acceptance + visual regression will catch shape drift later.
+2. **Swap mock data for real data.** Inside those port-marked files, you CAN edit handlers, hooks, fetch calls, and effects to wire real data instead of in-memory mocks. The mock might do \`setPins([newPin, ...prev])\` for a click; the port-marked component should \`fetch('/api/pins', { method: 'POST', ... })\` instead. That's exactly the change brew is here to make.
 
-You MUST NOT edit, create, or delete any of:
+### What you can write
 
-- \`src/**/*.tsx\` (UI — owned by port)
-- \`src/components/**\` (components — owned by port)
-- ANY file with the \`@slowcook-port-from\` marker (defensive — even if its path doesn't match the patterns above, the marker is the structural signal)
-- Any file under \`mock/\` (mock app — owned by vibe + plate)
+- **\`@slowcook-port-from\`-marked files** in \`src/components/\` or \`src/\` — wire data + handlers, preserve shape.
+- **\`src/lib/data/**\`** — implement the \`useDataDomain<T>("domain")\` hook so it returns real data per \`api_contract\`.
+- **\`src/app/api/**\`** — write the route handlers the ported component calls (POST/GET/DELETE).
+- **\`supabase/migrations/**\`** — add migration files for \`proposals.schema\` entries with \`status === "approved"\`.
 
-If the frozen-paths guard rejects an edit, that's the system telling you to choose a different approach. Don't try to work around it.
+### What you must NOT touch
+
+- \`src/components/**\` and \`src/**/*.tsx\` files **without** the \`@slowcook-port-from\` marker — those are the consumer's hand-written prod UI; not yours to edit.
+- \`mock/**\` — owned by vibe + plate.
+- Any \`*.mock.ts\` fixture file.
+
+### Working with port-marked files
+
+When you edit a port-marked component, change handler bodies + hook calls only. Don't add or remove JSX elements; don't change tag names; don't rewrite className. If the test target requires a structural change (a button that doesn't exist; a different layout), that's not a wiring task — halt with **MOCKUP_DESIGN_CONFLICT** so the PM can /plate the mockup before brew re-runs.
+
+If you find yourself wanting to edit a non-port-marked \`src/components/\` or \`src/*.tsx\` file because the test imports from it, the vibe/recipe pair has likely drifted (vibe named the new component one thing; recipe wrote tests against another). Halt with **MOCKUP_DESIGN_CONFLICT** and call out the name mismatch.
 
 ### When a test fails because the UI doesn't match what the test expects
 

@@ -612,31 +612,48 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       continue;
     }
 
-    // 0.15.0-α.4 — plate-mode protects the mockup files. Even though
-    // `src/lib/data/` is in allowed_paths so the agent can swap stubs,
-    // `*.mock.ts` files inside that directory are plate's territory
-    // and must NOT be edited. Same hard-signal logic as frozen-paths.
+    // 0.16.0-α.29 — plate-mode contract refinement.
     //
-    // 0.16.0-α.9 — also reject ANY file that carries the
-    // `@slowcook-port-from` marker (the deterministic port step from
-    // α.8 stamps every UI file it copies). Defense-in-depth: even if a
-    // future path regex misses, the marker is a structural signal that
-    // the file is port-owned, NOT brew-owned.
+    // Old contract ("don't touch the UI") was too rigid — the
+    // data-wiring IS in the component (handlers POST, hooks fetch,
+    // forms submit). Forbidding all UI edits forced brew to find
+    // nonexistent escape hatches and stalled (rewo PR #147 brew run
+    // 25278045422 — AGENT_STALLED_NO_EDITS at $1.82, agent correctly
+    // diagnosed it needed to wire POST /api/pins but the click handler
+    // lives in the ported component).
+    //
+    // New contract: "preserve UI shape, swap mock data for real data."
+    //
+    //   - Port-marked files (@slowcook-port-from) are the ONLY UI-tree
+    //     files brew is allowed to write — to wire real data + handlers
+    //     into the shape that vibe defined. Brew should preserve JSX
+    //     structure, props signature, className, layout. Tier-2
+    //     acceptance + visual regression are the backstop for shape
+    //     drift.
+    //
+    //   - .mock.ts files: still rejected (those are pre-port mock
+    //     fixtures with no behavior to wire).
+    //
+    //   - src/components/* and src/*.tsx WITHOUT the port marker:
+    //     consumer's hand-written prod UI. Off-limits in plate mode
+    //     (brew shouldn't touch UI it didn't get from vibe).
     const platePathHit =
       ctx.mode === "plate"
         ? diff.changedPaths.find((p) => {
             if (/\.mock\.ts$/.test(p)) return true;
-            if (/^src\/components\//.test(p)) return true;
-            if (/^src\/.*\.tsx$/.test(p)) return true;
-            // 0.16.0-α.9 — marker check. Reading the working-tree
-            // version because the agent's edit IS the working tree.
+            // Marker check first — port-owned files are ALLOWED writes
+            // under the new contract. Reading the working-tree version
+            // because the agent's edit IS the working tree.
             try {
               const fullPath = join(ctx.repoRoot, p);
               if (existsSync(fullPath)) {
                 const head = readFileSync(fullPath, "utf8").slice(0, 2048);
-                if (head.includes("@slowcook-port-from")) return true;
+                if (head.includes("@slowcook-port-from")) return false;
               }
-            } catch { /* ignore — fall through to other checks */ }
+            } catch { /* ignore — fall through to path checks */ }
+            // Hand-written UI (no marker) stays frozen.
+            if (/^src\/components\//.test(p)) return true;
+            if (/^src\/.*\.tsx$/.test(p)) return true;
             return false;
           })
         : null;
@@ -646,7 +663,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         iteration,
         target_test_id: currentTarget,
         outcome: "rejected-frozen-path",
-        note: `plate-mode protects UI: ${platePathHit}. Mockup files are owned by plate.`,
+        note: `plate-mode protects hand-written UI: ${platePathHit}. Brew can only wire data into port-marked files (@slowcook-port-from) or write to src/lib/data + src/app/api + supabase/migrations.`,
         files_touched: diff.changedPaths,
         lines_added: diff.linesAdded,
         lines_removed: diff.linesRemoved,
@@ -656,13 +673,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       priorAttempts.push({
         iteration,
         outcome: "reverted-no-progress",
-        note: `rejected: plate-mode wrote to mockup path ${platePathHit}. If your test requires this edit, halt with MOCKUP_DESIGN_CONFLICT instead.`,
+        note: `rejected: plate-mode wrote to hand-written UI path ${platePathHit} (no @slowcook-port-from marker). If the test target requires editing this exact file, the vibe/recipe pair is mismatched — halt with MOCKUP_DESIGN_CONFLICT.`,
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
       appendRunLog(
         ctx,
-        `ITER ${iteration} REJECT plate-mockup-path  ${platePathHit}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+        `ITER ${iteration} REJECT plate-handwritten-ui  ${platePathHit}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
     }

@@ -6,6 +6,46 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.29 — plate-mode contract: preserve UI shape, swap mock data for real data (cli + llm-anthropic@0.12.4)
+
+Cut 2026-05-03. User feedback: "'don't touch the UI' is very hard promise to keep, we should say 'don't touch the UI shape, and for behaviours, only replace real data instead of mock data'."
+
+### Trigger
+
+Rewo PR #147 brew run 25278045422 halted `AGENT_STALLED_NO_EDITS` after 7 iters / $1.82. The agent correctly diagnosed it needed to wire `POST /api/pins` — but the click handler that should make that call lives inside the ported component (`@slowcook-port-from`-marked). Old plate-mode rejected ALL writes to port-marked files, including handler bodies. Result: 5 REJECTs in a row + 2 NO-EDITS → halt with no progress.
+
+### New contract
+
+| Aspect | Old (α.9–α.28) | New (α.29) |
+|---|---|---|
+| `@slowcook-port-from`-marked files | **Hard reject** all writes | **Allowed** (handler bodies, hooks, fetch — preserve JSX shape) |
+| `src/components/*` without marker | Hard reject | Hard reject (consumer's hand-written prod UI) |
+| `src/*.tsx` without marker | Hard reject | Hard reject |
+| `.mock.ts` files | Hard reject | Hard reject (no behavior to wire) |
+| `mock/*` | Hard reject | Hard reject |
+
+The marker check is now an **allow signal**, not a deny signal. Brew can edit handlers + hooks inside the file vibe ported (which is exactly the file the test imports from). Tier-2 acceptance + visual regression are the backstop for shape drift.
+
+### Prompt rewrite
+
+`BREW_PLATE_MODE_ADDENDUM` reframed around the two-part rule:
+
+1. **Preserve the UI shape** — JSX structure, props signature, className, layout
+2. **Swap mock data for real data** — handler bodies + hooks edit-allowed inside port-marked files
+
+Includes a new escape-hatch hint: when the test imports a path without the marker, that's a vibe/recipe drift — halt with `MOCKUP_DESIGN_CONFLICT` and call out the name mismatch (instead of stalling).
+
+### Files
+
+- `packages/cli/src/commands/brew/agent.ts` — flip the marker check from reject to allow
+- `packages/llm-anthropic/src/prompts/brew.ts` — rewrite plate-mode addendum (bumps llm-anthropic to 0.12.4)
+
+### Why this matters
+
+Same architectural rhyme as α.27 + α.28: harness resolves its own friction instead of off-loading it to the operator. α.27 made port skip collisions. α.28 made brew degrade unrunnable suites. α.29 lets brew wire data into the component vibe ported — the natural place that wiring lives.
+
+---
+
 ## 0.16.0-alpha.28 — brew auto-degrades when one suite can't boot
 
 Cut 2026-05-03. Follow-up to α.27 — same shape, different surface: brew should resolve "one suite is unrunnable in this environment" by proceeding with the suite that DID run, not by halting `TEST_RUNNER_BROKEN`.
