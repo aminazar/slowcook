@@ -6,6 +6,58 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.17.0-alpha.0 — refine becomes history-aware (the leverage point)
+
+Cut 2026-05-03. First release in the 0.17 brownfield-pipeline line. Plan doc: `docs/plans/0.17-brownfield-pipeline.md`. Memory: `feedback_refine_is_leverage_point` + `project_perfect_mock_taxonomy`.
+
+### What changed
+
+Five agent prompts now read a single auto-generated source of truth: `.brewing/history-index.json`. Refine emits it; vibe + testgen + plate + brew read it.
+
+| Agent | Change | What it prevents |
+|---|---|---|
+| **refine** (cli + llm-anthropic) | Emits history-index.json before LLM runs; prompt requires brownfield-conflict Q&A anchored on the index | Underspec'd brownfield collisions cascading downstream |
+| **vibe** (llm-anthropic) | Naming-discipline section: extend existing components by name, never invent parallels like `XWithFeature` | The PR #147 `MemberReactionsWithPins` vs `MemberReactionsPage` divergence |
+| **testgen** (llm-anthropic) | Use existing component names + prop signatures + test helpers; default to MODIFY existing tests when surface is shared | Inventing `MyXList` + new mocking idioms (`x-test-viewer`) when prod has its own |
+| **plate** (llm-anthropic) | Same naming rules as vibe; surfaces `<component_change_request>` block instead of silently introducing parallel files | Plate amendments compounding vibe's name divergence |
+| **brew** (llm-anthropic) | Existence-check section: call `find_handler` first; ALTER TABLE not CREATE TABLE; never duplicate migrations | The "brew almost wrote duplicate `00031_bookmarks.sql` next to existing `00018_*`" failure |
+
+### Why this is the leverage point
+
+7-agent simulation on /me/bookmarks (rewo `mock-perfect/.pipeline-bookmarks/`) traced every divergence/stuck point back to refine missing brownfield context. The fix isn't "harden each downstream agent"; it's "give refine + downstream agents the same single-source-of-truth so they CAN'T diverge."
+
+Empirical evidence from the 7-agent run: 7 naming/structural divergences between vibe + testgen, all preventable with refine emitting the right history index ahead of time.
+
+### Files
+
+- `packages/cli/src/commands/refine/history-index.ts` — NEW (pure-deterministic scanner; 350 lines)
+- `packages/cli/src/commands/refine/history-index.test.ts` — NEW (7 cases)
+- `packages/cli/src/commands/refine/context.ts` — adds `readHistoryIndexDigest` block
+- `packages/cli/src/commands/refine/index.ts` — emits history-index.json before agent runs (issue + resubmit paths)
+- `packages/llm-anthropic/src/prompts/refine.ts` — new "Code history index" + brownfield Q&A discipline section
+- `packages/llm-anthropic/src/prompts/vibe.ts` — naming-discipline section
+- `packages/llm-anthropic/src/prompts/testgen.ts` — naming + idiom + modify-existing rules
+- `packages/llm-anthropic/src/prompts/plate.ts` — naming-discipline section + component_change_request escape
+- `packages/llm-anthropic/src/prompts/brew.ts` — existence-check section before write_file
+
+### Next in 0.17
+
+- 0.17.6 — recon command (NEW): structural backstop after refine + history-aware downstream
+- 0.17.7 — refactor command (NEW): cost/benefit-per-proposal + codebase scope
+- 0.18.0 — mocking agent: `slowcook init --from-prod` (the perfect-mock generator)
+- 0.19.0 — drift detection: `slowcook check-mock-drift`
+
+### Tests
+
+521 cli tests pass (was 514, +7 for history-index). 
+
+### Versions
+
+- cli: 0.17.0-alpha.0
+- llm-anthropic: 0.13.0 (prompt changes)
+
+---
+
 ## 0.16.0-alpha.30 — halt-XML parser: agent's diagnosis becomes the halt classification
 
 Cut 2026-05-03. Brew's plate-mode prompt instructs the agent to halt by emitting `<halt class="X">...</halt>` in its text. Without this parser, brew never reads its own agent's halt envelopes — the agent's perfect classification falls through to the generic `AGENT_STALLED_NO_EDITS` because brew only counts tool calls.
