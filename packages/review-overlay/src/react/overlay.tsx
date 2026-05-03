@@ -409,7 +409,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           body,
         });
         if (result.ok) {
-          setFeedback(`General note posted (#${result.commentId}).`);
+          setFeedback(`Note posted (#${result.commentId}).`);
           setGeneralComposerOpen(false);
           const optimisticRecord = {
             commentId: result.commentId,
@@ -1359,7 +1359,7 @@ function CommentThreadPopover(props: {
         </div>
       ) : (
         <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 4, fontStyle: "italic" }}>
-          general note · no element anchor
+          page note · no element anchor
         </div>
       )}
       <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 10 }}>
@@ -1498,13 +1498,13 @@ function CommentsListPanel(props: {
             fontSize: 13,
           }}
         >
-          + Add general note (no element anchor)
+          + Add note (about the page, not an element)
         </button>
       </div>
       <div style={{ overflow: "auto", flex: 1, padding: 8 }}>
         {records.length === 0 ? (
           <div style={{ padding: 16, opacity: 0.55, textAlign: "center", fontSize: 12 }}>
-            No comments yet. Toggle 💬 Comment + click an element to start, or use the button above for a general note.
+            No comments yet. Toggle 💬 Comment + click an element to anchor a comment, or use the button above for a page-level note.
           </div>
         ) : (
           records.slice().reverse().map((r) => {
@@ -1519,7 +1519,7 @@ function CommentsListPanel(props: {
               (live.element as HTMLElement).offsetParent === null
             );
             const anchorLabel = !anchored
-              ? { text: "general", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
+              ? { text: "note", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
               : !live
               ? { text: "drifted", color: "#facc15", bg: "rgba(250,204,21,0.18)" }
               : hidden
@@ -1617,7 +1617,7 @@ function GeneralComposer(props: {
         fontSize: 13,
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>Add general note</div>
+      <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>Add page note</div>
       <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
         Comment about overall behavior — not anchored to a specific element.
       </div>

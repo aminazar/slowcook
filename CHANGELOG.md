@@ -6,6 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## @slowcook-ai/review-overlay@0.5.3 — rename "general comment" → "note" in user-facing strings
+
+Cut 2026-05-03. Per dogfood feedback: "general comment" / "general note" was clunky for the un-anchored-comment concept. Renamed in the user-visible strings to **"note"** (with "page note" as the longer form).
+
+| Old | New |
+|---|---|
+| `+ Add general note (no element anchor)` | `+ Add note (about the page, not an element)` |
+| `Add general note` (composer header) | `Add page note` |
+| `general note · no element anchor` (popover subtitle) | `page note · no element anchor` |
+| `general` (list-panel badge) | `note` |
+| `General note posted (#N)` (toast) | `Note posted (#N)` |
+
+Internal code names (`submitGeneralComment`, `<GeneralComposer />`, `generalComposerOpen`, etc.) kept — pure churn to rename without UX benefit.
+
+### Publish state
+
+```
+review-overlay@0.5.3          🟡 in-repo
+```
+
+---
+
 ## 0.16.0-alpha.21 + @slowcook-ai/review-overlay@0.5.2 — approve also submits PR review + run-mock auto-stashes
 
 Cut 2026-05-03. Two real-bug fixes from dogfood:
