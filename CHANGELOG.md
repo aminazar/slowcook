@@ -6,6 +6,48 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## @slowcook-ai/review-overlay@0.2.0 + @slowcook-ai/mock-runtime@0.2.0 — review-pill polish + ScenarioPicker structure
+
+Cut 2026-05-03. Four UX critiques from the rewo dogfood addressed in the surfaces consumers actually look at.
+
+### review-overlay@0.2.0 — the "review pill" (the floating Nav/Comment/Approve toggle)
+
+- **Visible border**: 1px white-12% border + tighter inset shadow. Reads as a deliberate UI artifact rather than a floating glyph against varied page backgrounds.
+- **Slowcook logo on the left**: inline SVG (slow-cook pot with steam wisps + lid + side handles). Single-color via `currentColor`; reads at 18px in the pill, scales clean to 32/64px for marketing surfaces.
+- **Drag-to-move grip handle**: 6-dot vertical grip between logo and buttons. Pointer events (mouse + touch unified). Position persists in `localStorage["slowcook.review-overlay.toggle-pos"]` so PMs can park the pill where it doesn't overlap the UI they're reviewing.
+- **Hidden on the picker route** (`pathname === "/"`): the homepage is for picking scenarios, not for review. Pill only appears on actual scenario pages.
+- **Mobile collapse to icons-only** (`max-width: 640px`): "Nav" → 🧭, "💬 Comment" → 💬, "✅ Approve" → ✅. Tooltips (`title=`) keep the labels accessible on hover/long-press.
+- **Two-step approve confirmation**: clicking ✅ Approve opens a small dialog with Cancel / ✅ Approve. Avoids fat-finger approval; the approval comment + label request only fires after the second click.
+
+### mock-runtime@0.2.0 — ScenarioPicker structure
+
+- **Branded header** with the slowcook logo + wordmark + tagline (`mock — design contract`) + a small `slowcook · mock` pill linking to GitHub.
+- **Grid card layout** for scenarios (was a flat list): each card has a 1px border, hover state that bleeds in coral, and a clear story id / handle / path triplet.
+- **Subtle background gradient** at top — radial coral wash so the page reads as branded, not bare.
+- **Footer line**: scenario count + a one-liner about mock-data semantics.
+- **Empty state** rewritten with proper visual hierarchy + matching card styling.
+- All styling via inline `style={{}}` + CSS custom properties (`var(--card-bg, fallback)`, etc.) so the picker still works with the consumer's tokens and degrades cleanly when unset.
+
+### Naming
+
+The floating toggle is officially the **review pill** going forward (replaces ad-hoc terms like "floating thingy" / "ModeToggle").
+
+### Tests
+
+- 37 review-overlay tests still pass (selector / format / github — none cover the React component yet; queued for jsdom React Testing setup later).
+- mock-runtime tests still pass (9 scenarios.test.ts).
+
+### Publish state
+
+```
+review-overlay@0.2.0          🟡 in-repo (review-pill polish)
+mock-runtime@0.2.0            🟡 in-repo (ScenarioPicker structure)
+```
+
+This is a stand-alone polish patch — independent of the α.14 plate fixes. Can publish either order. After both land, consumers re-`npm install` in `mock/` to pick up.
+
+---
+
 ## 0.16.0-alpha.14 + @slowcook-ai/llm-anthropic@0.12.3 + @slowcook-ai/forge-github@0.11.2 — plate v2 fixes (rewo dogfood iter 3)
 
 Cut 2026-05-03. Four plate-pipeline bugs caught when a real review-overlay comment fired the first end-to-end plate amendment on rewo PR #147.

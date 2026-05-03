@@ -70,7 +70,37 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const [composerOpen, setComposerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+  // 0.2.0 — track viewport width for the icon-only mobile collapse + the
+  // picker-route hide. Updates on resize + initial mount.
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [isPickerRoute, setIsPickerRoute] = useState<boolean>(false);
   const composerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 640px)");
+    const apply = () => setIsMobile(mql.matches);
+    apply();
+    mql.addEventListener("change", apply);
+    return () => mql.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // 0.2.0 — hide on the picker route (homepage). The picker is for
+    // navigation, not for review; commenting affordances would be noise.
+    // Re-evaluate on pop/push via a polling tick (Next App Router doesn't
+    // emit a usable event for this without a router hook).
+    const apply = () => setIsPickerRoute(window.location.pathname === "/");
+    apply();
+    const interval = setInterval(apply, 500);
+    window.addEventListener("popstate", apply);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("popstate", apply);
+    };
+  }, []);
 
   // ESC exits comment/approve mode + closes composer.
   useEffect(() => {
@@ -109,6 +139,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     return () => document.removeEventListener("click", onClick, { capture: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  const onApproveClicked = useCallback(() => {
+    // 0.2.0 — two-step confirm; protects against fat-finger approval.
+    setMode("approve");
+    setApproveConfirmOpen(true);
+  }, []);
 
   const submitApproval = useCallback(async () => {
     setSubmitting(true);
@@ -193,6 +229,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
 
   if (!enabled) return null;
   if (typeof window === "undefined") return null;
+  if (isPickerRoute) return null;
 
   return (
     <div
@@ -218,7 +255,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           aria-hidden="true"
         />
       )}
-      <ModeToggle mode={mode} onChange={setMode} disabled={submitting} />
+      <ModeToggle
+        mode={mode}
+        onChange={(m) => (m === "approve" ? onApproveClicked() : setMode(m))}
+        disabled={submitting}
+        isMobile={isMobile}
+      />
       {composerOpen && target && (
         <Composer
           target={target}
@@ -231,40 +273,305 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           composerRef={composerRef}
         />
       )}
+      {approveConfirmOpen && (
+        <ApproveConfirm
+          onCancel={() => {
+            setApproveConfirmOpen(false);
+            setMode("nav");
+          }}
+          onConfirm={async () => {
+            setApproveConfirmOpen(false);
+            await submitApproval();
+          }}
+          submitting={submitting}
+        />
+      )}
       {feedback && <FeedbackToast text={feedback} onDismiss={() => setFeedback(null)} />}
     </div>
   );
 }
 
-function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean }): JSX.Element {
-  const { mode, onChange, disabled } = props;
+/**
+ * 0.2.0 — draggable toggle pill with grip handle, slowcook logo,
+ * and a visible border. Position persists in localStorage so PMs
+ * can park it where it doesn't overlap the UI they're reviewing.
+ *
+ * Keys it on the active document's origin so different repos /
+ * preview deploys don't share placement.
+ */
+const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos";
+
+interface TogglePosition {
+  /** Absolute top in CSS px from viewport top. */
+  top: number;
+  /** Absolute right in CSS px from viewport right. */
+  right: number;
+}
+
+function loadTogglePosition(): TogglePosition {
+  const fallback: TogglePosition = { top: 12, right: 12 };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(TOGGLE_POSITION_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<TogglePosition>;
+    if (typeof parsed.top !== "number" || typeof parsed.right !== "number") return fallback;
+    return { top: parsed.top, right: parsed.right };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveTogglePosition(p: TogglePosition): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TOGGLE_POSITION_STORAGE_KEY, JSON.stringify(p));
+  } catch {
+    /* ignore quota / private-mode errors */
+  }
+}
+
+function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean; isMobile: boolean }): JSX.Element {
+  const { mode, onChange, disabled, isMobile } = props;
+  const [pos, setPos] = useState<TogglePosition>(loadTogglePosition);
+  const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
+
+  // Drag handlers — pointer events for unified mouse + touch.
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // Only drag from the grip itself; clicks on toggle buttons must stay clicks.
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTop: pos.top,
+      startRight: pos.right,
+    };
+  }, [pos]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.preventDefault();
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    const newTop = Math.max(0, dragRef.current.startTop + dy);
+    const newRight = Math.max(0, dragRef.current.startRight - dx);
+    setPos({ top: newTop, right: newRight });
+  }, []);
+
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+    saveTogglePosition(pos);
+  }, [pos]);
+
   return (
     <div
       data-slowcook-overlay-ui="1"
       style={{
         position: "absolute",
-        top: 12,
-        right: 12,
+        top: pos.top,
+        right: pos.right,
         pointerEvents: "auto",
         display: "flex",
+        alignItems: "center",
         gap: 4,
         background: "rgba(15, 15, 24, 0.92)",
-        padding: 4,
+        padding: "4px 4px 4px 6px",
         borderRadius: 999,
-        boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
+        border: "1px solid rgba(255, 255, 255, 0.16)",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
         color: "white",
+        userSelect: "none",
       }}
     >
-      <ToggleButton active={mode === "nav"} onClick={() => onChange("nav")} disabled={disabled} label="Nav" />
-      <ToggleButton active={mode === "comment"} onClick={() => onChange("comment")} disabled={disabled} label="💬 Comment" accent />
-      <ToggleButton active={mode === "approve"} onClick={() => onChange("approve")} disabled={disabled} label="✅ Approve" approve />
+      {/* Slowcook logo — slow-cook pot with steam. Scales with currentColor. */}
+      <SlowcookLogo />
+      {/* Grip handle for dragging. Pointer events only on this element. */}
+      <div
+        role="button"
+        aria-label="Drag overlay toggle"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        title="Drag to move"
+        style={{
+          width: 8,
+          height: 22,
+          marginRight: 2,
+          cursor: dragRef.current ? "grabbing" : "grab",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: 0.55,
+          touchAction: "none",
+        }}
+      >
+        <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
+          <circle cx="1.5" cy="2"  r="1.1" fill="currentColor" />
+          <circle cx="4.5" cy="2"  r="1.1" fill="currentColor" />
+          <circle cx="1.5" cy="7"  r="1.1" fill="currentColor" />
+          <circle cx="4.5" cy="7"  r="1.1" fill="currentColor" />
+          <circle cx="1.5" cy="12" r="1.1" fill="currentColor" />
+          <circle cx="4.5" cy="12" r="1.1" fill="currentColor" />
+        </svg>
+      </div>
+      <ToggleButton
+        active={mode === "nav"}
+        onClick={() => onChange("nav")}
+        disabled={disabled}
+        label={isMobile ? "🧭" : "Nav"}
+        title="Navigate (default)"
+      />
+      <ToggleButton
+        active={mode === "comment"}
+        onClick={() => onChange("comment")}
+        disabled={disabled}
+        label={isMobile ? "💬" : "💬 Comment"}
+        title="Comment on an element"
+        accent
+      />
+      <ToggleButton
+        active={mode === "approve"}
+        onClick={() => onChange("approve")}
+        disabled={disabled}
+        label={isMobile ? "✅" : "✅ Approve"}
+        title="Approve the mockup (asks for confirmation)"
+        approve
+      />
     </div>
   );
 }
 
-function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; accent?: boolean; approve?: boolean }): JSX.Element {
+/**
+ * Two-step approval confirm — guards against fat-finger taps on the
+ * Approve toggle. Renders a small dialog near the toggle with a clear
+ * Cancel / Approve choice. Submitting state shows on the Approve button.
+ */
+function ApproveConfirm(props: {
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+  submitting: boolean;
+}): JSX.Element {
+  return (
+    <div
+      data-slowcook-overlay-ui="1"
+      role="dialog"
+      aria-label="Confirm approval"
+      style={{
+        position: "absolute",
+        top: 64,
+        right: 12,
+        width: 280,
+        background: "white",
+        color: "#1a1a1a",
+        borderRadius: 10,
+        padding: 16,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.06)",
+        pointerEvents: "auto",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontSize: 13,
+        lineHeight: 1.45,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+        Approve this mockup?
+      </div>
+      <div style={{ opacity: 0.75, marginBottom: 12 }}>
+        Posts an approval comment + requests the
+        {" "}
+        <code style={{ fontSize: 11, padding: "1px 4px", background: "rgba(0,0,0,0.06)", borderRadius: 3 }}>
+          slowcook-mockup-approved
+        </code>
+        {" "}
+        label. Plate refuses further amendments after that lands.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button
+          type="button"
+          onClick={props.onCancel}
+          disabled={props.submitting}
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(0,0,0,0.18)",
+            padding: "6px 12px",
+            borderRadius: 6,
+            cursor: "pointer",
+            font: "inherit",
+            color: "#1a1a1a",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void props.onConfirm()}
+          disabled={props.submitting}
+          style={{
+            background: "#22c55e",
+            color: "white",
+            border: "none",
+            padding: "6px 14px",
+            borderRadius: 6,
+            cursor: props.submitting ? "not-allowed" : "pointer",
+            opacity: props.submitting ? 0.6 : 1,
+            font: "inherit",
+            fontWeight: 600,
+          }}
+        >
+          {props.submitting ? "Approving…" : "✅ Approve"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Slowcook brand mark — a slow-cook pot with three steam wisps.
+ * Inline SVG; no asset dependency. 18×18px; fill currentColor so
+ * it inherits the toggle's white text.
+ */
+function SlowcookLogo(): JSX.Element {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      aria-label="slowcook"
+      role="img"
+      style={{ flexShrink: 0, marginLeft: 2 }}
+    >
+      {/* Steam wisps — small S-curves above the lid. */}
+      <path
+        d="M8 3 Q9 4 8 5.5 Q7 7 8 8.5 M12 2 Q13 3.5 12 5 Q11 6.5 12 8 M16 3 Q17 4 16 5.5 Q15 7 16 8.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.85"
+      />
+      {/* Lid — slim rectangle with a small knob notch. */}
+      <rect x="4" y="9.5" width="16" height="2.2" rx="1.1" fill="currentColor" />
+      <rect x="11" y="8.4" width="2" height="1.4" rx="0.4" fill="currentColor" />
+      {/* Pot body — rounded-bottom rectangle. */}
+      <path
+        d="M5 12.2 H19 V18.5 a2.5 2.5 0 0 1 -2.5 2.5 H7.5 a2.5 2.5 0 0 1 -2.5 -2.5 Z"
+        fill="currentColor"
+      />
+      {/* Side handles — small bumps. */}
+      <rect x="2" y="13.5" width="2.5" height="3" rx="0.6" fill="currentColor" />
+      <rect x="19.5" y="13.5" width="2.5" height="3" rx="0.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean }): JSX.Element {
   const bg = props.active
     ? props.approve
       ? "#22c55e"
@@ -277,6 +584,7 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
+      title={props.title}
       style={{
         background: bg,
         color: "white",

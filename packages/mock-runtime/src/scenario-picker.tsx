@@ -23,71 +23,283 @@ import { useScenarioRegistry } from "./registry-context.js";
  * Consumers can replace this with their own picker if they want to
  * surface scenarios differently (group by status, search, etc.) — the
  * registry + hooks API is stable; the UI is replaceable.
+ *
+ * 0.2.0 — visual structure pass: branded header with the slowcook
+ * logo, framed scenario cards with hover affordance, footer line, and
+ * tighter use of the consumer's existing tokens (`var(--color-coral)`,
+ * `card-bg`, `card-border`).
  */
 export function ScenarioPicker() {
   const registry = useScenarioRegistry();
   const scenarios = registry.list;
 
-  if (scenarios.length === 0) {
-    return (
-      <main className="mx-auto max-w-2xl px-6 py-16">
-        <h1 className="text-2xl font-bold mb-4">mock</h1>
-        <div className="rounded-lg border border-card-border bg-card-bg p-6 space-y-3">
-          <p className="text-foreground/80">
-            No scenarios registered yet. The mock is bootstrapped but empty.
-          </p>
-          <p className="text-foreground/60 text-sm">
-            Scenarios are added by the <code className="bg-foreground/5 px-1 py-0.5 rounded">vibe</code> agent
-            when it runs against a story spec, OR you can hand-author one for testing:
-          </p>
-          <ol className="list-decimal list-inside text-sm text-foreground/60 space-y-1">
-            <li>Create <code className="bg-foreground/5 px-1 py-0.5 rounded">mock/scenarios/story-N.ts</code> exporting a default <code>Scenario</code></li>
-            <li>Add an import + entry to <code className="bg-foreground/5 px-1 py-0.5 rounded">mock/src/lib/scenario-registry.ts</code></li>
-            <li>Refresh — your scenario appears here</li>
-          </ol>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-2xl font-bold mb-2">mock</h1>
-      <p className="text-foreground/60 mb-8 text-sm">
-        Pick a scenario to render the UI with that story&apos;s fixture data.
-      </p>
-      <ul className="space-y-3">
-        {scenarios.map((s) => (
-          <li
-            key={s.id}
-            className="rounded-lg border border-card-border bg-card-bg p-4 hover:border-coral/40 transition-colors"
-          >
-            <Link
-              href={`${s.initialPath}?scenario=${encodeURIComponent(s.id)}`}
-              className="block"
+    <div
+      style={{
+        minHeight: "100vh",
+        background:
+          "radial-gradient(ellipse at top, rgba(255,107,107,0.06) 0%, transparent 60%), var(--background, #0f0f18)",
+      }}
+    >
+      <header
+        style={{
+          maxWidth: 880,
+          margin: "0 auto",
+          padding: "32px 24px 0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 24,
+        }}
+      >
+        <Brand />
+        <a
+          href="https://github.com/aminazar/slowcook"
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            fontSize: 12,
+            opacity: 0.55,
+            color: "var(--foreground, #e8e8f0)",
+            textDecoration: "none",
+            border: "1px solid var(--card-border, rgba(255,255,255,0.08))",
+            padding: "5px 10px",
+            borderRadius: 999,
+          }}
+        >
+          slowcook · mock
+        </a>
+      </header>
+
+      <main
+        style={{
+          maxWidth: 880,
+          margin: "0 auto",
+          padding: "32px 24px 80px",
+          color: "var(--foreground, #e8e8f0)",
+        }}
+      >
+        {scenarios.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <>
+            <h1
+              style={{
+                fontSize: 22,
+                fontWeight: 600,
+                margin: "0 0 6px",
+                letterSpacing: "-0.01em",
+              }}
             >
-              <div className="flex items-baseline justify-between gap-3 mb-1">
-                <span className="font-medium text-foreground">{s.name}</span>
-                <span className="text-xs text-foreground/40">
-                  story-{s.id} · {s.user ? `as ${s.user.handle}` : "anonymous"}
-                </span>
-              </div>
-              <div className="text-xs text-foreground/60 font-mono">
-                {s.initialPath}
-              </div>
-              {s.expectedInteractions && s.expectedInteractions.length > 0 && (
-                <ul className="mt-3 space-y-1 text-xs text-foreground/60">
-                  {s.expectedInteractions.map((i, idx) => (
-                    <li key={idx} className="pl-3 border-l-2 border-card-border">
-                      {i}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </main>
+              Scenarios
+            </h1>
+            <p style={{ fontSize: 13, opacity: 0.6, margin: "0 0 24px" }}>
+              Each scenario renders the UI with one story&apos;s fixture data. Pick one
+              to navigate into the mock.
+            </p>
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                display: "grid",
+                gap: 12,
+              }}
+            >
+              {scenarios.map((s) => (
+                <li key={s.id}>
+                  <Link
+                    href={`${s.initialPath}?scenario=${encodeURIComponent(s.id)}`}
+                    style={{
+                      display: "block",
+                      padding: "16px 18px",
+                      background: "var(--card-bg, rgba(255,255,255,0.03))",
+                      border: "1px solid var(--card-border, rgba(255,255,255,0.08))",
+                      borderRadius: 12,
+                      textDecoration: "none",
+                      color: "inherit",
+                      transition: "border-color 120ms ease, transform 120ms ease, background 120ms ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(255,107,107,0.45)";
+                      e.currentTarget.style.background = "rgba(255,107,107,0.04)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--card-border, rgba(255,255,255,0.08))";
+                      e.currentTarget.style.background = "var(--card-bg, rgba(255,255,255,0.03))";
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          opacity: 0.5,
+                          fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        story-{s.id} · {s.user ? `as ${s.user.handle}` : "anonymous"}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.6,
+                        fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                      }}
+                    >
+                      {s.initialPath}
+                    </div>
+                    {s.expectedInteractions && s.expectedInteractions.length > 0 && (
+                      <ul
+                        style={{
+                          marginTop: 12,
+                          padding: 0,
+                          listStyle: "none",
+                          display: "grid",
+                          gap: 4,
+                        }}
+                      >
+                        {s.expectedInteractions.map((i, idx) => (
+                          <li
+                            key={idx}
+                            style={{
+                              fontSize: 12,
+                              opacity: 0.6,
+                              paddingLeft: 12,
+                              borderLeft: "2px solid var(--card-border, rgba(255,255,255,0.12))",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {i}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        <footer
+          style={{
+            marginTop: 40,
+            paddingTop: 16,
+            borderTop: "1px solid var(--card-border, rgba(255,255,255,0.06))",
+            fontSize: 11,
+            opacity: 0.45,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+          }}
+        >
+          <span>scenarios are mock data; refreshing resets state. brew wires real data later.</span>
+          <span>{scenarios.length} scenario{scenarios.length === 1 ? "" : "s"}</span>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div
+      style={{
+        padding: 28,
+        background: "var(--card-bg, rgba(255,255,255,0.03))",
+        border: "1px solid var(--card-border, rgba(255,255,255,0.08))",
+        borderRadius: 12,
+        color: "var(--foreground, #e8e8f0)",
+      }}
+    >
+      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 8px" }}>
+        No scenarios registered yet
+      </h1>
+      <p style={{ fontSize: 13, opacity: 0.7, margin: "0 0 16px" }}>
+        The mock is bootstrapped but empty. Scenarios are added by the{" "}
+        <code style={codeStyle}>vibe</code> agent when it runs against a story
+        spec, OR you can hand-author one for testing:
+      </p>
+      <ol style={{ fontSize: 13, opacity: 0.7, paddingLeft: 20, display: "grid", gap: 6, margin: 0 }}>
+        <li>
+          Create <code style={codeStyle}>mock/scenarios/story-N.ts</code> exporting a
+          default <code style={codeStyle}>Scenario</code>
+        </li>
+        <li>
+          Add an import + entry to{" "}
+          <code style={codeStyle}>mock/src/lib/scenario-registry.ts</code>
+        </li>
+        <li>Refresh — your scenario appears here</li>
+      </ol>
+    </div>
+  );
+}
+
+const codeStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.06)",
+  padding: "1px 6px",
+  borderRadius: 4,
+  fontSize: 12,
+  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+};
+
+/**
+ * Brand mark for the picker header — slowcook logo + wordmark.
+ * Inline SVG; no asset dep. Same logo as the review-overlay's pill
+ * (kept in sync by hand for now; would lift to a shared sub-package
+ * if more surfaces start using it).
+ */
+function Brand() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--foreground, #e8e8f0)" }}>
+      <span
+        aria-hidden="true"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 36,
+          height: 36,
+          background: "rgba(255,107,107,0.12)",
+          color: "#FF6B6B",
+          borderRadius: 10,
+          border: "1px solid rgba(255,107,107,0.25)",
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M8 3 Q9 4 8 5.5 Q7 7 8 8.5 M12 2 Q13 3.5 12 5 Q11 6.5 12 8 M16 3 Q17 4 16 5.5 Q15 7 16 8.5"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            fill="none"
+            opacity="0.85"
+          />
+          <rect x="4" y="9.5" width="16" height="2.2" rx="1.1" fill="currentColor" />
+          <rect x="11" y="8.4" width="2" height="1.4" rx="0.4" fill="currentColor" />
+          <path
+            d="M5 12.2 H19 V18.5 a2.5 2.5 0 0 1 -2.5 2.5 H7.5 a2.5 2.5 0 0 1 -2.5 -2.5 Z"
+            fill="currentColor"
+          />
+          <rect x="2" y="13.5" width="2.5" height="3" rx="0.6" fill="currentColor" />
+          <rect x="19.5" y="13.5" width="2.5" height="3" rx="0.6" fill="currentColor" />
+        </svg>
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
+        <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.01em" }}>slowcook</span>
+        <span style={{ fontSize: 11, opacity: 0.55 }}>mock — design contract</span>
+      </div>
+    </div>
   );
 }
