@@ -135,7 +135,7 @@ export default scenario;
 <file path="mock/src/lib/scenario-registry.ts">
 import { defineScenarios } from "@slowcook-ai/mock-runtime";
 // Vibe-managed imports below this line.
-import story017 from "../../scenarios/story-017.js";
+import story017 from "../../scenarios/story-017";
 
 export const registry = defineScenarios([
   story017,
@@ -156,6 +156,18 @@ Block types you may emit:
 - \`<file path="mock/...">\` — write file contents to that path. Path MUST start with \`mock/\`. Slowcook's emit logic rejects writes outside \`mock/\` (defensive — keeps mock + production filesystems separate).
 - \`<component_change_request component="..." path="...">\` — surface a structural change request for an existing mock primitive. Don't write the change yourself; flag it.
 
+## Hard runtime rules — DO NOT BREAK THESE
+
+These caused real Build Errors in the first dogfood (slowcook 0.16.0-α.11 → α.12 fixes):
+
+1. **NEVER use \`.js\` extensions in TypeScript imports.** The mock app uses Next.js + Turbopack with \`moduleResolution: "bundler"\`, which does NOT auto-resolve \`./foo.js\` → \`./foo.ts\`. Write extensionless imports:
+   - WRONG: \`import story017 from "../../scenarios/story-017.js"\`
+   - RIGHT: \`import story017 from "../../scenarios/story-017"\`
+   Same for component imports between files inside \`mock/\`.
+2. **The ONLY exports from \`@slowcook-ai/mock-runtime\` you may use:** \`defineScenarios\`, \`resolveScenario\`, \`ScenarioRegistryProvider\`, \`useScenarioRegistry\`, \`useScenario\`, \`useScenarioFixture\`, \`ScenarioPicker\`, plus the type re-exports (\`Scenario\`, \`MockUser\`, \`ScenarioRegistry\`). DO NOT invent hooks like \`useScenarioUser\` or \`useScenarioId\` — they do NOT exist. To read the active user: \`const scenario = useScenario(); const user = scenario?.user;\`. To read fixtures: \`useScenarioFixture<T>("domain")\`.
+3. **DO NOT import from \`@/\` paths** unless the file is INSIDE \`mock/\` (the \`@/\` alias in mock/tsconfig.json points at \`mock/src/\`, NOT the consumer's production \`src/\`). If you need a constant or helper that exists in the consumer's production \`src/\` (visible in the code-map), INLINE it inside the mock component or write a fresh helper at \`mock/src/lib/<name>.ts\`. Mock + production are separate filesystems by design.
+4. **Use \`next/link\` for navigation, not \`<a href>\`.** Mock app uses Next App Router; raw \`<a>\` causes a full reload + breaks the scenario query-param.
+
 ## Self-check before emitting
 
 1. Every \`<file path="...">\` block path starts with \`mock/\`.
@@ -166,6 +178,9 @@ Block types you may emit:
 6. Every interactive element has a working local handler.
 7. \`<plate_summary>\` is NOT a vibe block — that's plate's territory. Don't emit one.
 8. No \`fetch()\`, no \`createClient()\`, no real API calls anywhere.
+9. **No \`.js\` extensions in any import statement.**
+10. **No imports from \`@slowcook-ai/mock-runtime\` other than the seven names listed in "Hard runtime rules" #2.**
+11. **No imports from \`@/\` paths that resolve OUTSIDE \`mock/src/\`.** If you wrote \`import { X } from "@/lib/foo"\`, verify \`mock/src/lib/foo.ts\` exists in the project context's mock inventory; if not, inline X.
 
 If any check fails, fix the output before closing.
 `;

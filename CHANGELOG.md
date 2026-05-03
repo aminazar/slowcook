@@ -6,6 +6,41 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.12 + @slowcook-ai/llm-anthropic@0.12.2 — vibe-prompt hardening (rewo dogfood iter 2)
+
+Cut 2026-05-03. Three vibe-emit bugs caught when the first generated mockup (rewo PR #147 for story-017) tried to run in the browser:
+
+1. **Vibe wrote `.js` extensions on TS imports.** `import story017 from "../../scenarios/story-017.js"` triggered a Build Error in Next/Turbopack — bundler module resolution doesn't auto-resolve `.js` → `.ts` like Node ESM does. Vibe prompt's example block used `.js` to mirror Node's convention; that was wrong for the mock app's stack.
+2. **Vibe hallucinated `useScenarioUser` from `@slowcook-ai/mock-runtime`.** The package has never exported that hook. The right pattern is `const scenario = useScenario(); const user = scenario?.user;`. Hallucination probably came from "useScenarioFixture" being a real hook + the model generalising the naming.
+3. **Vibe imported `@/lib/emotions` from `mock/src/components/`.** That alias resolves to `mock/src/lib/`, NOT the consumer's production `src/lib/`. The emotions module exists in the consumer's `src/`; the mock has its own filesystem with no cross-import path. Vibe should inline the constants OR write a fresh `mock/src/lib/<name>.ts`.
+
+Fixes (in `vibe.ts` system prompt as a new "Hard runtime rules — DO NOT BREAK THESE" section):
+
+- "NEVER use `.js` extensions in TypeScript imports." Examples corrected to extensionless.
+- Whitelisted the seven `mock-runtime` exports vibe may use; explicit ban on inventing hooks like `useScenorioUser`. Right pattern for "active user" + "fixtures" spelled out.
+- "DO NOT import from `@/` paths" unless the file lives inside `mock/`. If a consumer's prod helper is needed, INLINE it.
+- "Use `next/link` for navigation, not `<a href>`" (defensive — caught while reviewing prompt; observed in some past rewo runs).
+- Self-check list extended from 8 → 11 items mirroring the new rules.
+
+Init-mock template README + scenario-registry comment also updated to drop the `.js` example (cosmetic but consistent with the new rule).
+
+10 init/mock tests still pass. No new regression tests for the prompt rules — they're steering, not mechanical guards (would need an LLM-output evaluator to catch via tests).
+
+### Why the vibe prompt is the right fix
+
+These are pure prompt-steering bugs. Brew's heuristic guards (frozen-paths, marker-aware reject) protect the production filesystem; they don't apply to mock/. The mock has no compile-time enforcement of mock-runtime exports beyond TypeScript's own type-checker (which the agent satisfies by hallucinating the wrong types too). Hardening the prompt's hard rules + self-check list catches these at emit time so consumers don't hit them.
+
+### Publish state
+
+```
+llm-anthropic@0.12.2          🟡 in-repo (vibe.ts hardened)
+cli@0.16.0-alpha.12           🟡 in-repo (init-mock README cosmetic)
+```
+
+The vibe-emitted scenario-registry on rewo PR #147 was hand-patched (drop `.js`); the page.tsx + components still have bugs 2 + 3 unfixed in that branch. Those are dogfood waste but the prompt fix prevents a recurrence on the NEXT vibe run.
+
+---
+
 ## 0.16.0-alpha.11 — `slowcook init mock` bug fixes (caught at first rewo dogfood)
 
 Cut 2026-05-02. Two bugs caught immediately when running `init mock` on rewo for the first time:

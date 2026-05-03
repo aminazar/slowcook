@@ -439,7 +439,7 @@ const SCENARIO_REGISTRY = `import { defineScenarios } from "@slowcook-ai/mock-ru
 
 // Vibe-managed imports below this line. Don't reorder; vibe inserts
 // new lines at the bottom of the import block.
-// e.g. import story017 from "../../scenarios/story-017.js";
+// e.g. import story017 from "../../scenarios/story-017";
 
 export const registry = defineScenarios([
   // story017,
@@ -484,6 +484,7 @@ clicking or refreshes to start over).
 \`\`\`ts
 // mock/scenarios/story-017.ts
 import type { Scenario } from "@slowcook-ai/mock-runtime";
+// (no \`.js\` extensions in TS imports — Next/Turbopack uses bundler resolution)
 
 const scenario: Scenario = {
   id: "017",
@@ -507,7 +508,7 @@ Then add to the registry in \`mock/src/lib/scenario-registry.ts\`:
 
 \`\`\`ts
 import { defineScenarios } from "@slowcook-ai/mock-runtime";
-import story017 from "../../scenarios/story-017.js";
+import story017 from "../../scenarios/story-017";
 
 export const registry = defineScenarios([story017]);
 \`\`\`
