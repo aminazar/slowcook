@@ -879,21 +879,30 @@ ${RESOLVE_PIN_STEP}
           node-version: 20
 
       - name: Stage SSH private key
+        id: ssh-stage
         env:
           SLOWCOOK_PREVIEW_SSH_KEY: \${{ secrets.SLOWCOOK_PREVIEW_SSH_KEY }}
         run: |
           set -eu
           if [ -z "\${SLOWCOOK_PREVIEW_SSH_KEY:-}" ]; then
-            echo "::error::SLOWCOOK_PREVIEW_SSH_KEY secret is not set. See docs/operating-guide.md for how to provision the deploy key."
-            exit 1
+            # 0.16.0-α.25 — silently skip when no SSH key is configured.
+            # Many consumers run \`slowcook run-mock\` locally instead of
+            # SSH-deploying to their own box; failing the PR check on
+            # a missing secret is hostile UX. Warn visibly so consumers
+            # who DID intend to set it up notice the gap.
+            echo "::notice::SLOWCOOK_PREVIEW_SSH_KEY secret not set; skipping SSH preview deploy. Configure per docs/operating-guide.md if you want preview URLs on this PR."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           echo "$SLOWCOOK_PREVIEW_SSH_KEY" > ~/.ssh/id_slowcook_preview
           chmod 600 ~/.ssh/id_slowcook_preview
           echo "SLOWCOOK_PREVIEW_SSH_KEY_PATH=$HOME/.ssh/id_slowcook_preview" >> $GITHUB_ENV
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Deploy preview
+        if: steps.ssh-stage.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: \${{ github.event.pull_request.number || github.event.inputs.pr }}
