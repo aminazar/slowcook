@@ -30,6 +30,13 @@ export interface ReviewCommentPayload {
   url: string;
   timestamp: string;
   prose: string;
+  /**
+   * 0.5.0 — element is now OPTIONAL. Comments can be anchored to a
+   * specific element (the original click-an-element flow) OR general
+   * (no anchor — about overall behavior, e.g. "show error on bad
+   * input"). General comments don't render as pins; they appear only
+   * in the comments-list panel.
+   */
   element: {
     selector: string;
     fallback_selector: string | null;
@@ -38,7 +45,7 @@ export interface ReviewCommentPayload {
     text_hint: string | null;
     /** Bounding box in CSS pixels at submit time. */
     bbox: { x: number; y: number; w: number; h: number };
-  };
+  } | null;
   viewport: ViewportInfo;
   user_agent: string;
 }
@@ -142,10 +149,15 @@ export function formatReviewComment(args: FormatArgs): string {
   const { payload, screenshotDataUrl } = args;
   const lines: string[] = [];
 
-  lines.push(`### Review comment — \`${payload.element.selector}\``);
-  lines.push("");
-
-  lines.push(`**Element:** \`${payload.element.tag}\` ${payload.element.text_hint ? `· "${payload.element.text_hint}"` : ""}`);
+  if (payload.element) {
+    lines.push(`### Review comment — \`${payload.element.selector}\``);
+    lines.push("");
+    lines.push(`**Element:** \`${payload.element.tag}\` ${payload.element.text_hint ? `· "${payload.element.text_hint}"` : ""}`);
+  } else {
+    // 0.5.0 — general comment, no element anchor.
+    lines.push(`### Review note (general — no element anchor)`);
+    lines.push("");
+  }
   lines.push(
     `**Viewport:** ${payload.viewport.width}×${payload.viewport.height} ${payload.viewport.colorScheme} (dpr ${payload.viewport.dpr})`
   );
@@ -198,12 +210,16 @@ export function parseReviewComment(body: string): ReviewCommentPayload | null {
 function isReviewCommentPayload(v: unknown): v is ReviewCommentPayload {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
+  // 0.5.0 — element is allowed to be null (general comment).
+  const elementOk =
+    o["element"] === null ||
+    (typeof o["element"] === "object" && o["element"] !== null);
   return (
     typeof o["slowcook_overlay_version"] === "string" &&
     typeof o["url"] === "string" &&
     typeof o["timestamp"] === "string" &&
     typeof o["prose"] === "string" &&
-    typeof o["element"] === "object" && o["element"] !== null &&
+    elementOk &&
     typeof o["viewport"] === "object" && o["viewport"] !== null
   );
 }
@@ -213,25 +229,33 @@ export function buildPayload(args: {
   storyId: string | null;
   url: string;
   prose: string;
-  selector: ExtractedSelector;
-  bbox: { x: number; y: number; w: number; h: number };
+  /**
+   * 0.5.0 — selector + bbox are now optional. Pass both for
+   * element-anchored comments; pass neither for general comments.
+   */
+  selector?: ExtractedSelector;
+  bbox?: { x: number; y: number; w: number; h: number };
   viewport: ViewportInfo;
   userAgent: string;
 }): ReviewCommentPayload {
+  const element =
+    args.selector && args.bbox
+      ? {
+          selector: args.selector.selector,
+          fallback_selector: args.selector.fallbackSelector,
+          strategy: args.selector.strategy,
+          tag: args.selector.tag,
+          text_hint: args.selector.textHint,
+          bbox: args.bbox,
+        }
+      : null;
   return {
     slowcook_overlay_version: args.overlayVersion,
     story_id: args.storyId,
     url: args.url,
     timestamp: new Date().toISOString(),
     prose: args.prose,
-    element: {
-      selector: args.selector.selector,
-      fallback_selector: args.selector.fallbackSelector,
-      strategy: args.selector.strategy,
-      tag: args.selector.tag,
-      text_hint: args.selector.textHint,
-      bbox: args.bbox,
-    },
+    element,
     viewport: args.viewport,
     user_agent: args.userAgent,
   };

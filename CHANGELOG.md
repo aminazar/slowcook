@@ -6,6 +6,37 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.19 + @slowcook-ai/review-overlay@0.5.0 — comments-list panel + general (no-anchor) comments
+
+Cut 2026-05-03. Two dogfood gaps from iter 5:
+
+1. **Comments anchored to elements that get hidden become invisible.** When plate's amendment hides an element (e.g., the empty-state placeholder removed in iter 3), the pin layer can't anchor + the comment vanishes from the PM's view.
+2. **Some comments aren't about a specific element.** General behavior asks ("show inline error on duplicate name") had no submission path — the overlay required clicking an element first.
+
+### review-overlay@0.5.0
+
+- **`payload.element` is now optional** (additive schema change; old payloads still parse). General comments persist with `element: null`.
+- **`<CommentsListPanel />`** — new side drawer (right, 360px) reachable from a `📋` button in the pill (always visible; shows comment count badge). Surfaces ALL fetched comments regardless of element visibility. Each item shows status icon, prose snippet (3-line clamp), author, time, and a `anchored / hidden / drifted / general` badge.
+- **Click a list item** → closes panel, opens the existing thread popover. If the comment is anchored to a visible element, the pin **flashes** (220ms scale + glow expansion) so the eye finds it; otherwise the popover renders with a "general note" or "drifted" indicator.
+- **Hidden-element detection** in the pin layer: zero-area `getBoundingClientRect` OR `offsetParent === null` → treat like drifted (render at stored bbox with a `⚠ drifted` indicator). Avoids pins rendering at `(0,0)` on top of the page corner.
+- **`<GeneralComposer />`** — new centered modal opened via `+ Add general note` at the top of the list panel. No element preview; just prose. Submits a payload with `element: null`.
+- **`buildPayload({ selector?, bbox? })`** — both args now optional; passing neither produces a general-comment payload.
+- **`formatReviewComment`** — renders `### Review note (general — no element anchor)` headline when `element === null`; existing element-anchored format unchanged.
+- **Pin count badge** on the `📋` button uses the existing `comments` state.
+
+### Tests
+
+- 37 overlay tests still pass. The schema-flexibility (null element) is exercised by the existing `parseReviewComment` test set since the parser was kept additive.
+
+### Publish state
+
+```
+review-overlay@0.5.0          🟡 in-repo
+cli@0.16.0-alpha.19           🟡 in-repo (no behavioral change; bumped to track)
+```
+
+---
+
 ## 0.16.0-alpha.18 + @slowcook-ai/review-overlay@0.4.2 + @slowcook-ai/mock-runtime@0.3.1 — approval auto-applies label + visual cues
 
 Cut 2026-05-03. Fixes a real-bug surfaced in dogfood iter 5: clicking ✅ Approve only POSTed an "asking for the label" comment; the label was never actually applied. PR #147 had 2 approval comments but no `slowcook-mockup-approved` label, so plate could still amend + the pill stayed un-greened.

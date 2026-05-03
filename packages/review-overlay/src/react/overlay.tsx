@@ -74,6 +74,16 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const [mode, setMode] = useState<Mode>("nav");
   const [target, setTarget] = useState<Element | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  // 0.5.0 — comments-list panel state. Opened by the "📋" button in
+  // the pill OR by clicking the count badge on the Comment toggle.
+  // Surfaces ALL comments — including ones whose anchor element is
+  // hidden in the current view + general (no-anchor) ones.
+  const [listPanelOpen, setListPanelOpen] = useState<boolean>(false);
+  // 0.5.0 — general comment composer. Distinct from the element-
+  // anchored composer (which needs a target element + bbox).
+  const [generalComposerOpen, setGeneralComposerOpen] = useState<boolean>(false);
+  // When set, scroll the corresponding pin into view + flash it.
+  const [flashCommentId, setFlashCommentId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
@@ -310,6 +320,73 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     [overlayVersion, prNumber, repoCoord, storyId, target]
   );
 
+  /**
+   * 0.5.0 — submit a general (no-anchor) comment. Same path as
+   * submitFromComposer but skips the element-extraction step.
+   */
+  const submitGeneralComment = useCallback(
+    async (prose: string) => {
+      setSubmitting(true);
+      setFeedback(null);
+      try {
+        const pat = ensurePat(repoCoord);
+        if (!pat) {
+          setFeedback("Cancelled — no PAT.");
+          return;
+        }
+        const viewport: ViewportInfo = {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          colorScheme: window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light",
+          dpr: window.devicePixelRatio || 1,
+        };
+        const payload = buildPayload({
+          overlayVersion,
+          storyId,
+          url: window.location.href,
+          prose,
+          viewport,
+          userAgent: navigator.userAgent,
+          // No selector + no bbox → general comment.
+        });
+        const body = formatReviewComment({ payload });
+        const result = await submitComment({
+          owner: repoCoord.owner,
+          repo: repoCoord.repo,
+          pr: prNumber,
+          pat,
+          body,
+        });
+        if (result.ok) {
+          setFeedback(`General note posted (#${result.commentId}).`);
+          setGeneralComposerOpen(false);
+          const optimisticRecord = {
+            commentId: result.commentId,
+            author: "you",
+            createdAt: new Date().toISOString(),
+            htmlUrl: result.htmlUrl,
+            payload,
+            plateReply: null,
+          };
+          setComments((prev) => {
+            const next = [...prev, optimisticRecord];
+            try {
+              saveCachedComments(window.localStorage, repoCoord, prNumber, next);
+            } catch { /* ignore */ }
+            return next;
+          });
+        } else {
+          setFeedback(`Failed: ${result.status} ${result.message}`);
+        }
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [overlayVersion, prNumber, repoCoord, storyId]
+  );
+
   if (!enabled) return null;
   if (typeof window === "undefined") return null;
   if (isPickerRoute) return null;
@@ -344,15 +421,45 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         disabled={submitting}
         isMobile={isMobile}
         isApproved={isApproved}
+        commentCount={comments.length}
+        onListClick={() => setListPanelOpen(true)}
       />
       {/* 0.3.0 — Figma-style pin layer for previously-left comments.
-          Only visible in Comment mode (Nav stays clean). */}
+          Only visible in Comment mode (Nav stays clean). 0.5.0 —
+          general (no-anchor) comments are skipped here; they show
+          only in the list panel. */}
       {mode === "comment" && comments.length > 0 && (
         <CommentPins
-          records={comments}
+          records={comments.filter((c) => c.payload.element !== null)}
           openCommentId={openCommentId}
           onOpen={(id) => setOpenCommentId(id)}
           onClose={() => setOpenCommentId(null)}
+          flashCommentId={flashCommentId}
+        />
+      )}
+      {/* 0.5.0 — comments-list panel (always reachable from the pill). */}
+      {listPanelOpen && (
+        <CommentsListPanel
+          records={comments}
+          onClose={() => setListPanelOpen(false)}
+          onOpenComment={(id) => {
+            setListPanelOpen(false);
+            setMode("comment");
+            setOpenCommentId(id);
+            setFlashCommentId(id);
+            setTimeout(() => setFlashCommentId((cur) => (cur === id ? null : cur)), 1500);
+          }}
+          onAddGeneral={() => {
+            setListPanelOpen(false);
+            setGeneralComposerOpen(true);
+          }}
+        />
+      )}
+      {generalComposerOpen && (
+        <GeneralComposer
+          onCancel={() => setGeneralComposerOpen(false)}
+          onSubmit={submitGeneralComment}
+          submitting={submitting}
         />
       )}
       {composerOpen && target && (
@@ -425,8 +532,16 @@ function saveTogglePosition(p: TogglePosition): void {
   }
 }
 
-function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean; isMobile: boolean; isApproved: boolean }): JSX.Element {
-  const { mode, onChange, disabled, isMobile, isApproved } = props;
+function ModeToggle(props: {
+  mode: Mode;
+  onChange: (m: Mode) => void;
+  disabled: boolean;
+  isMobile: boolean;
+  isApproved: boolean;
+  commentCount: number;
+  onListClick: () => void;
+}): JSX.Element {
+  const { mode, onChange, disabled, isMobile, isApproved, commentCount, onListClick } = props;
   const [pos, setPos] = useState<TogglePosition>(loadTogglePosition);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
 
@@ -567,6 +682,42 @@ function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: 
           approve
         />
       )}
+      {/* 0.5.0 — list-panel toggle. Always reachable; shows ALL
+          comments (incl. hidden-element + general). Count badge. */}
+      <button
+        type="button"
+        onClick={onListClick}
+        disabled={disabled}
+        title={`See all comments (${commentCount})`}
+        style={{
+          marginLeft: 4,
+          background: "rgba(255,255,255,0.06)",
+          color: "white",
+          border: "none",
+          padding: "6px 10px",
+          borderRadius: 999,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+          font: "inherit",
+          fontSize: 12,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+        }}
+      >
+        📋 {commentCount > 0 && (
+          <span style={{
+            background: ACCENT,
+            color: "white",
+            borderRadius: 999,
+            padding: "0 6px",
+            fontSize: 10,
+            fontWeight: 700,
+            minWidth: 14,
+            textAlign: "center",
+          }}>{commentCount}</span>
+        )}
+      </button>
     </div>
   );
 }
@@ -905,8 +1056,9 @@ function CommentPins(props: {
   openCommentId: number | null;
   onOpen: (id: number) => void;
   onClose: () => void;
+  flashCommentId?: number | null;
 }): JSX.Element {
-  const { records, openCommentId, onOpen, onClose } = props;
+  const { records, openCommentId, onOpen, onClose, flashCommentId } = props;
   // tick forces a re-render on every animation frame so pins follow
   // the underlying DOM as the page scrolls / reflows.
   const [tick, setTick] = useState(0);
@@ -924,6 +1076,11 @@ function CommentPins(props: {
   void tick;
 
   const placements = records.map((r) => {
+    // 0.5.0 — records without an element shouldn't reach here; the
+    // caller filters them out. Defensive null-check anyway.
+    if (!r.payload.element) {
+      return { record: r, rect: { x: -100, y: -100 }, drifted: true };
+    }
     const resolved = typeof document !== "undefined"
       ? resolveStoredSelector(document, r.payload.element.selector, r.payload.element.fallback_selector)
       : null;
@@ -931,15 +1088,25 @@ function CommentPins(props: {
     let drifted = false;
     if (resolved) {
       const dom = resolved.element.getBoundingClientRect();
-      rect = { x: dom.right - 14, y: dom.top - 8 };
-      // Tag the live element so devtools / debugging is easier; never
-      // persisted to disk — pure runtime annotation.
+      // 0.5.0 — also detect "element exists but is hidden" (zero-area
+      // bounding rect, or display:none ancestor → offsetParent null).
+      // Treat as drifted so the pin doesn't render at (0,0) on top
+      // of the page corner.
+      const isHidden =
+        (dom.width === 0 && dom.height === 0) ||
+        (resolved.element as HTMLElement).offsetParent === null;
+      if (isHidden) {
+        rect = { x: r.payload.element.bbox.x + r.payload.element.bbox.w - 14, y: r.payload.element.bbox.y - 8 };
+        drifted = true;
+      } else {
+        rect = { x: dom.right - 14, y: dom.top - 8 };
+      }
       try {
         (resolved.element as HTMLElement).setAttribute(
           "data-slowcook-comment-id",
           String(r.commentId)
         );
-      } catch { /* read-only nodes etc. — ignore */ }
+      } catch { /* read-only nodes etc. */ }
     } else {
       rect = { x: r.payload.element.bbox.x + r.payload.element.bbox.w - 14, y: r.payload.element.bbox.y - 8 };
       drifted = true;
@@ -956,6 +1123,7 @@ function CommentPins(props: {
           x={rect.x}
           y={rect.y}
           drifted={drifted}
+          flashing={flashCommentId === record.commentId}
           onClick={() => onOpen(record.commentId)}
         />
       ))}
@@ -992,6 +1160,7 @@ function PinIcon(props: {
   x: number;
   y: number;
   drifted: boolean;
+  flashing?: boolean;
   onClick: () => void;
 }): JSX.Element {
   const status = props.record.plateReply?.status ?? null;
@@ -1016,7 +1185,11 @@ function PinIcon(props: {
         background: palette.bg,
         color: palette.fg,
         border: `2px solid white`,
-        boxShadow: `0 2px 6px rgba(0,0,0,0.25), 0 0 0 4px ${palette.ring}`,
+        boxShadow: props.flashing
+          ? `0 2px 6px rgba(0,0,0,0.25), 0 0 0 12px ${palette.ring}`
+          : `0 2px 6px rgba(0,0,0,0.25), 0 0 0 4px ${palette.ring}`,
+        transform: props.flashing ? "scale(1.4)" : "scale(1)",
+        transition: "transform 220ms ease, box-shadow 220ms ease",
         cursor: "pointer",
         pointerEvents: "auto",
         fontSize: 11,
@@ -1122,9 +1295,15 @@ function CommentThreadPopover(props: {
         </button>
       </div>
 
-      <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 4, fontFamily: "ui-monospace, SFMono-Regular, monospace", wordBreak: "break-all" }}>
-        {record.payload.element.selector}
-      </div>
+      {record.payload.element ? (
+        <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 4, fontFamily: "ui-monospace, SFMono-Regular, monospace", wordBreak: "break-all" }}>
+          {record.payload.element.selector}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 4, fontStyle: "italic" }}>
+          general note · no element anchor
+        </div>
+      )}
       <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 10 }}>
         @{record.author} · {formatTimeAgo(record.createdAt)}
       </div>
@@ -1179,4 +1358,264 @@ function formatTimeAgo(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/**
+ * 0.5.0 — comments-list panel. Always reachable from the pill's "📋"
+ * button. Surfaces ALL fetched comments, including:
+ *   - element-anchored that resolve to a visible element (pin shows)
+ *   - element-anchored to a HIDDEN element (no pin; only here)
+ *   - general (no anchor) comments (no pin; only here)
+ *
+ * Top affordance: + Add general note. Each list item: status icon,
+ * prose snippet, author + time, anchored / hidden / general badge.
+ * Click an item: closes panel + opens the thread popover; if anchored
+ * + visible, also flashes the pin in-place.
+ */
+function CommentsListPanel(props: {
+  records: OverlayCommentRecord[];
+  onClose: () => void;
+  onOpenComment: (id: number) => void;
+  onAddGeneral: () => void;
+}): JSX.Element {
+  const { records, onClose, onOpenComment, onAddGeneral } = props;
+  return (
+    <div
+      data-slowcook-overlay-ui="1"
+      role="dialog"
+      aria-label="All comments"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 360,
+        maxWidth: "90vw",
+        background: "rgba(15, 15, 24, 0.98)",
+        color: "white",
+        boxShadow: "-12px 0 40px rgba(0,0,0,0.45)",
+        pointerEvents: "auto",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontSize: 13,
+        display: "flex",
+        flexDirection: "column",
+        borderLeft: "1px solid rgba(255,255,255,0.08)",
+      }}
+    >
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontWeight: 600 }}>Comments ({records.length})</div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close panel"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "rgba(255,255,255,0.55)",
+            cursor: "pointer",
+            font: "inherit",
+            fontSize: 18,
+            lineHeight: 1,
+            padding: 0,
+          }}
+        >
+          ×
+        </button>
+      </div>
+      <div style={{ padding: 12, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <button
+          type="button"
+          onClick={onAddGeneral}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            background: "rgba(255,107,107,0.12)",
+            color: ACCENT,
+            border: `1px dashed ${ACCENT}`,
+            borderRadius: 8,
+            cursor: "pointer",
+            font: "inherit",
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
+          + Add general note (no element anchor)
+        </button>
+      </div>
+      <div style={{ overflow: "auto", flex: 1, padding: 8 }}>
+        {records.length === 0 ? (
+          <div style={{ padding: 16, opacity: 0.55, textAlign: "center", fontSize: 12 }}>
+            No comments yet. Toggle 💬 Comment + click an element to start, or use the button above for a general note.
+          </div>
+        ) : (
+          records.slice().reverse().map((r) => {
+            const status = r.plateReply?.status ?? null;
+            const palette = pinPalette(status as never, false);
+            const anchored = r.payload.element !== null;
+            const live = anchored && typeof document !== "undefined"
+              ? resolveStoredSelector(document, r.payload.element!.selector, r.payload.element!.fallback_selector)
+              : null;
+            const hidden = anchored && live && (
+              live.element.getBoundingClientRect().width === 0 ||
+              (live.element as HTMLElement).offsetParent === null
+            );
+            const anchorLabel = !anchored
+              ? { text: "general", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
+              : !live
+              ? { text: "drifted", color: "#facc15", bg: "rgba(250,204,21,0.18)" }
+              : hidden
+              ? { text: "hidden", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
+              : { text: "anchored", color: "#22c55e", bg: "rgba(34,197,94,0.18)" };
+            return (
+              <button
+                key={r.commentId}
+                type="button"
+                onClick={() => onOpenComment(r.commentId)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8,
+                  padding: 10,
+                  marginBottom: 6,
+                  cursor: "pointer",
+                  color: "white",
+                  font: "inherit",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 18,
+                    height: 18,
+                    borderRadius: 999,
+                    background: palette.bg,
+                    color: palette.fg,
+                    fontSize: 10,
+                    fontWeight: 700,
+                  }}>{palette.glyph}</span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: anchorLabel.bg,
+                    color: anchorLabel.color,
+                  }}>{anchorLabel.text}</span>
+                  <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>
+                    @{r.author} · {formatTimeAgo(r.createdAt)}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                  {r.payload.prose}
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 0.5.0 — composer for general (no-anchor) comments. Same shape as the
+ * element-anchored composer but without the selector preview / element
+ * outline. Centered modal.
+ */
+function GeneralComposer(props: {
+  onCancel: () => void;
+  onSubmit: (prose: string) => Promise<void>;
+  submitting: boolean;
+}): JSX.Element {
+  const [prose, setProse] = useState("");
+  return (
+    <div
+      data-slowcook-overlay-ui="1"
+      role="dialog"
+      aria-label="General comment"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: 360,
+        maxWidth: "90vw",
+        background: "white",
+        color: "#1a1a1a",
+        borderRadius: 10,
+        padding: 16,
+        boxShadow: "0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08)",
+        pointerEvents: "auto",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontSize: 13,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>Add general note</div>
+      <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
+        Comment about overall behavior — not anchored to a specific element.
+      </div>
+      <textarea
+        aria-label="Note text"
+        autoFocus
+        value={prose}
+        onChange={(e) => setProse(e.target.value)}
+        placeholder="e.g. 'Show an inline error when the user submits a duplicate name.'"
+        rows={5}
+        style={{
+          width: "100%",
+          padding: 8,
+          border: "1px solid rgba(0,0,0,0.15)",
+          borderRadius: 6,
+          font: "inherit",
+          resize: "vertical",
+          boxSizing: "border-box",
+        }}
+      />
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+        <button
+          type="button"
+          onClick={props.onCancel}
+          disabled={props.submitting}
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(0,0,0,0.18)",
+            padding: "6px 12px",
+            borderRadius: 6,
+            cursor: "pointer",
+            font: "inherit",
+            color: "#1a1a1a",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={props.submitting || prose.trim() === ""}
+          onClick={() => void props.onSubmit(prose.trim())}
+          style={{
+            background: ACCENT,
+            color: "white",
+            border: "none",
+            padding: "6px 14px",
+            borderRadius: 6,
+            cursor: props.submitting ? "not-allowed" : "pointer",
+            opacity: props.submitting || prose.trim() === "" ? 0.6 : 1,
+            font: "inherit",
+            fontWeight: 600,
+          }}
+        >
+          {props.submitting ? "Posting…" : "Post note"}
+        </button>
+      </div>
+    </div>
+  );
 }
