@@ -172,12 +172,39 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   console.log(`slowcook run-mock · story-${args.story} on branch ${branch}`);
 
   // Step 1: git fetch + checkout.
+  // 0.16.0-α.21 — auto-stash any dirty working tree before the
+  // checkout. Real consumers always have some incidental dirt
+  // (Next reformats tsconfig.json, lock files differ, etc.); failing
+  // the checkout on those is hostile UX. Stash gets popped on exit.
+  let stashedRef: string | null = null;
+  try {
+    const dirty = execSync(`git -C ${JSON.stringify(args.repoRoot)} status --porcelain`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (dirty.length > 0) {
+      console.log(`  git    auto-stash dirty working tree (will pop on exit)`);
+      execSync(
+        `git -C ${JSON.stringify(args.repoRoot)} stash push -u -m "slowcook-run-mock auto-stash"`,
+        { stdio: ["ignore", "pipe", "pipe"] }
+      );
+      stashedRef = "stash@{0}";
+    }
+  } catch (e) {
+    console.warn(`  git    auto-stash failed (${(e as Error).message}); checkout may fail`);
+  }
+
   console.log(`  git    fetch + checkout ${branch}`);
   try {
     execSync(`git -C ${JSON.stringify(args.repoRoot)} fetch origin ${JSON.stringify(branch)}`, { stdio: ["ignore", "ignore", "pipe"] });
     execSync(`git -C ${JSON.stringify(args.repoRoot)} checkout ${JSON.stringify(branch)}`, { stdio: ["ignore", "ignore", "pipe"] });
   } catch (e) {
     console.error(`Failed to fetch + checkout ${branch}: ${(e as Error).message}`);
+    if (stashedRef) {
+      try {
+        execSync(`git -C ${JSON.stringify(args.repoRoot)} stash pop`, { stdio: ["ignore", "ignore", "pipe"] });
+      } catch { /* ignore */ }
+    }
     process.exit(2);
   }
 
@@ -238,11 +265,22 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     }, args.pollSeconds * 1000);
   }
 
-  // Step 6: clean shutdown on Ctrl-C / dev exit.
+  // Step 6: clean shutdown on Ctrl-C / dev exit. Pop any stash we
+  // pushed in step 1 so the user's working tree is restored to its
+  // pre-run-mock state — same UX guarantee as `git stash pop` after
+  // their own manual stash dance.
   const cleanup = (signal?: string) => {
     if (pollTimer) clearInterval(pollTimer);
     if (dev && !dev.killed) {
       try { dev.kill(signal as NodeJS.Signals ?? "SIGTERM"); } catch { /* ignore */ }
+    }
+    if (stashedRef) {
+      try {
+        execSync(`git -C ${JSON.stringify(args.repoRoot)} stash pop ${JSON.stringify(stashedRef)}`, { stdio: ["ignore", "inherit", "inherit"] });
+        console.log(`[run-mock] popped auto-stash; working tree restored.`);
+      } catch (e) {
+        console.warn(`[run-mock] could not pop auto-stash (${(e as Error).message}). Run \`git stash pop ${stashedRef}\` manually.`);
+      }
     }
   };
   process.on("SIGINT", () => { cleanup("SIGINT"); process.exit(0); });

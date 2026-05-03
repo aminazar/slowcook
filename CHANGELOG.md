@@ -6,9 +6,18 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## 0.16.0-alpha.21 + @slowcook-ai/review-overlay@0.5.2 — approve also submits PR review
+## 0.16.0-alpha.21 + @slowcook-ai/review-overlay@0.5.2 — approve also submits PR review + run-mock auto-stashes
 
-Cut 2026-05-03. Closes a real-bug gap: clicking ✅ Approve in the overlay applied the label + posted a comment, but never submitted an actual GitHub PR review with `event: "APPROVE"`. So the PR header didn't show the green ✓ check that PMs expect when they "approve a PR".
+Cut 2026-05-03. Two real-bug fixes from dogfood:
+
+1. ✅ Approve only applied the label + posted a comment — never submitted an actual GitHub PR review with `event: "APPROVE"`. PR header didn't show the green ✓ check PMs expect.
+2. `slowcook run-mock` failed on a dirty working tree (every consumer hits this — Next reformats `tsconfig.json`, lockfiles drift, etc.).
+
+### slowcook run-mock auto-stash (cli@α.21)
+
+- Before the `git checkout <mockup-branch>` step, run-mock now runs `git status --porcelain`. If anything is dirty, it pushes a stash with `-u` (includes untracked) labeled `slowcook-run-mock auto-stash`.
+- On clean shutdown (Ctrl-C OR dev-server exit), the stash is popped — working tree restored to pre-run-mock state.
+- On checkout failure (e.g., merge conflict that even stash can't resolve), stash is popped before exit so the user's state is intact.
 
 ### review-overlay@0.5.2
 
