@@ -6,6 +6,43 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.13 — `slowcook check mock-isolation` (structural enforcement of mock-vs-prod separation)
+
+Cut 2026-05-03. Hard-signal companion to α.12's vibe-prompt steering: a static check that fails CI when any file under `mock/` imports outside `mock/`. Catches vibe-prompt slippage that would otherwise only surface when a consumer tries to render the mockup in the browser.
+
+### What's new
+
+- **`slowcook check mock-isolation`** (`packages/cli/src/commands/check/`): walks every `.ts/.tsx` file under `mock/`, parses each `import` statement, validates:
+  - `@/` imports resolve to a file inside `mock/src/` (NOT the consumer's production `src/`)
+  - relative imports stay inside `mock/` (no `../../../src/...` escapes)
+  - relative imports resolve to a real file (`.ts`/`.tsx`/`.js`/`.jsx`/`/index.*`)
+  - npm imports allowed unconditionally (anything not starting with `.`, `/`, or `@/`)
+  - absolute-path imports rejected (almost always wrong)
+- Each violation reports `file:line`, the offending `importPath`, and a fix-oriented `reason` ("Inline what you need OR write a file at `mock/src/...`").
+- Exit `0` clean / `1` violations / `0` no-mock-dir-yet.
+- 10 unit tests in `mock-isolation.test.ts` covering: clean repo, empty repo, `@/` cross-ref violation (the rewo dogfood failure mode), `@/` legal resolution, parent-traversal escape, missing relative target, npm/scoped packages allowed, absolute-path rejected, multi-violation line numbers.
+
+### Why a structural check + not just better prompts
+
+α.12 added "Hard runtime rules" + "Self-check" items to vibe's prompt telling it not to cross-import. Prompts are soft signals — the LLM might comply 95% of the time. The 5% misses cost a consumer their first 30 minutes of dogfood (rewo, this morning). A check that runs in `slowcook-vibe.yml` post-emit (next minor) gives the architectural rule actual teeth: violating PRs fail CI.
+
+For now the command is opt-in (`slowcook check mock-isolation`); next iteration wires it into `slowcook-vibe.yml` as a post-emit step + into a pre-commit hook for hand-edited mocks.
+
+### Publish state
+
+```
+cli@0.16.0-alpha.13           🟡 in-repo (slowcook check mock-isolation)
+```
+
+Next: α.14 — three UX improvements caught in rewo dogfood:
+1. Overlay auto-detect props (no manual env vars)
+2. Localhost gh-proxy (no PAT prompts; uses `gh auth token` server-side)
+3. `slowcook run-mock <story>` one-command UX (worktree-isolated; cleans up on exit)
+
+Plus: wire `slowcook check mock-isolation` into `slowcook-vibe.yml` so violations fail vibe's PR rather than waiting until the consumer hits Build Error in the browser.
+
+---
+
 ## 0.16.0-alpha.12 + @slowcook-ai/llm-anthropic@0.12.2 — vibe-prompt hardening (rewo dogfood iter 2)
 
 Cut 2026-05-03. Three vibe-emit bugs caught when the first generated mockup (rewo PR #147 for story-017) tried to run in the browser:

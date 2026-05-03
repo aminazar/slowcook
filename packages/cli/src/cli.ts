@@ -22,6 +22,7 @@ import { vibe } from "./commands/vibe/index.js";
 import { plate } from "./commands/plate/index.js";
 import { port } from "./commands/port/index.js";
 import { preview } from "./commands/preview/index.js";
+import { check } from "./commands/check/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 
@@ -62,6 +63,7 @@ Usage:
   slowcook plate --pr <number> [--cwd <path>] [--owner <login>] [--repo <name>] [--review-comment-id <id>]
   slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]
   slowcook preview (deploy|teardown) --pr <number> [--ssh-key <path>] [--cwd <path>]
+  slowcook check mock-isolation [--cwd <path>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook version
@@ -87,6 +89,7 @@ Commands available in ${VERSION}:
   plate              (0.15-α.3) Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
   port               (0.16-α.8) Deterministic mock/ → src/ copy. Walks mock/src/, applies useScenarioFixture → useDataDomain rewrite, prepends provenance header. Pre-brew CI step.
   preview            (0.16-α.5) SSH preview deploy. \`deploy --pr N\`: build + run the mock app on the consumer's box; post URL to PR. \`teardown --pr N\`: stop + remove.
+  check              (0.16-α.13) Static structural checks. \`check mock-isolation\` verifies every import in mock/ stays inside mock/ (catches vibe-prompt slippage that breaks the mock-vs-prod separation rule).
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
 Coming in later versions:
@@ -194,6 +197,11 @@ async function main(): Promise<void> {
       // builds the consumer's mock app on their box, runs the docker
       // container, posts the URL to the PR. teardown undoes it.
       await preview(args.slice(1), VERSION);
+      return;
+    case "check":
+      // 0.16.0-α.13 — static structural checks. mock-isolation
+      // verifies vibe + plate keep mock/ self-contained.
+      await check(args.slice(1), VERSION);
       return;
     case "dispatch":
       await dispatch(args.slice(1));
