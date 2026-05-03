@@ -6,6 +6,36 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.22 + @slowcook-ai/mock-runtime@0.3.3 — mobile-responsive APPROVED + run-mock auto-update slowcook deps
+
+Cut 2026-05-03. Two iter-8 dogfood findings:
+
+1. **Mobile scenario cards still tight** even after the corner-ribbon fix. Reserving 96px on the right of the name took the name's available width on a 390px viewport down to ~258px → long story names wrapped to 4 lines.
+2. **`npm install` honors the lockfile** when present, so caret pins like `^0.5.1` keep installing the OLD resolved version (0.5.1) even after 0.5.3 publishes. Carets only re-resolve on a fresh dep tree. Consumers had to manually `npm update` to pick up new patches.
+
+### mock-runtime@0.3.3 — responsive APPROVED placement
+
+- Added `isMobile` matchMedia gate (`max-width: 640px`).
+- **Desktop**: APPROVED ribbon stays in the top-right corner; name reserves 96px paddingRight.
+- **Mobile**: APPROVED renders as its own row above the name (block-level); name flows full-width, no paddingRight reservation.
+
+### cli α.22 — run-mock auto-`npm update`
+
+After `npm install` in `mock/`, run-mock now runs `npm update --silent @slowcook-ai/mock-runtime @slowcook-ai/review-overlay`. This re-resolves the carets against the latest published versions, refreshing the lockfile.
+
+- Best-effort — failure logs a non-fatal warning.
+- Eliminates the lockfile-pin-staleness wall every consumer would otherwise hit on every new patch publish.
+- `--skip-install` skips both install AND update.
+
+### Publish state
+
+```
+mock-runtime@0.3.3            🟡 in-repo (mobile-responsive APPROVED)
+cli@0.16.0-alpha.22           🟡 in-repo (run-mock auto-npm-update)
+```
+
+---
+
 ## @slowcook-ai/mock-runtime@0.3.2 — scenario card top-row layout fix
 
 Cut 2026-05-03. Visual: the APPROVED badge was rendered inline next to the scenario name + the story-id metadata was on the same row, so the three elements elbowed for horizontal space. The name wrapped to 4 lines unnecessarily; the badge sandwiched in awkwardly.

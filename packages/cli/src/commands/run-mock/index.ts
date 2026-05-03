@@ -209,6 +209,10 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   }
 
   // Step 2: npm install in mock/ (only if lockfile changed since last install).
+  // 0.16.0-α.22 — also `npm update` the slowcook-ai deps so the lockfile
+  // doesn't pin a stale review-overlay / mock-runtime forever. Without
+  // this, consumers would only get new features after a manual `npm
+  // update` — exactly the wall caught in dogfood iter 8.
   if (!args.skipInstall) {
     console.log(`  npm    install in mock/`);
     try {
@@ -216,6 +220,16 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     } catch (e) {
       console.error(`npm install failed: ${(e as Error).message}`);
       process.exit(2);
+    }
+    console.log(`  npm    update @slowcook-ai/* (refresh lockfile against latest)`);
+    try {
+      execSync(`npm update --silent @slowcook-ai/mock-runtime @slowcook-ai/review-overlay`, {
+        cwd: mockDir,
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+    } catch {
+      // Best-effort; old lockfile still works. Don't fail the run.
+      console.warn(`  npm    update failed (non-fatal); using whatever's in the lockfile.`);
     }
   }
 

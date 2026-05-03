@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useScenarioRegistry } from "./registry-context.js";
 
@@ -67,6 +68,18 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
   const registry = useScenarioRegistry();
   const scenarios = registry.list;
   const commentStats = props.commentStats;
+  // 0.3.3 — viewport gate so the APPROVED badge can move out of the
+  // top-right corner on mobile (where it'd otherwise eat ~96px from
+  // the name's row + force the long story names to wrap to 4 lines).
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 640px)");
+    const apply = () => setIsMobile(mql.matches);
+    apply();
+    mql.addEventListener("change", apply);
+    return () => mql.removeEventListener("change", apply);
+  }, []);
 
   return (
     <div
@@ -182,9 +195,14 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                       }
                     }}
                   >
-                    {/* 0.3.2 — APPROVED ribbon goes top-right (corner badge);
-                        name + metadata flow without competing for space. */}
-                    {approved && (
+                    {/* 0.3.3 — Approved badge placement is responsive:
+                        - Desktop (>640px): absolute top-right corner; name
+                          flows beneath, paddingRight reserves the space.
+                        - Mobile (≤640px): inline above the name as its
+                          own row so the name has the full content width
+                          (long story names like "Owner amin with 3 pins,
+                          8 reactions on /u/amin" otherwise wrap to 4 lines). */}
+                    {approved && !isMobile && (
                       <span
                         title="Mockup approved · plate refuses further amendments"
                         style={{
@@ -208,15 +226,37 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                         ✓ Approved
                       </span>
                     )}
-                    {/* Name takes the full content width (minus the corner
-                        ribbon's reservation). Metadata gets its own row
-                        below — no more elbowing inline. */}
+                    {approved && isMobile && (
+                      <div style={{ marginBottom: 8 }}>
+                        <span
+                          title="Mockup approved · plate refuses further amendments"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: 0.5,
+                            textTransform: "uppercase",
+                            padding: "2px 7px",
+                            borderRadius: 999,
+                            background: "rgba(34, 197, 94, 0.18)",
+                            color: "#22c55e",
+                            border: "1px solid rgba(34, 197, 94, 0.45)",
+                          }}
+                        >
+                          ✓ Approved
+                        </span>
+                      </div>
+                    )}
+                    {/* Name flows full-width on mobile; reserves corner
+                        space on desktop when approved. */}
                     <div
                       style={{
                         fontWeight: 600,
                         fontSize: 15,
                         marginBottom: 4,
-                        paddingRight: approved ? 96 : 0,
+                        paddingRight: approved && !isMobile ? 96 : 0,
                         lineHeight: 1.35,
                       }}
                     >
