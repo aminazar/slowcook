@@ -1,4 +1,6 @@
 import { execSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { AnthropicClient } from "./llm.js";
 import {
@@ -7,6 +9,7 @@ import {
   type RefineContext,
   type ResubmitContext,
 } from "./agent.js";
+import { buildHistoryIndex } from "./history-index.js";
 
 interface RefineArgs {
   /** Issue-driven refine (the original 0.5+ path). Required unless --pr is set. */
@@ -196,6 +199,21 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
       console.log(
         `slowcook refine · resubmit on PR #${args.prNumber} on ${owner}/${repo} (refine model: ${args.refineModel})`
       );
+
+      // 0.17.0 — refresh history-index for the resubmit path too;
+      // brownfield context may have changed since the last refine.
+      try {
+        const idx = buildHistoryIndex({ repoRoot: args.repoRoot });
+        const indexPath = join(args.repoRoot, ".brewing/history-index.json");
+        mkdirSync(dirname(indexPath), { recursive: true });
+        writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf8");
+        console.log(
+          `  history-index: ${idx.components.length} components · ${idx.api_routes.length} api routes · ${idx.migrations.length} migrations`
+        );
+      } catch (e) {
+        console.warn(`  (history-index emit failed: ${(e as Error).message})`);
+      }
+
       const outcome = await runResubmitRefinement(ctx);
       switch (outcome.kind) {
         case "resubmitted":
@@ -231,6 +249,21 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
     console.log(
       `slowcook refine · issue #${args.issueNumber} on ${owner}/${repo} (refine model: ${args.refineModel})`
     );
+
+    // 0.17.0 — emit history-index.json for downstream agents (vibe,
+    // testgen, brew, recon) to consume. Pure mechanical scan; no LLM.
+    // The agent will read this in its prompt to be brownfield-aware.
+    try {
+      const idx = buildHistoryIndex({ repoRoot: args.repoRoot });
+      const indexPath = join(args.repoRoot, ".brewing/history-index.json");
+      mkdirSync(dirname(indexPath), { recursive: true });
+      writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf8");
+      console.log(
+        `  history-index: ${idx.components.length} components · ${idx.api_routes.length} api routes · ${idx.migrations.length} migrations · ${idx.test_helpers.length} test helpers · ${idx.test_files.length} test files`
+      );
+    } catch (e) {
+      console.warn(`  (history-index emit failed; refine will run without it: ${(e as Error).message})`);
+    }
 
     const outcome = await runRefinement(ctx);
     switch (outcome.kind) {

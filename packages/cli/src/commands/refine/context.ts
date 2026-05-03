@@ -39,7 +39,101 @@ export function buildProjectContext(repoRoot: string): string {
   const brownfield = readBrownfieldExtracts(repoRoot);
   if (brownfield) sections.push("\n" + brownfield);
 
+  const historyDigest = readHistoryIndexDigest(repoRoot);
+  if (historyDigest) sections.push("\n" + historyDigest);
+
   return sections.join("\n");
+}
+
+/**
+ * 0.17.0 — surface a digest of `.brewing/history-index.json` (emitted by
+ * the refine entry point before the LLM runs). The digest lists existing
+ * components + props, API routes, migrations + columns, and test helpers
+ * so refine asks the right brownfield-conflict questions instead of
+ * letting downstream agents collide on duplicate names + prop shapes.
+ *
+ * Truncation: the full index can be large; refine doesn't need EVERY
+ * field, only the names + signatures. Full file is on disk for vibe +
+ * testgen to consume in detail.
+ */
+export function readHistoryIndexDigest(repoRoot: string): string | null {
+  const path = join(repoRoot, ".brewing/history-index.json");
+  if (!existsSync(path)) return null;
+  try {
+    const idx = JSON.parse(readFileSync(path, "utf8")) as {
+      components?: Array<{ name: string; file: string; props: string[]; tests_covering: string[] }>;
+      api_routes?: Array<{ method: string; path: string; file: string }>;
+      migrations?: Array<{ file: string; tables_created: string[]; columns_added: Record<string, string[]> }>;
+      test_helpers?: Array<{ name: string; file: string; purpose: string }>;
+    };
+    const lines: string[] = [];
+    lines.push("## Code history index (auto-generated; treat as authoritative)\n");
+    lines.push(
+      "Refine MUST consult this index when deciding whether the new spec extends, supersedes, or duplicates existing surface area. Reference entries by name in your Q&A so the PM sees you've grounded against current code."
+    );
+    lines.push("");
+
+    if (idx.components && idx.components.length > 0) {
+      lines.push("### Existing components (with prop shape + test coverage)");
+      for (const c of idx.components) {
+        const propsStr = c.props.length > 0 ? ` props={${c.props.join(", ")}}` : " (no Props interface found)";
+        const cov = c.tests_covering.length > 0 ? ` covered by ${c.tests_covering.length} test(s)` : " (uncovered)";
+        lines.push(`- **${c.name}** \`${c.file}\`${propsStr}${cov}`);
+      }
+      lines.push("");
+    }
+
+    if (idx.api_routes && idx.api_routes.length > 0) {
+      lines.push("### Existing API routes");
+      for (const r of idx.api_routes) {
+        lines.push(`- ${r.method} ${r.path} \`${r.file}\``);
+      }
+      lines.push("");
+    }
+
+    if (idx.migrations && idx.migrations.length > 0) {
+      lines.push("### Existing migrations (tables + columns)");
+      for (const m of idx.migrations) {
+        const tablesStr = m.tables_created.length > 0
+          ? `creates ${m.tables_created.join(", ")}`
+          : "alters existing tables";
+        lines.push(`- \`${m.file}\` — ${tablesStr}`);
+      }
+      lines.push("");
+      lines.push("Column-level detail is in `.brewing/history-index.json`.");
+      lines.push("");
+    }
+
+    if (idx.test_helpers && idx.test_helpers.length > 0) {
+      lines.push("### Existing test helpers (use these idioms; don't invent new mocking patterns)");
+      for (const h of idx.test_helpers.slice(0, 30)) {
+        const purpose = h.purpose ? ` — ${h.purpose}` : "";
+        lines.push(`- \`${h.name}\` from \`${h.file}\`${purpose}`);
+      }
+      lines.push("");
+    }
+
+    lines.push("### Brownfield-conflict Q&A discipline");
+    lines.push(
+      "Before emitting the spec, scan the new requirements against this index. If ANY of these conflicts exist, ask the PM in your Q&A round:"
+    );
+    lines.push(
+      "- A required component name matches an existing component but with INCOMPATIBLE prop shape → ask: \"Component X exists with props {Y}; new spec implies props {Z}. Extend (back-compat) or replace (breaks tests covering it)?\""
+    );
+    lines.push(
+      "- A required API route matches an existing route → ask: \"Route X exists; spec implies a different request/response shape. Extend or version?\""
+    );
+    lines.push(
+      "- A required table OR column matches an existing migration → confirm: \"Table X already exists with columns {Y}; spec needs columns {Z}. The new migration will be ALTER TABLE ... ADD COLUMN, not CREATE TABLE.\""
+    );
+    lines.push(
+      "- A test helper exists for a needed mocking idiom → DON'T propose a new helper; reference the existing one in your spec's `testing` notes."
+    );
+
+    return lines.join("\n");
+  } catch {
+    return null;
+  }
 }
 
 /**

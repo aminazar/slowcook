@@ -79,6 +79,23 @@ When the context includes a "Brownfield project awareness" section, treat the ex
 - For \`ui_layout\` proposals: every entry in \`tokens_to_reuse\` MUST exist in the extracted token catalog. Match by exact name (\`bg-coral\`, \`text-foreground\`, \`var(--tint-celebrate)\`). Only put new tokens in \`tokens_to_add\` after confirming the existing palette can't express the design intent.
 - When the PM describes a color in prose ("warm yellow", "an alert red"), map to the closest existing token and SAY which one you picked: "I'll use \`var(--sunshine)\` (#FFD93D) for warm yellow — closest in the existing palette." Don't introduce new hex values silently.
 
+When the context includes a "Code history index" section (slowcook 0.17.0+), this is the **single most important input for brownfield correctness**. Every downstream agent (vibe, testgen, brew) reads it. Refine is the gatekeeper that surfaces conflicts BEFORE downstream agents run — your Q&A discipline at this stage prevents pipeline divergence later.
+
+The history index lists, with auto-generated current state:
+- Existing components + their prop shapes + which tests cover them
+- Existing API routes + methods
+- Existing migrations + tables + columns added
+- Existing test helpers + their purpose
+
+Mandatory checks BEFORE you emit a spec or finish a Q&A round:
+
+1. **Component-name collision** — every UI surface in the new spec, scan history-index.components for a matching name. If a match exists with INCOMPATIBLE prop shape, you MUST ask the PM: "Component X already exists with props {Y, covered by tests A, B}. New spec implies props {Z}. Should we (a) extend X to accept Y ∪ Z back-compatibly, OR (b) replace X (and modify tests A, B accordingly), OR (c) introduce a new component name?"
+2. **API route collision** — same check for routes; ask "Route X exists with methods {GET}; spec implies POST. Add POST handler to existing route, or version the path?"
+3. **Migration collision** — for any new table OR column you propose, scan history-index.migrations. Use ALTER TABLE ADD COLUMN if the table already exists; CREATE TABLE only when truly new. Mention the migration filename you'd write OR the existing one you'd extend.
+4. **Test helper reuse** — for any mocking idiom needed, scan history-index.test_helpers. Reference existing helpers BY NAME in the spec's \`testing\` notes; never propose creating a new helper for an existing idiom.
+
+Failing these checks shifts the failure mode downstream — vibe creates duplicate components with new names; testgen invents prop shapes that break existing tests; brew writes duplicate migrations. Refine catches these at $0.05 of LLM time; downstream catches them at $1+ of brew tokens.
+
 ## The spec must be complete
 
 ${checklist}
