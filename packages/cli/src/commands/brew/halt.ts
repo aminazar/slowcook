@@ -48,7 +48,12 @@ export type HaltReason =
   // editing files plate's mockup committed to main. Brew halts so PM
   // can choose: amend the mockup via /plate, amend the spec via
   // /refine, or accept the conflict + override-merge.
-  | "MOCKUP_DESIGN_CONFLICT";
+  | "MOCKUP_DESIGN_CONFLICT"
+  // 0.16.0-α.30: a test asserts a specific accessible name / text /
+  // role that the ported UI almost-but-not-quite matches. Both are
+  // internally consistent — vibe + recipe interpreted spec ambiguity
+  // differently. PM picks one in spec.ui_behavior + /refine.
+  | "SPEC_AMBIGUITY_DETECTED";
 
 export interface IterationDiff {
   iteration: number;
@@ -330,6 +335,19 @@ export function defaultSuggestedActions(
           id: "manual_override_merge",
           label: "Manually edit the brew PR + override-merge",
           description: "Last resort: if you've decided the conflict is acceptable (the test is wrong AND the spec is right AND the mockup is right), edit the brew PR by hand to fix the test or skip it, then merge with admin override. Document the decision in the PR comments so future agents don't re-hit the same wall.",
+        },
+      ];
+    case "SPEC_AMBIGUITY_DETECTED":
+      return [
+        {
+          id: "amend_spec_ui_behavior",
+          label: "Pick one phrasing in spec.ui_behavior + /refine",
+          description: "The mock + the test interpreted the spec's ui_behavior block differently (e.g., test queries 'Pinned'; mock renders 'Saved'). Both readings are defensible. Pick one in the spec, comment /refine on the spec PR, and the next vibe + recipe pair will agree.",
+        },
+        {
+          id: "manual_override_merge",
+          label: "Manually edit the brew PR + override-merge",
+          description: "If the agent's diagnosis surfaces the exact one-word/role mismatch and you'd rather hand-patch than re-run the pipeline, edit the brew PR + admin-merge. Document the chosen phrasing in the PR so future stories don't re-hit it.",
         },
       ];
   }

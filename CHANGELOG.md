@@ -6,6 +6,59 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.30 — halt-XML parser: agent's diagnosis becomes the halt classification
+
+Cut 2026-05-03. Brew's plate-mode prompt instructs the agent to halt by emitting `<halt class="X">...</halt>` in its text. Without this parser, brew never reads its own agent's halt envelopes — the agent's perfect classification falls through to the generic `AGENT_STALLED_NO_EDITS` because brew only counts tool calls.
+
+### Trigger
+
+Rewo PR #147 brew run 25278580747 (α.29): agent emitted a textbook MOCKUP_DESIGN_CONFLICT envelope:
+
+\`\`\`xml
+<halt class="MOCKUP_DESIGN_CONFLICT">
+  <test>tests/integration/story-017-ui.test.tsx > "owner clicks Pin"</test>
+  <conflict>The test imports MemberReactionsPage but vibe ported MemberReactionsWithPins...</conflict>
+</halt>
+\`\`\`
+
+Brew reported `AGENT_STALLED_NO_EDITS`. $0.91 wasted on the misclassification — the agent did its job; brew didn't listen.
+
+### Fix
+
+`parseHaltEnvelope(rationale)` — scans agent text for `<halt class="X">...</halt>`, validates `X` is in a recognised whitelist, extracts `<conflict>` body (or falls back to inner text). Called inside the no-edits branch BEFORE the consecutive-no-edits stall check.
+
+Recognised classes: `MOCKUP_DESIGN_CONFLICT`, `SPEC_AMBIGUITY_DETECTED` (NEW), `TEST_RUNNER_BROKEN`, `AGENT_SELF_REPORTED_STUCK`.
+
+### New halt class
+
+`SPEC_AMBIGUITY_DETECTED` is now in the `HaltReason` union (was only in the prompt). The mock + the test interpreted the spec's `ui_behavior` differently (e.g., test queries "Pinned"; mock renders "Saved"); both readings defensible. PM picks one + /refine.
+
+### Behaviour matrix
+
+| Agent state | Old | New |
+|---|---|---|
+| Tool calls × N | normal iter | normal iter |
+| Zero tool calls, no envelope, ≥2 consecutive | `AGENT_STALLED_NO_EDITS` | `AGENT_STALLED_NO_EDITS` |
+| Zero tool calls, **valid envelope** | `AGENT_STALLED_NO_EDITS` (wrong) | **`<class from envelope>`** |
+| Zero tool calls, "Considering halting voluntarily" in rationale | `AGENT_SELF_REPORTED_STUCK` | `AGENT_SELF_REPORTED_STUCK` |
+
+### Files
+
+- `packages/cli/src/commands/brew/agent.ts` — add `parseHaltEnvelope` helper; wire into the no-edits branch
+- `packages/cli/src/commands/brew/halt.ts` — add `SPEC_AMBIGUITY_DETECTED` to `HaltReason` + suggested actions
+- `packages/cli/src/commands/brew/agent.test.ts` — 7 cases covering the parser
+
+### Architectural rhyme
+
+α.27 → port resolves collisions itself
+α.28 → brew degrades unrunnable suites
+α.29 → plate-mode lets brew wire data into ported files
+α.30 → brew listens to the agent's diagnosis instead of generic-halting
+
+Each release closes one "harness off-loads its own friction to the operator" gap.
+
+---
+
 ## 0.16.0-alpha.29 — plate-mode contract: preserve UI shape, swap mock data for real data (cli + llm-anthropic@0.12.4)
 
 Cut 2026-05-03. User feedback: "'don't touch the UI' is very hard promise to keep, we should say 'don't touch the UI shape, and for behaviours, only replace real data instead of mock data'."

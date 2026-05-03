@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findHandler, outlineFile } from "./agent.js";
+import { findHandler, outlineFile, parseHaltEnvelope } from "./agent.js";
 
 function mkRepo(): string {
   return mkdtempSync(join(tmpdir(), "slowcook-brew-helpers-"));
@@ -131,5 +131,76 @@ function privateHelper() {
     expect(out.length).toBeLessThan(big.length / 4);
     expect(out).toMatch(/export function one/);
     expect(out).toMatch(/export function two/);
+  });
+});
+
+describe("parseHaltEnvelope — agent text → halt classification (0.16.0-α.30)", () => {
+  it("extracts class + <conflict> body from a well-formed envelope", () => {
+    const rationale = `Now I see the conflict.
+
+<halt class="MOCKUP_DESIGN_CONFLICT">
+  <test>tests/integration/story-017-ui.test.tsx > "owner clicks Pin"</test>
+  <conflict>The test imports MemberReactionsPage but vibe ported MemberReactionsWithPins. Renaming would break story-005 tests that import the same path with old prop shape.</conflict>
+  <recommendation>PM should /plate the mock to MemberReactionsPage.</recommendation>
+</halt>`;
+    const out = parseHaltEnvelope(rationale);
+    expect(out).not.toBeNull();
+    expect(out!.class).toBe("MOCKUP_DESIGN_CONFLICT");
+    expect(out!.summary).toContain("MemberReactionsPage");
+    expect(out!.summary).toContain("story-005");
+  });
+
+  it("recognises SPEC_AMBIGUITY_DETECTED", () => {
+    const rationale = `<halt class="SPEC_AMBIGUITY_DETECTED">
+  <conflict>test queries /Pinned/ but mock renders "Saved"</conflict>
+</halt>`;
+    const out = parseHaltEnvelope(rationale);
+    expect(out?.class).toBe("SPEC_AMBIGUITY_DETECTED");
+    expect(out?.summary).toContain("Saved");
+  });
+
+  it("returns null for unrecognised halt classes (typo defense)", () => {
+    const rationale = `<halt class="MOCKUP_DESIGN_CONFLCT">
+  <conflict>typo</conflict>
+</halt>`;
+    expect(parseHaltEnvelope(rationale)).toBeNull();
+  });
+
+  it("returns null when no envelope present", () => {
+    expect(parseHaltEnvelope("agent reasoning, no halt requested")).toBeNull();
+    expect(parseHaltEnvelope("")).toBeNull();
+  });
+
+  it("falls back to text inside envelope when <conflict> missing", () => {
+    const rationale = `<halt class="TEST_RUNNER_BROKEN">
+  Vitest crashed on import; cannot proceed without fixing setup.
+</halt>`;
+    const out = parseHaltEnvelope(rationale);
+    expect(out?.class).toBe("TEST_RUNNER_BROKEN");
+    expect(out?.summary).toContain("Vitest crashed");
+  });
+
+  it("collapses whitespace + caps summary at 800 chars", () => {
+    const long = "x".repeat(2000);
+    const rationale = `<halt class="MOCKUP_DESIGN_CONFLICT">
+  <conflict>${long}</conflict>
+</halt>`;
+    const out = parseHaltEnvelope(rationale);
+    expect(out?.summary.length).toBe(800);
+  });
+
+  it("ignores envelopes embedded in other text (still parses correctly)", () => {
+    const rationale = `Lorem ipsum dolor sit amet.
+
+I considered editing src/components/X but it has no marker.
+
+<halt class="MOCKUP_DESIGN_CONFLICT">
+  <conflict>name mismatch</conflict>
+</halt>
+
+Trailing notes...`;
+    const out = parseHaltEnvelope(rationale);
+    expect(out?.class).toBe("MOCKUP_DESIGN_CONFLICT");
+    expect(out?.summary).toBe("name mismatch");
   });
 });

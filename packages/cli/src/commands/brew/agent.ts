@@ -527,6 +527,32 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         `ITER ${iteration} NO-EDITS  (agent made no tool calls this turn)  spend_delta=$${turnResult.spendDelta.toFixed(2)}  consecutive_no_edits=${consecutiveNoEdits}  stagnation=${stagnation}/${STAGNATION_CAP}`
       );
 
+      // 0.16.0-α.30: halt-envelope parser. The plate-mode prompt tells
+      // the agent to halt by emitting `<halt class="X">...</halt>` in
+      // its text. Without this parser, brew never reads its own agent's
+      // halt envelopes and falls through to AGENT_STALLED_NO_EDITS — the
+      // agent's perfect MOCKUP_DESIGN_CONFLICT classification gets
+      // converted to a generic stall (rewo PR #147 brew run 25278580747:
+      // agent emitted MOCKUP_DESIGN_CONFLICT envelope, brew reported
+      // AGENT_STALLED_NO_EDITS, $0.91 wasted on the misclassification).
+      const haltEnvelope = parseHaltEnvelope(turnResult.rationale);
+      if (haltEnvelope) {
+        appendRunLog(
+          ctx,
+          `ITER ${iteration} ${haltEnvelope.class} — agent emitted halt envelope in rationale`
+        );
+        return haltFor(ctx, {
+          reason: haltEnvelope.class,
+          iterations: iteration,
+          checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+          greenCount: greenSet.size,
+          totalCount: expectedTestIds.size,
+          spendUsd,
+          iterationLogs,
+          summary: haltEnvelope.summary,
+        });
+      }
+
       // Fix 3 (0.7.14): voluntary-halt escape hatch. If the agent's
       // rationale ends with "Considering halting voluntarily" the model
       // has self-reported that it can't make progress — halt immediately
@@ -2279,6 +2305,48 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
   }
 
   return { kind: "halted", report };
+}
+
+/**
+ * 0.16.0-α.30 — halt-envelope parser.
+ *
+ * The plate-mode prompt instructs the agent to halt by emitting an
+ * XML envelope in its text output:
+ *
+ *   <halt class="MOCKUP_DESIGN_CONFLICT">
+ *     <test>tests/integration/story-N-ui.test.tsx > "owner sees Pin"</test>
+ *     <conflict>The test asserts X but the mock renders Y.</conflict>
+ *     <recommendation>PM should /plate or /refine.</recommendation>
+ *   </halt>
+ *
+ * Without this parser, brew never recognises its own agent's halt
+ * envelopes. The agent's perfect classification gets converted to a
+ * generic AGENT_STALLED_NO_EDITS halt because brew only counts tool
+ * calls. Returns null when no envelope is found OR when the class
+ * isn't in the recognised whitelist (defensive against typos).
+ */
+type HaltEnvelope = { class: HaltReason; summary: string };
+const RECOGNISED_HALT_CLASSES: ReadonlySet<HaltReason> = new Set<HaltReason>([
+  "MOCKUP_DESIGN_CONFLICT",
+  "SPEC_AMBIGUITY_DETECTED",
+  "TEST_RUNNER_BROKEN",
+  "AGENT_SELF_REPORTED_STUCK",
+]);
+
+export function parseHaltEnvelope(rationale: string): HaltEnvelope | null {
+  if (!rationale) return null;
+  const m = rationale.match(/<halt\s+class\s*=\s*["']([A-Z_]+)["']\s*>([\s\S]*?)<\/halt>/);
+  if (!m || !m[1] || !m[2]) return null;
+  const cls = m[1] as HaltReason;
+  if (!RECOGNISED_HALT_CLASSES.has(cls)) return null;
+  const inner = m[2];
+  // Prefer <conflict>; fall back to all text inside the envelope.
+  const conflictMatch = inner.match(/<conflict>([\s\S]*?)<\/conflict>/);
+  const raw = conflictMatch && conflictMatch[1]
+    ? conflictMatch[1]
+    : inner.replace(/<[^>]+>/g, " ");
+  const summary = raw.replace(/\s+/g, " ").trim().slice(0, 800);
+  return { class: cls, summary };
 }
 
 function generateDiagnosis(
