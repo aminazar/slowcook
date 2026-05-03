@@ -484,5 +484,11 @@ function buildPrBody(
   out.push(
     `\n---\nMerge this PR after PM approval. \`recipe\` (in parallel) writes tier-1 tests blind to the mock against the spec; \`slowcook port\` then deterministically copies new mock components into \`src/\`; \`brew --mode plate\` wires real data + API handlers + migrations to make tests green without touching UI.`
   );
+  // 0.16.0-α.24 — emit a structured cost marker so on-mockup-approved
+  // (and on-brew-merged) can roll up vibe's cost into the issue
+  // bill. Plate already emits this shape; vibe was the missing half.
+  out.push(
+    `\n<!-- slowcook:cost agent=vibe usd=${spendUsd.toFixed(4)} model=claude-opus-4-7 cli=${cliVersion} -->`
+  );
   return out.join("\n");
 }
