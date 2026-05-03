@@ -6,6 +6,48 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.20 + @slowcook-ai/review-overlay@0.5.1 — overlay auto-detect + hydration-mismatch fix
+
+Cut 2026-05-03. Two queue items addressed:
+
+### Hydration mismatch (the dev-indicator "1 issue")
+
+The overlay returned `null` during SSR but rendered content on first client render → React hydrator complained server HTML (no overlay) didn't match client HTML (overlay present). Plus `useState<TogglePosition>(loadTogglePosition)` read localStorage on first render — server returned default, client returned saved → second mismatch.
+
+Fixes in review-overlay@0.5.1:
+
+- **`mounted` gate**: `useEffect(() => setMounted(true), [])` runs only client-side after hydration; first client render returns null too (matching SSR), then a re-render shows the pill. Standard pattern.
+- **Defer `loadTogglePosition` to a useEffect**: state initialises with the default `{ top: 12, right: 12 }`; localStorage read happens after mount, then `setPos` to the saved value.
+
+### Overlay auto-detect props
+
+The original overlay required all four mounting props (`owner`, `repo`, `prNumber`, `storyId` + `enabled`). Auto-detect from `process.env.NEXT_PUBLIC_SLOWCOOK_*` (Next inlines those at consumer build time) so consumers can write just `<SlowcookReviewOverlay />` and `slowcook run-mock`'s env exports populate the props automatically.
+
+- All five props now optional with env-var fallbacks.
+- Short-circuit return null when `owner / repo / prNumber` end up falsy (avoids silent failure on submit).
+- `slowcook init mock` template's `layout.tsx` updated to the no-props form. Existing consumers can simplify their layouts on next refresh; old prop-explicit form keeps working.
+
+### Tests
+
+- 501 cli + 37 overlay tests still pass.
+- payload.element=null path now exercised through the plate index's classifier feed (anchor preview switches to "general note (no element anchor)" when null).
+
+### Publish state
+
+```
+review-overlay@0.5.1          🟡 in-repo
+cli@0.16.0-alpha.20           🟡 in-repo (init-mock template + plate null-element handling)
+```
+
+### Items still in queue (deferred — not blocking dogfood)
+
+- Localhost gh-proxy → no PAT prompts. ~2-3 hours; large enough to merit its own α.
+- `slowcook run-mock` worktree isolation (don't mutate user's branch state). ~1 hour.
+- 0.17 branding-logo distribution. Per [`docs/plans/0.17-branding-logo.md`](./docs/plans/0.17-branding-logo.md). Defer until 0.16 brew-mode-plate validates end-to-end.
+- Backfill plate-reply breadcrumbs for pre-α.16 comments on existing PRs. User said skip unless it bites.
+
+---
+
 ## 0.16.0-alpha.19 + @slowcook-ai/review-overlay@0.5.0 — comments-list panel + general (no-anchor) comments
 
 Cut 2026-05-03. Two dogfood gaps from iter 5:

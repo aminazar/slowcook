@@ -453,15 +453,23 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
   // classification rationale becomes a hint the agent sees in context.
   const classifiedTimelineForAgent: Array<{ author: string; body: string; createdAt: string }> = [
     ...proseTimeline,
-    ...cosmeticOrDivergent.map((o) => ({
-      author: o.raw.author,
-      body:
-        `[${o.classification}] selector \`${o.payload.element.selector}\` (${o.payload.element.tag}` +
-        `${o.payload.element.text_hint ? ` · "${o.payload.element.text_hint}"` : ""}):\n\n` +
-        o.payload.prose +
-        `\n\n_(Plate classifier: ${o.rationale})_`,
-      createdAt: o.raw.createdAt,
-    })),
+    ...cosmeticOrDivergent.map((o) => {
+      // 0.5.0+ — payload.element is optional (general comments).
+      // Render an anchor preview when present; "general note" tag
+      // otherwise.
+      const el = o.payload.element;
+      const anchorPreview = el
+        ? `selector \`${el.selector}\` (${el.tag}${el.text_hint ? ` · "${el.text_hint}"` : ""})`
+        : "general note (no element anchor)";
+      return {
+        author: o.raw.author,
+        body:
+          `[${o.classification}] ${anchorPreview}:\n\n` +
+          o.payload.prose +
+          `\n\n_(Plate classifier: ${o.rationale})_`,
+        createdAt: o.raw.createdAt,
+      };
+    }),
   ];
 
   const feedback: PlateFeedback = {
@@ -632,9 +640,9 @@ function shortSummaryFor(
   runSummary: string
 ): string {
   const lines = runSummary.split(/\r?\n/);
-  const sel = o.payload.element.selector;
+  const sel = o.payload.element?.selector ?? null;
   for (const line of lines) {
-    if (line.includes(sel) || line.includes(`@${o.raw.author}`)) {
+    if ((sel && line.includes(sel)) || line.includes(`@${o.raw.author}`)) {
       return line.replace(/^[-*]\s*/, "").slice(0, 200);
     }
   }
@@ -654,7 +662,7 @@ function shortSummaryFor(
  */
 function buildEscalationBody(
   sa: {
-    payload: { element: { selector: string; tag: string; text_hint: string | null }; prose: string };
+    payload: { element: { selector: string; tag: string; text_hint: string | null } | null; prose: string };
     rationale: string;
     matchedSpecTerms: string[];
     /** Optional GitHub comment id to thread the breadcrumb to (0.16.0-α.15). */
@@ -666,7 +674,8 @@ function buildEscalationBody(
   lines.push("### slowcook · plate · spec-altering feedback (escalated)");
   lines.push("");
   lines.push(
-    `Plate classified the previous review-overlay comment on \`${sa.payload.element.selector}\` ` +
+    `Plate classified the previous review-overlay comment ` +
+      `${sa.payload.element ? `on \`${sa.payload.element.selector}\` ` : "(general note) "}` +
       `as **spec-altering** and is NOT amending the mock for it. The reasoning:`
   );
   lines.push("");

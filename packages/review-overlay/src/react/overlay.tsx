@@ -45,15 +45,26 @@ import {
 } from "../github.js";
 
 export interface SlowcookReviewOverlayProps {
-  /** GitHub owner (e.g. "aminazar"). */
-  owner: string;
-  /** GitHub repo (e.g. "slowcook"). */
-  repo: string;
-  /** Pull-request number for the mockup PR being reviewed. */
-  prNumber: number;
-  /** Optional story id; included in the JSON payload. */
+  /**
+   * GitHub owner. Optional — falls back to
+   * `process.env.NEXT_PUBLIC_SLOWCOOK_OWNER`. Set explicitly when
+   * mounting the overlay outside of `slowcook run-mock`.
+   */
+  owner?: string;
+  /** GitHub repo. Falls back to `NEXT_PUBLIC_SLOWCOOK_REPO`. */
+  repo?: string;
+  /**
+   * Pull-request number for the mockup PR. Falls back to
+   * `parseInt(NEXT_PUBLIC_SLOWCOOK_PR_NUMBER)`.
+   */
+  prNumber?: number;
+  /** Story id; falls back to `NEXT_PUBLIC_SLOWCOOK_STORY_ID`. */
   storyId?: string | null;
-  /** Render only when truthy; useful for `process.env.NEXT_PUBLIC_SLOWCOOK_REVIEW === "1"` gating. */
+  /**
+   * Render only when truthy. Falls back to
+   * `NEXT_PUBLIC_SLOWCOOK_REVIEW === "1"` so production builds
+   * tree-shake the overlay out cleanly.
+   */
   enabled?: boolean;
   /** Overlay package version, included in the JSON payload. */
   overlayVersion?: string;
@@ -65,9 +76,30 @@ const ACCENT = "#FF6B6B";
 const APPROVED_GREEN = "#22c55e";
 
 export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.Element | null {
-  const { owner, repo, prNumber, storyId = null, enabled = true } = props;
-  const overlayVersion = props.overlayVersion ?? "0.1.0";
+  // 0.5.1 — auto-detect props from process.env.NEXT_PUBLIC_SLOWCOOK_*.
+  // Next inlines NEXT_PUBLIC_* at consumer build time, so this works
+  // even though the overlay package itself doesn't have access to the
+  // consumer's env at compile time. Consumers can pass props
+  // explicitly to override.
+  const owner = props.owner ?? process.env["NEXT_PUBLIC_SLOWCOOK_OWNER"] ?? "";
+  const repo = props.repo ?? process.env["NEXT_PUBLIC_SLOWCOOK_REPO"] ?? "";
+  const prNumber = props.prNumber ?? parseInt(process.env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] ?? "0", 10);
+  const storyId = props.storyId ?? process.env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] ?? null;
+  const enabled = props.enabled ?? (process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] === "1");
+  const overlayVersion = props.overlayVersion ?? "0.5.1";
   const repoCoord: RepoCoord = { owner, repo };
+
+  // 0.5.1 — hydration-mismatch fix. The overlay can't render during
+  // SSR (no localStorage, no window.matchMedia, no DOM), so it returns
+  // null. But on first client render it would normally render the
+  // pill — and React's hydrator complains the server (null) and
+  // client (overlay) HTML don't match.
+  // Standard fix: gate on a `mounted` flag set in useEffect. First
+  // client render returns null too (matching server), then a
+  // re-render after mount shows the overlay. Removes the dev-tools
+  // "1 issue" warning consumers were seeing.
+  const [mounted, setMounted] = useState<boolean>(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // Hooks must run unconditionally — render the null AFTER all hooks
   // are declared. Bails early during SSR via the typeof window check.
@@ -387,9 +419,14 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     [overlayVersion, prNumber, repoCoord, storyId]
   );
 
+  if (!mounted) return null;
   if (!enabled) return null;
   if (typeof window === "undefined") return null;
   if (isPickerRoute) return null;
+  // 0.5.1 — auto-detect path: skip when env vars + props together
+  // don't supply a real owner/repo/pr. Avoids "submit comment"
+  // failing silently because the API call goes nowhere.
+  if (!owner || !repo || !prNumber) return null;
 
   return (
     <div
@@ -542,7 +579,11 @@ function ModeToggle(props: {
   onListClick: () => void;
 }): JSX.Element {
   const { mode, onChange, disabled, isMobile, isApproved, commentCount, onListClick } = props;
-  const [pos, setPos] = useState<TogglePosition>(loadTogglePosition);
+  // 0.5.1 — initialise with the default; load saved position from
+  // localStorage AFTER mount. Eliminates a hydration mismatch where
+  // SSR/first-client render disagreed on the position value.
+  const [pos, setPos] = useState<TogglePosition>({ top: 12, right: 12 });
+  useEffect(() => { setPos(loadTogglePosition()); }, []);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
 
   // Drag handlers — pointer events for unified mouse + touch.
