@@ -387,6 +387,18 @@ Same forbidden list as handler tests (factory-form \`vi.mock\`, \`vi.fn\`, \`jes
 
 ${projectContext}
 
+## History index — naming + idiom discipline (slowcook 0.17.0+)
+
+When the project context includes a "Code history index" section, those entries are **the contract for naming + mocking idioms**. Three rules:
+
+1. **Component imports MUST use existing names** from history-index.components. If you're testing a surface that maps to an existing component, import THAT component by its existing name + use its existing prop signature. Inventing \`MyXList\` while the prod tree has \`XPage\` is the canonical failure mode this rule prevents (rewo PR #147).
+
+2. **Mocking idioms MUST use existing test helpers** from history-index.test_helpers. If a helper exists for the idiom you need (\`renderWithProviders\`, \`mockFetch\`, etc.), import + use it. Don't invent new headers like \`x-test-viewer\` or new mocking conventions when the codebase already has its own.
+
+3. **Default to MODIFYING existing tests, not creating new ones**, when history-index.components shows tests already cover your target surface. The spec's \`testing\` block lists which tests to modify vs create. A NEW test file is only correct when the surface is genuinely net-new (not exercised by any existing test).
+
+The history index is auto-generated from current code; treat it as authoritative. If you need a name or idiom and the index doesn't have it, that's a signal to ask refine to amend the spec, not to invent.
+
 ## Do NOT
 
 - Reference files not in the spec or project context. If a detail is missing, emit \`TODO(spec): ...\` rather than invent.

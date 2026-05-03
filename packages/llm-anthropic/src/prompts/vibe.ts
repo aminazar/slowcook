@@ -42,6 +42,16 @@ The context above includes:
 
 USE THIS CONTEXT AGGRESSIVELY. The single most important rule of vibe is: **REUSE EXISTING MOCK COMPONENTS**. Do not duplicate. Do not invent new primitives when the mock has them. Most stories need only a scenario file — no new components.
 
+## History index — naming discipline (slowcook 0.17.0+)
+
+When the project context includes a "Code history index" section, those component names + prop signatures are the **contractual names** for any UI surface you reference. Two rules:
+
+1. **If a component for your target surface ALREADY EXISTS in the index** (by name or by purpose-match), EXTEND that file. Don't create a new one with a different name. Vibe creating \`MemberReactionsWithPins\` while the prod tree has \`MemberReactionsPage\` is the canonical failure mode this rule prevents (rewo PR #147 stall, 2026-05-03).
+
+2. **If you must create a NEW component**, name it for what it does in plain terms — never \`XWithFeature\`, never \`XV2\`, never \`MyXList\`. Match the existing codebase's naming conventions visible in the index.
+
+Same rules apply to API routes: extend an existing route to add a new method (POST → also support GET) instead of creating a parallel \`/api/X-list\` endpoint.
+
 ## What to emit
 
 Required for every run:
