@@ -437,23 +437,26 @@ jobs:
           for id in \${{ steps.parse.outputs.story_ids }}; do
             echo "── story-$id (this merge: $KIND) ──"
 
-            # Look up whether the OTHER kind is also merged on main.
-            # We search closed+merged PRs by branch prefix; that's
-            # unambiguous (slowcook/spec/, slowcook/mockup/, slowcook/tests/).
+            # 0.16.0-α.25 — look up the OTHER kind's merged PR by title +
+            # label, NOT by branch name. Tests PRs use batch-N branches
+            # (slowcook/tests/batch-1234567890) but their titles always
+            # carry "story-N" + the slowcook-tests label. Mockup PRs
+            # use slowcook/mockup/story-N branches AND mockup: story-N
+            # titles + slowcook-mockup label. Title+label is the
+            # robust intersection.
             if [ "$KIND" = "mockup" ]; then
-              OTHER_BRANCH="slowcook/tests/story-$id"
               OTHER_LABEL="slowcook-tests"
             else
-              OTHER_BRANCH="slowcook/mockup/story-$id"
               OTHER_LABEL="slowcook-mockup"
             fi
 
             OTHER_MERGED=$(gh pr list \\
               --repo \${{ github.repository }} \\
               --state merged \\
-              --head "$OTHER_BRANCH" \\
-              --json number,mergedAt \\
-              --jq '. | length' || echo "0")
+              --label "$OTHER_LABEL" \\
+              --json number,title \\
+              --jq "[.[] | select(.title | contains(\\"story-$id\\"))] | length" \\
+              || echo "0")
 
             if [ "$OTHER_MERGED" -ge 1 ]; then
               MODE="plate"
@@ -468,16 +471,16 @@ jobs:
             else
               # If this is the tests half merging and there's no mockup,
               # this is likely a backend-only / non-UI story — dispatch
-              # legacy brew. We detect this by looking for the mockup
-              # branch in the OPEN state too; if it doesn't exist at all
-              # (open OR merged), assume backend-only.
+              # legacy brew. Detect by looking for any mockup PR (open
+              # or merged) with a title containing this story-id.
               if [ "$KIND" = "tests" ]; then
                 ANY_MOCKUP=$(gh pr list \\
                   --repo \${{ github.repository }} \\
                   --state all \\
-                  --head "slowcook/mockup/story-$id" \\
-                  --json number \\
-                  --jq '. | length' || echo "0")
+                  --label "slowcook-mockup" \\
+                  --json number,title \\
+                  --jq "[.[] | select(.title | contains(\\"story-$id\\"))] | length" \\
+                  || echo "0")
                 if [ "$ANY_MOCKUP" -eq 0 ]; then
                   echo "No mockup PR ever existed for story-$id; treating as backend-only. Dispatching brew (mode=legacy)."
                   gh workflow run slowcook-brew.yml \\
@@ -490,7 +493,7 @@ jobs:
                   continue
                 fi
               fi
-              echo "::notice::Waiting for $OTHER_LABEL PR (branch $OTHER_BRANCH) to merge before brew can fire for story-$id."
+              echo "::notice::Waiting for a merged $OTHER_LABEL PR with story-$id in its title before brew can fire."
             fi
           done
 `;

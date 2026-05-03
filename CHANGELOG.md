@@ -6,6 +6,33 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## @slowcook-ai/forge-github@0.11.5 — brew-auto looks up tests PR by title+label, not branch
+
+Cut 2026-05-03. Critical bug caught after merging rewo PR #147: brew-auto's gate logic looked for the tests PR at hardcoded `slowcook/tests/story-N` branch, but recipe/testgen actually creates tests PRs on `slowcook/tests/batch-{timestamp}` branches. Result: brew-auto incorrectly said "waiting for tests PR" even though the tests PR for story-017 was merged 7 days ago. Brew never fired.
+
+### Fix
+
+Replaced branch-based search with title-and-label intersection:
+
+```bash
+# was:
+gh pr list --head "slowcook/tests/story-$id" --state merged
+
+# now:
+gh pr list --label "slowcook-tests" --state merged --json number,title \
+  --jq "[.[] | select(.title | contains(\"story-$id\"))] | length"
+```
+
+Tests PRs always carry the `slowcook-tests` label + a title containing `story-N` (per recipe's emit conventions); the intersection is robust to branch-naming variation. Same fix applied to the backend-only-detection lookup (any-mockup-PR check).
+
+### Publish state
+
+```
+forge-github@0.11.5           🟡 in-repo (brew-auto title+label search)
+```
+
+---
+
 ## 0.16.0-alpha.25 + @slowcook-ai/forge-github@0.11.4 — itemised cost rollup + preview-deploy graceful-skip
 
 Cut 2026-05-03. User feedback on the iter-9 rollup: "only counted plate runs, four times — each plate run should have mentioned separately btw, with link to the diff if possible. how about ref, testgen and ref runs?" Real gaps:
