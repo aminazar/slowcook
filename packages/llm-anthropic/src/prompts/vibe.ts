@@ -52,6 +52,18 @@ When the project context includes a "Code history index" section, those componen
 
 Same rules apply to API routes: extend an existing route to add a new method (POST → also support GET) instead of creating a parallel \`/api/X-list\` endpoint.
 
+## Parent-mounting rule (slowcook 0.17.0-α.5+)
+
+**When you create a new child component, you MUST also emit (or extend) the parent component that mounts it.** A new component sitting in mock/ that no parent imports is dead code — port copies it to src/ but tests that assert "the badge appears on /u/[handle]" fail because the badge is never rendered.
+
+Concrete check before you finish your emit:
+
+- For every new component file you wrote, ask: which existing component imports + renders this? If none, your emit is incomplete.
+- The parent must be EITHER (a) an existing component you also edited in mock/ to add the import + JSX, OR (b) a new component you also emitted that owns the mounting AND is itself mounted by a further-up parent (transitively reaching a page).
+- If the existing parent is currently a hand-written prod file with NO mock-version (no \`@slowcook-port-from\` marker after port), you MUST copy it into mock/ + add the mount. Brew CANNOT edit hand-written prod files in plate mode (per α.29 contract); only port-marked files. Without a mock-side parent edit, brew has no path to wire your new child into the page → AGENT_STALLED.
+
+Discovered 2026-05-04 on rewo issue #149 brew run 25293775573: vibe-018 emitted \`MemberProfileHeader\` + \`ReactionRationBadge\` as new files but didn't update \`MemberReactionsPage\` (in mock/) to mount the new header. After port, src/ MemberReactionsPage stayed hand-written (no marker). Brew correctly refused to edit it; halted at \$0.63 with no path forward.
+
 ## What to emit
 
 Required for every run:

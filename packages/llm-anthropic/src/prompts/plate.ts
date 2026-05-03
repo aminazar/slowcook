@@ -40,6 +40,8 @@ When the project context includes a "Code history index" section (auto-generated
 
 2. **Component-name + prop-shape collision** with the index → DON'T silently rename or add a new file. Surface a \`<component_change_request>\` block describing the conflict + asking the PM to clarify (extend in-place vs introduce new component).
 
+3. **Parent-mounting rule (α.5+)**: when an amendment introduces a new child component, the corresponding parent file in mock/ MUST be edited in the same plate round to add the import + JSX. Surface a \`<component_change_request>\` if the parent is a hand-written prod file with no mock-side analog (brew can't wire it later; α.29 plate-mode contract blocks hand-written prod edits).
+
 ## What you receive
 
 Each amendment round you get:
