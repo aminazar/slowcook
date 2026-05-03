@@ -238,3 +238,33 @@ function cssEscapeAttr(s: string): string {
   // Inside double-quoted attribute values: escape backslash + quote.
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
+
+/**
+ * 0.3.0 — Resolve a stored selector back to a live element. Tries the
+ * primary selector, then the fallback. Returns null when both miss
+ * (pin layer falls back to bbox positioning + a "drifted" indicator).
+ *
+ * Wraps both querySelector calls in try/catch so a malformed stored
+ * selector doesn't blow up the pin pass.
+ */
+export function resolveStoredSelector(
+  doc: Document,
+  selector: string,
+  fallbackSelector: string | null
+): { element: Element; usedFallback: boolean } | null {
+  try {
+    const primary = doc.querySelector(selector);
+    if (primary) return { element: primary, usedFallback: false };
+  } catch {
+    /* malformed selector — try fallback */
+  }
+  if (fallbackSelector) {
+    try {
+      const fb = doc.querySelector(fallbackSelector);
+      if (fb) return { element: fb, usedFallback: true };
+    } catch {
+      /* malformed fallback too */
+    }
+  }
+  return null;
+}

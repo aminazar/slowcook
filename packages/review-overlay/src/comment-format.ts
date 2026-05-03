@@ -45,6 +45,88 @@ export interface ReviewCommentPayload {
 
 export const PAYLOAD_MARKER = "slowcook:review-overlay";
 
+/**
+ * 0.3.0 — Plate-reply breadcrumb. Plate emits this JSON block at the
+ * end of its amendment summary so the overlay can correlate each
+ * reply to the original review-overlay comment by ID without any
+ * timestamp heuristics. One reply entry per overlay comment plate
+ * processed in the run.
+ */
+export const PLATE_REPLY_MARKER = "slowcook:plate-reply";
+
+export type PlateReplyStatus =
+  | "applied"        // plate amended the mock per the comment
+  | "declined"       // plate read the comment but chose not to amend (cosmetic-but-already-fine)
+  | "spec-altering"  // plate escalated; PM must confirm a spec change
+  | "noop";          // plate considered, no diff produced (re-emit yielded byte-identical files)
+
+export interface PlateReplyEntry {
+  /** GitHub comment id of the overlay comment this reply addresses. */
+  to_comment_id: number;
+  status: PlateReplyStatus;
+  /** One-line summary of plate's action (what changed, or why declined). */
+  summary: string;
+  /** Files plate touched as part of resolving this comment (mock/ paths). */
+  files_touched?: string[];
+}
+
+export interface PlateReplyPayload {
+  version: string;
+  /** Commit SHA plate force-pushed (when status applies); null on no-op / escalate. */
+  amendment_commit?: string | null;
+  replies: PlateReplyEntry[];
+}
+
+/**
+ * Build the HTML-comment block plate appends to its summary so the
+ * overlay can correlate replies to overlay comments.
+ */
+export function formatPlateReplyBlock(p: PlateReplyPayload): string {
+  return [
+    "<!--",
+    PLATE_REPLY_MARKER,
+    JSON.stringify(p),
+    "-->",
+  ].join("\n");
+}
+
+/**
+ * Reverse — extract the plate-reply payload from a comment body.
+ * Returns null when the comment isn't a plate reply or the payload is
+ * malformed.
+ */
+export function parsePlateReply(body: string): PlateReplyPayload | null {
+  const idx = body.indexOf(PLATE_REPLY_MARKER);
+  if (idx < 0) return null;
+  const tail = body.slice(idx + PLATE_REPLY_MARKER.length);
+  const closeIdx = tail.indexOf("-->");
+  const region = closeIdx < 0 ? tail : tail.slice(0, closeIdx);
+  const m = region.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    const parsed = JSON.parse(m[0]) as unknown;
+    if (!isPlateReplyPayload(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isPlateReplyPayload(v: unknown): v is PlateReplyPayload {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  if (typeof o["version"] !== "string") return false;
+  if (!Array.isArray(o["replies"])) return false;
+  for (const r of o["replies"]) {
+    if (!r || typeof r !== "object") return false;
+    const e = r as Record<string, unknown>;
+    if (typeof e["to_comment_id"] !== "number") return false;
+    if (typeof e["status"] !== "string") return false;
+    if (typeof e["summary"] !== "string") return false;
+  }
+  return true;
+}
+
 export interface FormatArgs {
   payload: ReviewCommentPayload;
   /** Optional inline screenshot data URL (image/png). */

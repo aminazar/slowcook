@@ -6,6 +6,55 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.15 + @slowcook-ai/review-overlay@0.3.0 — Figma-style anchored comment pins
+
+Cut 2026-05-03. The review pill now shows previously-left comments as anchored pins (Figma-style) with status icons reflecting plate's reply, AND plate emits a structured breadcrumb so the pin layer correlates replies to comments by id (no timestamp heuristics).
+
+### review-overlay@0.3.0
+
+- **Mount-time fetch + cache** of overlay comments for the configured PR via `gh`-token-equivalent PAT. Cached in `localStorage["slowcook.review-overlay.comments.{owner}/{repo}/{pr}"]` so the pin layer renders instantly on refresh; background-refresh on `window.focus`. Failures degrade silently to cached state.
+- **`fetchOverlayComments`** new exported function returning `OverlayCommentRecord[]` (one record per overlay comment with its parsed payload + correlated plate reply).
+- **`resolveStoredSelector`** in selector.ts: 2-level cascade (primary → fallback), null when both miss. Used by the pin layer to anchor each comment to its live element.
+- **`<CommentPins />`** React component (only visible in Comment mode):
+  - For each fetched record, resolves selector to a live element and renders a 22px pin at the element's top-right.
+  - Selector miss → renders at the stored bbox coordinates with a `⚠ drifted` indicator (yellow).
+  - Status palette: 🔴💬 unresolved · 🟢✓ applied · ⚪⊘ declined · 🟡! spec-altering · ⚪• noop.
+  - Re-renders every animation frame so pins follow scroll/reflow without lag.
+  - Runtime `data-slowcook-comment-id="N"` attribute attached to anchored elements (debug aid; never persisted to disk; brew never sees the live DOM).
+- **`<CommentThreadPopover />`**: clicking a pin opens a popover with: status badge, selector (monospace), author + timeAgo, original prose, plate's reply summary (when present, in a green-bordered card), and direct GitHub links to both the overlay comment and the plate reply.
+
+### plate (cli@0.16.0-alpha.15) — breadcrumb emit
+
+- **`PlateReplyPayload` JSON block** appended to every plate reply (escalation, no-op, byte-identical, success). One `PlateReplyEntry` per overlay comment plate processed in the run, with: `to_comment_id` (the originating overlay comment's GitHub id), `status` (one of `applied | declined | spec-altering | noop`), `summary` (≤200 chars), and `files_touched[]` (for the success path).
+- Comment IDs threaded through the cli's processing path: `fetchTimelineComments` + `fetchInlineComments` now read + carry the GitHub `id` field; the agent prompts don't see ids (no signal-noise added to LLM context).
+- Eliminates the timestamp-heuristic correlation — overlay reads the breadcrumb's `to_comment_id` for an O(1) lookup.
+
+### Architectural choices (called out in the design discussion)
+
+- **GitHub PR comments stay the source of truth** — no separate JSON/SQLite store. The PR has durability + auth + threading already; a separate store would need sync logic and would drift.
+- **Element marking is runtime-only** — runtime `data-slowcook-comment-id` attribute via DOM API; never written to source. No `slowcook port` cleanup needed because brew operates on `src/` files, not the live DOM.
+- **No source modification** for resolution stability — selector cascade + bbox-fallback handles drift.
+
+### Tests
+
+- 501 cli tests still pass. 37 overlay tests still pass.
+- New regression coverage for `parsePlateReply` + `resolveStoredSelector` queued for α.16.
+
+### Publish state
+
+```
+review-overlay@0.3.0          🟡 in-repo (pin layer + breadcrumb parser)
+cli@0.16.0-alpha.15           🟡 in-repo (plate breadcrumb emit)
+```
+
+### What this enables for the dogfood
+
+- Refresh `localhost:3100/u/amin?scenario=017`, toggle Comment mode → see your two prior comments as pins on the elements they targeted.
+- The first one (the "Pin / Pinned → icon" comment that plate amended) gets a 🟢✓ applied pin; clicking shows your prose + plate's reply summary + links to both GitHub comments.
+- The second one (the empty-state hide request, just posted) shows as 🔴💬 unresolved until plate fires again.
+
+---
+
 ## @slowcook-ai/review-overlay@0.2.0 + @slowcook-ai/mock-runtime@0.2.0 — review-pill polish + ScenarioPicker structure
 
 Cut 2026-05-03. Four UX critiques from the rewo dogfood addressed in the surfaces consumers actually look at.

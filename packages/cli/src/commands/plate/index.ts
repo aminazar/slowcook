@@ -13,7 +13,13 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
-import { parseReviewComment, type ReviewCommentPayload } from "@slowcook-ai/review-overlay";
+import {
+  parseReviewComment,
+  formatPlateReplyBlock,
+  type ReviewCommentPayload,
+  type PlateReplyEntry,
+  type PlateReplyPayload,
+} from "@slowcook-ai/review-overlay";
 import { runPlate, type PlateContext } from "./agent.js";
 import { writeVibeFiles } from "../vibe/emit.js";
 import { classifyComment, type Classification } from "./classify.js";
@@ -156,6 +162,8 @@ function fetchPrMeta(prNumber: number): MinimalPr {
 }
 
 interface RawComment {
+  /** GitHub comment id (numeric). 0.16.0-α.15 — needed for plate-reply breadcrumbs. */
+  id: number;
   author: string;
   body: string;
   createdAt: string;
@@ -172,13 +180,14 @@ function fetchTimelineComments(prNumber: number): RawComment[] {
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
   );
   const arr = JSON.parse(json) as Array<{
+    id: number;
     user: { login: string; type: string };
     body: string;
     created_at: string;
   }>;
   return arr
     .filter((c) => c.user.type !== "Bot")
-    .map((c) => ({ author: c.user.login, body: c.body, createdAt: c.created_at }));
+    .map((c) => ({ id: c.id, author: c.user.login, body: c.body, createdAt: c.created_at }));
 }
 
 function fetchInlineComments(prNumber: number): RawInlineComment[] {
@@ -187,6 +196,7 @@ function fetchInlineComments(prNumber: number): RawInlineComment[] {
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
   );
   const arr = JSON.parse(json) as Array<{
+    id: number;
     user: { login: string; type: string };
     body: string;
     created_at: string;
@@ -196,6 +206,7 @@ function fetchInlineComments(prNumber: number): RawInlineComment[] {
   return arr
     .filter((c) => c.user.type !== "Bot")
     .map((c) => ({
+      id: c.id,
       author: c.user.login,
       body: c.body,
       createdAt: c.created_at,
@@ -377,7 +388,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     classification: Classification;
     rationale: string;
     matchedSpecTerms: string[];
-    raw: { author: string; body: string; createdAt: string };
+    raw: { id: number; author: string; body: string; createdAt: string };
   }> = [];
   const proseTimeline: Array<{ author: string; body: string; createdAt: string }> = [];
   for (const c of rawTimeline) {
@@ -416,12 +427,25 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     for (const sa of specAltering) {
       await githubAdapter.createIssueComment(
         pr.number,
-        buildEscalationBody(sa, cliVersion)
+        buildEscalationBody({ ...sa, commentId: sa.raw.id }, cliVersion)
       );
     }
     console.log(
       `Posted ${specAltering.length} escalation reply/replies for spec-altering comments. They will NOT influence this plate amendment.`
     );
+  }
+
+  // 0.16.0-α.15 — track every overlay comment ID this run touched so the
+  // final plate-reply breadcrumb block lists each one with its outcome.
+  // The overlay's pin layer reads this to render the right status icon
+  // on each pin (no timestamp heuristics).
+  const breadcrumbReplies: PlateReplyEntry[] = [];
+  for (const sa of specAltering) {
+    breadcrumbReplies.push({
+      to_comment_id: sa.raw.id,
+      status: "spec-altering",
+      summary: `Escalated: ${sa.rationale}`,
+    });
   }
 
   // For mock-divergence + cosmetic, render their structured prose into
@@ -487,7 +511,21 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
 
   if (result.kind === "no-op") {
     console.log(`Plate decided not to amend (spend $${result.spendUsd.toFixed(4)}). Posting summary as PR reply.`);
-    await forge.createIssueComment(pr.number, plateReplyBody(result.summary, result.spendUsd, cliVersion, []));
+    for (const o of cosmeticOrDivergent) {
+      breadcrumbReplies.push({
+        to_comment_id: o.raw.id,
+        status: "noop",
+        summary: result.summary.split("\n")[0]!.slice(0, 200),
+      });
+    }
+    await forge.createIssueComment(
+      pr.number,
+      plateReplyBody(result.summary, result.spendUsd, cliVersion, [], {
+        version: cliVersion,
+        amendment_commit: null,
+        replies: breadcrumbReplies,
+      })
+    );
     return;
   }
 
@@ -509,13 +547,25 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     const changed = await forge.git.hasStagedChanges();
     if (!changed) {
       console.log("No-op amendment (re-emitted byte-identical files). Posting note instead of commit.");
+      for (const o of cosmeticOrDivergent) {
+        breadcrumbReplies.push({
+          to_comment_id: o.raw.id,
+          status: "noop",
+          summary: "Plate considered the comment but produced no diff (re-emit byte-identical).",
+        });
+      }
       await forge.createIssueComment(
         pr.number,
         plateReplyBody(
           `${result.summary}\n\n_(plate produced byte-identical files — no commit. Re-comment with sharper feedback if you wanted a change.)_`,
           result.spendUsd,
           cliVersion,
-          result.changeRequests.map((cr) => ({ component: cr.component, path: cr.path, rationale: cr.rationale }))
+          result.changeRequests.map((cr) => ({ component: cr.component, path: cr.path, rationale: cr.rationale })),
+          {
+            version: cliVersion,
+            amendment_commit: null,
+            replies: breadcrumbReplies,
+          }
         )
       );
       return;
@@ -533,16 +583,62 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     { stdio: "inherit" }
   );
 
+  // 0.16.0-α.15 — capture the just-pushed commit SHA for the breadcrumb.
+  let amendmentSha: string | null = null;
+  try {
+    amendmentSha = execSync(
+      `git -C ${JSON.stringify(args.repoRoot)} rev-parse HEAD`,
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+  } catch { /* best-effort */ }
+
+  // Each cosmetic/divergent overlay comment gets an "applied" breadcrumb
+  // (the LLM's prose summary attributes specifics; for the pin layer's
+  // status icon this is sufficient).
+  for (const o of cosmeticOrDivergent) {
+    breadcrumbReplies.push({
+      to_comment_id: o.raw.id,
+      status: "applied",
+      summary: shortSummaryFor(o, result.summary),
+      files_touched: result.files.map((f) => f.path),
+    });
+  }
+
   await forge.createIssueComment(
     pr.number,
     plateReplyBody(
       result.summary,
       result.spendUsd,
       cliVersion,
-      result.changeRequests.map((cr) => ({ component: cr.component, path: cr.path, rationale: cr.rationale }))
+      result.changeRequests.map((cr) => ({ component: cr.component, path: cr.path, rationale: cr.rationale })),
+      {
+        version: cliVersion,
+        amendment_commit: amendmentSha,
+        replies: breadcrumbReplies,
+      }
     )
   );
   console.log(`Plate amendment pushed + summary posted on PR #${pr.number}.`);
+}
+
+/**
+ * 0.16.0-α.15 — pluck a one-line summary for an overlay comment from
+ * the LLM's run-level summary. Best-effort: when the summary mentions
+ * the comment's author / selector, use that line; otherwise fall back
+ * to a generic "Plate amendment applied" line.
+ */
+function shortSummaryFor(
+  o: { payload: ReviewCommentPayload; raw: { author: string } },
+  runSummary: string
+): string {
+  const lines = runSummary.split(/\r?\n/);
+  const sel = o.payload.element.selector;
+  for (const line of lines) {
+    if (line.includes(sel) || line.includes(`@${o.raw.author}`)) {
+      return line.replace(/^[-*]\s*/, "").slice(0, 200);
+    }
+  }
+  return "Plate amendment applied (see commit + summary above).";
 }
 
 /**
@@ -561,6 +657,8 @@ function buildEscalationBody(
     payload: { element: { selector: string; tag: string; text_hint: string | null }; prose: string };
     rationale: string;
     matchedSpecTerms: string[];
+    /** Optional GitHub comment id to thread the breadcrumb to (0.16.0-α.15). */
+    commentId?: number;
   },
   cliVersion: string
 ): string {
@@ -595,6 +693,24 @@ function buildEscalationBody(
   lines.push(
     `<!-- slowcook:cost agent=plate type=escalation cli=${cliVersion} -->`
   );
+  // 0.16.0-α.15 — breadcrumb so the overlay's pin layer correlates
+  // this escalation to the originating overlay comment by id (no
+  // timestamp heuristics). One reply entry per escalation comment.
+  if (sa.commentId !== undefined) {
+    const reply: PlateReplyPayload = {
+      version: cliVersion,
+      amendment_commit: null,
+      replies: [
+        {
+          to_comment_id: sa.commentId,
+          status: "spec-altering",
+          summary: `Escalated: ${sa.rationale}`.slice(0, 240),
+        },
+      ],
+    };
+    lines.push("");
+    lines.push(formatPlateReplyBlock(reply));
+  }
   return lines.join("\n");
 }
 
@@ -602,7 +718,14 @@ function plateReplyBody(
   summary: string,
   spendUsd: number,
   cliVersion: string,
-  changeRequests: Array<{ component: string; path: string; rationale: string }>
+  changeRequests: Array<{ component: string; path: string; rationale: string }>,
+  /**
+   * 0.16.0-α.15 — breadcrumb so the overlay's pin layer (review-overlay
+   * 0.3.0+) can correlate replies to their original overlay comments by
+   * id, no timestamp heuristics. When undefined, no breadcrumb block is
+   * emitted (back-compat with non-overlay /plate triggers).
+   */
+  plateReply?: PlateReplyPayload
 ): string {
   const parts: string[] = [];
   parts.push("### slowcook · plate amendment");
@@ -627,5 +750,9 @@ function plateReplyBody(
   parts.push(
     `<!-- slowcook:cost agent=plate usd=${spendUsd.toFixed(4)} model=claude-opus-4-7 cli=${cliVersion} -->`
   );
+  if (plateReply && plateReply.replies.length > 0) {
+    parts.push("");
+    parts.push(formatPlateReplyBlock(plateReply));
+  }
   return parts.join("\n");
 }

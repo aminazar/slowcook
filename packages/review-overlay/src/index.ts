@@ -13,16 +13,23 @@
 
 export {
   PAYLOAD_MARKER,
+  PLATE_REPLY_MARKER,
   formatReviewComment,
   parseReviewComment,
+  formatPlateReplyBlock,
+  parsePlateReply,
   buildPayload,
   type ReviewCommentPayload,
   type ViewportInfo,
   type FormatArgs,
+  type PlateReplyEntry,
+  type PlateReplyPayload,
+  type PlateReplyStatus,
 } from "./comment-format.js";
 
 export {
   extractSelector,
+  resolveStoredSelector,
   type ExtractedSelector,
 } from "./selector.js";
 
@@ -32,9 +39,14 @@ export {
   clearPat,
   patStorageKey,
   submitComment,
+  fetchOverlayComments,
+  loadCachedComments,
+  saveCachedComments,
+  commentsCacheKey,
   type RepoCoord,
   type SubmitArgs,
   type SubmitResult,
   type SubmitOk,
   type SubmitErr,
+  type OverlayCommentRecord,
 } from "./github.js";

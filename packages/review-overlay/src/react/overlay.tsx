@@ -24,7 +24,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, type JSX } from "react";
-import { extractSelector } from "../selector.js";
+import { extractSelector, resolveStoredSelector } from "../selector.js";
 import {
   buildPayload,
   formatReviewComment,
@@ -34,7 +34,11 @@ import {
   loadPat,
   savePat,
   submitComment,
+  fetchOverlayComments,
+  loadCachedComments,
+  saveCachedComments,
   type RepoCoord,
+  type OverlayCommentRecord,
 } from "../github.js";
 
 export interface SlowcookReviewOverlayProps {
@@ -76,6 +80,34 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [isPickerRoute, setIsPickerRoute] = useState<boolean>(false);
   const composerRef = useRef<HTMLDivElement | null>(null);
+  // 0.3.0 — comment pins. Existing comments fetched from the PR + their
+  // plate replies. Cached in localStorage so the layer renders fast on
+  // refresh; background-refresh on focus.
+  const [comments, setComments] = useState<OverlayCommentRecord[]>([]);
+  const [openCommentId, setOpenCommentId] = useState<number | null>(null);
+
+  // Mount-time + on-focus fetch of overlay comments.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!enabled) return;
+    if (!owner || !repo || !prNumber) return;
+    const cached = loadCachedComments(window.localStorage, { owner, repo }, prNumber);
+    if (cached) setComments(cached);
+    const refresh = () => {
+      const pat = loadPat(window.localStorage, { owner, repo });
+      if (!pat) return;
+      void fetchOverlayComments({ owner, repo, pr: prNumber, pat })
+        .then((records) => {
+          setComments(records);
+          saveCachedComments(window.localStorage, { owner, repo }, prNumber, records);
+        })
+        .catch(() => { /* silent — cached state still renders */ });
+    };
+    refresh();
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [enabled, owner, repo, prNumber]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -261,6 +293,16 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         disabled={submitting}
         isMobile={isMobile}
       />
+      {/* 0.3.0 — Figma-style pin layer for previously-left comments.
+          Only visible in Comment mode (Nav stays clean). */}
+      {mode === "comment" && comments.length > 0 && (
+        <CommentPins
+          records={comments}
+          openCommentId={openCommentId}
+          onOpen={(id) => setOpenCommentId(id)}
+          onClose={() => setOpenCommentId(null)}
+        />
+      )}
       {composerOpen && target && (
         <Composer
           target={target}
@@ -753,4 +795,308 @@ function ensurePat(repo: RepoCoord): string | null {
   pat = entered.trim();
   savePat(window.localStorage, repo, pat);
   return pat;
+}
+
+/**
+ * 0.3.0 — Figma-style pin layer.
+ *
+ * For each fetched overlay-comment record:
+ *   1. Try to resolve the stored selector to a live element.
+ *   2. If found, render a small pin icon at the element's top-right.
+ *   3. If selector misses, render at the stored bbox coords with a
+ *      "drifted" indicator so PM knows the anchor is stale.
+ *
+ * Pin icon picks status from `record.plateReply.status`:
+ *   - null            → 💬 (red coral, unresolved)
+ *   - "applied"       → ✓  (green, plate amended)
+ *   - "declined"      → ⊘  (gray, plate read but didn't act)
+ *   - "spec-altering" → !  (yellow, plate escalated)
+ *   - "noop"          → •  (gray, plate considered + no change)
+ *
+ * Click → CommentThreadPopover with prose + plate's reply summary +
+ * link to the GitHub comment.
+ *
+ * Pins recompute position on resize / scroll via a single requestAnimationFrame
+ * loop — cheap (one matrix per pin per frame) and keeps the layer
+ * sticky to the underlying DOM.
+ */
+function CommentPins(props: {
+  records: OverlayCommentRecord[];
+  openCommentId: number | null;
+  onOpen: (id: number) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const { records, openCommentId, onOpen, onClose } = props;
+  // tick forces a re-render on every animation frame so pins follow
+  // the underlying DOM as the page scrolls / reflows.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    let alive = true;
+    const loop = () => {
+      if (!alive) return;
+      setTick((n) => (n + 1) % 1_000_000);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => { alive = false; cancelAnimationFrame(raf); };
+  }, []);
+  void tick;
+
+  const placements = records.map((r) => {
+    const resolved = typeof document !== "undefined"
+      ? resolveStoredSelector(document, r.payload.element.selector, r.payload.element.fallback_selector)
+      : null;
+    let rect: { x: number; y: number };
+    let drifted = false;
+    if (resolved) {
+      const dom = resolved.element.getBoundingClientRect();
+      rect = { x: dom.right - 14, y: dom.top - 8 };
+      // Tag the live element so devtools / debugging is easier; never
+      // persisted to disk — pure runtime annotation.
+      try {
+        (resolved.element as HTMLElement).setAttribute(
+          "data-slowcook-comment-id",
+          String(r.commentId)
+        );
+      } catch { /* read-only nodes etc. — ignore */ }
+    } else {
+      rect = { x: r.payload.element.bbox.x + r.payload.element.bbox.w - 14, y: r.payload.element.bbox.y - 8 };
+      drifted = true;
+    }
+    return { record: r, rect, drifted };
+  });
+
+  return (
+    <div data-slowcook-overlay-ui="1" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+      {placements.map(({ record, rect, drifted }) => (
+        <PinIcon
+          key={record.commentId}
+          record={record}
+          x={rect.x}
+          y={rect.y}
+          drifted={drifted}
+          onClick={() => onOpen(record.commentId)}
+        />
+      ))}
+      {openCommentId !== null && (() => {
+        const placement = placements.find((p) => p.record.commentId === openCommentId);
+        if (!placement) return null;
+        return (
+          <CommentThreadPopover
+            record={placement.record}
+            anchorX={placement.rect.x}
+            anchorY={placement.rect.y}
+            drifted={placement.drifted}
+            onClose={onClose}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+function pinPalette(status: OverlayCommentRecord["plateReply"] extends infer R ? (R extends { status: infer S } ? S : null) : null, drifted: boolean): { bg: string; fg: string; glyph: string; ring: string } {
+  if (drifted) return { bg: "#facc15", fg: "#1a1a1a", glyph: "⚠", ring: "rgba(250, 204, 21, 0.35)" };
+  switch (status) {
+    case "applied":       return { bg: "#22c55e", fg: "white",   glyph: "✓", ring: "rgba(34, 197, 94, 0.35)" };
+    case "declined":      return { bg: "#94a3b8", fg: "white",   glyph: "⊘", ring: "rgba(148, 163, 184, 0.35)" };
+    case "spec-altering": return { bg: "#facc15", fg: "#1a1a1a", glyph: "!", ring: "rgba(250, 204, 21, 0.35)" };
+    case "noop":          return { bg: "#94a3b8", fg: "white",   glyph: "•", ring: "rgba(148, 163, 184, 0.35)" };
+    default:              return { bg: ACCENT,    fg: "white",   glyph: "💬", ring: "rgba(255, 107, 107, 0.35)" };
+  }
+}
+
+function PinIcon(props: {
+  record: OverlayCommentRecord;
+  x: number;
+  y: number;
+  drifted: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  const status = props.record.plateReply?.status ?? null;
+  const palette = pinPalette(status as never, props.drifted);
+  const title = props.drifted
+    ? `Selector drifted (anchored at original bbox); click to view`
+    : `${status ?? "unresolved"} · click to view`;
+  return (
+    <button
+      type="button"
+      data-slowcook-overlay-ui="1"
+      data-slowcook-comment-id={props.record.commentId}
+      title={title}
+      onClick={(e) => { e.stopPropagation(); props.onClick(); }}
+      style={{
+        position: "absolute",
+        left: props.x,
+        top: props.y,
+        width: 22,
+        height: 22,
+        borderRadius: 999,
+        background: palette.bg,
+        color: palette.fg,
+        border: `2px solid white`,
+        boxShadow: `0 2px 6px rgba(0,0,0,0.25), 0 0 0 4px ${palette.ring}`,
+        cursor: "pointer",
+        pointerEvents: "auto",
+        fontSize: 11,
+        fontWeight: 700,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        font: "inherit",
+        padding: 0,
+        lineHeight: 1,
+      }}
+    >
+      {palette.glyph}
+    </button>
+  );
+}
+
+/**
+ * Thread popover — opens above the pin (or below when near the
+ * top edge). Shows: original prose + author + timestamp; plate's
+ * reply summary if any; "Open on GitHub" links to both.
+ */
+function CommentThreadPopover(props: {
+  record: OverlayCommentRecord;
+  anchorX: number;
+  anchorY: number;
+  drifted: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  const { record } = props;
+  const status = record.plateReply?.status ?? null;
+  const palette = pinPalette(status as never, props.drifted);
+
+  // Place popover; clamp to viewport so it doesn't run off-screen.
+  const popWidth = 320;
+  const popHeight = 220;
+  const margin = 12;
+  const viewW = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const viewH = typeof window !== "undefined" ? window.innerHeight : 800;
+  let left = props.anchorX - popWidth / 2 + 11;
+  if (left < margin) left = margin;
+  if (left + popWidth + margin > viewW) left = viewW - popWidth - margin;
+  let top = props.anchorY + 28;
+  if (top + popHeight + margin > viewH) top = props.anchorY - popHeight - 16;
+  if (top < margin) top = margin;
+
+  return (
+    <div
+      data-slowcook-overlay-ui="1"
+      role="dialog"
+      aria-label="Comment thread"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        left,
+        top,
+        width: popWidth,
+        maxHeight: "70vh",
+        overflow: "auto",
+        background: "white",
+        color: "#1a1a1a",
+        borderRadius: 10,
+        padding: 14,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.08)",
+        pointerEvents: "auto",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "2px 8px",
+          borderRadius: 999,
+          background: palette.bg,
+          color: palette.fg,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+        }}>
+          {palette.glyph} {props.drifted ? "drifted" : status ?? "unresolved"}
+        </span>
+        <button
+          type="button"
+          onClick={props.onClose}
+          aria-label="Close"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "rgba(0,0,0,0.45)",
+            cursor: "pointer",
+            font: "inherit",
+            fontSize: 18,
+            lineHeight: 1,
+            padding: 0,
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 4, fontFamily: "ui-monospace, SFMono-Regular, monospace", wordBreak: "break-all" }}>
+        {record.payload.element.selector}
+      </div>
+      <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 10 }}>
+        @{record.author} · {formatTimeAgo(record.createdAt)}
+      </div>
+
+      <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}>
+        {record.payload.prose}
+      </div>
+
+      {record.plateReply && (
+        <div style={{
+          marginTop: 12,
+          padding: "10px 12px",
+          background: "rgba(34, 197, 94, 0.08)",
+          borderLeft: "3px solid #22c55e",
+          borderRadius: 4,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>
+            slowcook plate
+          </div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{record.plateReply.summary}</div>
+          {record.plateReply.files_touched && record.plateReply.files_touched.length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7, fontFamily: "ui-monospace, SFMono-Regular, monospace" }}>
+              touched: {record.plateReply.files_touched.join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 12, marginTop: 12, fontSize: 11 }}>
+        <a href={record.htmlUrl} target="_blank" rel="noreferrer" style={{ color: ACCENT, textDecoration: "none" }}>
+          ↗ Comment on GitHub
+        </a>
+        {record.plateCommentUrl && (
+          <a href={record.plateCommentUrl} target="_blank" rel="noreferrer" style={{ color: "#22c55e", textDecoration: "none" }}>
+            ↗ Plate reply on GitHub
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatTimeAgo(iso: string): string {
+  try {
+    const then = new Date(iso).getTime();
+    const now = Date.now();
+    const diffSec = Math.max(1, Math.round((now - then) / 1000));
+    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
+    return `${Math.round(diffSec / 86400)}d ago`;
+  } catch {
+    return iso;
+  }
 }
