@@ -145,6 +145,16 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
     return initMock(argv.slice(1), cliVersion);
   }
 
+  // 0.18.0 — `slowcook init from-prod` builds a perfect mock by
+  // mirroring the consumer's prod src/ tree into mock/ with fixture-
+  // backed data wiring. No LLM; deterministic strategy-A/B/C2/D
+  // dispatch per file. See docs/plans/0.17-brownfield-pipeline.md
+  // §0.18.0.
+  if (argv[0] === "from-prod") {
+    const { initFromProd } = await import("./from-prod.js");
+    return initFromProd(argv.slice(1), cliVersion);
+  }
+
   const args = parseArgs(argv);
   const reader = makeReader(args.cwd);
 
