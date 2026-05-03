@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/cli",
-  "version": "0.16.0-alpha.16",
+  "version": "0.16.0-alpha.17",
   "description": "CLI for the slowcook brewing harness",
   "license": "MIT",
   "author": "aminazar",

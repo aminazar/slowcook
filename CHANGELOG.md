@@ -6,6 +6,59 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.17 — `slowcook run-mock <story>` (one-command launch + auto-pull on plate amendments)
+
+Cut 2026-05-03. The first slice of the α.15-was-supposed-to-be UX critiques: collapses the manual `git fetch && git checkout && cd mock && npm install && env … npm run dev … wait … git pull` cycle to one command + a background poll loop.
+
+### What it does
+
+```bash
+slowcook run-mock 017
+```
+
+1. Resolves story id → mockup branch (`slowcook/mockup/story-N`).
+2. `git fetch origin <branch>` then `git checkout <branch>`.
+3. `cd mock && npm install` (skip with `--skip-install`).
+4. Spawns `npm run dev` (next dev :3100) as a child process.
+5. **Background poll** every 15s: `git fetch origin <branch>` then if origin moved, `git pull --ff-only`. Next-dev's filesystem watcher hot-reloads automatically. Disable with `--no-poll`.
+6. Ctrl-C cleans up both the dev server + the poll loop.
+
+### Env auto-exported into the dev process
+
+The overlay activates without any manual env-var setup:
+
+- `NEXT_PUBLIC_SLOWCOOK_REVIEW=1`
+- `NEXT_PUBLIC_SLOWCOOK_OWNER` + `_REPO` — detected from `git remote get-url origin`
+- `NEXT_PUBLIC_SLOWCOOK_PR_NUMBER` — looked up via `gh pr list --head <branch> --state open`
+- `NEXT_PUBLIC_SLOWCOOK_STORY_ID` — from arg
+
+### On detection mechanism
+
+GitHub doesn't push events to local processes. Compared:
+
+- **Periodic `git fetch` + diff HEAD** ✅ chosen — ~1 net request / 15s, no auth, no rate-limit consumption, works offline-degraded.
+- GitHub webhook → needs public endpoint (overkill for local dev).
+- `gh api .../commits/<branch>` polling → consumes GH rate limit; same latency as git fetch but worse cost.
+- Long-poll Actions events → only fires on workflow events; misses plate's force-push entirely.
+
+### Out of scope (queued for follow-up alpha)
+
+- Worktree isolation (don't change the user's branch state)
+- Localhost gh-proxy (PAT prompt remains)
+- Overlay auto-detect props inside the React component (env vars from run-mock cover this for the run-mock case; pure-mounted cases still need props)
+
+### Tests
+
+- 501 cli tests still pass. Smoke-test of run-mock itself is end-to-end-shaped (spawns subprocesses); deferred to a manual dogfood validation rather than synthetic test scaffolding.
+
+### Publish state
+
+```
+cli@0.16.0-alpha.17           🟡 in-repo
+```
+
+---
+
 ## @slowcook-ai/review-overlay@0.4.1 — post-submit pin appears immediately
 
 Cut 2026-05-03. UX papercut caught in dogfood iter 4: after submitting a comment via the composer, the new pin didn't appear in the pin layer until the user refreshed AND tab-switched back (which fired the `focus`-refresh listener).

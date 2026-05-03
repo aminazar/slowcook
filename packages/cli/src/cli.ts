@@ -23,6 +23,7 @@ import { plate } from "./commands/plate/index.js";
 import { port } from "./commands/port/index.js";
 import { preview } from "./commands/preview/index.js";
 import { check } from "./commands/check/index.js";
+import { runMock } from "./commands/run-mock/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 
@@ -64,6 +65,7 @@ Usage:
   slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]
   slowcook preview (deploy|teardown) --pr <number> [--ssh-key <path>] [--cwd <path>]
   slowcook check mock-isolation [--cwd <path>]
+  slowcook run-mock <story-id> [--no-poll] [--poll-seconds <n>] [--branch <ref>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook version
@@ -90,6 +92,7 @@ Commands available in ${VERSION}:
   port               (0.16-α.8) Deterministic mock/ → src/ copy. Walks mock/src/, applies useScenarioFixture → useDataDomain rewrite, prepends provenance header. Pre-brew CI step.
   preview            (0.16-α.5) SSH preview deploy. \`deploy --pr N\`: build + run the mock app on the consumer's box; post URL to PR. \`teardown --pr N\`: stop + remove.
   check              (0.16-α.13) Static structural checks. \`check mock-isolation\` verifies every import in mock/ stays inside mock/ (catches vibe-prompt slippage that breaks the mock-vs-prod separation rule).
+  run-mock           (0.16-α.17) One-command mock launch + auto-pull. \`run-mock <story>\`: checkout mockup branch, npm install in mock/, run next dev with overlay env vars, poll origin every 15s + git pull --ff-only on plate amendments.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
 
 Coming in later versions:
@@ -202,6 +205,12 @@ async function main(): Promise<void> {
       // 0.16.0-α.13 — static structural checks. mock-isolation
       // verifies vibe + plate keep mock/ self-contained.
       await check(args.slice(1), VERSION);
+      return;
+    case "run-mock":
+      // 0.16.0-α.17 — one-command mock launch + auto-pull on plate
+      // amendments. Wraps git fetch/checkout + npm install + next dev
+      // + a 15s poll loop that pulls when origin moves.
+      await runMock(args.slice(1), VERSION);
       return;
     case "dispatch":
       await dispatch(args.slice(1));
