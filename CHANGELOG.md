@@ -6,6 +6,49 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.18 + @slowcook-ai/review-overlay@0.4.2 + @slowcook-ai/mock-runtime@0.3.1 — approval auto-applies label + visual cues
+
+Cut 2026-05-03. Fixes a real-bug surfaced in dogfood iter 5: clicking ✅ Approve only POSTed an "asking for the label" comment; the label was never actually applied. PR #147 had 2 approval comments but no `slowcook-mockup-approved` label, so plate could still amend + the pill stayed un-greened.
+
+### review-overlay@0.4.2
+
+- **Approval click now applies the label** via `POST /repos/{owner}/{repo}/issues/{pr}/labels` using the same PAT. The comment still fires (audit trail), with body adapted to whether the label add succeeded.
+- **`fetchPrLabels` + `addLabelsToPr`** new exported helpers in github.ts.
+- **`isApproved` overlay state** wired from a label fetch on mount + on focus-refresh. Persisted across reloads via the existing comments cache flow (label fetch is a sibling request, both run together).
+- **Pill renders green when approved**: dark-green background (`rgba(20, 83, 45, 0.92)`), brighter green border + glow shadow, `title` tooltip explaining the state.
+- **Approve button replaced with `✓ Approved` pill segment** when isApproved is true. Nav + Comment toggles still work — comment thread stays open for follow-up notes; plate refuses to amend after the label lands (existing α.7 rule).
+- **Optimistic state update** after a successful approval click flips the pill green immediately without waiting for the next focus refresh.
+
+### mock-runtime@0.3.1
+
+- **`ScenarioCommentStats.approved?: boolean`** added to the public type.
+- **Approved-card visual treatment** in ScenarioPicker: green border (`rgba(34, 197, 94, 0.45)`), tinted green background (`rgba(34, 197, 94, 0.06)`), green-bleed hover state.
+- **`✓ Approved` badge** rendered next to the scenario name (uppercase, green pill, prominent — first thing PM's eye lands on).
+
+### review-overlay (data layer)
+
+- **`fetchAllMockupPrs` returns labels** alongside `pr` + `storyId`.
+- **`fetchScenarioStats` derives `approved`** per scenario by checking for `slowcook-mockup-approved` in the PR's labels. Sticky-OR across multiple PRs for the same story.
+- New constant `APPROVED_LABEL = "slowcook-mockup-approved"` exported.
+
+### Tests
+
+- 501 cli tests still pass; 37 overlay; 9 mock-runtime.
+
+### Publish state
+
+```
+review-overlay@0.4.2          🟡 in-repo
+mock-runtime@0.3.1            🟡 in-repo
+cli@0.16.0-alpha.18           🟡 in-repo (no behavioral change; bumped to track)
+```
+
+Next α.19 (already in-flight): comments-list panel + general-comment support (comments not anchored to a specific element). Two open dogfood gaps:
+- Comments anchored to elements that get hidden (e.g., empty-state placeholder plate just removed) become invisible — need a list view.
+- Some PM comments are about general behavior, not a specific element — need a no-anchor submission path.
+
+---
+
 ## 0.16.0-alpha.17 — `slowcook run-mock <story>` (one-command launch + auto-pull on plate amendments)
 
 Cut 2026-05-03. The first slice of the α.15-was-supposed-to-be UX critiques: collapses the manual `git fetch && git checkout && cd mock && npm install && env … npm run dev … wait … git pull` cycle to one command + a background poll loop.

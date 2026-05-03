@@ -205,10 +205,19 @@ export interface ScenarioCommentStats {
   declined: number;
   specAltering: number;
   noop: number;
+  /**
+   * 0.4.2 — true when the corresponding mockup PR carries the
+   * `slowcook-mockup-approved` label. The picker renders approved
+   * scenarios with distinct visual treatment (green border + ✓
+   * Approved badge); plate refuses to amend after the label lands.
+   */
+  approved?: boolean;
 }
 
+export const APPROVED_LABEL = "slowcook-mockup-approved";
+
 export function emptyStats(): ScenarioCommentStats {
-  return { total: 0, unresolved: 0, applied: 0, declined: 0, specAltering: 0, noop: 0 };
+  return { total: 0, unresolved: 0, applied: 0, declined: 0, specAltering: 0, noop: 0, approved: false };
 }
 
 interface FetchPrsArgs extends RepoCoord {
@@ -223,7 +232,7 @@ interface FetchPrsArgs extends RepoCoord {
  * derived storyId from the branch name (`slowcook/mockup/story-N`),
  * and the comments-list URL for paginated comment fetch.
  */
-export async function fetchAllMockupPrs(args: FetchPrsArgs): Promise<Array<{ pr: number; storyId: string }>> {
+export async function fetchAllMockupPrs(args: FetchPrsArgs): Promise<Array<{ pr: number; storyId: string; labels: string[] }>> {
   const fetchImpl = args.fetchImpl ?? globalThis.fetch;
   const apiBase = args.apiBase ?? "https://api.github.com";
   const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues?labels=slowcook-mockup&state=all&per_page=100`;
@@ -244,17 +253,18 @@ export async function fetchAllMockupPrs(args: FetchPrsArgs): Promise<Array<{ pr:
     number: number;
     pull_request?: { url?: string };
     title?: string;
+    labels?: Array<{ name: string }>;
   }>;
-  const out: Array<{ pr: number; storyId: string }> = [];
+  const out: Array<{ pr: number; storyId: string; labels: string[] }> = [];
   for (const issue of issues) {
     if (!issue.pull_request) continue;
-    // The branch name carries the unambiguous story id; fall back to
-    // title regex if branch fetch isn't available in this issues
-    // response (it usually isn't — would need a second PR fetch).
-    // Title pattern from vibe: "mockup: story-N".
     const titleMatch = (issue.title ?? "").match(/story-([\w-]+)/);
     if (!titleMatch || !titleMatch[1]) continue;
-    out.push({ pr: issue.number, storyId: titleMatch[1] });
+    out.push({
+      pr: issue.number,
+      storyId: titleMatch[1],
+      labels: (issue.labels ?? []).map((l) => l.name),
+    });
   }
   return out;
 }
@@ -276,13 +286,16 @@ export async function fetchScenarioStats(args: FetchPrsArgs): Promise<Record<str
   );
   const stats: Record<string, ScenarioCommentStats> = {};
   for (let i = 0; i < prs.length; i++) {
-    const { storyId } = prs[i]!;
+    const { storyId, labels } = prs[i]!;
     const records = allRecords[i]!;
     if (!stats[storyId]) stats[storyId] = emptyStats();
-    const s = stats[storyId];
+    // Approval state from the PR's labels — sticky-OR across multiple
+    // PRs for the same story (rare, but a re-opened mockup-2 PR could
+    // exist alongside an approved mockup-1).
+    if (labels.includes(APPROVED_LABEL)) {
+      stats[storyId]!.approved = true;
+    }
     for (const rec of records) {
-      // Prefer the payload's story_id when present (more reliable than
-      // PR-title parsing); fall back to the PR's storyId otherwise.
       const targetId = rec.payload.story_id ?? storyId;
       if (!stats[targetId]) stats[targetId] = emptyStats();
       const target = stats[targetId];
@@ -296,9 +309,6 @@ export async function fetchScenarioStats(args: FetchPrsArgs): Promise<Record<str
         default:              target.unresolved += 1; break;
       }
     }
-    // Suppress unused — `s` was only kept as a clarity anchor; if there
-    // were no records, `stats[storyId]` was initialised but stays zero.
-    void s;
   }
   return stats;
 }
@@ -331,6 +341,71 @@ export function saveCachedScenarioStats(storage: Storage, repo: RepoCoord, stats
  * POST a comment to the given PR. Returns a tagged result rather than
  * throwing so the React layer can render specific UI per failure mode.
  */
+/**
+ * 0.4.2 — POST a label add to a PR. Used by the approve flow so the
+ * `slowcook-mockup-approved` label actually lands (the comment alone
+ * was advisory). Returns true on success.
+ */
+export async function addLabelsToPr(args: {
+  owner: string;
+  repo: string;
+  pr: number;
+  pat: string;
+  labels: string[];
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<boolean> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues/${args.pr}/labels`;
+  try {
+    const res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ labels: args.labels }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 0.4.2 — fetch the labels currently on a PR. Used by the overlay to
+ * detect approval state on mount + by the scenario-stats aggregator.
+ */
+export async function fetchPrLabels(args: {
+  owner: string;
+  repo: string;
+  pr: number;
+  pat: string;
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<string[]> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues/${args.pr}/labels?per_page=100`;
+  try {
+    const res = await fetchImpl(url, {
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!res.ok) return [];
+    const arr = (await res.json()) as Array<{ name: string }>;
+    return arr.map((l) => l.name);
+  } catch {
+    return [];
+  }
+}
+
 export async function submitComment(args: SubmitArgs): Promise<SubmitResult> {
   const fetchImpl = args.fetchImpl ?? globalThis.fetch;
   const apiBase = args.apiBase ?? "https://api.github.com";

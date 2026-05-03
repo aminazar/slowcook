@@ -37,6 +37,9 @@ import {
   fetchOverlayComments,
   loadCachedComments,
   saveCachedComments,
+  fetchPrLabels,
+  addLabelsToPr,
+  APPROVED_LABEL,
   type RepoCoord,
   type OverlayCommentRecord,
 } from "../github.js";
@@ -58,9 +61,8 @@ export interface SlowcookReviewOverlayProps {
 
 type Mode = "nav" | "comment" | "approve";
 
-const APPROVE_LABEL = "slowcook-mockup-approved";
-
 const ACCENT = "#FF6B6B";
+const APPROVED_GREEN = "#22c55e";
 
 export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.Element | null {
   const { owner, repo, prNumber, storyId = null, enabled = true } = props;
@@ -85,6 +87,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // refresh; background-refresh on focus.
   const [comments, setComments] = useState<OverlayCommentRecord[]>([]);
   const [openCommentId, setOpenCommentId] = useState<number | null>(null);
+  // 0.4.2 — approved state. True when the PR carries the
+  // slowcook-mockup-approved label; pill renders green-tinted +
+  // hides the Approve button. Nav + Comment still work for follow-up
+  // discussion (plate refuses to amend either way).
+  const [isApproved, setIsApproved] = useState<boolean>(false);
 
   // Mount-time + on-focus fetch of overlay comments.
   useEffect(() => {
@@ -102,6 +109,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           saveCachedComments(window.localStorage, { owner, repo }, prNumber, records);
         })
         .catch(() => { /* silent — cached state still renders */ });
+      // 0.4.2 — fetch labels too so we can render the approved state.
+      void fetchPrLabels({ owner, repo, pr: prNumber, pat })
+        .then((labels) => setIsApproved(labels.includes(APPROVED_LABEL)))
+        .catch(() => { /* silent */ });
     };
     refresh();
     const onFocus = () => refresh();
@@ -187,7 +198,23 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         setFeedback("Approval cancelled — no PAT.");
         return;
       }
-      const body = `### ✅ Mockup approved\n\nPM approved the mockup via the review overlay (\`${overlayVersion}\`).\n\nPlease apply the \`${APPROVE_LABEL}\` label.`;
+      // 0.4.2 — apply the label first (this is the load-bearing signal
+      // plate reads), then post the human-readable comment. If the
+      // label add fails (PAT lacks permission, label doesn't exist on
+      // the repo, etc.), the comment still goes out so the PM has a
+      // record + can manually apply.
+      const labelOk = await addLabelsToPr({
+        owner: repoCoord.owner,
+        repo: repoCoord.repo,
+        pr: prNumber,
+        pat,
+        labels: [APPROVED_LABEL],
+      });
+      const body = `### ✅ Mockup approved\n\nPM approved the mockup via the review overlay (\`${overlayVersion}\`).${
+        labelOk
+          ? `\n\nLabel \`${APPROVED_LABEL}\` applied; plate will refuse further amendments.`
+          : `\n\n⚠️ Could NOT auto-apply \`${APPROVED_LABEL}\` (PAT may lack write scope OR label may not exist on the repo). Please apply it manually.`
+      }`;
       const result = await submitComment({
         owner: repoCoord.owner,
         repo: repoCoord.repo,
@@ -196,8 +223,13 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         body,
       });
       if (result.ok) {
-        setFeedback(`Approval comment posted (#${result.commentId}).`);
+        setFeedback(
+          labelOk
+            ? `Approved · label applied · comment #${result.commentId}.`
+            : `Comment #${result.commentId} posted, but label add failed — apply manually.`
+        );
         setMode("nav");
+        if (labelOk) setIsApproved(true); // optimistic; focus-refresh confirms
       } else {
         setFeedback(`Approval failed: ${result.status} ${result.message}`);
       }
@@ -311,6 +343,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         onChange={(m) => (m === "approve" ? onApproveClicked() : setMode(m))}
         disabled={submitting}
         isMobile={isMobile}
+        isApproved={isApproved}
       />
       {/* 0.3.0 — Figma-style pin layer for previously-left comments.
           Only visible in Comment mode (Nav stays clean). */}
@@ -392,8 +425,8 @@ function saveTogglePosition(p: TogglePosition): void {
   }
 }
 
-function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean; isMobile: boolean }): JSX.Element {
-  const { mode, onChange, disabled, isMobile } = props;
+function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean; isMobile: boolean; isApproved: boolean }): JSX.Element {
+  const { mode, onChange, disabled, isMobile, isApproved } = props;
   const [pos, setPos] = useState<TogglePosition>(loadTogglePosition);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
 
@@ -432,6 +465,7 @@ function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: 
   return (
     <div
       data-slowcook-overlay-ui="1"
+      title={isApproved ? "Mockup approved — comments still allowed; plate refuses to amend" : undefined}
       style={{
         position: "absolute",
         top: pos.top,
@@ -440,11 +474,18 @@ function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: 
         display: "flex",
         alignItems: "center",
         gap: 4,
-        background: "rgba(15, 15, 24, 0.92)",
+        // 0.4.2 — green-tinted background + green border when approved.
+        background: isApproved
+          ? "rgba(20, 83, 45, 0.92)"      // dark-green pill
+          : "rgba(15, 15, 24, 0.92)",     // default dark
         padding: "4px 4px 4px 6px",
         borderRadius: 999,
-        border: "1px solid rgba(255, 255, 255, 0.16)",
-        boxShadow: "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+        border: isApproved
+          ? `1px solid rgba(34, 197, 94, 0.55)`   // brighter green border
+          : "1px solid rgba(255, 255, 255, 0.16)",
+        boxShadow: isApproved
+          ? `0 4px 14px rgba(34, 197, 94, 0.30), inset 0 1px 0 rgba(255,255,255,0.06)`
+          : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
         color: "white",
@@ -498,14 +539,34 @@ function ModeToggle(props: { mode: Mode; onChange: (m: Mode) => void; disabled: 
         title="Comment on an element"
         accent
       />
-      <ToggleButton
-        active={mode === "approve"}
-        onClick={() => onChange("approve")}
-        disabled={disabled}
-        label={isMobile ? "✅" : "✅ Approve"}
-        title="Approve the mockup (asks for confirmation)"
-        approve
-      />
+      {isApproved ? (
+        <span
+          data-slowcook-overlay-ui="1"
+          title="Mockup approved — comment thread stays open for follow-up; plate refuses to amend"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "6px 12px",
+            borderRadius: 999,
+            background: APPROVED_GREEN,
+            color: "white",
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          ✓ Approved
+        </span>
+      ) : (
+        <ToggleButton
+          active={mode === "approve"}
+          onClick={() => onChange("approve")}
+          disabled={disabled}
+          label={isMobile ? "✅" : "✅ Approve"}
+          title="Approve the mockup (asks for confirmation)"
+          approve
+        />
+      )}
     </div>
   );
 }

@@ -19,6 +19,12 @@ export interface ScenarioCommentStats {
   declined: number;
   specAltering: number;
   noop: number;
+  /**
+   * 0.3.1 — true when the corresponding mockup PR carries the
+   * `slowcook-mockup-approved` label. The picker renders approved
+   * cards with green border + "✓ Approved" badge.
+   */
+  approved?: boolean;
 }
 
 export interface ScenarioPickerProps {
@@ -135,27 +141,44 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                 gap: 12,
               }}
             >
-              {scenarios.map((s) => (
+              {scenarios.map((s) => {
+                const stats = commentStats?.[s.id];
+                const approved = stats?.approved === true;
+                return (
                 <li key={s.id}>
                   <Link
                     href={`${s.initialPath}?scenario=${encodeURIComponent(s.id)}`}
                     style={{
                       display: "block",
                       padding: "16px 18px",
-                      background: "var(--card-bg, rgba(255,255,255,0.03))",
-                      border: "1px solid var(--card-border, rgba(255,255,255,0.08))",
+                      background: approved
+                        ? "rgba(34, 197, 94, 0.06)"
+                        : "var(--card-bg, rgba(255,255,255,0.03))",
+                      border: approved
+                        ? "1px solid rgba(34, 197, 94, 0.45)"
+                        : "1px solid var(--card-border, rgba(255,255,255,0.08))",
                       borderRadius: 12,
                       textDecoration: "none",
                       color: "inherit",
                       transition: "border-color 120ms ease, transform 120ms ease, background 120ms ease",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "rgba(255,107,107,0.45)";
-                      e.currentTarget.style.background = "rgba(255,107,107,0.04)";
+                      if (approved) {
+                        e.currentTarget.style.borderColor = "rgba(34, 197, 94, 0.7)";
+                        e.currentTarget.style.background = "rgba(34, 197, 94, 0.10)";
+                      } else {
+                        e.currentTarget.style.borderColor = "rgba(255,107,107,0.45)";
+                        e.currentTarget.style.background = "rgba(255,107,107,0.04)";
+                      }
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--card-border, rgba(255,255,255,0.08))";
-                      e.currentTarget.style.background = "var(--card-bg, rgba(255,255,255,0.03))";
+                      if (approved) {
+                        e.currentTarget.style.borderColor = "rgba(34, 197, 94, 0.45)";
+                        e.currentTarget.style.background = "rgba(34, 197, 94, 0.06)";
+                      } else {
+                        e.currentTarget.style.borderColor = "var(--card-border, rgba(255,255,255,0.08))";
+                        e.currentTarget.style.background = "var(--card-bg, rgba(255,255,255,0.03))";
+                      }
                     }}
                   >
                     <div
@@ -167,7 +190,30 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                         marginBottom: 6,
                       }}
                     >
-                      <span style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</span>
+                      <span style={{ fontWeight: 600, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        {s.name}
+                        {approved && (
+                          <span
+                            title="Mockup approved · plate refuses further amendments"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              letterSpacing: 0.5,
+                              textTransform: "uppercase",
+                              padding: "2px 7px",
+                              borderRadius: 999,
+                              background: "rgba(34, 197, 94, 0.18)",
+                              color: "#22c55e",
+                              border: "1px solid rgba(34, 197, 94, 0.45)",
+                            }}
+                          >
+                            ✓ Approved
+                          </span>
+                        )}
+                      </span>
                       <span
                         style={{
                           fontSize: 11,
@@ -219,7 +265,8 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                     )}
                   </Link>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </>
         )}
