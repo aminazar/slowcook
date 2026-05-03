@@ -6,6 +6,41 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.17.0-alpha.1 — recon command + init from-prod scaffolding
+
+Cut 2026-05-03. Two new commands land alongside the α.0 prompt-side work.
+
+### `slowcook recon --story N`
+
+Pre-brew structural divergence check. Pure deterministic; no LLM. Catches residual vibe ⇄ testgen divergence that refine + downstream history-awareness didn't bridge:
+
+- Tests importing non-existent components → `STORY_HISTORY_CONFLICT`
+- Testid selectors in tests → present in mock JSX (the rewo PR #147 wall, $0 to detect now)
+- Brownfield rename safety (recorded; deferred to 0.17.7)
+
+Output: `.brewing/recon-result.json` + console summary. Exit code 2 on escalation; brew workflow should NOT dispatch.
+
+Smoke-tested on rewo story-017: caught all 5 testid gaps the failed brew run 25278580747 hit.
+
+### `slowcook init from-prod`
+
+Scaffold a perfect mock from the consumer's prod src/ tree. Encodes the 4-strategy taxonomy (A=verbatim / B=DI-seam / C2=server-mock / D=skip) as a deterministic file classifier.
+
+`--dry-run` prints the per-file strategy plan; full run emits the mock/ skeleton with `@slowcook-mock-from` provenance markers.
+
+Smoke-tested on rewo: 83 src files → 59 A · 13 B · 10 C2 · 1 D. Matches the hand-built mock/LESSONS.md classification ratios.
+
+What 0.18.1+ will automate (currently still hand-finished after this scaffold):
+- per-table fixture handlers from supabase/migrations/
+- per-endpoint api-client functions from fetch call sites
+- mock/package.json + next.config + tsconfig boilerplate
+
+### Tests
+
+532 cli tests pass (was 521). +11 across recon (5) + from-prod (6).
+
+---
+
 ## 0.17.0-alpha.0 — refine becomes history-aware (the leverage point)
 
 Cut 2026-05-03. First release in the 0.17 brownfield-pipeline line. Plan doc: `docs/plans/0.17-brownfield-pipeline.md`. Memory: `feedback_refine_is_leverage_point` + `project_perfect_mock_taxonomy`.
