@@ -27,6 +27,22 @@ describe("mockPathToSrcPath", () => {
     expect(mockPathToSrcPath("specs/story-N.yaml")).toBeNull();
   });
 
+  it("0.16.0-α.26: returns null for mock-app-shell scaffold files", () => {
+    // These would clobber the consumer's production app shell:
+    expect(mockPathToSrcPath("mock/src/app/layout.tsx")).toBeNull();
+    expect(mockPathToSrcPath("mock/src/app/page.tsx")).toBeNull();
+    expect(mockPathToSrcPath("mock/src/app/globals.css")).toBeNull();
+  });
+
+  it("still ports nested app routes (story-specific pages)", () => {
+    expect(mockPathToSrcPath("mock/src/app/u/[handle]/page.tsx")).toBe(
+      "src/app/u/[handle]/page.tsx"
+    );
+    expect(mockPathToSrcPath("mock/src/app/(main)/feed/page.tsx")).toBe(
+      "src/app/(main)/feed/page.tsx"
+    );
+  });
+
   it("returns null for mock subtrees outside src/ (Dockerfile, README, etc.)", () => {
     expect(mockPathToSrcPath("mock/Dockerfile")).toBeNull();
     expect(mockPathToSrcPath("mock/README.md")).toBeNull();

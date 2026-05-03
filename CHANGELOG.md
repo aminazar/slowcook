@@ -6,6 +6,49 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.16.0-alpha.26 — port skips mock-app-shell scaffolds (layout / page / globals.css)
+
+Cut 2026-05-03. First end-to-end brew --mode plate run on rewo (manual dispatch since brew-auto's branch-name bug also bit) failed at the port step with: "Refusing to port: 2 file(s) at the destination path don't carry the @slowcook-port-from marker." Port correctly refused to overwrite rewo's REAL `src/app/layout.tsx` + `src/lib/emotions/index.ts` — exactly the safety check the architecture is designed for. But it shouldn't have tried these in the first place — they're mock-app-shell files, not story-specific UI.
+
+### Fix
+
+Extended `mockPathToSrcPath`'s exclusion list:
+
+| File | Why excluded |
+|---|---|
+| `mock/src/app/layout.tsx` | Mounts ScenarioRegistryProvider + SlowcookReviewOverlay. Mock-shell only; consumer's prod layout is THEIR app shell. |
+| `mock/src/app/page.tsx` | Picker UI (homepage); consumer's prod homepage is theirs. |
+| `mock/src/app/globals.css` | Mock's tailwind directives + tokens copy. |
+
+Already excluded (unchanged):
+
+| File | Why |
+|---|---|
+| `mock/scenarios/*.ts` | Scenario fixtures — mock-only. |
+| `mock/src/lib/scenario-registry.ts` | Consumer-managed registry. |
+
+Nested app routes still port (e.g., `mock/src/app/u/[handle]/page.tsx` → `src/app/u/[handle]/page.tsx`) — those ARE the story-specific UI brew amends.
+
+### Tests
+
+- 16 port-transform tests pass (was 14; +2 covering the new exclusions and nested-route preservation).
+- 503 cli tests total.
+
+### Publish state
+
+```
+cli@0.16.0-alpha.26           🟡 in-repo
+```
+
+### Status of dogfood iter 9 (rewo PR #147 → brew)
+
+- ✅ PR #147 merged 2026-05-03 10:18
+- ❌ brew-auto didn't dispatch (branch-name bug → fixed in forge-github@0.11.5; needs publish)
+- ❌ manual brew dispatch failed at port step (mock-app-shell files → fixed in cli@α.26; needs publish)
+- ⏸ once both publish + rewo bumps to α.26, re-dispatch brew. Cumulative dogfood spend so far: $11.83 across 18 runs (vibe + plate + refine + testgen + earlier brew attempts on the issue).
+
+---
+
 ## @slowcook-ai/forge-github@0.11.5 — brew-auto looks up tests PR by title+label, not branch
 
 Cut 2026-05-03. Critical bug caught after merging rewo PR #147: brew-auto's gate logic looked for the tests PR at hardcoded `slowcook/tests/story-N` branch, but recipe/testgen actually creates tests PRs on `slowcook/tests/batch-{timestamp}` branches. Result: brew-auto incorrectly said "waiting for tests PR" even though the tests PR for story-017 was merged 7 days ago. Brew never fired.

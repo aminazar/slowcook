@@ -114,6 +114,17 @@ export function mockPathToSrcPath(mockPath: string): string | null {
   if (mockPath === "mock/src/lib/scenario-registry.ts") return null;
   if (mockPath.startsWith("mock/src/lib/scenario-registry/")) return null;
 
+  // 0.16.0-α.26 — mock-app-shell files: scaffolded by `slowcook init
+  // mock` (NOT story-specific UI). Never port — they would clobber the
+  // consumer's production app shell:
+  //   layout.tsx — mounts ScenarioRegistryProvider + overlay; consumer's
+  //                src/app/layout.tsx is THEIR production app shell
+  //   page.tsx   — the picker UI (homepage); consumer has their own
+  //   globals.css — mock's tailwind directives + tokens
+  if (mockPath === "mock/src/app/layout.tsx") return null;
+  if (mockPath === "mock/src/app/page.tsx") return null;
+  if (mockPath === "mock/src/app/globals.css") return null;
+
   // mock/src/* → src/* ; mock/<other>/* → don't port (only src/ maps cleanly).
   if (mockPath.startsWith("mock/src/")) {
     return "src/" + mockPath.slice("mock/src/".length);
