@@ -149,6 +149,7 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                   <Link
                     href={`${s.initialPath}?scenario=${encodeURIComponent(s.id)}`}
                     style={{
+                      position: "relative",
                       display: "block",
                       padding: "16px 18px",
                       background: approved
@@ -181,49 +182,55 @@ export function ScenarioPicker(props: ScenarioPickerProps = {}) {
                       }
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "baseline",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        marginBottom: 6,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}>
-                        {s.name}
-                        {approved && (
-                          <span
-                            title="Mockup approved · plate refuses further amendments"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              letterSpacing: 0.5,
-                              textTransform: "uppercase",
-                              padding: "2px 7px",
-                              borderRadius: 999,
-                              background: "rgba(34, 197, 94, 0.18)",
-                              color: "#22c55e",
-                              border: "1px solid rgba(34, 197, 94, 0.45)",
-                            }}
-                          >
-                            ✓ Approved
-                          </span>
-                        )}
-                      </span>
+                    {/* 0.3.2 — APPROVED ribbon goes top-right (corner badge);
+                        name + metadata flow without competing for space. */}
+                    {approved && (
                       <span
+                        title="Mockup approved · plate refuses further amendments"
                         style={{
-                          fontSize: 11,
-                          opacity: 0.5,
-                          fontFamily: "ui-monospace, SFMono-Regular, monospace",
-                          whiteSpace: "nowrap",
+                          position: "absolute",
+                          top: 10,
+                          right: 12,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: "rgba(34, 197, 94, 0.18)",
+                          color: "#22c55e",
+                          border: "1px solid rgba(34, 197, 94, 0.45)",
                         }}
                       >
-                        story-{s.id} · {s.user ? `as ${s.user.handle}` : "anonymous"}
+                        ✓ Approved
                       </span>
+                    )}
+                    {/* Name takes the full content width (minus the corner
+                        ribbon's reservation). Metadata gets its own row
+                        below — no more elbowing inline. */}
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 15,
+                        marginBottom: 4,
+                        paddingRight: approved ? 96 : 0,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {s.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        opacity: 0.55,
+                        fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                        marginBottom: 4,
+                      }}
+                    >
+                      story-{s.id} · {s.user ? `as ${s.user.handle}` : "anonymous"}
                     </div>
                     <div
                       style={{

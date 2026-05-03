@@ -6,6 +6,27 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## @slowcook-ai/mock-runtime@0.3.2 — scenario card top-row layout fix
+
+Cut 2026-05-03. Visual: the APPROVED badge was rendered inline next to the scenario name + the story-id metadata was on the same row, so the three elements elbowed for horizontal space. The name wrapped to 4 lines unnecessarily; the badge sandwiched in awkwardly.
+
+### Layout rework
+
+- Card is now `position: relative`.
+- **APPROVED ribbon goes to the top-right corner** (absolutely positioned). No longer competes with the name's flow.
+- **Name takes the full content row** with `paddingRight: 96px` when approved (reserves space for the corner ribbon). Reads in 1–2 lines instead of 4.
+- **Metadata gets its own row** below the name (`story-N · as handle`). Path stays on the next row.
+
+Same color palette + tokens; pure layout change.
+
+### Publish state
+
+```
+mock-runtime@0.3.2            🟡 in-repo
+```
+
+---
+
 ## @slowcook-ai/review-overlay@0.5.3 — rename "general comment" → "note" in user-facing strings
 
 Cut 2026-05-03. Per dogfood feedback: "general comment" / "general note" was clunky for the un-anchored-comment concept. Renamed in the user-visible strings to **"note"** (with "page note" as the longer form).
