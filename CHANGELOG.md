@@ -6,6 +6,20 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## @slowcook-ai/review-overlay@0.4.1 — post-submit pin appears immediately
+
+Cut 2026-05-03. UX papercut caught in dogfood iter 4: after submitting a comment via the composer, the new pin didn't appear in the pin layer until the user refreshed AND tab-switched back (which fired the `focus`-refresh listener).
+
+Fix: optimistically push the just-submitted record into local `comments` state inside `submitFromComposer`'s success branch. Background-refresh on next focus catches up with the canonical state (incl. plate's eventual reply). Two-line change; no API surface impact.
+
+### Publish state
+
+```
+review-overlay@0.4.1          🟡 in-repo
+```
+
+---
+
 ## 0.16.0-alpha.16 + @slowcook-ai/review-overlay@0.4.0 + @slowcook-ai/mock-runtime@0.3.0 — per-scenario comment stats on the picker
 
 Cut 2026-05-03. Cards on the scenarios homepage now show comment / applied / unresolved / spec-altering / declined / noop counts so PMs can see at-a-glance which scenarios have outstanding feedback.

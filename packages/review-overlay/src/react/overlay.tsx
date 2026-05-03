@@ -249,6 +249,25 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           setFeedback(`Comment posted (#${result.commentId}).`);
           setComposerOpen(false);
           setTarget(null);
+          // 0.4.1 — push the just-submitted comment into the local pin
+          // layer immediately so the pin appears without a refresh +
+          // tab-switch dance. Background-refresh on next focus catches
+          // up with the canonical state (incl. plate's eventual reply).
+          const optimisticRecord = {
+            commentId: result.commentId,
+            author: "you",
+            createdAt: new Date().toISOString(),
+            htmlUrl: result.htmlUrl,
+            payload,
+            plateReply: null,
+          };
+          setComments((prev) => {
+            const next = [...prev, optimisticRecord];
+            try {
+              saveCachedComments(window.localStorage, repoCoord, prNumber, next);
+            } catch { /* ignore */ }
+            return next;
+          });
         } else {
           setFeedback(`Failed: ${result.status} ${result.message}`);
         }
