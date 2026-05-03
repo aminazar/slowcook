@@ -30,14 +30,23 @@ export function parseVitestList(output: string): TestEntry[] {
 }
 
 /**
- * Playwright list output parser. Stub for 0.2 — support lands in a later
- * release. Throws with a clear message so the CLI can surface it cleanly.
+ * Playwright list output parser. Stub — full discovery support lands
+ * in a later release. Until then, returns [] (no discovered tests for
+ * this suite) and logs a notice. Same degrade-don't-halt pattern as
+ * brew α.28 — a stack.json declaring an unsupported suite shouldn't
+ * block manifest verify on suites slowcook CAN discover.
+ *
+ * Consumers who need Playwright in the manifest today: either wait
+ * for the parser implementation OR write a thin wrapper that emits
+ * vitest-list-lines from playwright (via a custom reporter).
  */
 export function parsePlaywrightList(_output: string): TestEntry[] {
-  throw new Error(
-    "Playwright discovery is not implemented in this slowcook version. " +
-      "Configure 'reporter_format' to 'vitest-list-lines' for now, or wait for a later release."
-  );
+  if (typeof console !== "undefined") {
+    console.warn(
+      "[stack-ts] parsePlaywrightList: discovery not implemented; suite returns [] tests."
+    );
+  }
+  return [];
 }
 
 export function parseByReporterFormat(

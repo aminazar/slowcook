@@ -59,10 +59,8 @@ describe("parseVitestList", () => {
 });
 
 describe("parsePlaywrightList (stub)", () => {
-  it("throws with a clear message until implemented", () => {
-    expect(() => parsePlaywrightList("anything")).toThrow(
-      /Playwright discovery is not implemented/
-    );
+  it("returns [] until full Playwright discovery is implemented (degrade-don't-halt)", () => {
+    expect(parsePlaywrightList("anything")).toEqual([]);
   });
 });
 
@@ -77,10 +75,9 @@ describe("parseByReporterFormat", () => {
     expect(tests).toHaveLength(3);
   });
 
-  it("throws for playwright formats (not yet implemented)", () => {
-    expect(() => parseByReporterFormat("playwright-list-lines", "")).toThrow(
-      /Playwright discovery is not implemented/
-    );
+  it("returns [] for playwright formats until discovery is implemented (degrade-don't-halt)", () => {
+    expect(parseByReporterFormat("playwright-list-lines", "")).toEqual([]);
+    expect(parseByReporterFormat("playwright-list", "")).toEqual([]);
   });
 
   it("throws for unknown formats with a helpful message", () => {
