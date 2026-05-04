@@ -91,10 +91,13 @@ export async function startGhProxy(token: string, preferredPort = 4100): Promise
         headers: forwardedHeaders,
       },
       (gh) => {
-        // Mirror status + headers; layer CORS on top.
+        // Mirror status + headers; strip upstream CORS so we don't
+        // double-emit Access-Control-Allow-Origin (github sends '*'
+        // for unauth'd reads, browser rejects two values).
         const outHeaders: Record<string, string | string[]> = {};
         for (const [k, v] of Object.entries(gh.headers)) {
           if (v === undefined) continue;
+          if (k.toLowerCase().startsWith("access-control-")) continue;
           outHeaders[k] = v;
         }
         outHeaders["Access-Control-Allow-Origin"] = typeof origin === "string" ? origin : "*";
