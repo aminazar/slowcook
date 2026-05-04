@@ -175,6 +175,14 @@ async function main(): Promise<void> {
       await catchup(args.slice(1), VERSION);
       return;
     case "brew":
+      // 0.18.0-α.8 prototype — `brew --pair-sim` invokes the local
+      // pair-brew simulator (driver + navigator) instead of the
+      // production brew loop. Local-only; needs ANTHROPIC_API_KEY.
+      if (args.slice(1).includes("--pair-sim")) {
+        const { pairSim } = await import("./commands/brew/pair-sim.js");
+        await pairSim(args.slice(1).filter((a) => a !== "--pair-sim"), VERSION);
+        return;
+      }
       await brew(args.slice(1), VERSION);
       return;
     case "map":

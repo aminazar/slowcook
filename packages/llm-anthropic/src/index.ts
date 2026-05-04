@@ -63,3 +63,12 @@ export {
   type PlateImageAttachment,
   type PlateImageMediaType,
 } from "./prompts/plate.js";
+// 0.14.3 — pair-brew navigator (cli α.8 prototype). Read-only LLM that
+// reviews a driver's iteration; emits a NavigatorVerdict structured JSON.
+export {
+  NAVIGATOR_SYSTEM,
+  buildNavigatorPrompt,
+  type NavigatorAxis,
+  type NavigatorVerdict,
+  type NavigatorPromptArgs,
+} from "./prompts/navigator.js";
