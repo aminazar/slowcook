@@ -139,6 +139,22 @@ WARN. The full-suite test gate catches actual regressions; you surface the RISK 
 - You do not duplicate the test runner. You may PREDICT a test failure (test_prediction axis) but you don't actually run tests.
 - You do not duplicate the type checker. The driver's iteration goes through tsc; if it didn't typecheck, the driver already knows.
 
+## Consistency with your previous verdicts (CRITICAL)
+
+When the prompt includes "## Your previous verdicts on this story", READ them first. The driver responded to them; if the current iteration ADDRESSED a prior BLOCKING concern by doing exactly what you recommended, you MUST NOT now block on the OPPOSITE concern. If you've changed your mind:
+
+1. Acknowledge the change explicitly in your rationale: "I previously recommended X; on reflection Y is the better path because Z."
+2. DOWNGRADE to WARN, never re-BLOCK. Blocking on a contradiction of your own prior advice traps the driver in a flip-flop loop and wastes everyone's iterations.
+3. If you genuinely cannot recommend a third path, halt-class concerns belong to the driver/PM (escalate via overall=warn + a strong recommendation), not in your BLOCK.
+
+This rule overrides the per-axis severity guidance below. A self-contradicting BLOCK is a worse failure mode than a missed concern.
+
+## Ground claims in the spec, not in imagination
+
+When the prompt includes the spec yaml or api_contract section, your `api_contract` axis MUST cite ONLY fields/methods that appear in the spec. Do not assume a response shape includes fields the spec doesn't list (e.g., if api_contract says `{remaining, week_start}`, do NOT BLOCK on a missing `used` or `limit` field — those weren't required).
+
+If the driver's diff differs from your reading of the spec, quote the spec text in your `evidence` field. If you can't quote it, the concern is speculation — DOWNGRADE to WARN.
+
 ## Tone
 
 Direct, specific, brief. Cite line numbers, file paths, test names. No filler. The driver gets your output as additional context for the next iteration; long verbose feedback wastes their context budget.
@@ -211,12 +227,37 @@ export interface NavigatorPromptArgs {
   apiContract?: Array<{ method: string; path: string; description?: string }>;
   /** Files used by other stories' tests (cross-story risk). */
   crossStoryFiles?: string[];
+  /** Spec yaml text (so navigator can ground api_contract / acceptance claims). */
+  specYaml?: string;
+  /** Navigator's own verdicts from prior iterations of this story (so it doesn't flip-flop). */
+  priorVerdicts?: Array<{ iter: number; overall: NavigatorVerdict["overall"]; axes: Array<Pick<NavigatorAxis, "axis" | "severity" | "summary" | "recommendation">> }>;
 }
 
 export function buildNavigatorPrompt(args: NavigatorPromptArgs): string {
   const sections: string[] = [];
 
   sections.push(`# Navigator review for story-${args.storyId}\n`);
+
+  if (args.priorVerdicts && args.priorVerdicts.length > 0) {
+    sections.push("## Your previous verdicts on this story (READ FIRST)\n");
+    sections.push("These are YOUR own past reviews. The driver addressed your prior recommendations and is iterating against them. Do NOT BLOCK on anything that contradicts your own prior advice — if you've reconsidered, downgrade to WARN.\n");
+    for (const v of args.priorVerdicts.slice(-3)) {
+      sections.push(`### Iter ${v.iter} — overall: ${v.overall.toUpperCase()}`);
+      for (const a of v.axes) {
+        sections.push(`- [${a.severity}] ${a.axis}: ${a.summary}`);
+        sections.push(`  → recommended: ${a.recommendation}`);
+      }
+      sections.push("");
+    }
+  }
+
+  if (args.specYaml) {
+    sections.push("## Spec (story contract — ground api_contract / acceptance claims here)\n");
+    sections.push("```yaml");
+    sections.push(args.specYaml.length > 6000 ? args.specYaml.slice(0, 6000) + "\n# ... (truncated)" : args.specYaml);
+    sections.push("```");
+    sections.push("");
+  }
 
   sections.push("## Driver's rationale this iteration\n");
   sections.push(args.driverRationale.trim() || "(none)");

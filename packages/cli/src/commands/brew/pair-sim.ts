@@ -518,6 +518,17 @@ export async function pairSim(argv: string[], _cliVersion: string): Promise<void
       mockFiles,
       codeMapDigest,
       storyTestIds: extractTestIds(testFiles),
+      specYaml: spec,
+      priorVerdicts: history.map((h) => ({
+        iter: h.iter,
+        overall: h.navigatorVerdict.overall,
+        axes: h.navigatorVerdict.axes.map((a) => ({
+          axis: a.axis,
+          severity: a.severity,
+          summary: a.summary,
+          recommendation: a.recommendation,
+        })),
+      })),
     });
     const navResp = await client.complete({
       model: args.model,
