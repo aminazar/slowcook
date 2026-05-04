@@ -91,7 +91,7 @@ Every project gets a singular `mock/` Next.js app, totally separate from `src/`.
 
 This means **PM review happens on real interactive UI, not on mockups in Figma + handoff diagrams.** The mock is real React. Every scenario is a real render.
 
-> 📷 _Screenshot of the mock app's scenario picker + a story scenario rendered_ — placeholder; will land when shared.
+![Mock app scenario picker — story-017 card with `✓ APPROVED` pill and 5-comment badge cluster (5 total / 2 applied / 2 unresolved / 1 spec-altering), aggregated live from the mockup PR.](./docs/screenshots/scenario-picker.png)
 
 ### The review overlay — figma-style annotation, on real components
 
@@ -99,13 +99,15 @@ This means **PM review happens on real interactive UI, not on mockups in Figma +
 
 Status counts per scenario render directly on the picker page (`useScenarioCommentStats`) — the PM knows at a glance which scenarios have unresolved feedback before clicking through.
 
-> 📷 _Screenshot of the floating overlay (Nav/Comment/Approve toggle), an anchored comment pin, and the comments-list panel_ — placeholders; will land when shared.
+![Anchored pin popover on a rendered scenario — overlay payload + plate's reply with the `touched:` file list, GitHub deep-links to both. Floating pill bottom-center: `💬 + ✓ Approved + 5` comment badge.](./docs/screenshots/pin-popover.png)
+
+![Comments-list panel — all 5 comments grouped by status glyph (✓ applied / ⊘ noop / ⚠ spec-altering / ● unresolved), each anchor-resolved or marked `DRIFTED` when the selector no longer matches current DOM.](./docs/screenshots/comments-panel.png)
 
 ### The slowcook logo
 
-Slow-cook pot with steam, rendered inline as SVG so it ships in the overlay package without binary assets — visible on the floating pill in any mock app dev-loop.
+<img src="./docs/screenshots/logo.png" alt="Slowcook logo — coral pot with three rising steam squiggles on a soft pink ground" width="120" />
 
-> 📷 _Screenshot of the logo on the floating pill_ — placeholder.
+Slow-cook pot with steam, rendered inline as SVG so it ships in the overlay package without binary assets — visible on the floating pill in any mock app dev-loop.
 
 ---
 
