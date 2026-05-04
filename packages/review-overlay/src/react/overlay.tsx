@@ -144,16 +144,18 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     const cached = loadCachedComments(window.localStorage, { owner, repo }, prNumber);
     if (cached) setComments(cached);
     const refresh = () => {
-      const pat = loadPat(window.localStorage, { owner, repo });
+      const proxy = getProxyApiBase();
+      const pat = proxy ? PROXY_PAT_SENTINEL : loadPat(window.localStorage, { owner, repo });
       if (!pat) return;
-      void fetchOverlayComments({ owner, repo, pr: prNumber, pat })
+      const apiBase = proxy ?? undefined;
+      void fetchOverlayComments({ owner, repo, pr: prNumber, pat, apiBase })
         .then((records) => {
           setComments(records);
           saveCachedComments(window.localStorage, { owner, repo }, prNumber, records);
         })
         .catch(() => { /* silent — cached state still renders */ });
       // 0.4.2 — fetch labels too so we can render the approved state.
-      void fetchPrLabels({ owner, repo, pr: prNumber, pat })
+      void fetchPrLabels({ owner, repo, pr: prNumber, pat, apiBase })
         .then((labels) => setIsApproved(labels.includes(APPROVED_LABEL)))
         .catch(() => { /* silent */ });
     };
@@ -251,12 +253,14 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       // Each step degrades independently (label add can fail without
       // blocking the PR review; PR-review self-approval can fail
       // without blocking the label). The comment names which fired.
+      const apiBase = getProxyApiBase() ?? undefined;
       const labelOk = await addLabelsToPr({
         owner: repoCoord.owner,
         repo: repoCoord.repo,
         pr: prNumber,
         pat,
         labels: [APPROVED_LABEL],
+        apiBase,
       });
       const reviewResult = await submitPrApproval({
         owner: repoCoord.owner,
@@ -264,6 +268,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         pr: prNumber,
         pat,
         body: `Mockup approved via slowcook review overlay (\`${overlayVersion}\`). Plate will refuse further amendments while \`${APPROVED_LABEL}\` is set.`,
+        apiBase,
       });
       const reviewOk = reviewResult.ok;
       const reviewNote = reviewOk
@@ -280,6 +285,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         pr: prNumber,
         pat,
         body,
+        apiBase,
       });
       if (result.ok) {
         const parts: string[] = [];
@@ -335,6 +341,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           pr: prNumber,
           pat,
           body,
+          apiBase: getProxyApiBase() ?? undefined,
         });
         if (result.ok) {
           setFeedback(`Comment posted (#${result.commentId}).`);
@@ -407,6 +414,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           pr: prNumber,
           pat,
           body,
+          apiBase: getProxyApiBase() ?? undefined,
         });
         if (result.ok) {
           setFeedback(`Note posted (#${result.commentId}).`);
@@ -1102,7 +1110,23 @@ function FeedbackToast(props: { text: string; onDismiss: () => void }): JSX.Elem
   );
 }
 
+/**
+ * Localhost gh-proxy URL exported by `slowcook run-mock` (cli ≥ 0.18.0-α.2).
+ * When set, the overlay routes every GitHub API call through the proxy
+ * and skips the PAT prompt — proxy substitutes its own gh token. Returns
+ * null in production builds (env var absent → Next inlines undefined).
+ */
+function getProxyApiBase(): string | null {
+  const v = (typeof process !== "undefined" ? process.env?.["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] : undefined) ?? null;
+  return v && v.length > 0 ? v.replace(/\/$/, "") : null;
+}
+
+const PROXY_PAT_SENTINEL = "__slowcook_proxy__";
+
 function ensurePat(repo: RepoCoord): string | null {
+  // Proxy mode: skip prompt + storage; the proxy ignores the
+  // Authorization header and signs upstream with `gh auth token`.
+  if (getProxyApiBase()) return PROXY_PAT_SENTINEL;
   // Try localStorage first; fall back to a window.prompt() the first
   // time. The PAT scopes the consumer needs are public_repo (or repo
   // for private). Storing in localStorage keeps it scoped to the
@@ -1111,7 +1135,7 @@ function ensurePat(repo: RepoCoord): string | null {
   let pat = loadPat(window.localStorage, repo);
   if (pat) return pat;
   const entered = window.prompt(
-    `Slowcook needs a GitHub PAT (scope: public_repo or repo) to post a comment on ${repo.owner}/${repo.repo}.\n\nIt will be stored only in this browser's localStorage for ${repo.owner}/${repo.repo}.`
+    `Slowcook needs a GitHub PAT (scope: public_repo or repo) to post a comment on ${repo.owner}/${repo.repo}.\n\nIt will be stored only in this browser's localStorage for ${repo.owner}/${repo.repo}.\n\n(Run \`slowcook run-mock\` instead to skip this prompt — it spawns a localhost proxy that uses your local 'gh auth token'.)`
   );
   if (!entered || entered.trim() === "") return null;
   pat = entered.trim();

@@ -42,12 +42,14 @@ export function useScenarioCommentStats(
     if (cached) setStats(cached);
 
     const refresh = () => {
-      const pat = loadPat(window.localStorage, { owner, repo });
+      const proxy = (typeof process !== "undefined" ? process.env?.["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] : undefined) ?? null;
+      const apiBase = proxy ? proxy.replace(/\/$/, "") : undefined;
+      const pat = apiBase ? "__slowcook_proxy__" : loadPat(window.localStorage, { owner, repo });
       // Don't prompt for a PAT here — picker page is a low-signal place
       // for that interruption. Wait until the user lands on a scenario
       // page where the comment composer naturally requests one.
       if (!pat) return;
-      void fetchScenarioStats({ owner, repo, pat })
+      void fetchScenarioStats({ owner, repo, pat, apiBase })
         .then((next) => {
           setStats(next);
           saveCachedScenarioStats(window.localStorage, { owner, repo }, next);

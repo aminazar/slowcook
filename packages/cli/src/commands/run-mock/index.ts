@@ -19,8 +19,11 @@
  *
  * Out of scope (queued for follow-up alpha):
  *   - Worktree isolation (don't change the user's branch state)
- *   - Localhost gh-proxy (PAT prompt remains for now)
- *   - Overlay auto-detect props (env vars still needed)
+ *
+ * 0.18.0-α.2 — gh-proxy. Spawns a localhost http proxy that signs every
+ * request with the local `gh auth token`; overlay reads NEXT_PUBLIC_
+ * SLOWCOOK_GH_PROXY and skips the PAT prompt entirely. Falls back to
+ * the prompt if gh isn't installed or not authed.
  *
  * Env vars exported into the dev-server child process so the overlay
  * activates without manual setup:
@@ -29,11 +32,13 @@
  *   NEXT_PUBLIC_SLOWCOOK_REPO=<detected from git remote>
  *   NEXT_PUBLIC_SLOWCOOK_PR_NUMBER=<looked up via gh pr list>
  *   NEXT_PUBLIC_SLOWCOOK_STORY_ID=<from arg>
+ *   NEXT_PUBLIC_SLOWCOOK_GH_PROXY=http://localhost:<port>  (when gh authed)
  */
 
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { readGhToken, startGhProxy, type ProxyHandle } from "./gh-proxy.js";
 
 interface Args {
   story: string;
@@ -111,6 +116,8 @@ What it does:
 Env auto-exported to the dev process:
   NEXT_PUBLIC_SLOWCOOK_REVIEW=1
   NEXT_PUBLIC_SLOWCOOK_OWNER, _REPO, _PR_NUMBER, _STORY_ID
+  NEXT_PUBLIC_SLOWCOOK_GH_PROXY (set when gh is authed; lets overlay
+                                 skip the PAT prompt)
 
 Exit codes:
   0  clean shutdown via Ctrl-C
@@ -236,8 +243,25 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   // Step 3: detect PR number for the overlay env vars.
   const prNumber = detectPrNumber(args.repoRoot, branch);
 
+  // Step 3b: start the gh-proxy so the overlay can submit comments
+  // without prompting the PM for a PAT. Uses `gh auth token` from the
+  // local gh CLI; falls back silently when gh isn't installed or the
+  // user hasn't logged in (overlay then uses its old PAT-prompt path).
+  let proxy: ProxyHandle | null = null;
+  const ghToken = readGhToken();
+  if (ghToken) {
+    try {
+      proxy = await startGhProxy(ghToken);
+      console.log(`  proxy  gh-proxy on ${proxy.url} (no PAT prompt — uses 'gh auth token')`);
+    } catch (e) {
+      console.warn(`  proxy  gh-proxy failed to start (${(e as Error).message}); overlay will fall back to PAT prompt.`);
+    }
+  } else {
+    console.warn(`  proxy  gh CLI not authenticated ('gh auth token' returned empty). Overlay will prompt for a PAT instead.`);
+  }
+
   // Step 4: spawn next dev with env vars.
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     NEXT_PUBLIC_SLOWCOOK_REVIEW: "1",
     NEXT_PUBLIC_SLOWCOOK_OWNER: detected.owner,
@@ -245,9 +269,10 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     NEXT_PUBLIC_SLOWCOOK_PR_NUMBER: prNumber ? String(prNumber) : "0",
     NEXT_PUBLIC_SLOWCOOK_STORY_ID: args.story,
   };
+  if (proxy) env["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] = proxy.url;
 
   console.log(`  npm    run dev (next dev :3100)`);
-  console.log(`         overlay env: REVIEW=1 OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}`);
+  console.log(`         overlay env: REVIEW=1 OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
   if (!prNumber) {
     console.warn(`         (no open mockup PR found for branch ${branch}; overlay submits will fail until one exists)`);
   }
@@ -285,6 +310,7 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   // their own manual stash dance.
   const cleanup = (signal?: string) => {
     if (pollTimer) clearInterval(pollTimer);
+    if (proxy) { try { proxy.close(); } catch { /* ignore */ } }
     if (dev && !dev.killed) {
       try { dev.kill(signal as NodeJS.Signals ?? "SIGTERM"); } catch { /* ignore */ }
     }
