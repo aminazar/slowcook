@@ -23,7 +23,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   AnthropicClient,
@@ -314,9 +314,65 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
     process.exit(1);
   }
 
-  let triggerRaw: unknown = {};
+  let triggerRaw: Record<string, unknown> = {};
   if (args.triggerRawPath && existsSync(args.triggerRawPath)) {
-    try { triggerRaw = JSON.parse(readFileSync(args.triggerRawPath, "utf8")); } catch { /* ignore */ }
+    try { triggerRaw = JSON.parse(readFileSync(args.triggerRawPath, "utf8")) as Record<string, unknown>; } catch { /* ignore */ }
+  }
+
+  // Enrich trigger.raw with context the chef LLM doesn't have read-tools to gather.
+  // For mock_isolation failures: grep ALL importers of the missing symbol so chef
+  // can plan a coordinated rename (not just the one file the trigger detail named).
+  if (args.triggerKind === "mock_isolation_check_failed") {
+    const importerMatch = args.triggerDetail.match(/['"]\.\/(\w+)['"]/);
+    if (importerMatch && importerMatch[1]) {
+      const symbol = importerMatch[1];
+      const grepImports = (root: string): Array<{ file: string; line: number; text: string }> => {
+        try {
+          const out = execSync(
+            `grep -rnE "from .[\"']\\.[/.][^\"']*${symbol}[\"']" "${root}" 2>/dev/null || true`,
+            { encoding: "utf8", maxBuffer: 1024 * 1024 },
+          );
+          return out
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              const m = line.match(/^([^:]+):(\d+):(.*)$/);
+              if (!m) return null;
+              return { file: m[1]!.replace(args.repoRoot + "/", ""), line: parseInt(m[2]!, 10), text: m[3]!.trim() };
+            })
+            .filter((x): x is { file: string; line: number; text: string } => x !== null);
+        } catch {
+          return [];
+        }
+      };
+      const mockImporters = grepImports(join(args.repoRoot, "mock/src"));
+      const srcImporters = grepImports(join(args.repoRoot, "src"));
+      const candidateExisting: string[] = [];
+      // Find existing files in same dir with similar name (likely rename candidates)
+      const importerFile = args.triggerDetail.match(/^([^\s]+):/)?.[1];
+      if (importerFile) {
+        const dir = dirname(join(args.repoRoot, importerFile));
+        if (existsSync(dir)) {
+          try {
+            const files = readdirSync(dir);
+            for (const f of files) {
+              if (/\.tsx?$/.test(f) && f.toLowerCase().includes("strip")) {
+                candidateExisting.push(`${dir.replace(args.repoRoot + "/", "")}/${f}`);
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      triggerRaw = {
+        ...triggerRaw,
+        symbol,
+        mock_importers: mockImporters,
+        src_importers: srcImporters,
+        candidate_existing_files: candidateExisting,
+        enrichment_note: "cli-precomputed: chef has no grep tool, so importers + existing-similar-name files are surfaced here. ALL importers must be updated for the rename to be complete.",
+      };
+      console.log(`  enriched trigger: ${mockImporters.length} mock importer(s), ${srcImporters.length} src importer(s), ${candidateExisting.length} candidate file(s)`);
+    }
   }
   let navigatorHistory: unknown = null;
   if (args.navigatorHistoryPath && existsSync(args.navigatorHistoryPath)) {
@@ -403,7 +459,7 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
   if (verdict.kind === "autonomous_fix" && verdict.edits.length > 0) {
     if (args.dryRun) {
       console.log(`\n  [dry-run] would apply ${verdict.edits.length} edit(s); skipping`);
-      moveEntry.post_state = "still-broken";
+      moveEntry.post_state = "escalated"; // dry-run: state is unknown without applying
     } else {
       console.log(`\n  applying ${verdict.edits.length} edit(s)...`);
       try {

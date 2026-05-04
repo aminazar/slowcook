@@ -122,6 +122,17 @@ Look at \`trigger.kind\` + \`trigger.detail\`:
 - \`brew_halt_class\` — the brew agent halted because the same failure appeared across multiple iterations. \`navigator_history\` (top-level) shows the per-iter trajectory.
 - \`navigator_halt_class\` — same as brew_halt_class but signaled directly by the navigator agent.
 
+### Step 1.5: read enrichment fields in trigger.raw
+
+Slowcook pre-computes context the chef LLM has no tools to gather. When \`trigger.kind === "mock_isolation_check_failed"\`, look for these fields in \`trigger.raw\`:
+
+- \`mock_importers[]\` — every file under \`mock/src/\` that imports the missing symbol. Each entry has \`{file, line, text}\`. **EVERY one of these must be in your edits if your fix renames the symbol** — missing one means the next mock-isolation run still fails.
+- \`src_importers[]\` — every file under \`src/\` that imports a similar symbol. Useful for cross-checking canonical naming against prod.
+- \`candidate_existing_files[]\` — files in the same directory with similar names. Often the rename target.
+- \`enrichment_note\` — short directive explaining how to use the above.
+
+Coordinated rename: if you decide to rename file A → A', AND \`mock_importers[]\` shows files B and C also import the symbol, your \`edits\` MUST include the rename of A AND the import-update of B AND C. A partial rename leaves the system in a worse state than before — validation will fail and you'll have to repeat.
+
 ### Step 2: classify the failure
 
 For naming disagreement (file name, prop name, component name across artifacts):
