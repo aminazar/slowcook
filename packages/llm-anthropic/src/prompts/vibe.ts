@@ -52,6 +52,28 @@ When the project context includes a "Code history index" section, those componen
 
 Same rules apply to API routes: extend an existing route to add a new method (POST → also support GET) instead of creating a parallel \`/api/X-list\` endpoint.
 
+## Mock-only chrome marker (slowcook 0.17.0-α.6+)
+
+When you add UI that exists ONLY for the mock app (band selectors, scenario togglers, debug controls, "preview band: green/yellow/red" buttons, "reset" links, etc.) — anything brew is supposed to STRIP when it ports the file to prod — wrap the affordance in an element marked \`data-mock-chrome="true"\`.
+
+Example:
+
+\`\`\`tsx
+<div role="status" data-testid="ration-badge">{text}</div>
+
+{/* Mock-only band selector — brew strips */}
+<div data-mock-chrome="true" className="flex flex-wrap gap-2 text-xs opacity-70">
+  <span>preview band:</span>
+  {bands.map((b) => <button key={b} onClick={() => setOverride(b)}>{b}</button>)}
+</div>
+\`\`\`
+
+Why: the recon agent (slowcook 0.17.6+) emits shape tests by reading mock JSX. Without an explicit marker, recon can't distinguish "PM-approved design that brew must preserve" from "mock-time review chrome that brew strips." It might lock in the chrome by asserting on it; brew strips it; tests fail in prod.
+
+The marker is mechanical: recon REGEX-skips any JSX subtree containing \`data-mock-chrome="true"\` (or living under such an element). Brew also uses the marker to know what to strip when porting.
+
+Mark it ALWAYS — even if the chrome looks "obviously dev-only" to you. Mechanical detection beats heuristics.
+
 ## Parent-mounting rule (slowcook 0.17.0-α.5+)
 
 **When you create a new child component, you MUST also emit (or extend) the parent component that mounts it.** A new component sitting in mock/ that no parent imports is dead code — port copies it to src/ but tests that assert "the badge appears on /u/[handle]" fail because the badge is never rendered.

@@ -25,6 +25,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { buildHistoryIndex, type HistoryIndex } from "../refine/history-index.js";
+import { extractShape, synthesiseShapeTestFile, findMockFilesForStory } from "./shape-preserve.js";
 
 interface ReconArgs {
   story: string;
@@ -201,6 +202,36 @@ export async function recon(argv: string[], _cliVersion: string): Promise<void> 
     "brownfield-rename-safety check is not yet implemented in 0.17.6 (recorded by simulation; defer to 0.17.7)"
   );
 
+  // 0.17.6+ — shape-emit. Read mock UI for the story; emit
+  // tests/integration/story-N-shape.test.tsx with structural assertions
+  // (testids, visual tokens, semantic landmarks). Mock-chrome subtrees
+  // are stripped via the data-mock-chrome="true" marker.
+  let shapeFile: string | null = null;
+  try {
+    const mockFiles = findMockFilesForStory(args.repoRoot, args.story);
+    if (mockFiles.length > 0) {
+      const shapes = mockFiles
+        .map((f) => extractShape(join(args.repoRoot, f), args.repoRoot))
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+      if (shapes.length > 0) {
+        const body = synthesiseShapeTestFile({ story: args.story, shapes });
+        shapeFile = `tests/integration/story-${args.story}-shape.test.tsx`;
+        const outAbs = join(args.repoRoot, shapeFile);
+        mkdirSync(dirname(outAbs), { recursive: true });
+        writeFileSync(outAbs, body, "utf8");
+        console.log(
+          `  shape-emit: wrote ${shapeFile} (from ${mockFiles.length} mock file(s); ${shapes.flatMap((s) => s.testids).length} testid assertion(s))`
+        );
+      }
+    } else {
+      result.warnings.push(
+        `shape-emit: no mock files discovered for story-${args.story} (no scenarios reference it; no test imports point at mock/src)`
+      );
+    }
+  } catch (e) {
+    result.warnings.push(`shape-emit failed: ${(e as Error).message.slice(0, 200)}`);
+  }
+
   // Decide status
   if (result.structural_gaps.length > 0) {
     result.status = "escalate";
@@ -212,7 +243,7 @@ export async function recon(argv: string[], _cliVersion: string): Promise<void> 
 
   // Write output
   mkdirSync(dirname(args.outPath), { recursive: true });
-  writeFileSync(args.outPath, JSON.stringify(result, null, 2), "utf8");
+  writeFileSync(args.outPath, JSON.stringify({ ...result, shape_file: shapeFile }, null, 2), "utf8");
 
   // Print summary
   console.log(`  status: ${result.status.toUpperCase()}`);

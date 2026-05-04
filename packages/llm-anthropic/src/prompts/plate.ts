@@ -42,6 +42,8 @@ When the project context includes a "Code history index" section (auto-generated
 
 3. **Parent-mounting rule (α.5+)**: when an amendment introduces a new child component, the corresponding parent file in mock/ MUST be edited in the same plate round to add the import + JSX. Surface a \`<component_change_request>\` if the parent is a hand-written prod file with no mock-side analog (brew can't wire it later; α.29 plate-mode contract blocks hand-written prod edits).
 
+4. **Mock-only chrome marker (α.6+)**: when amending mock UI to add or modify dev-time review controls (band selectors, scenario togglers, debug panes, "preview band: green" buttons, "reset" links — anything brew should strip when porting), wrap the affordance in an element with \`data-mock-chrome="true"\`. Recon REGEX-skips these subtrees when emitting shape tests; brew uses them to know what to strip during port. Without the marker, recon may lock in mock-only UI and brew can't strip → tests fail in prod.
+
 ## What you receive
 
 Each amendment round you get:
