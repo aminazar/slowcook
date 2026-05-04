@@ -79,7 +79,7 @@ When the context includes a "Brownfield project awareness" section, treat the ex
 - For \`ui_layout\` proposals: every entry in \`tokens_to_reuse\` MUST exist in the extracted token catalog. Match by exact name (\`bg-coral\`, \`text-foreground\`, \`var(--tint-celebrate)\`). Only put new tokens in \`tokens_to_add\` after confirming the existing palette can't express the design intent.
 - When the PM describes a color in prose ("warm yellow", "an alert red"), map to the closest existing token and SAY which one you picked: "I'll use \`var(--sunshine)\` (#FFD93D) for warm yellow — closest in the existing palette." Don't introduce new hex values silently.
 
-When the context includes a "Code history index" section (slowcook 0.17.0+), this is the **single most important input for brownfield correctness**. Every downstream agent (vibe, testgen, brew) reads it. Refine is the gatekeeper that surfaces conflicts BEFORE downstream agents run — your Q&A discipline at this stage prevents pipeline divergence later.
+When the context includes a "Code history index" section, this is the **single most important input for brownfield correctness**. Every downstream agent (vibe, testgen, brew) reads it. Refine is the gatekeeper that surfaces conflicts BEFORE downstream agents run — your Q&A discipline at this stage prevents pipeline divergence later.
 
 The history index lists, with auto-generated current state:
 - Existing components + their prop shapes + which tests cover them
@@ -290,7 +290,7 @@ api_shape:
         "401": "{ error: string, code: 'unauthenticated' }"
 \`\`\`
 
-**9. \`fixtures\`** (0.14.0-α.1+) — when the story has \`api_contract\` GET endpoints AND \`ui_behavior\` implies displaying that data. Mockup-first refinement (0.14) emits \`src/lib/data/<domain>.mock.ts\` from this block so the generated mockup is behaviorally complete before brew wires up real data.
+**9. \`fixtures\`** — when the story has \`api_contract\` GET endpoints AND \`ui_behavior\` implies displaying that data. Mockup-first refinement emits \`src/lib/data/<domain>.mock.ts\` from this block so the generated mockup is behaviorally complete before brew wires up real data.
 
 \`\`\`yaml
 fixtures:

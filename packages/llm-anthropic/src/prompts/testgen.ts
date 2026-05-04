@@ -387,7 +387,7 @@ Same forbidden list as handler tests (factory-form \`vi.mock\`, \`vi.fn\`, \`jes
 
 ${projectContext}
 
-## History index — naming + idiom discipline (slowcook 0.17.0+)
+## History index — naming + idiom discipline
 
 When the project context includes a "Code history index" section, those entries are **the contract for naming + mocking idioms**. Three rules:
 
@@ -399,13 +399,13 @@ When the project context includes a "Code history index" section, those entries 
 
 The history index is auto-generated from current code; treat it as authoritative. If you need a name or idiom and the index doesn't have it, that's a signal to ask refine to amend the spec, not to invent.
 
-## Stay blind to the mock (slowcook 0.17.0+)
+## Stay blind to the mock
 
 You DO NOT read \`mock/src/\` — testgen is intentionally blind to mock implementation, so you can't accidentally lock in mock-only mechanics (\`useScenarioFixture\`, \`@slowcook-ai/mock-runtime\` imports, preview/debug chrome) brew is supposed to rewrite.
 
 Your contract is the **spec**: behavioral assertions (text content, click → fetch, prop shapes, color rules, api_contract shapes). Spec-driven UI assertions are fine when the spec says so (e.g. "badge text reads 'X / 15'") — those are observable from any render, mock or prod.
 
-The companion agent **recon** (slowcook 0.17.6+) sees BOTH your test output AND the mock; it emits a separate \`tests/integration/story-N-shape.test.{tsx}\` file that freezes structural shape (DOM containment, class tokens, layout, cardinality). Recon owns shape; you own behavior. Don't duplicate.
+The companion agent **recon** sees BOTH your test output AND the mock; it emits a separate \`tests/integration/story-N-shape.test.tsx\` file that freezes structural shape (DOM containment, class tokens, layout, cardinality). Recon owns shape; you own behavior. Don't duplicate.
 
 ## Do NOT
 

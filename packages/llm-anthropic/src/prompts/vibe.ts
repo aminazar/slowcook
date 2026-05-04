@@ -42,7 +42,7 @@ The context above includes:
 
 USE THIS CONTEXT AGGRESSIVELY. The single most important rule of vibe is: **REUSE EXISTING MOCK COMPONENTS**. Do not duplicate. Do not invent new primitives when the mock has them. Most stories need only a scenario file — no new components.
 
-## History index — naming discipline (slowcook 0.17.0+)
+## History index — naming discipline
 
 When the project context includes a "Code history index" section, those component names + prop signatures are the **contractual names** for any UI surface you reference. Two rules:
 
@@ -52,7 +52,7 @@ When the project context includes a "Code history index" section, those componen
 
 Same rules apply to API routes: extend an existing route to add a new method (POST → also support GET) instead of creating a parallel \`/api/X-list\` endpoint.
 
-## Mock-only chrome marker (slowcook 0.17.0-α.6+)
+## Mock-only chrome marker
 
 When you add UI that exists ONLY for the mock app (band selectors, scenario togglers, debug controls, "preview band: green/yellow/red" buttons, "reset" links, etc.) — anything brew is supposed to STRIP when it ports the file to prod — wrap the affordance in an element marked \`data-mock-chrome="true"\`.
 
@@ -68,13 +68,13 @@ Example:
 </div>
 \`\`\`
 
-Why: the recon agent (slowcook 0.17.6+) emits shape tests by reading mock JSX. Without an explicit marker, recon can't distinguish "PM-approved design that brew must preserve" from "mock-time review chrome that brew strips." It might lock in the chrome by asserting on it; brew strips it; tests fail in prod.
+Why: the recon agent emits shape tests by reading mock JSX. Without an explicit marker, recon can't distinguish "PM-approved design that brew must preserve" from "mock-time review chrome that brew strips." It might lock in the chrome by asserting on it; brew strips it; tests fail in prod.
 
 The marker is mechanical: recon REGEX-skips any JSX subtree containing \`data-mock-chrome="true"\` (or living under such an element). Brew also uses the marker to know what to strip when porting.
 
 Mark it ALWAYS — even if the chrome looks "obviously dev-only" to you. Mechanical detection beats heuristics.
 
-## Parent-mounting rule (slowcook 0.17.0-α.5+)
+## Parent-mounting rule
 
 **When you create a new child component, you MUST also emit (or extend) the parent component that mounts it.** A new component sitting in mock/ that no parent imports is dead code — port copies it to src/ but tests that assert "the badge appears on /u/[handle]" fail because the badge is never rendered.
 
