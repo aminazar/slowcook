@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
 
@@ -42,7 +42,67 @@ export function buildProjectContext(repoRoot: string): string {
   const historyDigest = readHistoryIndexDigest(repoRoot);
   if (historyDigest) sections.push("\n" + historyDigest);
 
+  const entitiesDigest = readEntitiesDigest(repoRoot);
+  if (entitiesDigest) sections.push("\n" + entitiesDigest);
+
   return sections.join("\n");
+}
+
+/**
+ * 0.18.0-α.6 — surface a digest of `src/lib/entities/*.ts` (emitted by
+ * `slowcook init entities` from the consumer's database migrations).
+ * These are the canonical types every agent (refine, vibe, testgen,
+ * plate, brew) must use when its spec/component/test references a
+ * domain entity. Eliminates the prop-shape drift class (story-018's
+ * `profile`/`owner` divergence between testgen + mock).
+ */
+export function readEntitiesDigest(repoRoot: string): string | null {
+  const dir = join(repoRoot, "src/lib/entities");
+  if (!existsSync(dir)) return null;
+  let files: string[] = [];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".ts") && f !== "index.ts").sort();
+  } catch {
+    return null;
+  }
+  if (files.length === 0) return null;
+  const lines: string[] = [];
+  lines.push("## Entities (auto-generated from supabase/migrations)\n");
+  lines.push(
+    "These TypeScript interfaces + zod schemas under `src/lib/entities/` are the canonical types for the consumer's domain. Every agent — refine, vibe, testgen, plate, brew — MUST import from `@/lib/entities` when referencing domain shape. Don't redeclare entity props inline; if a domain field is missing, surface a refine-stage gap (entity needs a column → migration → regenerate)."
+  );
+  lines.push("");
+  for (const file of files) {
+    const tableName = file.replace(/\.ts$/, "");
+    const path = join(dir, file);
+    let body = "";
+    try { body = readFileSync(path, "utf8"); } catch { continue; }
+    const interfaceMatch = body.match(/export interface (\w+) \{([\s\S]*?)\n\}/);
+    if (!interfaceMatch || !interfaceMatch[1] || !interfaceMatch[2]) continue;
+    const typeName = interfaceMatch[1];
+    const cols = interfaceMatch[2]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("//") && !l.startsWith("*"))
+      .map((l) => {
+        // strip trailing comments + JSDoc, normalise spacing
+        const cleaned = l.replace(/\/\*\*[^*]*\*\//g, "").replace(/\/\/.*$/, "").replace(/;$/, "").trim();
+        return cleaned;
+      })
+      .filter((l) => l.length > 0);
+    if (cols.length === 0) continue;
+    lines.push(`### ${typeName} \`@/lib/entities/${tableName}\``);
+    for (const col of cols.slice(0, 30)) {
+      lines.push(`- ${col}`);
+    }
+    if (cols.length > 30) lines.push(`- … ${cols.length - 30} more (see file)`);
+    lines.push("");
+  }
+  lines.push(
+    "Import the barrel for convenience: `import type { Profiles, Rewos, RewoReactions } from \"@/lib/entities\";`"
+  );
+  lines.push("");
+  return lines.join("\n");
 }
 
 /**

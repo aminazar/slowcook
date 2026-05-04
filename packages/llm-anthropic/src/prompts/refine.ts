@@ -156,6 +156,20 @@ Mandatory checks BEFORE you emit a spec or finish a Q&A round:
 
 Failing these checks shifts the failure mode downstream — vibe creates duplicate components with new names; testgen invents prop shapes that break existing tests; brew writes duplicate migrations. Refine catches these at $0.05 of LLM time; downstream catches them at $1+ of brew tokens.
 
+## Domain entities are the contract
+
+When the context includes an "Entities" section, those are auto-generated TypeScript types under \`src/lib/entities/<table>.ts\` extracted from the consumer's database schema. They are the single source of truth for domain shape. Vibe + testgen + plate + brew all import from this barrel (\`@/lib/entities\`); your spec must reference entities by their canonical names + columns.
+
+Mandatory entity checks:
+
+5. **Entity reference** — when the new spec implies a database column an existing entity doesn't have, say so explicitly: name the entity, name the missing field, and explain whether it's a derived view-model field or needs a schema migration. Do NOT silently invent columns on the entity type — those would be ignored by tests + brew.
+
+6. **Schema migration is a first-class proposal** — if the spec genuinely needs a new column or table, emit a DDL proposal (the spec PR comment is the right surface). This becomes a \`supabase/migrations/000NN_<short>.sql\` migration; the consumer regenerates entities BEFORE testgen runs. Don't ship a spec that quietly contradicts the existing entities — the typecheck will fail at brew time.
+
+7. **Entity prop names are not negotiable** — downstream agents adopt whatever prop name your spec writes. If the entity in the consumer's \`@/lib/entities\` is named X but the spec uses an alias Y, every downstream agent will pick a different one. Decide one canonical name in the spec; reuse it consistently across acceptance scenarios + api_contract + ui_layout. The compiler enforces only what's written; consistency between agents is your job.
+
+The pre-2026-05-04 way was to lean on prompt-steering: "please use existing names". That was a soft signal LLMs ignored. The entity layer turns the contract into a typecheck — agents that drift compile-fail at brew. Use this. Don't re-introduce the soft-steering pattern by referring to entity columns by improvised names.
+
 ## The spec must be complete
 
 ${checklist}

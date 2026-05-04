@@ -131,9 +131,9 @@ function parseDdl(ddl: string): {
     entities.set(tableName!, entity);
   }
 
-  // 2. `alter table <name> add column <col> <type> ...` — single-column form
+  // 2. `alter table <name> add column [if not exists] <col> <type> ...` — single-column form
   const alterRe =
-    /alter\s+table\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+add\s+column\s+([a-z_][a-z0-9_]*)\s+([^;,]+)(?:,|;)/gis;
+    /alter\s+table\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?([a-z_][a-z0-9_]*)\s+([^;,]+)(?:,|;)/gis;
   while ((m = alterRe.exec(normalised)) !== null) {
     const [, tableName, colName, rest] = m;
     let entity = entities.get(tableName!);
@@ -200,4 +200,12 @@ export function ddlToMermaidErd(ddl: string): string {
 /**
  * Test-only access to the parser — keeps the public surface minimal.
  */
+/**
+ * Promoted in 0.18.0-α.6 — entity-first foundation. `slowcook init entities`
+ * needs the structured entities + relationships (not just the rendered Mermaid
+ * string) to emit TypeScript interfaces + zod schemas under src/lib/entities/.
+ */
+export { parseDdl };
+export type { ErdEntity, ErdColumn, ErdRelationship };
+
 export const __internals = { parseDdl, parseColumnLine };

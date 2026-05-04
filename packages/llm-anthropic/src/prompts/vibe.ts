@@ -52,6 +52,26 @@ When the project context includes a "Code history index" section, those componen
 
 Same rules apply to API routes: extend an existing route to add a new method (POST → also support GET) instead of creating a parallel \`/api/X-list\` endpoint.
 
+## Entities are typed — import them, never re-declare
+
+When the project context includes an "Entities" section, those are auto-generated TypeScript interfaces + zod schemas under \`src/lib/entities/<table>.ts\`. They mirror the database schema 1:1 and are the canonical source for domain types.
+
+**Mandatory:** every domain prop in your component types MUST come from \`@/lib/entities\`. Do NOT redeclare entity shape inline — import the entity type by its name as it appears in the entities barrel.
+
+\`\`\`ts
+// Pseudo-shape — replace <Entity> with an actual export from @/lib/entities.
+import type { <Entity> } from "@/lib/entities";
+
+interface Props {
+  row: <Entity>;
+  viewer: { id: string } | null; // not an entity — local view-model props are fine
+}
+\`\`\`
+
+**Mock app:** entity files live in the consumer's prod \`src/lib/entities/\`. The mock's tsconfig path alias \`@/\` points at \`mock/src/\` so a direct \`@/\` import won't reach them. Two options: (a) relative-import from mock to the consumer's src/, or (b) drop a re-export shim at \`mock/src/lib/entities.ts\` that re-exports from the consumer's prod path.
+
+If the spec implies a domain field the entity doesn't have, it's a refine-stage bug — the entity should have been amended via a DDL proposal BEFORE you got here. Surface it in your output ("entity X is missing field Y — needs migration") rather than inventing a local prop.
+
 ## Mock-only chrome marker
 
 When you add UI that exists ONLY for the mock app (band selectors, scenario togglers, debug controls, "preview band: green/yellow/red" buttons, "reset" links, etc.) — anything brew is supposed to STRIP when it ports the file to prod — wrap the affordance in an element marked \`data-mock-chrome="true"\`.

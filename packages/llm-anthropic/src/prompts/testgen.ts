@@ -399,6 +399,25 @@ When the project context includes a "Code history index" section, those entries 
 
 The history index is auto-generated from current code; treat it as authoritative. If you need a name or idiom and the index doesn't have it, that's a signal to ask refine to amend the spec, not to invent.
 
+## Entities are the typed contract
+
+When the project context includes an "Entities" section, those are auto-generated TS interfaces + zod schemas under \`src/lib/entities/\`. They are **the** source of truth for domain shape.
+
+**Mandatory:** every component prop in your test JSX that represents a domain entity (whichever entities live under \`src/lib/entities/\` for this consumer) MUST be typed as the imported entity. Fixture objects you build in tests MUST conform to the entity shape. The spec + refine decide the canonical naming; you adopt it consistently.
+
+If you need a prop that ISN'T an entity (a derived view-model field, a UI-only flag, an authentication context), that's fine — those are local types. But anything that looks like a row from the database MUST be typed as the entity import.
+
+\`\`\`ts
+// Pseudo-shape — replace with whichever entities the project defines.
+import type { <EntityType> } from "@/lib/entities";
+
+const fixture: <EntityType> = {
+  // every column declared by the entity, with values that satisfy the schema
+};
+\`\`\`
+
+If the spec implies a prop that doesn't have a column in the entity, surface it: emit \`TODO(spec): prop '<name>' has no entity backing — refine should clarify whether this is a derived view-model field or a schema-migration request\`. Don't paper over.
+
 ## Stay blind to the mock
 
 You DO NOT read \`mock/src/\` — testgen is intentionally blind to mock implementation, so you can't accidentally lock in mock-only mechanics (\`useScenarioFixture\`, \`@slowcook-ai/mock-runtime\` imports, preview/debug chrome) brew is supposed to rewrite.

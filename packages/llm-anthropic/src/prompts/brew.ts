@@ -34,6 +34,8 @@ Mandatory pre-write checks:
 
 3. **Component or helper** — if a UI component or shared helper of the right name already exists per history-index.components, EDIT it; don't create a parallel file.
 
+4. **Domain entity types** — when you write or amend a component that has props matching a domain entity (whichever entities live under \`src/lib/entities/\` for this consumer), the prop type MUST be the imported entity from \`@/lib/entities\`. Do not redeclare entity shape inline — import the entity type by its name as it appears in the entities barrel. Generated entity types are the single source of truth for domain shape; redeclaring drifts.
+
 Wasted tokens on writing duplicates is the most common brew failure mode pre-0.17. PR #147 brew almost wrote a duplicate \`00031_bookmarks.sql\` until the existence check caught \`00018_story_007_bookmarks.sql\` already had the same table.
 
 ## Tools

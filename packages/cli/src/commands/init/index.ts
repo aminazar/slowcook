@@ -155,6 +155,16 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
     return initFromProd(argv.slice(1), cliVersion);
   }
 
+  // 0.18.0-α.6 — `slowcook init entities` extracts the consumer's
+  // domain ERD from supabase/migrations and emits TypeScript interfaces
+  // + zod schemas under src/lib/entities/. First step of the entity-
+  // first foundation: agents downstream import canonical types instead
+  // of inventing their own variants per story.
+  if (argv[0] === "entities") {
+    const { initEntities } = await import("./entities.js");
+    return initEntities(argv.slice(1), cliVersion);
+  }
+
   const args = parseArgs(argv);
   const reader = makeReader(args.cwd);
 
