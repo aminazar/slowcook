@@ -942,11 +942,42 @@ function Composer(props: {
   const [prose, setProse] = useState("");
   const sel = extractSelector(props.target);
   const rect = props.target.getBoundingClientRect();
+
+  // Position popup near the target — Figma-style anchoring. Try below
+  // the element first; fall back to above; clamp to viewport so it
+  // never sits off-screen. Width 320, max-height 70vh.
+  const POPUP_WIDTH = 320;
+  const POPUP_GAP = 8;
+  const PADDING = 12;
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const maxHeight = Math.floor(vh * 0.7);
+
+  // Horizontal: anchor to target.left, but clamp so right edge stays in viewport.
+  let left = rect.left;
+  if (left + POPUP_WIDTH + PADDING > vw) left = vw - POPUP_WIDTH - PADDING;
+  if (left < PADDING) left = PADDING;
+
+  // Vertical: try below the element. If not enough room, place above.
+  // If neither fits cleanly, clamp the top.
+  const spaceBelow = vh - rect.bottom - PADDING;
+  const spaceAbove = rect.top - PADDING;
+  let top: number;
+  if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
+    top = rect.bottom + POPUP_GAP;
+    // Clamp to keep popup body in viewport (assume body height ~280 typical).
+    if (top + 280 > vh - PADDING && top - 280 > PADDING) {
+      top = Math.max(PADDING, vh - 280 - PADDING);
+    }
+  } else {
+    top = Math.max(PADDING, rect.top - POPUP_GAP - 280);
+  }
+
   return (
     <>
       <div
         style={{
-          position: "absolute",
+          position: "fixed",
           left: rect.x,
           top: rect.y,
           width: rect.width,
@@ -954,6 +985,7 @@ function Composer(props: {
           border: `2px solid ${ACCENT}`,
           outlineOffset: -2,
           pointerEvents: "none",
+          zIndex: 2147483646,
         }}
         aria-hidden="true"
       />
@@ -963,11 +995,11 @@ function Composer(props: {
         role="dialog"
         aria-label="Review comment"
         style={{
-          position: "absolute",
-          right: 12,
-          top: 64,
-          width: 320,
-          maxHeight: "70vh",
+          position: "fixed",
+          left,
+          top,
+          width: POPUP_WIDTH,
+          maxHeight,
           overflow: "auto",
           background: "white",
           color: "#1a1a1a",
@@ -977,6 +1009,7 @@ function Composer(props: {
           pointerEvents: "auto",
           fontFamily: "system-ui, -apple-system, sans-serif",
           fontSize: 13,
+          zIndex: 2147483647,
         }}
       >
         <div style={{ fontWeight: 600, marginBottom: 8 }}>Review comment</div>
