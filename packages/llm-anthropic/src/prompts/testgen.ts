@@ -438,6 +438,33 @@ These assertions:
 
 **Why this matters**: with structural assertions in place, brew can be granted freedom to edit any file (no need for the file-level \`@slowcook-port-from\` lock) — shape corruption is impossible because the structural tests would fail and brew's full-suite gate would revert.
 
+### CRITICAL — assert SHAPE only, never WIRING
+
+When you read mock UI to extract structural assertions, you MUST distinguish between **shape** (PM-approved design that brew preserves) and **wiring** (mock-only mechanics brew rewrites). Asserting on wiring locks in the mock's implementation and makes brew's job impossible.
+
+**OK to assert (SHAPE — observable from a vanilla render):**
+- DOM tree shape: \`closest()\`, \`querySelectorAll().length\`, parent/child relationships
+- CSS tokens in HTML: \`var(--mint)\`, no inline hex
+- Visual className tokens: \`rounded-full\`, \`min-h-[44px]\`
+- Element kinds: \`tagName === "BUTTON"\`
+- Testids the mock exposes for test consumption
+- Text content **as defined by the spec** (not from mock-only chrome)
+- A11y attributes: \`aria-label\`, \`role\`, \`aria-pressed\`
+
+**NEVER assert (WIRING — mock-only implementation; brew will rewrite):**
+- Specific React hooks called: \`useScenarioFixture\`, \`useScenario\`, etc.
+- Imports present in source: \`@slowcook-ai/mock-runtime\` references
+- Mock-only chrome: preview controls, debug UI, band-selectors, scenario pickers
+- Specific fixture data shapes (use the spec's \`api_contract\` shape; that's the real contract)
+- Mock fixture access patterns
+- Internal React state via \`vi.spyOn\` of hooks
+- Source-file content via \`readFileSync\` of the component
+- Mock-only text strings (e.g. "preview band: green", "reset", "scenario: ...")
+
+**Self-check before emitting any structural assertion**: would the assertion still hold AFTER brew rewrites the data wiring (replaces \`useScenarioFixture\` with \`useDataDomain\` or \`fetch\`, drops \`@slowcook-ai/mock-runtime\` imports, strips mock-only preview chrome)? If YES → keep it. If NO → delete it; you're asserting wiring.
+
+**Black-box observability rule**: every structural assertion must be expressible as "from a render, the user can see X" — never "from looking at the source, X is present." If your assertion needs source-code introspection (\`readFileSync\` of the component file, hook spy), it's wiring not shape; delete it.
+
 ## Do NOT
 
 - Reference files not in the spec or project context. If a detail is missing, emit \`TODO(spec): ...\` rather than invent.
