@@ -69,23 +69,23 @@ export function PinsStrip() {
     expect(r.output).toContain('import { useDataDomain } from "@/lib/data";');
     expect(r.output).not.toContain("useScenarioFixture");
     expect(r.output).toContain('const pins = useDataDomain<Pin[]>("pins");');
-    expect(r.rewrites).toContain("rewrote @slowcook-ai/mock-runtime → @/lib/data import");
+    expect(r.rewrites.some((s) => s.includes("@slowcook-ai/mock-runtime"))).toBe(true);
     expect(r.rewrites).toContain("rewrote useScenarioFixture(...) → useDataDomain(...)");
   });
 
-  it("preserves other named imports from mock-runtime", () => {
+  it("drops mock-only hook imports + stubs their call sites with no-ops", () => {
     const input = `import { useScenarioFixture, useScenario } from "@slowcook-ai/mock-runtime";
 
 const x = useScenarioFixture<unknown>("x");
 const s = useScenario();
 `;
     const r = transformForPort(input);
-    // useScenarioFixture import migrated to @/lib/data; useScenario stays
-    // on @slowcook-ai/mock-runtime (will fail to compile after port — but
-    // that's the brew-stage signal that the production component was
-    // using a mock-only API and needs a real-data alternative).
+    // useScenarioFixture migrates to useDataDomain; useScenario is a
+    // mock-only hook with no prod analog → import dropped, call site
+    // stubbed with `(null as any)` so the file still compiles.
     expect(r.output).toContain('import { useDataDomain } from "@/lib/data";');
-    expect(r.output).toContain('import { useScenario } from "@slowcook-ai/mock-runtime";');
+    expect(r.output).not.toContain('@slowcook-ai/mock-runtime');
+    expect(r.output).toMatch(/null as any.*useScenario/);
   });
 
   it("is a no-op for files that don't use scenario hooks", () => {

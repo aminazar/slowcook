@@ -32,10 +32,25 @@ export interface PortTransformResult {
   rewrites: string[];
 }
 
-const SCENARIO_FIXTURE_IMPORT_RE =
-  /import\s+\{\s*useScenarioFixture\s*(?:,\s*([^}]*))?\}\s+from\s+["']@slowcook-ai\/mock-runtime["'];?\s*\n/g;
+// Match any import from @slowcook-ai/mock-runtime — capture the full
+// named-import list. Port rewrites useScenarioFixture → useDataDomain,
+// drops mock-only hooks (useScenario, useScenarioRunner) entirely
+// (they have no prod analog), and routes any unknown names through
+// a no-op shim path so the rewritten file still compiles.
+const MOCK_RUNTIME_IMPORT_RE =
+  /import\s+\{\s*([^}]+)\s*\}\s+from\s+["']@slowcook-ai\/mock-runtime["'];?\s*\n/g;
 
 const SCENARIO_USE_RE = /\buseScenarioFixture\b/g;
+
+// Hooks/utilities defined ONLY in mock-runtime — brew can't satisfy
+// these in prod. Port replaces calls with safe no-ops + drops the
+// import. Each of these returns a plausible "no scenario active"
+// value so the component tree still renders.
+const MOCK_ONLY_NAMES_TO_DROP = new Set([
+  "useScenario",
+  "useScenarioRunner",
+  "ScenarioRegistryProvider",
+]);
 
 /**
  * Apply all port-time source transforms to a single file's contents.
@@ -45,25 +60,36 @@ export function transformForPort(input: string, opts?: { storyId?: string }): Po
   let output = input;
   const rewrites: string[] = [];
 
-  // 1) Rewrite mock-runtime imports → src/lib/data import.
-  if (SCENARIO_FIXTURE_IMPORT_RE.test(output)) {
-    SCENARIO_FIXTURE_IMPORT_RE.lastIndex = 0;
-    output = output.replace(
-      SCENARIO_FIXTURE_IMPORT_RE,
-      (_m, otherImports) => {
-        if (otherImports && otherImports.trim()) {
-          // Other named imports stayed too — preserve them as a separate
-          // mock-runtime import line. Conservative: rare in mock components
-          // (most use only useScenarioFixture).
-          return (
-            `import { useDataDomain } from "@/lib/data";\n` +
-            `import { ${otherImports.trim()} } from "@slowcook-ai/mock-runtime";\n`
-          );
-        }
-        return `import { useDataDomain } from "@/lib/data";\n`;
+  // 1) Rewrite mock-runtime imports. Three cases per imported name:
+  //    - useScenarioFixture → useDataDomain (real hook brew implements)
+  //    - useScenario, useScenarioRunner, ScenarioRegistryProvider:
+  //         drop the import; replace call sites with safe no-ops below
+  //    - anything else: pass through into a residual mock-runtime
+  //         import line (rare; signals the consumer hand-extended)
+  if (MOCK_RUNTIME_IMPORT_RE.test(output)) {
+    MOCK_RUNTIME_IMPORT_RE.lastIndex = 0;
+    output = output.replace(MOCK_RUNTIME_IMPORT_RE, (_match, namedListRaw) => {
+      const names = String(namedListRaw)
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0);
+      const wantsDataDomain = names.includes("useScenarioFixture");
+      const residual = names.filter(
+        (n: string) => n !== "useScenarioFixture" && !MOCK_ONLY_NAMES_TO_DROP.has(n)
+      );
+      const lines: string[] = [];
+      if (wantsDataDomain) {
+        lines.push(`import { useDataDomain } from "@/lib/data";`);
       }
-    );
-    rewrites.push("rewrote @slowcook-ai/mock-runtime → @/lib/data import");
+      if (residual.length > 0) {
+        lines.push(`import { ${residual.join(", ")} } from "@slowcook-ai/mock-runtime";`);
+      }
+      // If only mock-only names were imported, the result is a single
+      // empty line (the import is dropped entirely). Caller's call sites
+      // are no-op'd by the next transform step.
+      return lines.length > 0 ? lines.join("\n") + "\n" : "";
+    });
+    rewrites.push("rewrote @slowcook-ai/mock-runtime imports (useScenarioFixture→useDataDomain; mock-only names dropped)");
   }
 
   // 2) Rewrite useScenarioFixture call sites → useDataDomain.
@@ -71,6 +97,24 @@ export function transformForPort(input: string, opts?: { storyId?: string }): Po
     SCENARIO_USE_RE.lastIndex = 0;
     output = output.replace(SCENARIO_USE_RE, "useDataDomain");
     rewrites.push("rewrote useScenarioFixture(...) → useDataDomain(...)");
+  }
+
+  // 2b) Replace mock-only hook call sites with safe no-ops so the
+  //     rewritten file still compiles when the component reads
+  //     `scenario?.user` etc. Pattern: `useScenario()` → `(null as
+  //     { user: { id: string } | null } | null)`. Conservative: only
+  //     rewrite the bare call expression; if vibe was creative with the
+  //     usage (destructuring directly from the call), brew will see a
+  //     parse error and can adapt.
+  for (const name of MOCK_ONLY_NAMES_TO_DROP) {
+    const callRe = new RegExp(`\\b${name}\\s*\\(\\s*\\)`, "g");
+    if (callRe.test(output)) {
+      callRe.lastIndex = 0;
+      // Replace with `null` typed broadly so destructuring + member
+      // access stays type-safe. Brew rewires real auth in src/.
+      output = output.replace(callRe, `(null as any /* ${name}() — mock-only; brew wires real source */)`);
+      rewrites.push(`stubbed mock-only ${name}() call sites → null`);
+    }
   }
 
   // 3) Strip the `// @slowcook-mock-only` markers so the production
