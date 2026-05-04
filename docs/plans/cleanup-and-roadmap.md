@@ -127,33 +127,44 @@ Called out in item #8 above.
 
 ---
 
-## 🔥 NEW HIGH PRIORITY — testgen emits structural assertions; drop file-level edit lock
+## 🔥 NEW HIGH PRIORITY — recon emits structural shape tests; drop file-level edit lock
 
-See `feedback_shape_in_tests_not_in_guard` memory.
+**Updated** per `feedback_shape_tests_belong_to_recon_not_testgen` (supersedes the testgen-shape-emit plan from earlier).
 
-Replaces the implicit JSX-shape-diff guard plan that was being considered. Cleaner architecture: shape becomes part of the test contract; brew has free range to edit any file; full-suite test gate + structural tests catch all corruption.
+Cleanest architecture: testgen STAYS blind to mock (preserves the 0.16 design intent); recon takes on shape-test emission. Three agent-level layers:
+
+| Agent | Sees | Writes | Why |
+|---|---|---|---|
+| Testgen | Spec + history-index + existing tests | Behavioral contract (text, click → fetch, prop shapes, color rules) | Spec-driven; can't accidentally lock in mock implementation |
+| Recon | Spec + mock + testgen output | (1) renaming map; (2) NEW: `tests/integration/story-N-shape.test.tsx` | Has full view; emits shape-only assertions |
+| Brew | All test files + mock + history-index | Implementation | Full edit freedom; file-level lock can come down |
 
 ### Implementation
 
-1. **Update testgen prompt** (`packages/llm-anthropic/src/prompts/testgen.ts`):
-   - Add: testgen reads `mock/src/components/...` for the story's surface area
-   - Emit 5-8 structural assertions per UI test file: layout containment, token preservation, DOM order, cardinality, element-kind
-   - Existing behavioral assertions stay; structural ones are additive
-
-2. **Drop the file-level edit lock** in brew (`packages/cli/src/commands/brew/agent.ts`):
-   - Remove the `plate-handwritten-ui` REJECT (the entire α.29 file-level marker check)
+1. **Revert testgen prompt's shape-emit additions** ✅ done in llm-anthropic@0.13.4
+2. **Extend recon command** (`packages/cli/src/commands/recon/index.ts`):
+   - Read `mock/src/` files for the story's surface area (story-NNN scenarios + their imports)
+   - Emit `tests/integration/story-N-shape.test.tsx` with structural assertions:
+     - Layout containment (`closest('header')`)
+     - CSS token presence (`var(--mint)` etc.; no inline hex)
+     - Visual className tokens (`rounded-full`, `min-h-[44px]`)
+     - DOM-order constraints
+     - Cardinality
+     - Element-kind preservation
+   - Recon prompt has explicit "shape only, never wiring" rule + the do-not-assert list (`feedback_testgen_must_not_over_assert_mock`)
+3. **Drop the file-level edit lock** in brew (`packages/cli/src/commands/brew/agent.ts`) once recon's shape tests reliably catch corruption on dogfood:
+   - Remove the `plate-handwritten-ui` REJECT
    - Brew can edit ANY file
-   - Structural tests + full-suite test gate are the safety net
-
-3. **Validate on a fresh story** before removing the lock — first ship testgen with structural assertions, run a brew, confirm shape is preserved despite no lock.
+   - Structural shape tests + full-suite gate are the safety net
 
 ### Effort
 
-- Testgen prompt change: 30 min
+- Recon shape-emit: 2-3 hours
+- Recon prompt: 30 min
 - Validate on fresh dogfood: 1 brew run (~$2 + ~10 min)
 - Drop the lock: 5 min code change + tests update
 
-Total: half-day. Eliminates Gap A (parent-mounting), Gap B (port-elevation), and Gap C (Server Component edit) all at once — none of those failure modes can occur if brew can edit anything and shape is enforced via tests.
+Total: ~half-day. Eliminates Gap A (parent-mounting), Gap B (port-elevation), and Gap C (Server Component edit) all at once.
 
 ## 🔥 HIGH PRIORITY (separate roadmap slot — already memory'd)
 
