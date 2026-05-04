@@ -303,13 +303,60 @@ function compareValidationOutputs(pre: string, post: string): "progress" | "no-c
 }
 
 function postIssueComment(repoRoot: string, issueNumber: number, body: string): void {
-  const tmp = "/tmp/chef-drift-comment.md";
-  writeFileSync(tmp, body, "utf8");
   const repoSlug = execSync(
     `git -C "${repoRoot}" remote get-url origin | sed -E 's|^.*github\\.com[:/]||; s|\\.git$||'`,
     { encoding: "utf8" },
   ).trim();
-  execSync(`gh issue comment ${issueNumber} --repo "${repoSlug}" --body-file ${tmp}`, { stdio: "inherit" });
+  // Try gh CLI first; fall back to curl + GITHUB_TOKEN. Runners often
+  // have one but not the other.
+  const tmp = "/tmp/chef-drift-comment.md";
+  writeFileSync(tmp, body, "utf8");
+  try {
+    execSync(`gh issue comment ${issueNumber} --repo "${repoSlug}" --body-file ${tmp}`, { stdio: "inherit" });
+    return;
+  } catch {
+    // fall through to curl
+  }
+  const token = process.env["GITHUB_TOKEN"];
+  if (!token) {
+    console.warn(`  warn: gh not installed + GITHUB_TOKEN not set; skipping audit comment on issue #${issueNumber}`);
+    return;
+  }
+  const payload = JSON.stringify({ body });
+  const payloadFile = "/tmp/chef-drift-payload.json";
+  writeFileSync(payloadFile, payload, "utf8");
+  try {
+    execSync(
+      `curl -sS -f -X POST -H "Authorization: token ${token}" -H "Accept: application/vnd.github+json" --data @${payloadFile} "https://api.github.com/repos/${repoSlug}/issues/${issueNumber}/comments" >/dev/null`,
+      { stdio: "inherit" },
+    );
+    console.log(`  posted audit comment on issue #${issueNumber} (via curl)`);
+  } catch (e) {
+    console.warn(`  warn: failed to post audit comment via curl: ${(e as Error).message.slice(0, 200)}`);
+  }
+}
+
+function commitChefEdits(repoRoot: string, summary: string): { sha: string | null; pushed: boolean } {
+  // Stage everything chef touched + commit with the chef-bot identity.
+  // Caller (workflow) decides whether to push; chef just commits locally.
+  try {
+    execSync(`git -C "${repoRoot}" add -A`, { stdio: "ignore" });
+    // Empty commit guard: if nothing staged, skip.
+    const status = execSync(`git -C "${repoRoot}" status --porcelain`, { encoding: "utf8" }).trim();
+    if (!status) return { sha: null, pushed: false };
+    // Write commit message to file (handle quotes cleanly).
+    const msgFile = "/tmp/chef-drift-commit-msg.txt";
+    writeFileSync(msgFile, `[chef] ${summary}\n\nCo-Authored-By: slowcook-chef[bot] <slowcook-chef@users.noreply.github.com>\n`, "utf8");
+    execSync(
+      `git -C "${repoRoot}" -c user.name="slowcook-chef[bot]" -c user.email="slowcook-chef@users.noreply.github.com" commit -F ${msgFile}`,
+      { stdio: "inherit" },
+    );
+    const sha = execSync(`git -C "${repoRoot}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+    return { sha, pushed: false };
+  } catch (e) {
+    console.warn(`  warn: chef commit failed: ${(e as Error).message.slice(0, 200)}`);
+    return { sha: null, pushed: false };
+  }
 }
 
 function buildAuditCommentBody(args: { ledger: ChefLedger; move: ChefMoveLedgerEntry; verdict: ChefVerdict }): string {
