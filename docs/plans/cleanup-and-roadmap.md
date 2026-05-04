@@ -168,11 +168,23 @@ Total: ~half-day. Eliminates Gap A (parent-mounting), Gap B (port-elevation), an
 
 ## 🔥 HIGH PRIORITY (separate roadmap slot — already memory'd)
 
-### 17. supersedes is too coarse — needs invariant/scenario-level
+### 17. supersedes is too coarse → side-effects audit replaces block-on-contradiction
 
-See `project_supersedes_too_coarse_HIGH_PRIORITY.md`. Sketched in that memory. ~3-5 day work; needs a 2nd refine LLM pass after contradiction detected to diff at the invariant level.
+See `project_supersedes_too_coarse_HIGH_PRIORITY.md` (the original gap) + `feedback_side_effects_audit_replaces_blocking.md` (the proper resolution).
 
-This is the single biggest known gap in the brownfield pipeline. Push to **0.18.0** (ahead of mocking-agent automation) so it's available when brownfield projects start hitting partial-overlap stories.
+Today: refine detects contradiction → posts "blocked; add change-of-mind label" → PM authorizes wholesale supersede (loses other invariants' protection) OR drops the issue.
+
+Proposed: refine runs a 2nd LLM pass to enumerate the EXACT assertions that contradict; emits a side-effects table for PM review; on approval, spec gets `supersedes_assertions: [{story, file, line, before, after}]`; testgen MODIFIES only those assertions in the existing test files.
+
+**Three implementation pieces (~1-1.5 days):**
+
+1. Refine 2nd LLM pass after contradiction verdict — emits structured side-effects list + posts as PR-comment table. ~half-day. ~$0.30 extra refine cost per contradictory issue.
+2. Spec yaml gets `supersedes_assertions` field (alongside or replacing the coarse `supersedes`). ~2 hrs.
+3. Testgen MODIFY existing test files via ts-morph (find assertion → swap before-text/after-text). ~half-day.
+
+**Inputs already available**: history-index reverse-coverage map (`components.tests_covering`); spec yamls of conflicting stories; test file contents.
+
+**Push to 0.18.0**, ahead of mocking-agent automation. This is the highest-leverage architectural fix remaining for the brownfield pipeline.
 
 ---
 
