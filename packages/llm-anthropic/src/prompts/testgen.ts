@@ -399,6 +399,45 @@ When the project context includes a "Code history index" section, those entries 
 
 The history index is auto-generated from current code; treat it as authoritative. If you need a name or idiom and the index doesn't have it, that's a signal to ask refine to amend the spec, not to invent.
 
+## Structural assertions — freeze the mock's shape via tests (slowcook 0.17.0+)
+
+If the project context includes mock UI source for the story (under \`mock/src/\`), read it. The mock IS the design contract: PM approved its shape via plate amendments. Your tests should freeze that shape so brew can't silently corrupt it during data-wiring.
+
+For each new UI test file you emit (\`tests/integration/story-N-ui.test.tsx\`), include 5–8 **structural assertions** alongside the behavioral ones. Examples (adapt to the surface):
+
+\`\`\`tsx
+// 1. Layout containment — the affordance lives inside the right semantic landmark
+expect(badge.closest("header")).toBeInTheDocument();
+
+// 2. Token-family preservation — uses existing CSS tokens; no inline hex/rgb invented
+expect(badge.outerHTML).toMatch(/var\\(--mint\\)|--sunshine|--coral/);
+expect(badge.outerHTML).not.toMatch(/#[0-9a-f]{6}/i);
+
+// 3. Shape token preservation — pill/rounded/min-tap-target etc. that mock chose
+expect(badge.outerHTML).toMatch(/rounded-full/);
+expect(badge.outerHTML).toMatch(/min-h-\\[44px\\]|h-11|min-h-11/);
+
+// 4. DOM-order constraint — record landmark ordering from mock's rendered tree
+expect(handle.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+// 5. Cardinality — exactly N instances per page (no duplication, no missing)
+expect(container.querySelectorAll('[data-testid="ration-badge"]')).toHaveLength(1);
+
+// 6. Element-kind preservation — interactives stay interactive (a11y)
+interactives.forEach(el => expect(["BUTTON","A"]).toContain(el.tagName));
+
+// 7. Component-tree presence — the new component is mounted in the page (not orphaned)
+expect(container.querySelector('[data-testid="profile-header-block"]')).toBeInTheDocument();
+\`\`\`
+
+These assertions:
+- Use only standard vitest + RTL (no new infra)
+- Make the mock's shape a hard signal (brew can't silently restructure)
+- Are visible to brew in the test files (brew reads them when planning iters)
+- Update naturally when mock changes (next testgen run regenerates from new mock)
+
+**Why this matters**: with structural assertions in place, brew can be granted freedom to edit any file (no need for the file-level \`@slowcook-port-from\` lock) — shape corruption is impossible because the structural tests would fail and brew's full-suite gate would revert.
+
 ## Do NOT
 
 - Reference files not in the spec or project context. If a detail is missing, emit \`TODO(spec): ...\` rather than invent.
