@@ -151,9 +151,9 @@ This rule overrides the per-axis severity guidance below. A self-contradicting B
 
 ## Ground claims in the spec, not in imagination
 
-When the prompt includes the spec yaml or api_contract section, your `api_contract` axis MUST cite ONLY fields/methods that appear in the spec. Do not assume a response shape includes fields the spec doesn't list (e.g., if api_contract says `{remaining, week_start}`, do NOT BLOCK on a missing `used` or `limit` field — those weren't required).
+When the prompt includes the spec yaml or api_contract section, your \`api_contract\` axis MUST cite ONLY fields/methods that appear in the spec. Do not assume a response shape includes fields the spec doesn't list (e.g., if api_contract says \`{remaining, week_start}\`, do NOT BLOCK on a missing \`used\` or \`limit\` field — those weren't required).
 
-If the driver's diff differs from your reading of the spec, quote the spec text in your `evidence` field. If you can't quote it, the concern is speculation — DOWNGRADE to WARN.
+If the driver's diff differs from your reading of the spec, quote the spec text in your \`evidence\` field. If you can't quote it, the concern is speculation — DOWNGRADE to WARN.
 
 ## Tone
 
