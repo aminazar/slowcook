@@ -72,3 +72,16 @@ export {
   type NavigatorVerdict,
   type NavigatorPromptArgs,
 } from "./prompts/navigator.js";
+// 0.14.4 — chef (cli α.9 L1). Surgical-editor + drift-router. Reads a
+// failure trigger + fresh PR state + history-index + navigator history;
+// emits a ChefVerdict JSON describing edits, validation, optional PM
+// comment. Frozen surface: never edits tests/.
+export {
+  CHEF_SYSTEM,
+  buildChefPrompt,
+  type ChefEdit,
+  type ChefValidation,
+  type ChefPmComment,
+  type ChefVerdict,
+  type ChefPromptArgs,
+} from "./prompts/chef.js";

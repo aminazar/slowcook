@@ -185,6 +185,18 @@ async function main(): Promise<void> {
       }
       await brew(args.slice(1), VERSION);
       return;
+    case "chef-drift":
+      // 0.18.0-α.9 L1 — chef as drift-fixer / micromanager finisher.
+      // Consumes a failure trigger (mock-isolation, recon escalation,
+      // brew halt class, navigator halt class) + emits surgical edits
+      // or PM escalations across the in-flight artifacts. Frozen
+      // surface: never edits tests/, vitest.config.*, .brewing/auto-gen/.
+      // Sibling to existing `slowcook chef --pr` (PR-CI-failure handler).
+      {
+        const { chefDrift } = await import("./commands/chef/drift-fix.js");
+        await chefDrift(args.slice(1), VERSION);
+        return;
+      }
     case "map":
       await map(args.slice(1), VERSION);
       return;
