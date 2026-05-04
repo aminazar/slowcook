@@ -250,8 +250,18 @@ function applyEdit(repoRoot: string, edit: ChefEdit): void {
 }
 
 function runValidation(repoRoot: string, command: string): { passed: boolean; output: string } {
+  // Chef may produce commands prefixed with `slowcook ...` (matches the
+  // documented prompt examples). On runners where slowcook isn't on
+  // PATH, we route through the same node binary that's running chef.
+  let resolved = command.trim();
+  if (resolved.startsWith("slowcook ")) {
+    const cliJs = process.argv[1] || "";
+    if (cliJs && existsSync(cliJs)) {
+      resolved = `node "${cliJs}" ${resolved.slice("slowcook ".length)}`;
+    }
+  }
   try {
-    const output = execSync(command, { cwd: repoRoot, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+    const output = execSync(resolved, { cwd: repoRoot, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
     return { passed: true, output };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
