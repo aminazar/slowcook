@@ -9,24 +9,35 @@
 
 ## Status
 
-**0.16 — singular mock app + element-anchored review (in progress).** Architectural reset of 0.15. The mock layer now lives at `mock/` — a singular per-consumer Next.js app, totally separate from `src/`, runnable in docker on the consumer's box. Vibe writes scenarios into the mock; recipe writes tests in parallel, blind to the mock; a deterministic `slowcook port` copies new mock components into `src/`; brew (`--mode plate`) reconciles UI with real data + handlers. Canonical architecture reference: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md).
+**0.17 → 0.18 — brownfield-aware pipeline (shipping in alphas).** The 0.16 mock-app architecture held; 0.17 closes the brownfield gap — every agent (refine, vibe, plate, testgen, brew, recon) now consults a deterministic `.brewing/history-index.json` so they can't silently invent names that collide with existing prod surface. **0.18** opens the door to invariant-level supersedes (the side-effects audit replaces wholesale `change-of-mind`). Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
 
-**All 10 alphas of 0.16 are shipped to git** (in-repo; awaiting publish):
+**Latest published (npm):**
 
-| Alpha | Brings |
-|---|---|
-| α.1 | `@slowcook-ai/mock-runtime@0.1.0` package + `slowcook init mock` CLI ✅ published |
-| α.2 | `Scenario` types lifted to `@slowcook-ai/core@0.13.0` ✅ published |
-| α.3 | BUG-F refine-synth fixes (`_id`/`_at` no longer treated as tables; English-prose words rejected) |
-| α.4 | vibe v2 (writes into `mock/`, REUSE-existing rules, path-safety guard) + recipe-blind-to-mock testgen addendum (`llm-anthropic@0.12.0`) ✅ published |
-| α.5 | `.brewing/preview.yaml` + `slowcook preview deploy/teardown` + workflow templates + `docs/operating-guide.md` (`forge-github@0.11.0`) |
-| α.6 | NEW `@slowcook-ai/review-overlay@0.1.0` — floating toggle (Nav / Comment / Approve), selector cascade (id > data-testid > role+name > tag.classes > XPath), GitHub PAT submit, payload-marker round-trip |
-| α.7 | plate v2 — review-overlay parser + 3-way classifier + escalation; mock/-only allowed paths; refusal after `slowcook-mockup-approved` label |
-| α.8 | `slowcook port` — deterministic `mock/src/` → `src/` copy; `useScenarioFixture` → `useDataDomain` rewrite; port-provenance header; idempotent + auditable |
-| α.9 | brew --mode plate v2 — marker-aware reject; `SPEC_AMBIGUITY_DETECTED` halt class; `useDataDomain` body becomes brew's territory (`llm-anthropic@0.12.1`) |
-| α.10 | brew-auto gates on both `slowcook-mockup` AND `slowcook-tests` PRs merged for the same story-N; operating-guide ships the consumer-side `slowcook-brew.yml` snippet with the mandatory port step (`forge-github@0.11.1`) |
+| Package | Version | Brings |
+|---|---|---|
+| `@slowcook-ai/cli` | `0.18.0-alpha.1` | side-effects audit on contradiction; port rewrites all `@slowcook-ai/mock-runtime` imports (drops mock-only hooks with no-op stubs) |
+| `@slowcook-ai/llm-anthropic` | `0.14.0` | `SIDE_EFFECTS_AUDIT_SYSTEM` prompt; testgen blind-to-mock with shape responsibility delegated to recon; `data-mock-chrome` convention in vibe + plate |
+| `@slowcook-ai/forge-github` | `0.11.6` | brew-auto template no longer dispatches `mode=legacy` — mock is mandatory |
+| `@slowcook-ai/stack-ts` | `0.9.8` | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
+| `@slowcook-ai/review-overlay` | `0.5.3` | overlay v3 (auto-detect props, hydration fix, comments-list panel) |
+| `@slowcook-ai/core` | `0.13.0` | unchanged |
+| `@slowcook-ai/mock-runtime` | `0.3.3` | unchanged |
 
-**Latest in-repo (awaiting publish):** `cli@0.16.0-alpha.10`, `forge-github@0.11.1`, `llm-anthropic@0.12.1`, `review-overlay@0.1.0`.
+**Highlights of the 0.17 → 0.18 arc:**
+
+- **History-aware refine** (cli `0.17.0-α.0`): emits `.brewing/history-index.json` listing existing components + props + tests covering them, API routes, migrations, test helpers. Refine prompts vibe + testgen + brew to read the index; downstream divergence (e.g. PR #147's `MemberReactionsWithPins` vs `MemberReactionsPage`) is structurally hard to reproduce.
+- **`slowcook recon`** (cli `0.17.0-α.1`): pre-brew structural backstop. Catches missing components, testid gaps, brownfield rename hazards. Cli `α.6` extends it: emits `tests/integration/story-N-shape.test.tsx` from mock JSX (skipping `data-mock-chrome="true"` subtrees) so brew can edit any file without silently corrupting design.
+- **`slowcook init from-prod`** (cli `0.17.0-α.1`): scaffolds a perfect mock from the consumer's prod tree using a 4-strategy taxonomy (verbatim / DI seam / server-mock / skip). Skeleton-only today; full automation in 0.18.x.
+- **File-level edit lock LIFTED** (cli `α.7`): brew can edit any file; recon-emitted shape tests + the full-suite test gate are the safety net.
+- **Side-effects audit** (cli `0.18.0-α.0`, llm-anthropic `0.14.0`): when refine detects contradiction, a 2nd LLM pass enumerates the exact assertions in conflicting stories that would need to flip. PM reviews granularly + accepts; no more wholesale `change-of-mind` supersede.
+- **Port rewrites all mock-runtime imports** (cli `0.18.0-α.1`): `useScenario`, `useScenarioRunner`, etc. dropped + stubbed with `(null as any)` no-ops so ported files compile in src/.
+
+**Pending in 0.18.x** (per `docs/plans/cleanup-and-roadmap.md`):
+- Side-effects audit pieces 2 + 3 (spec yaml `supersedes_assertions` field; testgen MODIFY existing tests via ts-morph)
+- Refactor command
+- `init from-prod` automation (per-table fixtures, api-client extraction, supabase mock body)
+- Brew-auto branch-name fix; mockup PR test-gate exemption
+- Drift detection (planned 0.19)
 
 What's NOT yet validated end-to-end: a real rewo run through the full pipeline. That's the next milestone — pick a small story and run it through refine → vibe ‖ recipe → preview deploy → PM review via overlay → plate amendment → both-merged → port → brew → served. Expected catches: the heuristic classifier's false-positive/negative rate, Caddy proxy specifics on the consumer's box, brew's actual cost in plate-mode (target $0.50–$2 per story).
 
@@ -69,6 +80,34 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 > **Pin to the alpha range when adopting 0.16.** The `latest` tag points at the 0.13.x stable line; the 0.16 architecture is on the `alpha` tag. Run `npm i @slowcook-ai/cli@alpha` (and `@slowcook-ai/mock-runtime@latest` — the only versioned line for that package). Breaking changes between alphas are likely; pin exact versions in `.brewing/slowcook-cli-version`.
 
 **Active plan**: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) — canonical architecture reference for the singular-mock-app + element-anchored-review pipeline. Detailed initial design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (**abandoned** mid-cut — the data-layer-seam approach mixed mock data into `src/`, which broke separation; lessons informed 0.16) → [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+
+## What makes slowcook distinctive
+
+Two pieces of the architecture deserve callouts — they're what turn slowcook from "yet another agentic harness" into a genuinely PM-friendly pipeline.
+
+### The mock app — design contract you can click
+
+Every project gets a singular `mock/` Next.js app, totally separate from `src/`. Vibe + plate write into it; the PM reviews it as a real running app on a preview URL (`slowcook preview deploy --pr N` ships it via SSH/Docker to the consumer's box). Scenarios in `mock/scenarios/` flip between user states (signed-in, visitor, owner-with-N-pins, etc.) so the PM can see every state without seed data dances. The mock IS the design contract — when the PM clicks "approve" on a mockup PR, brew is bound to ship the same shape into prod.
+
+This means **PM review happens on real interactive UI, not on mockups in Figma + handoff diagrams.** The mock is real React. Every scenario is a real render.
+
+> 📷 _Screenshot of the mock app's scenario picker + a story scenario rendered_ — placeholder; will land when shared.
+
+### The review overlay — figma-style annotation, on real components
+
+`@slowcook-ai/review-overlay` ships as a floating pill on every mock app render. Three modes — Nav (browse), Comment (Figma-style anchored pins on any DOM element), Approve (one-click sign-off that labels the PR + posts an audit comment). The overlay's selector cascade (`#id` > `[data-testid]` > `role+name` > tag.classes > XPath) means comments anchor to the EXACT element even after surrounding code changes. The PM's comments + status (applied / unresolved / spec-altering) round-trip via the PR conversation so plate can amend without losing context.
+
+Status counts per scenario render directly on the picker page (`useScenarioCommentStats`) — the PM knows at a glance which scenarios have unresolved feedback before clicking through.
+
+> 📷 _Screenshot of the floating overlay (Nav/Comment/Approve toggle), an anchored comment pin, and the comments-list panel_ — placeholders; will land when shared.
+
+### The slowcook logo
+
+Slow-cook pot with steam, rendered inline as SVG so it ships in the overlay package without binary assets — visible on the floating pill in any mock app dev-loop.
+
+> 📷 _Screenshot of the logo on the floating pill_ — placeholder.
+
+---
 
 ## The idea
 
