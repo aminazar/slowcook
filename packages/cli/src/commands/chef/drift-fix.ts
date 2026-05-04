@@ -326,10 +326,10 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
     const importerMatch = args.triggerDetail.match(/['"]\.\/(\w+)['"]/);
     if (importerMatch && importerMatch[1]) {
       const symbol = importerMatch[1];
-      const grepImports = (root: string): Array<{ file: string; line: number; text: string }> => {
+      const grepImportsBySymbol = (root: string, sym: string): Array<{ file: string; line: number; text: string }> => {
         try {
           const out = execSync(
-            `grep -rnE "from .[\"']\\.[/.][^\"']*${symbol}[\"']" "${root}" 2>/dev/null || true`,
+            `grep -rnE "from\\s+[\\\"']\\.[/.][^\\\"']*${sym}[\\\"']" "${root}" 2>/dev/null || true`,
             { encoding: "utf8", maxBuffer: 1024 * 1024 },
           );
           return out
@@ -345,33 +345,64 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
           return [];
         }
       };
-      const mockImporters = grepImports(join(args.repoRoot, "mock/src"));
-      const srcImporters = grepImports(join(args.repoRoot, "src"));
+
+      // Step 1: find existing files in same dir with names similar to the missing symbol.
+      // These are the rename candidates — the file that chef likely needs to rename forward.
       const candidateExisting: string[] = [];
-      // Find existing files in same dir with similar name (likely rename candidates)
+      const symbolLower = symbol.toLowerCase();
       const importerFile = args.triggerDetail.match(/^([^\s]+):/)?.[1];
+      const stem = symbolLower.replace(/strip|page|header|badge|card|list|row|item/g, "").trim();
       if (importerFile) {
         const dir = dirname(join(args.repoRoot, importerFile));
         if (existsSync(dir)) {
           try {
             const files = readdirSync(dir);
             for (const f of files) {
-              if (/\.tsx?$/.test(f) && f.toLowerCase().includes("strip")) {
+              const fLow = f.toLowerCase().replace(/\.tsx?$/, "");
+              if (!/\.tsx?$/.test(f)) continue;
+              if (fLow === symbolLower) continue; // skip exact match (it'd already exist)
+              // Match if file name shares a meaningful stem with the symbol
+              if (
+                (stem.length > 3 && fLow.includes(stem)) ||
+                fLow.includes(symbolLower.slice(0, 6)) ||
+                symbolLower.includes(fLow)
+              ) {
                 candidateExisting.push(`${dir.replace(args.repoRoot + "/", "")}/${f}`);
               }
             }
           } catch { /* ignore */ }
         }
       }
+
+      // Step 2: for the broken symbol AND every candidate-existing file's basename,
+      // grep all importers across mock/src + src.
+      const symbolsToGrep = new Set<string>([symbol]);
+      for (const c of candidateExisting) {
+        const base = c.split("/").pop()!.replace(/\.tsx?$/, "");
+        symbolsToGrep.add(base);
+      }
+
+      const mockImporters: Record<string, Array<{ file: string; line: number; text: string }>> = {};
+      const srcImporters: Record<string, Array<{ file: string; line: number; text: string }>> = {};
+      for (const sym of symbolsToGrep) {
+        mockImporters[sym] = grepImportsBySymbol(join(args.repoRoot, "mock/src"), sym);
+        srcImporters[sym] = grepImportsBySymbol(join(args.repoRoot, "src"), sym);
+      }
+
       triggerRaw = {
         ...triggerRaw,
         symbol,
-        mock_importers: mockImporters,
-        src_importers: srcImporters,
         candidate_existing_files: candidateExisting,
-        enrichment_note: "cli-precomputed: chef has no grep tool, so importers + existing-similar-name files are surfaced here. ALL importers must be updated for the rename to be complete.",
+        importers_per_symbol: {
+          mock: mockImporters,
+          src: srcImporters,
+        },
+        enrichment_note:
+          "cli-precomputed (chef has no grep tool): importers_per_symbol shows EVERY file that imports each candidate. If you decide to rename one of candidate_existing_files to match the broken symbol, your edits MUST include update of every file in mock importers list for the renamed-away symbol — otherwise the next mock-isolation run breaks on the now-missing old name.",
       };
-      console.log(`  enriched trigger: ${mockImporters.length} mock importer(s), ${srcImporters.length} src importer(s), ${candidateExisting.length} candidate file(s)`);
+      const totalMockImps = Object.values(mockImporters).reduce((n, arr) => n + arr.length, 0);
+      const totalSrcImps = Object.values(srcImporters).reduce((n, arr) => n + arr.length, 0);
+      console.log(`  enriched trigger: ${candidateExisting.length} candidate file(s), ${symbolsToGrep.size} symbol(s) checked, ${totalMockImps} mock importer(s), ${totalSrcImps} src importer(s) total`);
     }
   }
   let navigatorHistory: unknown = null;
