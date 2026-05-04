@@ -637,13 +637,21 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
     postIssueComment(args.repoRoot, verdict.pm_comment.issue_number, verdict.pm_comment.body);
   }
 
+  // Commit chef's edits locally (workflow handles the push) when validation passed.
+  if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
+    const summary = `move ${moveN} on story-${args.storyId} — ${args.triggerKind}: ${verdict.rationale.slice(0, 120)}`;
+    const result = commitChefEdits(args.repoRoot, summary);
+    if (result.sha) console.log(`  committed: ${result.sha.slice(0, 7)}`);
+  }
+
   ledger.moves.push(moveEntry);
   ledger.cumulative_cost_usd += resp.costUsd;
   if (!args.dryRun) saveLedger(args.repoRoot, ledger);
 
   if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && issueNumber > 0 && !args.dryRun) {
     const body = buildAuditCommentBody({ ledger, move: moveEntry, verdict });
-    postIssueComment(args.repoRoot, issueNumber, body);
+    try { postIssueComment(args.repoRoot, issueNumber, body); }
+    catch (e) { console.warn(`  warn: audit comment failed (non-fatal): ${(e as Error).message.slice(0, 200)}`); }
   }
 
   console.log(`\n  done · post_state=${moveEntry.post_state} · move=${moveN} · cum-cost=$${ledger.cumulative_cost_usd.toFixed(4)}`);
