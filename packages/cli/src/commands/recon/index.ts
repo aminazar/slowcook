@@ -305,8 +305,13 @@ export function extractTestids(body: string): string[] {
   return [...new Set(out)];
 }
 
-function resolveImport(repoRoot: string, imp: string): string | null {
-  // @/foo → src/foo or mock/src/foo
+export function resolveImport(repoRoot: string, imp: string): string | null {
+  // The `@/*` alias in the consumer's top-level tsconfig points at `./src/*`
+  // ONLY — `mock/src/*` lives behind the mock's separate tsconfig. Resolving
+  // `@/foo` against `mock/src/foo` here gives a false-positive "clean" gate:
+  // recon says "import resolves" but vitest (running against the top tsconfig)
+  // can't find the file → MANIFEST_DRIFT halt at brew time. Caught 2026-05-04
+  // on rewo issue #149. Now we ONLY check `src/` for `@/` imports.
   if (imp.startsWith("@/")) {
     const rel = imp.slice(2);
     const candidates = [
@@ -314,10 +319,6 @@ function resolveImport(repoRoot: string, imp: string): string | null {
       `src/${rel}.tsx`,
       `src/${rel}/index.ts`,
       `src/${rel}/index.tsx`,
-      `mock/src/${rel}.ts`,
-      `mock/src/${rel}.tsx`,
-      `mock/src/${rel}/index.ts`,
-      `mock/src/${rel}/index.tsx`,
     ];
     for (const c of candidates) {
       if (existsSync(join(repoRoot, c))) return c;

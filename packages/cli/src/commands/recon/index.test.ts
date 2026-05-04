@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findStoryTestFiles, extractImports, extractTestids } from "./index.js";
+import { findStoryTestFiles, extractImports, extractTestids, resolveImport } from "./index.js";
 
 let repo: string;
 
@@ -68,5 +68,34 @@ describe("extractTestids", () => {
     const out = extractTestids(body);
     expect(out).toContain("foo-row");
     expect(out).toContain("bar-list");
+  });
+});
+
+describe("resolveImport (regression: rewo issue #149 false-positive 'clean')", () => {
+  // Recon previously treated mock/src/ as a valid resolution for the
+  // `@/` alias. But the consumer's top-level tsconfig points `@/*` at
+  // `./src/*` only — vitest can't reach mock/src from a prod test
+  // → MANIFEST_DRIFT halt at brew time.
+  it("returns null for `@/foo` when foo only exists under mock/src", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-resolve-"));
+    try {
+      mkdirSync(join(r, "mock/src/components/members"), { recursive: true });
+      writeFileSync(join(r, "mock/src/components/members/MemberReactionsPage.tsx"), "export const x = 1;", "utf8");
+      // `src/components/members/MemberReactionsPage.tsx` deliberately absent.
+      expect(resolveImport(r, "@/components/members/MemberReactionsPage")).toBeNull();
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("returns the src/ path when foo exists under src/", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-resolve-"));
+    try {
+      mkdirSync(join(r, "src/components"), { recursive: true });
+      writeFileSync(join(r, "src/components/Foo.tsx"), "export const x = 1;", "utf8");
+      expect(resolveImport(r, "@/components/Foo")).toBe("src/components/Foo.tsx");
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
   });
 });
