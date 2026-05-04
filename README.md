@@ -15,8 +15,8 @@
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.18.0-alpha.9` | chef α.9 L1 drift-fixer (`slowcook chef-drift`) + pair-brew sim (`slowcook brew --pair-sim`) + entity-first foundation + brew artifact-prune + recon resolveImport mock-strict + gh-proxy CORS strip |
-| `@slowcook-ai/llm-anthropic` | `0.14.2` | refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit |
+| `@slowcook-ai/cli` | `0.18.0` | **stable cut** — chef α.9 L1 drift-fixer (`slowcook chef-drift`) + pair-brew sim (`slowcook brew --pair-sim`) + entity-first foundation + brew artifact-prune + recon resolveImport mock-strict + gh-proxy CORS strip |
+| `@slowcook-ai/llm-anthropic` | `0.15.0` | chef + navigator structured prompts; refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit |
 | `@slowcook-ai/forge-github` | `0.11.7` | vibe template `regenerate` dispatch input (deletes existing mockup branch + closes PR before re-vibing); brew-auto plate-only mode |
 | `@slowcook-ai/stack-ts` | `0.9.8` | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
 | `@slowcook-ai/review-overlay` | `0.5.5` | overlay v3 + composer anchored to clicked element + reads `NEXT_PUBLIC_SLOWCOOK_GH_PROXY` to skip PAT prompt |
@@ -84,7 +84,7 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 | `@slowcook-ai/recorder` | `0.9.1` | — |
 | `@slowcook-ai/gates` | `0.10.0` | — |
 
-> **Pin to the alpha range when adopting 0.16.** The `latest` tag points at the 0.13.x stable line; the 0.16 architecture is on the `alpha` tag. Run `npm i @slowcook-ai/cli@alpha` (and `@slowcook-ai/mock-runtime@latest` — the only versioned line for that package). Breaking changes between alphas are likely; pin exact versions in `.brewing/slowcook-cli-version`.
+> **`latest` now points at `0.18.0` (cut 2026-05-05).** New consumers can `npm i @slowcook-ai/cli` and get the current architecture (chef α.9 L1 + pair-brew sim + entity-first foundation). The prior 0.13.x stable line is retired. Future incremental work (chef α.10 finisher, recon shape-emit v2, etc.) continues on the `alpha` dist-tag — run `npm i @slowcook-ai/cli@alpha` to opt into bleeding-edge. Pin exact versions in `.brewing/slowcook-cli-version` for reproducibility.
 
 **Active plan**: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) — canonical architecture reference for the singular-mock-app + element-anchored-review pipeline. Detailed initial design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (**abandoned** mid-cut — the data-layer-seam approach mixed mock data into `src/`, which broke separation; lessons informed 0.16) → [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 

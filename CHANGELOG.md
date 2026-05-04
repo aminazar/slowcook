@@ -6,6 +6,40 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.18.0 — pair-brew + chef stable cut
+
+Cut 2026-05-05. Promotes the 0.18-alpha line to stable. `latest` dist-tag now points at 0.18.0; the 0.13.x line that was previously `latest` is retired.
+
+### What's new vs 0.17
+
+The 0.18 line evolved through 9 alphas (cli α.0 → α.9, llm-anthropic 0.14.0 → 0.15.0). Two architectural arcs played out empirically:
+
+**Falsified: entities-as-typed-contract (cli α.6 + α.7).** `slowcook init entities` extracts the consumer's domain ERD into `src/lib/entities/<table>.ts` (TypeScript interfaces + zod schemas) and writes a mock-side re-export shim. Three real dispatches across vibe + brew showed agents IGNORE the entity-import directive — they legitimately use per-component view subsets, not full entities. The layer stays as supporting infra (refactor codemods, schema discipline) but is demoted from load-bearing rail. See `docs/experiments/entities-hypothesis-tested-and-failed.md`.
+
+**Settled: pair-brew + chef as a two-layer system.**
+- **Pair-brew prototype (cli α.8)**: `slowcook brew --pair-sim` runs driver + navigator agents in alternation. Driver writes prod code; navigator reviews each iteration with structured per-axis verdicts (design_fidelity, reuse, responsive, test_prediction, api_contract, accessibility, code_quality, cross_story_risk). Navigator can BLOCK with revert. Empirically validated on rewo PR #154 ($1.29, 35/35 green) + two real pair-sim runs ($2.20 total) that surfaced cross-contract drift as the architectural bottleneck.
+- **Chef α.9 L1 (cli α.9, llm-anthropic 0.15.0)**: `slowcook chef-drift` is the surgical drift-fixer. Triggered by recon escalation, brew halt-class, navigator halt-class, or mock-isolation failure. Reads spec + history-index + cli-precomputed importer enrichment + existing file content; emits structured ChefVerdict JSON with `search_replace` edits (literal find/replace pairs, never full-file regeneration). Validates pre-vs-post (handles pre-existing PR debt correctly). Commits as `slowcook-chef[bot]`. Posts audit comments via gh OR curl fallback. Hard line: never edits `tests/`, `vitest.config.*`, `.brewing/auto-gen/`. Validated end-to-end on rewo PR #157 ($0.045 single move).
+
+### Other 0.18 work
+
+- **`init entities`** with mock-side shim (cli α.6 + α.7)
+- **gh-proxy in `slowcook run-mock`** (cli α.2): localhost http proxy signs github calls with `gh auth token`; review-overlay reads `NEXT_PUBLIC_SLOWCOOK_GH_PROXY` to skip PAT prompt. CORS-strip in α.3.
+- **Side-effects audit** (cli α.0, llm-anthropic 0.14.0): when refine detects contradiction, 2nd LLM pass enumerates exact assertions to flip. PM reviews granularly.
+- **Recon resolveImport mock-strict** (cli α.4): false-positive `clean` was letting brew dispatch when vitest couldn't actually discover the imported component.
+- **Brew prunes auto-gen artifacts** (cli α.5): agent edits to `.brewing/code-map.target.md` no longer revert the WHOLE iteration alongside legitimately-correct src/ changes.
+
+### Migration
+
+Consumers on 0.13.x (the prior `latest`) should bump to 0.18.0 via `.brewing/slowcook-cli-version`. Major intermediate work happened across 0.14, 0.15, 0.16 — see prior CHANGELOG entries for the trail.
+
+Future incremental work (chef α.10 finisher, recon shape-emit v2, prop-shape reconciliation, etc.) continues on the `alpha` dist-tag as `0.19.0-alpha.X`. Today's `0.18.0-alpha.9` remains accessible via `npm install @slowcook-ai/cli@alpha`.
+
+### Test coverage
+
+`@slowcook-ai/cli` 546/546 passing. `@slowcook-ai/llm-anthropic` 13/13 passing.
+
+---
+
 ## 0.17.0-alpha.1 — recon command + init from-prod scaffolding
 
 Cut 2026-05-03. Two new commands land alongside the α.0 prompt-side work.
