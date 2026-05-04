@@ -363,13 +363,27 @@ function postIssueComment(repoRoot: string, issueNumber: number, body: string): 
   }
 }
 
-function commitChefEdits(repoRoot: string, summary: string): { sha: string | null; pushed: boolean } {
-  // Stage everything chef touched + commit with the chef-bot identity.
-  // Caller (workflow) decides whether to push; chef just commits locally.
+function commitChefEdits(repoRoot: string, summary: string, edits: ChefEdit[]): { sha: string | null; pushed: boolean } {
+  // Stage ONLY the files chef edited (never `git add -A` — that
+  // accidentally captures workflow-side clones like `_slowcook/` etc.
+  // that live in the consumer repo's working tree). For renames, stage
+  // both the old + new path so git records the rename.
   try {
-    execSync(`git -C "${repoRoot}" add -A`, { stdio: "ignore" });
+    const pathsToAdd = new Set<string>();
+    for (const e of edits) {
+      pathsToAdd.add(e.file);
+      if (e.to) pathsToAdd.add(e.to);
+    }
+    if (pathsToAdd.size === 0) return { sha: null, pushed: false };
+    for (const p of pathsToAdd) {
+      try { execSync(`git -C "${repoRoot}" add "${p}"`, { stdio: "ignore" }); }
+      catch { /* file may have been renamed away — ignore */ }
+    }
+    // Also stage the chef ledger so it's part of the commit
+    try { execSync(`git -C "${repoRoot}" add ".brewing/chef/"`, { stdio: "ignore" }); }
+    catch { /* ledger dir may not exist if first move ran into early error */ }
     // Empty commit guard: if nothing staged, skip.
-    const status = execSync(`git -C "${repoRoot}" status --porcelain`, { encoding: "utf8" }).trim();
+    const status = execSync(`git -C "${repoRoot}" status --porcelain --cached`, { encoding: "utf8" }).trim();
     if (!status) return { sha: null, pushed: false };
     // Write commit message to file (handle quotes cleanly).
     const msgFile = "/tmp/chef-drift-commit-msg.txt";
@@ -685,7 +699,7 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
   // Commit chef's edits locally (workflow handles the push) when validation passed.
   if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
     const summary = `move ${moveN} on story-${args.storyId} — ${args.triggerKind}: ${verdict.rationale.slice(0, 120)}`;
-    const result = commitChefEdits(args.repoRoot, summary);
+    const result = commitChefEdits(args.repoRoot, summary, verdict.edits);
     if (result.sha) console.log(`  committed: ${result.sha.slice(0, 7)}`);
   }
 
