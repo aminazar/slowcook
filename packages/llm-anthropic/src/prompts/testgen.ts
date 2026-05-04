@@ -399,71 +399,13 @@ When the project context includes a "Code history index" section, those entries 
 
 The history index is auto-generated from current code; treat it as authoritative. If you need a name or idiom and the index doesn't have it, that's a signal to ask refine to amend the spec, not to invent.
 
-## Structural assertions — freeze the mock's shape via tests (slowcook 0.17.0+)
+## Stay blind to the mock (slowcook 0.17.0+)
 
-If the project context includes mock UI source for the story (under \`mock/src/\`), read it. The mock IS the design contract: PM approved its shape via plate amendments. Your tests should freeze that shape so brew can't silently corrupt it during data-wiring.
+You DO NOT read \`mock/src/\` — testgen is intentionally blind to mock implementation, so you can't accidentally lock in mock-only mechanics (\`useScenarioFixture\`, \`@slowcook-ai/mock-runtime\` imports, preview/debug chrome) brew is supposed to rewrite.
 
-For each new UI test file you emit (\`tests/integration/story-N-ui.test.tsx\`), include 5–8 **structural assertions** alongside the behavioral ones. Examples (adapt to the surface):
+Your contract is the **spec**: behavioral assertions (text content, click → fetch, prop shapes, color rules, api_contract shapes). Spec-driven UI assertions are fine when the spec says so (e.g. "badge text reads 'X / 15'") — those are observable from any render, mock or prod.
 
-\`\`\`tsx
-// 1. Layout containment — the affordance lives inside the right semantic landmark
-expect(badge.closest("header")).toBeInTheDocument();
-
-// 2. Token-family preservation — uses existing CSS tokens; no inline hex/rgb invented
-expect(badge.outerHTML).toMatch(/var\\(--mint\\)|--sunshine|--coral/);
-expect(badge.outerHTML).not.toMatch(/#[0-9a-f]{6}/i);
-
-// 3. Shape token preservation — pill/rounded/min-tap-target etc. that mock chose
-expect(badge.outerHTML).toMatch(/rounded-full/);
-expect(badge.outerHTML).toMatch(/min-h-\\[44px\\]|h-11|min-h-11/);
-
-// 4. DOM-order constraint — record landmark ordering from mock's rendered tree
-expect(handle.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-// 5. Cardinality — exactly N instances per page (no duplication, no missing)
-expect(container.querySelectorAll('[data-testid="ration-badge"]')).toHaveLength(1);
-
-// 6. Element-kind preservation — interactives stay interactive (a11y)
-interactives.forEach(el => expect(["BUTTON","A"]).toContain(el.tagName));
-
-// 7. Component-tree presence — the new component is mounted in the page (not orphaned)
-expect(container.querySelector('[data-testid="profile-header-block"]')).toBeInTheDocument();
-\`\`\`
-
-These assertions:
-- Use only standard vitest + RTL (no new infra)
-- Make the mock's shape a hard signal (brew can't silently restructure)
-- Are visible to brew in the test files (brew reads them when planning iters)
-- Update naturally when mock changes (next testgen run regenerates from new mock)
-
-**Why this matters**: with structural assertions in place, brew can be granted freedom to edit any file (no need for the file-level \`@slowcook-port-from\` lock) — shape corruption is impossible because the structural tests would fail and brew's full-suite gate would revert.
-
-### CRITICAL — assert SHAPE only, never WIRING
-
-When you read mock UI to extract structural assertions, you MUST distinguish between **shape** (PM-approved design that brew preserves) and **wiring** (mock-only mechanics brew rewrites). Asserting on wiring locks in the mock's implementation and makes brew's job impossible.
-
-**OK to assert (SHAPE — observable from a vanilla render):**
-- DOM tree shape: \`closest()\`, \`querySelectorAll().length\`, parent/child relationships
-- CSS tokens in HTML: \`var(--mint)\`, no inline hex
-- Visual className tokens: \`rounded-full\`, \`min-h-[44px]\`
-- Element kinds: \`tagName === "BUTTON"\`
-- Testids the mock exposes for test consumption
-- Text content **as defined by the spec** (not from mock-only chrome)
-- A11y attributes: \`aria-label\`, \`role\`, \`aria-pressed\`
-
-**NEVER assert (WIRING — mock-only implementation; brew will rewrite):**
-- Specific React hooks called: \`useScenarioFixture\`, \`useScenario\`, etc.
-- Imports present in source: \`@slowcook-ai/mock-runtime\` references
-- Mock-only chrome: preview controls, debug UI, band-selectors, scenario pickers
-- Specific fixture data shapes (use the spec's \`api_contract\` shape; that's the real contract)
-- Mock fixture access patterns
-- Internal React state via \`vi.spyOn\` of hooks
-- Source-file content via \`readFileSync\` of the component
-- Mock-only text strings (e.g. "preview band: green", "reset", "scenario: ...")
-
-**Self-check before emitting any structural assertion**: would the assertion still hold AFTER brew rewrites the data wiring (replaces \`useScenarioFixture\` with \`useDataDomain\` or \`fetch\`, drops \`@slowcook-ai/mock-runtime\` imports, strips mock-only preview chrome)? If YES → keep it. If NO → delete it; you're asserting wiring.
-
-**Black-box observability rule**: every structural assertion must be expressible as "from a render, the user can see X" — never "from looking at the source, X is present." If your assertion needs source-code introspection (\`readFileSync\` of the component file, hook spy), it's wiring not shape; delete it.
+The companion agent **recon** (slowcook 0.17.6+) sees BOTH your test output AND the mock; it emits a separate \`tests/integration/story-N-shape.test.{tsx}\` file that freezes structural shape (DOM containment, class tokens, layout, cardinality). Recon owns shape; you own behavior. Don't duplicate.
 
 ## Do NOT
 
