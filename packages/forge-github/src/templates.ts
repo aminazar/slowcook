@@ -1252,6 +1252,11 @@ on:
         description: "Story id to vibe a mockup for (e.g. 017)"
         required: true
         type: string
+      regenerate:
+        description: "Force regenerate: delete the existing slowcook/mockup/story-<id> branch + close any open mockup PR before re-vibing. Use to roll a fresh mock when the spec/context has changed."
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: slowcook-vibe-\${{ github.event.inputs.spec || github.event.pull_request.number }}
@@ -1327,18 +1332,28 @@ ${RESOLVE_PIN_STEP}
           fi
           echo "story_id=$STORY_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if mockup branch already exists
+      - name: Skip-or-regenerate existing mockup branch
         if: steps.spec.outputs.story_id != ''
         env:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           STORY_ID: \${{ steps.spec.outputs.story_id }}
+          REGENERATE: \${{ github.event.inputs.regenerate }}
         id: existing
         run: |
           set -eu
           MOCKUP_BRANCH="slowcook/mockup/story-\${STORY_ID}"
           if gh api "repos/\${{ github.repository }}/branches/\${MOCKUP_BRANCH}" >/dev/null 2>&1; then
-            echo "Mockup branch \${MOCKUP_BRANCH} already exists — skipping vibe (use workflow_dispatch with --regenerate to override, not yet implemented)."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            if [ "\${REGENERATE:-}" = "true" ]; then
+              echo "Mockup branch \${MOCKUP_BRANCH} exists — regenerate=true, dropping branch + any open mockup PR."
+              for pr in $(gh pr list --repo "\${{ github.repository }}" --head "$MOCKUP_BRANCH" --state open --json number --jq '.[].number'); do
+                gh pr close "$pr" --repo "\${{ github.repository }}" --comment "Superseded by --regenerate vibe re-run."
+              done
+              git push origin --delete "$MOCKUP_BRANCH" || gh api -X DELETE "repos/\${{ github.repository }}/git/refs/heads/\${MOCKUP_BRANCH}"
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Mockup branch \${MOCKUP_BRANCH} already exists — skipping vibe. Re-dispatch with regenerate=true to force a fresh vibe."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
