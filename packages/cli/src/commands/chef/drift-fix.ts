@@ -235,15 +235,9 @@ function applyEdit(repoRoot: string, edit: ChefEdit): void {
       writeFileSync(abs, edit.patch, "utf8");
       break;
     }
-    case "edit": {
-      // Legacy full-content edit. Reject — chef must use search_replace
-      // for content changes. (Past invocations with full-content rewrites
-      // introduced unrelated regressions because the LLM tends to invent
-      // or omit code outside the intended change.)
-      throw new Error(
-        `'edit' operation no longer supported for ${edit.file} — use 'search_replace' with explicit find/replace pairs. Chef prompt enforces this.`
-      );
-    }
+    // Legacy 'edit' operation removed — chef must use 'search_replace'
+    // for content changes. The default branch below catches it via
+    // exhaustive-switch enforcement.
     case "search_replace": {
       const sr = (edit as ChefEdit & { search_replace?: Array<{ find: string; replace: string }> }).search_replace;
       if (!sr || !Array.isArray(sr) || sr.length === 0) {
@@ -273,6 +267,11 @@ function applyEdit(repoRoot: string, edit: ChefEdit): void {
     case "delete": {
       execSync(`rm -f "${abs}"`);
       break;
+    }
+    default: {
+      throw new Error(
+        `unsupported edit operation '${(edit as ChefEdit).operation}' for ${edit.file} — use rename / search_replace / create / delete only.`
+      );
     }
   }
 }
