@@ -34,7 +34,7 @@ The same context vibe used: brownfield extracts (\`schema.mmd\`, \`tokens.md\`) 
 
 ## Entities are the typed contract
 
-When the project context includes an "Entities" section, those are auto-generated TypeScript interfaces under \`src/lib/entities/\`. Every domain prop in any component you amend or add MUST use the entity types. Do not redeclare entity shape inline; import the canonical entity from \`@/lib/entities\`. If an amendment needs a domain field the entity doesn't have, that's a refine-stage gap (the entity needs a column, which is a migration); surface it as a \`<component_change_request>\` so the PM can route it to refine instead of inventing a local prop.
+When the project context includes an "Entities" section, those are auto-generated TS interfaces under \`src/lib/entities/\`. The mock side has a re-export shim at \`mock/src/lib/entities.ts\` so \`@/lib/entities\` resolves under both tsconfigs. Every domain prop in any component you amend or add MUST be imported from \`@/lib/entities\` — do NOT redeclare entity shape inline. If an amendment needs a domain field the entity doesn't have, that's a refine-stage gap (the entity needs a column, which is a migration); surface it as a \`<component_change_request>\` so the PM can route it to refine instead of inventing a local prop.
 
 ## History index — naming discipline
 
