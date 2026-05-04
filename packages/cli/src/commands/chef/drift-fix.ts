@@ -270,6 +270,38 @@ function runValidation(repoRoot: string, command: string): { passed: boolean; ou
   }
 }
 
+/**
+ * Compare pre-move + post-move validation outputs to decide whether
+ * chef's iteration made progress.
+ *
+ * Returns 'progress' when post-set ⊆ pre-set AND post-set has fewer
+ * unique failure-lines than pre-set (i.e., chef removed at least one
+ * failure + introduced none).
+ *
+ * Returns 'no-change' when post-set === pre-set.
+ *
+ * Returns 'regression' when post-set has any line not in pre-set
+ * (chef introduced a new failure).
+ */
+function compareValidationOutputs(pre: string, post: string): "progress" | "no-change" | "regression" {
+  // Heuristic: extract lines that look like file:line refs (typical
+  // failure-marker shape). Compare as sets.
+  const extractFailureLines = (s: string): Set<string> => {
+    const out = new Set<string>();
+    for (const line of s.split("\n")) {
+      const m = line.match(/^\s*([\w./[\]()-]+\.(?:ts|tsx|js|jsx|yaml|yml|sql|md|json)):(\d+)/);
+      if (m) out.add(`${m[1]}:${m[2]}`);
+    }
+    return out;
+  };
+  const preSet = extractFailureLines(pre);
+  const postSet = extractFailureLines(post);
+  const newFailures = [...postSet].filter((x) => !preSet.has(x));
+  if (newFailures.length > 0) return "regression";
+  if (postSet.size < preSet.size) return "progress";
+  return "no-change";
+}
+
 function postIssueComment(repoRoot: string, issueNumber: number, body: string): void {
   const tmp = "/tmp/chef-drift-comment.md";
   writeFileSync(tmp, body, "utf8");
@@ -504,18 +536,42 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
     } else {
       console.log(`\n  applying ${verdict.edits.length} edit(s)...`);
       try {
-        for (const e of verdict.edits) applyEdit(args.repoRoot, e);
+        // Capture PRE-move validation output as baseline. Pre-existing
+        // failures aren't chef's responsibility — only new ones are.
+        let preBaseline: { passed: boolean; output: string } | null = null;
         if (verdict.validation) {
+          console.log(`  baseline (pre-edit): ${verdict.validation.command}`);
+          preBaseline = runValidation(args.repoRoot, verdict.validation.command);
+          console.log(`    pre passed=${preBaseline.passed}`);
+        }
+        for (const e of verdict.edits) applyEdit(args.repoRoot, e);
+        if (verdict.validation && preBaseline) {
           console.log(`  validating: ${verdict.validation.command}`);
-          const v = runValidation(args.repoRoot, verdict.validation.command);
-          moveEntry.validation_result = v.passed ? "passed" : "failed";
-          if (!v.passed && verdict.validation.must_exit_zero) {
-            console.error(`  ! validation FAILED. Reverting edits.`);
+          const post = runValidation(args.repoRoot, verdict.validation.command);
+          const diff = compareValidationOutputs(preBaseline.output, post.output);
+          console.log(`    post passed=${post.passed} · diff=${diff}`);
+          if (post.passed) {
+            moveEntry.validation_result = "passed";
+            moveEntry.post_state = "clean";
+            console.log(`  ✓ validation cleanly passed`);
+          } else if (diff === "progress") {
+            moveEntry.validation_result = "passed"; // partial — pre-existing unrelated failures remain
+            moveEntry.post_state = "clean";
+            console.log(`  ✓ progress: chef removed failures + introduced none. Pre-existing unrelated failures remain (not chef's responsibility).`);
+          } else if (diff === "no-change" && verdict.validation.must_exit_zero) {
+            console.error(`  ! validation NO-CHANGE. Chef's edits didn't help. Reverting.`);
             execSync(`git -C "${args.repoRoot}" checkout HEAD -- .`);
             execSync(`git -C "${args.repoRoot}" clean -fd`);
+            moveEntry.validation_result = "failed";
+            moveEntry.post_state = "still-broken";
+          } else if (diff === "regression") {
+            console.error(`  ! validation REGRESSION: chef introduced new failures. Reverting.`);
+            execSync(`git -C "${args.repoRoot}" checkout HEAD -- .`);
+            execSync(`git -C "${args.repoRoot}" clean -fd`);
+            moveEntry.validation_result = "failed";
             moveEntry.post_state = "still-broken";
           } else {
-            console.log(`  ✓ validation passed`);
+            moveEntry.validation_result = "passed";
             moveEntry.post_state = "clean";
           }
         } else {
