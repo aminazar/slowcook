@@ -236,10 +236,38 @@ function applyEdit(repoRoot: string, edit: ChefEdit): void {
       break;
     }
     case "edit": {
-      if (!edit.patch) throw new Error(`edit edit missing 'patch' for ${edit.file}`);
-      // Treat patch as full new content (simpler than wiring up unified-diff apply)
-      mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, edit.patch, "utf8");
+      // Legacy full-content edit. Reject — chef must use search_replace
+      // for content changes. (Past invocations with full-content rewrites
+      // introduced unrelated regressions because the LLM tends to invent
+      // or omit code outside the intended change.)
+      throw new Error(
+        `'edit' operation no longer supported for ${edit.file} — use 'search_replace' with explicit find/replace pairs. Chef prompt enforces this.`
+      );
+    }
+    case "search_replace": {
+      const sr = (edit as ChefEdit & { search_replace?: Array<{ find: string; replace: string }> }).search_replace;
+      if (!sr || !Array.isArray(sr) || sr.length === 0) {
+        throw new Error(`search_replace edit missing 'search_replace' array for ${edit.file}`);
+      }
+      if (!existsSync(abs)) {
+        throw new Error(`search_replace target file does not exist: ${edit.file}`);
+      }
+      let content = readFileSync(abs, "utf8");
+      for (const pair of sr) {
+        if (!pair.find || pair.replace === undefined) {
+          throw new Error(`search_replace pair missing find or replace for ${edit.file}`);
+        }
+        // Require find to appear exactly once — guards against ambiguous matches
+        const occurrences = content.split(pair.find).length - 1;
+        if (occurrences === 0) {
+          throw new Error(`search_replace 'find' string not found in ${edit.file}: ${JSON.stringify(pair.find).slice(0, 120)}`);
+        }
+        if (occurrences > 1) {
+          throw new Error(`search_replace 'find' string matches ${occurrences}x in ${edit.file} (must be unique): ${JSON.stringify(pair.find).slice(0, 120)}`);
+        }
+        content = content.replace(pair.find, pair.replace);
+      }
+      writeFileSync(abs, content, "utf8");
       break;
     }
     case "delete": {
@@ -478,6 +506,23 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
         srcImporters[sym] = grepImportsBySymbol(join(args.repoRoot, "src"), sym);
       }
 
+      // Read content of every importer file so chef can craft accurate
+      // search_replace pairs without inventing or omitting code.
+      const importerContents: Record<string, string> = {};
+      const allImporterFiles = new Set<string>();
+      for (const sym of symbolsToGrep) {
+        for (const imp of mockImporters[sym] ?? []) allImporterFiles.add(imp.file);
+        for (const imp of srcImporters[sym] ?? []) allImporterFiles.add(imp.file);
+      }
+      for (const candidate of candidateExisting) allImporterFiles.add(candidate);
+      for (const f of allImporterFiles) {
+        const abs = join(args.repoRoot, f);
+        if (existsSync(abs)) {
+          const content = readFileSync(abs, "utf8");
+          importerContents[f] = content.length > 6000 ? content.slice(0, 6000) + "\n// ... truncated" : content;
+        }
+      }
+
       triggerRaw = {
         ...triggerRaw,
         symbol,
@@ -486,8 +531,9 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
           mock: mockImporters,
           src: srcImporters,
         },
+        existing_content: importerContents,
         enrichment_note:
-          "cli-precomputed (chef has no grep tool): importers_per_symbol shows EVERY file that imports each candidate. If you decide to rename one of candidate_existing_files to match the broken symbol, your edits MUST include update of every file in mock importers list for the renamed-away symbol — otherwise the next mock-isolation run breaks on the now-missing old name.",
+          "cli-precomputed (chef has no grep/read tools): importers_per_symbol shows EVERY file that imports each candidate. existing_content gives you the FULL TEXT of each importer + candidate file so you can craft accurate search_replace pairs. ALWAYS use search_replace operation for content edits — never full-content rewrites.",
       };
       const totalMockImps = Object.values(mockImporters).reduce((n, arr) => n + arr.length, 0);
       const totalSrcImps = Object.values(srcImporters).reduce((n, arr) => n + arr.length, 0);

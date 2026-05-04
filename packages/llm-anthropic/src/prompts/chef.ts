@@ -78,9 +78,13 @@ A single JSON object describing your move:
     {
       "branch": "slowcook/mockup/story-018",
       "file": "mock/src/components/members/PinnedStrip.tsx",
-      "operation": "rename" | "edit" | "create" | "delete",
+      "operation": "rename" | "search_replace" | "create" | "delete",
       "to": "mock/src/components/members/PinnedRewosStrip.tsx",
-      "patch": "<unified diff or full new content; required for 'edit' + 'create'>"
+      "search_replace": [
+        { "find": "from \\\"./PinnedStrip\\\"", "replace": "from \\\"./PinnedRewosStrip\\\"" },
+        { "find": "import PinnedStrip,", "replace": "import PinnedRewosStrip," }
+      ],
+      "patch": "<full new content; required for 'create' only — NEVER use for 'edit'>"
     }
   ],
   "validation": {
@@ -156,9 +160,14 @@ For other gaps (missing testid, className typo, missing api_contract entry):
 ### Step 3: design the edits
 
 For each affected file:
-- Renames: use \`operation: "rename"\` with \`to\` field. Slowcook applies as \`git mv\` + symbol updates per your \`patch\`.
-- Content edits: use \`operation: "edit"\` with a unified diff in \`patch\` (or full new content if you prefer).
-- New files: \`operation: "create"\` with full content in \`patch\`.
+- Renames: use \`operation: "rename"\` with \`to\` field. Slowcook applies as \`git mv\` + auto-renames the default-export symbol if file basename changed.
+- Surgical content edits: use \`operation: "search_replace"\` with a \`search_replace[]\` array of \`{find, replace}\` pairs. Each pair is applied as a LITERAL string replace (not regex). MUST be unique enough in the file to match exactly once. PREFER THIS over full-content rewrites — it's the safest primitive for import-path updates, JSX symbol renames, single-line corrections.
+- New files: \`operation: "create"\` with full file content in \`patch\`.
+- Delete files: \`operation: "delete"\`.
+
+**HARD RULE for content edits: ALWAYS use \`search_replace\` for changes to existing files. NEVER produce a full-file content rewrite via the \`patch\` field — past chef invocations using full-content rewrites have introduced unrelated regressions because the LLM (you) tends to invent or omit code outside the intended change. The trigger.raw enrichment includes \`existing_content\` for files in the importer chain so you can craft accurate find/replace pairs.
+
+For each search_replace pair: the \`find\` string MUST appear EXACTLY ONCE in the target file content. If you're unsure, include surrounding context to make it unique.
 
 Type-name + symbol heuristic:
 - Rename file name + default export + named exports referenced externally
@@ -258,8 +267,8 @@ If ANY of these are true, DO NOT make autonomous edits:
   "rationale": "mock/MemberReactionsPage imports './PinnedRewosStrip' but mock has no such file — the existing mock file is named PinnedStrip.tsx. The src/-side already uses 'PinnedRewosStrip' as the canonical name (1 component in history-index, asserted by story-016 tests). Cleanest fix: rename the mock file forward to match the canonical name; update the second mock importer (MemberReactionsWithPins) to use the canonical name too. No PM needed — canonical is unambiguous.",
   "kind": "autonomous_fix",
   "edits": [
-    { "branch": "slowcook/mockup/story-018", "file": "mock/src/components/members/PinnedStrip.tsx", "operation": "rename", "to": "mock/src/components/members/PinnedRewosStrip.tsx", "patch": "<sed equivalent: rename default export 'function PinnedStrip' → 'function PinnedRewosStrip'>" },
-    { "branch": "slowcook/mockup/story-018", "file": "mock/src/components/members/MemberReactionsWithPins.tsx", "operation": "edit", "patch": "<unified diff: change import path './PinnedStrip' → './PinnedRewosStrip' and JSX <PinnedStrip /> → <PinnedRewosStrip />>" }
+    { "branch": "slowcook/mockup/story-018", "file": "mock/src/components/members/PinnedStrip.tsx", "operation": "rename", "to": "mock/src/components/members/PinnedRewosStrip.tsx" },
+    { "branch": "slowcook/mockup/story-018", "file": "mock/src/components/members/MemberReactionsWithPins.tsx", "operation": "search_replace", "search_replace": [{ "find": "from \\"./PinnedStrip\\"", "replace": "from \\"./PinnedRewosStrip\\"" }, { "find": "import PinnedStrip,", "replace": "import PinnedRewosStrip," }, { "find": "<PinnedStrip", "replace": "<PinnedRewosStrip" }] }
   ],
   "validation": {
     "command": "slowcook check mock-isolation",
@@ -288,11 +297,13 @@ Direct, specific, brief. Cite file paths + line numbers in your rationale. The a
 export interface ChefEdit {
   branch: string;
   file: string;
-  operation: "rename" | "edit" | "create" | "delete";
+  operation: "rename" | "search_replace" | "create" | "delete";
   /** For 'rename': new path. */
   to?: string;
-  /** For 'edit'/'create': unified diff or full content. Optional for 'rename' (default: just rename, no content change). */
+  /** For 'create': full file content. NEVER use for content edits. */
   patch?: string;
+  /** For 'search_replace': literal find/replace pairs. Each find string must appear exactly once. */
+  search_replace?: Array<{ find: string; replace: string }>;
 }
 
 export interface ChefValidation {
