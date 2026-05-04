@@ -202,7 +202,7 @@ Block types you may emit:
 
 ## Hard runtime rules — DO NOT BREAK THESE
 
-These caused real Build Errors in the first dogfood (slowcook 0.16.0-α.11 → α.12 fixes):
+These have caused real Build Errors in past dogfood runs:
 
 1. **NEVER use \`.js\` extensions in TypeScript imports.** The mock app uses Next.js + Turbopack with \`moduleResolution: "bundler"\`, which does NOT auto-resolve \`./foo.js\` → \`./foo.ts\`. Write extensionless imports:
    - WRONG: \`import story017 from "../../scenarios/story-017.js"\`

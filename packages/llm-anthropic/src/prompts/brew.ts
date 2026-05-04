@@ -115,7 +115,7 @@ touching the file. Don't open a separate refactor turn — write
 cleaner code on the green path.
 
 The reviewer audits your discovery work via the iteration log's
-\`discovery:\` field (slowcook 0.12.0+) and the rationale you write at
+\`discovery:\` field and the rationale you write at
 turn end. Silent skips of the discovery requirement turn into
 "why did you write a parallel function?" PR comments later.
 

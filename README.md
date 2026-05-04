@@ -15,11 +15,11 @@
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.18.0-alpha.1` | side-effects audit on contradiction; port rewrites all `@slowcook-ai/mock-runtime` imports (drops mock-only hooks with no-op stubs) |
+| `@slowcook-ai/cli` | `0.18.0-alpha.5` | brew prunes auto-generated `.brewing/*` artifacts before scope check; recon `resolveImport` drops mock/src from `@/` alias resolution; `slowcook run-mock` spawns localhost gh-proxy so overlay skips PAT prompt |
 | `@slowcook-ai/llm-anthropic` | `0.14.0` | `SIDE_EFFECTS_AUDIT_SYSTEM` prompt; testgen blind-to-mock with shape responsibility delegated to recon; `data-mock-chrome` convention in vibe + plate |
 | `@slowcook-ai/forge-github` | `0.11.6` | brew-auto template no longer dispatches `mode=legacy` — mock is mandatory |
 | `@slowcook-ai/stack-ts` | `0.9.8` | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
-| `@slowcook-ai/review-overlay` | `0.5.3` | overlay v3 (auto-detect props, hydration fix, comments-list panel) |
+| `@slowcook-ai/review-overlay` | `0.5.5` | overlay v3 + composer anchored to clicked element + reads `NEXT_PUBLIC_SLOWCOOK_GH_PROXY` to skip PAT prompt |
 | `@slowcook-ai/core` | `0.13.0` | unchanged |
 | `@slowcook-ai/mock-runtime` | `0.3.3` | unchanged |
 
@@ -31,6 +31,10 @@
 - **File-level edit lock LIFTED** (cli `α.7`): brew can edit any file; recon-emitted shape tests + the full-suite test gate are the safety net.
 - **Side-effects audit** (cli `0.18.0-α.0`, llm-anthropic `0.14.0`): when refine detects contradiction, a 2nd LLM pass enumerates the exact assertions in conflicting stories that would need to flip. PM reviews granularly + accepts; no more wholesale `change-of-mind` supersede.
 - **Port rewrites all mock-runtime imports** (cli `0.18.0-α.1`): `useScenario`, `useScenarioRunner`, etc. dropped + stubbed with `(null as any)` no-ops so ported files compile in src/.
+- **gh-proxy in `slowcook run-mock`** (cli `0.18.0-α.2`+, review-overlay `0.5.5`): localhost http proxy signs github calls with `gh auth token`. Overlay reads `NEXT_PUBLIC_SLOWCOOK_GH_PROXY` and skips the PAT prompt entirely. cli `α.3` adds the CORS-header strip so api responses don't double-emit `Access-Control-Allow-Origin`.
+- **Recon `resolveImport` no longer accepts mock/src as a prod-`@/` candidate** (cli `0.18.0-α.4`): false-positive `clean` was letting brew dispatch when vitest couldn't actually discover the imported component. Regression test in `recon/index.test.ts` covers both directions.
+- **Brew prunes slowcook auto-gen artifacts before scope check** (cli `0.18.0-α.5`): agent edits to `.brewing/code-map.target.md` (or other slowcook-managed files) used to revert the WHOLE iteration alongside legitimately-correct src/ changes. Now silently reverted only on those specific paths so the substantive work proceeds.
+- **First clean 0.18 brew** (rewo issue #149 → PR #154, 2026-05-04): `35/35 green · 3 checkpoints · $1.29` after the α.2→α.5 fix arc validated end-to-end. Mode=legacy; plate-mode `@slowcook-port-from` carve-out is the next architectural gap (HIGH).
 
 **Pending in 0.18.x** (per `docs/plans/cleanup-and-roadmap.md`):
 - Side-effects audit pieces 2 + 3 (spec yaml `supersedes_assertions` field; testgen MODIFY existing tests via ts-morph)
@@ -39,7 +43,7 @@
 - Brew-auto branch-name fix; mockup PR test-gate exemption
 - Drift detection (planned 0.19)
 
-What's NOT yet validated end-to-end: a real rewo run through the full pipeline. That's the next milestone — pick a small story and run it through refine → vibe ‖ recipe → preview deploy → PM review via overlay → plate amendment → both-merged → port → brew → served. Expected catches: the heuristic classifier's false-positive/negative rate, Caddy proxy specifics on the consumer's box, brew's actual cost in plate-mode (target $0.50–$2 per story).
+**End-to-end validated (legacy mode):** rewo issue #149 → PR #154 on 2026-05-04 ($1.29, 5 iters, 35/35 green). What's NOT yet validated: full plate-mode brew with `@slowcook-port-from` carve-out (today plate refuses to edit elevated-from-mock files when test contract drifts from mock signature; consumers fall back to `mode=legacy`). That's the next architectural gap (cli α.6 candidate).
 
 **0.14.0-α.1 → α.6 — mockup-first prereqs. Shipped 2026-04-25 → 2026-04-26.** Data-layer seam (`src/lib/data/<domain>.{mock.ts,ts}` with `@slowcook-stub` marker) + `proposals.fixtures.by_domain` schema in `core@0.12.0` + V7 hard-signal synthesizer backstops for `proposals.{ui_layout, fixtures}` + spec-emit content validator (catches LLM-truncation bugs like `var(--tint-in`). Six alphas, six bugs caught + fixed during V6 end-to-end validation against rewo. The α.6+ slices in the original 0.14 plan (full mockup generation by refine) are **superseded by 0.15** in favor of the cleaner `vibe → plate → recipe → brew` separation.
 
