@@ -127,6 +127,34 @@ Called out in item #8 above.
 
 ---
 
+## 🔥 NEW HIGH PRIORITY — testgen emits structural assertions; drop file-level edit lock
+
+See `feedback_shape_in_tests_not_in_guard` memory.
+
+Replaces the implicit JSX-shape-diff guard plan that was being considered. Cleaner architecture: shape becomes part of the test contract; brew has free range to edit any file; full-suite test gate + structural tests catch all corruption.
+
+### Implementation
+
+1. **Update testgen prompt** (`packages/llm-anthropic/src/prompts/testgen.ts`):
+   - Add: testgen reads `mock/src/components/...` for the story's surface area
+   - Emit 5-8 structural assertions per UI test file: layout containment, token preservation, DOM order, cardinality, element-kind
+   - Existing behavioral assertions stay; structural ones are additive
+
+2. **Drop the file-level edit lock** in brew (`packages/cli/src/commands/brew/agent.ts`):
+   - Remove the `plate-handwritten-ui` REJECT (the entire α.29 file-level marker check)
+   - Brew can edit ANY file
+   - Structural tests + full-suite test gate are the safety net
+
+3. **Validate on a fresh story** before removing the lock — first ship testgen with structural assertions, run a brew, confirm shape is preserved despite no lock.
+
+### Effort
+
+- Testgen prompt change: 30 min
+- Validate on fresh dogfood: 1 brew run (~$2 + ~10 min)
+- Drop the lock: 5 min code change + tests update
+
+Total: half-day. Eliminates Gap A (parent-mounting), Gap B (port-elevation), and Gap C (Server Component edit) all at once — none of those failure modes can occur if brew can edit anything and shape is enforced via tests.
+
 ## 🔥 HIGH PRIORITY (separate roadmap slot — already memory'd)
 
 ### 17. supersedes is too coarse — needs invariant/scenario-level
