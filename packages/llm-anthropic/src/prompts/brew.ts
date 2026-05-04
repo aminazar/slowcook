@@ -239,24 +239,34 @@ The mockup app at \`mock/\` was approved by the PM. The deterministic \`slowcook
 1. **Preserve the UI shape.** JSX structure, props signature, \`className\`, layout, and visual hierarchy of every \`@slowcook-port-from\` file are the design contract. Tier-2 acceptance + visual regression will catch shape drift later.
 2. **Swap mock data for real data.** Inside those port-marked files, you CAN edit handlers, hooks, fetch calls, and effects to wire real data instead of in-memory mocks. The mock might do \`setPins([newPin, ...prev])\` for a click; the port-marked component should \`fetch('/api/pins', { method: 'POST', ... })\` instead. That's exactly the change brew is here to make.
 
-### What you can write
+### What you can write (slowcook 0.17.0-α.7+ — file-level lock LIFTED)
 
+You can edit **any** file in the repo to satisfy the failing test. Specifically:
 - **\`@slowcook-port-from\`-marked files** in \`src/components/\` or \`src/\` — wire data + handlers, preserve shape.
 - **\`src/lib/data/**\`** — implement the \`useDataDomain<T>("domain")\` hook so it returns real data per \`api_contract\`.
 - **\`src/app/api/**\`** — write the route handlers the ported component calls (POST/GET/DELETE).
 - **\`supabase/migrations/**\`** — add migration files for \`proposals.schema\` entries with \`status === "approved"\`.
+- **\`src/app/**/page.tsx\` Server Components** (NEW — previously locked) — add SSR data fetches when the spec mandates SSR pattern; pass props down to ported child components.
+- **\`src/components/**\` files WITHOUT the @slowcook-port-from marker** (NEW — previously locked) — extend hand-written prod components when the new feature requires it.
 
-### What you must NOT touch
+The previous lock generated false-positive halts on stories needing cross-boundary edits (Server Component data-fetch, hand-written prod extension). The replacement protections that catch shape drift:
 
-- \`src/components/**\` and \`src/**/*.tsx\` files **without** the \`@slowcook-port-from\` marker — those are the consumer's hand-written prod UI; not yours to edit.
+1. **Recon-emitted shape tests** at \`tests/integration/story-N-shape.test.tsx\` assert testid presence, visual className tokens (\`rounded-full\`, \`min-h-[44px]\`), semantic landmarks. Read these before editing — your edits must keep them green.
+2. **Full-suite test gate** at brew completion reverts any iteration that broke a previously-green test (cross-story regression caught).
+
+### What you still must NOT touch
+
 - \`mock/**\` — owned by vibe + plate.
-- Any \`*.mock.ts\` fixture file.
+- Any \`*.mock.ts\` fixture file (pre-port mock fixtures with no behavior to wire).
+- Anything inside a JSX subtree marked \`data-mock-chrome="true"\` (mock-only review controls; brew strips these only by REMOVING the marked block, not by editing it in place).
 
 ### Working with port-marked files
 
-When you edit a port-marked component, change handler bodies + hook calls only. Don't add or remove JSX elements; don't change tag names; don't rewrite className. If the test target requires a structural change (a button that doesn't exist; a different layout), that's not a wiring task — halt with **MOCKUP_DESIGN_CONFLICT** so the PM can /plate the mockup before brew re-runs.
+When you edit a port-marked component, prefer changing handler bodies + hook calls + adding effects. Avoid restructuring JSX — the recon shape tests will catch it. If the test target requires a structural change the mock doesn't show (a button that doesn't exist; a different layout), halt with **MOCKUP_DESIGN_CONFLICT** so the PM can /plate the mockup.
 
-If you find yourself wanting to edit a non-port-marked \`src/components/\` or \`src/*.tsx\` file because the test imports from it, the vibe/recipe pair has likely drifted (vibe named the new component one thing; recipe wrote tests against another). Halt with **MOCKUP_DESIGN_CONFLICT** and call out the name mismatch.
+### Working with non-port-marked files (e.g. Server Components)
+
+Common pattern: a Server Component (\`src/app/.../page.tsx\`) needs to fetch data + pass it as a prop to a ported client component. Edit the Server Component freely. Add the fetch; pass the prop. The recon shape tests on the child component still apply (you're adding data flow, not changing UI shape).
 
 ### When a test fails because the UI doesn't match what the test expects
 

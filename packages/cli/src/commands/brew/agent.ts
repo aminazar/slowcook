@@ -663,25 +663,28 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     //   - src/components/* and src/*.tsx WITHOUT the port marker:
     //     consumer's hand-written prod UI. Off-limits in plate mode
     //     (brew shouldn't touch UI it didn't get from vibe).
+    // 0.17.0-α.7 — file-level edit lock LIFTED.
+    //
+    // Previously (α.29): brew rejected edits to src/components/* and
+    // src/*.tsx files without @slowcook-port-from. That guard prevented
+    // silent shape corruption BUT also blocked edits brew legitimately
+    // needed (Server Component data-fetch, hand-written prod
+    // extension, etc.). It produced "agent stalled" halts on stories
+    // whose contract required cross-boundary edits.
+    //
+    // The replacement protection is structural shape tests emitted by
+    // recon (slowcook 0.17.6+) into tests/integration/story-N-shape.test.tsx.
+    // Those assert testid presence, visual className tokens, semantic
+    // landmarks. Combined with the full-suite test gate (existing
+    // α.27 logic that reverts iterations breaking previously-green
+    // tests), shape corruption is caught at test-time.
+    //
+    // .mock.ts files are STILL rejected — those are pre-port mock
+    // fixtures with no behavior to wire and no shape contract to
+    // preserve. They shouldn't appear in src/ at all.
     const platePathHit =
       ctx.mode === "plate"
-        ? diff.changedPaths.find((p) => {
-            if (/\.mock\.ts$/.test(p)) return true;
-            // Marker check first — port-owned files are ALLOWED writes
-            // under the new contract. Reading the working-tree version
-            // because the agent's edit IS the working tree.
-            try {
-              const fullPath = join(ctx.repoRoot, p);
-              if (existsSync(fullPath)) {
-                const head = readFileSync(fullPath, "utf8").slice(0, 2048);
-                if (head.includes("@slowcook-port-from")) return false;
-              }
-            } catch { /* ignore — fall through to path checks */ }
-            // Hand-written UI (no marker) stays frozen.
-            if (/^src\/components\//.test(p)) return true;
-            if (/^src\/.*\.tsx$/.test(p)) return true;
-            return false;
-          })
+        ? diff.changedPaths.find((p) => /\.mock\.ts$/.test(p))
         : null;
     if (platePathHit) {
       revertToSnapshot(ctx, snapshot);
@@ -689,7 +692,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         iteration,
         target_test_id: currentTarget,
         outcome: "rejected-frozen-path",
-        note: `plate-mode protects hand-written UI: ${platePathHit}. Brew can only wire data into port-marked files (@slowcook-port-from) or write to src/lib/data + src/app/api + supabase/migrations.`,
+        note: `plate-mode rejects edits to .mock.ts files (pre-port mock fixtures): ${platePathHit}.`,
         files_touched: diff.changedPaths,
         lines_added: diff.linesAdded,
         lines_removed: diff.linesRemoved,
@@ -699,13 +702,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       priorAttempts.push({
         iteration,
         outcome: "reverted-no-progress",
-        note: `rejected: plate-mode wrote to hand-written UI path ${platePathHit} (no @slowcook-port-from marker). If the test target requires editing this exact file, the vibe/recipe pair is mismatched — halt with MOCKUP_DESIGN_CONFLICT.`,
+        note: `rejected: edited a .mock.ts file (${platePathHit}). Those are mock fixtures; brew shouldn't touch them.`,
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
       appendRunLog(
         ctx,
-        `ITER ${iteration} REJECT plate-handwritten-ui  ${platePathHit}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+        `ITER ${iteration} REJECT mock-fixture-edit  ${platePathHit}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
     }
