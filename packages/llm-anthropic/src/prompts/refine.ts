@@ -63,6 +63,66 @@ Return STRICTLY the following JSON, no prose before or after:
 - "reasoning" should name specs by id AND cite the specific text (invariant, non-goal, api_contract entry) that drove the classification. Be concrete.
 - If information is insufficient, pick the most conservative outcome: contradiction > overlap > follow_up > independent. But don't default to overlap just because surfaces are shared — require evidence of **scope duplication**, not just state-sharing.`;
 
+// ----- Side-effects audit (post-contradiction 2nd pass) -----
+
+export const SIDE_EFFECTS_AUDIT_SYSTEM = `You are a careful spec analyst running a side-effects audit for the slowcook brewing harness.
+
+A previous pass detected that a new issue contradicts existing active spec(s). Your job: enumerate the EXACT assertions in those existing specs + their test files that would need to flip if this new issue were approved. The PM will review your output as a granular change-list and either accept (testgen will modify only the listed assertions) or reject (drop the issue).
+
+## Inputs you receive
+
+- The new issue body (problem + proposal + acceptance criteria)
+- For each conflicting story: its spec yaml (invariants, acceptance_scenarios, api_contract, ui_behavior) AND its test files (with line-numbered assertions)
+
+## What to output
+
+A SINGLE JSON object, no prose. Schema:
+
+\`\`\`json
+{
+  "must_change": [
+    {
+      "story": "016",
+      "file": "tests/integration/story-016-ui.test.tsx",
+      "line_range": "42-58",
+      "current_assertion": "render owner.handle in profile header",
+      "required_change": "render profile.handle (the new spec uses the term 'profile' for the page subject)",
+      "reason": "new issue line 12 says 'profile owner sees the badge'; story-016 invariant inv-handle uses 'owner' uniformly. Spec rename needed; test must follow."
+    }
+  ],
+  "compatible": [
+    {
+      "story": "016",
+      "assertion": "5-pin cap (per story-016 invariant inv-pin-cap-5)",
+      "reason": "new issue keeps 'up to 5 pins'; no change."
+    }
+  ],
+  "removed": [
+    {
+      "story": "017",
+      "file": "tests/integration/story-017-ui.test.tsx",
+      "line_range": "112-130",
+      "assertion": "preview-band selector responds to clicks",
+      "reason": "new issue removes the band-selector affordance entirely (out of scope)."
+    }
+  ]
+}
+\`\`\`
+
+## Rules
+
+- Be CONCRETE: cite story id + file + line range for every entry. Vague entries waste PM time.
+- Be COMPLETE on \`must_change\`: every assertion that would actually need to flip belongs there. Missing one = silent contradiction surfaces later as a brew halt.
+- Be GENEROUS on \`compatible\`: list anything the PM might worry about that is in fact fine. The "compatible" list is reassurance.
+- Be CAREFUL on \`removed\`: only list assertions the new issue's wording explicitly drops. If unsure, it goes in \`must_change\` so the PM can review the rewording.
+- DO NOT propose new tests here — that's testgen's job. You're auditing existing tests only.
+- DO NOT recommend acceptance/rejection — let the PM decide based on your enumeration.
+- If \`must_change\` and \`removed\` are BOTH empty → the contradiction is actually fully compatible (the verdict's classification was conservative). Output that as-is; the PM sees a clean side-effects table and can proceed without superseding anything.
+
+## Quality bar
+
+The point of this pass is to convert "blocked-contradiction" — a scary refusal — into "here are the 3 specific test assertions that would flip; approve to proceed." A good audit makes contradictions feel small + manageable. A vague audit re-creates the original block-on-contradiction friction.`;
+
 export const REFINEMENT_ANALYST_SYSTEM = (checklist: string, projectContext: string) => `You are a rigorous product analyst for the slowcook brewing harness.
 
 Your job is to help the PM turn a GitHub issue into a precise, testable spec. You operate in rounds: each round, you either (a) ask the PM clarifying questions OR (b) emit the final spec as YAML. You do not both ask AND emit in the same round.

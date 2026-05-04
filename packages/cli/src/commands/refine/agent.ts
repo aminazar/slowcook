@@ -42,6 +42,7 @@ import {
 } from "./relationship.js";
 import { applySupersede } from "@slowcook-ai/core";
 import { enrichBodyWithImages } from "./images.js";
+import { auditSideEffects, sideEffectsCommentBody } from "./side-effects-audit.js";
 
 export const LABEL_CHANGE_OF_MIND = "change-of-mind";
 export const LABEL_BLOCKED_CONTRADICTION = "blocked-contradiction";
@@ -152,6 +153,38 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
 
   if (verdict.kind === "contradiction") {
     if (!hasChangeOfMind) {
+      // 0.18.0+ — side-effects audit: 2nd LLM pass enumerates the
+      // exact assertions that would need to flip if approved. PM
+      // reviews the granular table; accept (`/refine accept
+      // side-effects` or `change-of-mind` label) routes through
+      // the existing supersede path with structured info, reject
+      // drops the issue. Replaces the bare "blocked" comment.
+      let auditComment: string;
+      try {
+        const auditResult = await auditSideEffects(
+          {
+            issueTitle: issue.title,
+            issueBody: issue.body,
+            conflictingStoryIds: verdict.conflicting_ids,
+            repoRoot: ctx.repoRoot,
+          },
+          { llm: ctx.llm, model: ctx.refineModel }
+        );
+        roundCostUsd += auditResult.costUsd;
+        totalTokensIn += auditResult.usage.inputTokens;
+        totalTokensOut += auditResult.usage.outputTokens;
+        totalCacheRead += auditResult.usage.cacheReadTokens;
+        totalCacheCreate += auditResult.usage.cacheCreateTokens;
+        auditComment = sideEffectsCommentBody(auditResult.audit, verdict.conflicting_ids);
+      } catch (e) {
+        // Fall back to the original blocked-contradiction message if
+        // the audit fails (LLM error, JSON parse failure, etc.). Don't
+        // block the pipeline on the audit's failure.
+        auditComment =
+          contradictionCommentBody(verdict, false, existingSpecs) +
+          `\n\n_(side-effects audit failed: ${(e as Error).message.slice(0, 200)})_`;
+      }
+
       const marker = costMarker({
         agent: "refine",
         usd: roundCostUsd,
@@ -159,12 +192,12 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
         tokensOut: totalTokensOut,
         cacheRead: totalCacheRead,
         cacheCreate: totalCacheCreate,
-        model: ctx.relationshipModel,
-        round: "relationship-contradiction",
+        model: ctx.refineModel,
+        round: "side-effects-audit",
       });
       await ctx.forge.createIssueComment(
         ctx.issueNumber,
-        contradictionCommentBody(verdict, false, existingSpecs) + "\n\n" + marker
+        auditComment + "\n\n" + marker
       );
       await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_CONTRADICTION]);
       return { kind: "contradiction-blocked", conflicting_ids: verdict.conflicting_ids };
