@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initMock, planMockFiles, parseMockInitArgs } from "./mock.js";
+import { initMock, planMockFiles, parseMockInitArgs, ensureMockInTsconfigExclude } from "./mock.js";
 
 function mkRepo(): string {
   return mkdtempSync(join(tmpdir(), "slowcook-init-mock-"));
@@ -186,5 +186,62 @@ describe("initMock", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+});
+
+describe("ensureMockInTsconfigExclude", () => {
+  function withTmp(fn: (dir: string) => void): void {
+    const dir = mkdtempSync(join(tmpdir(), "slowcook-tsconfig-"));
+    try { fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  it("adds 'mock' to a tsconfig with existing exclude", () => {
+    withTmp((dir) => {
+      const path = join(dir, "tsconfig.json");
+      writeFileSync(path, JSON.stringify({ exclude: ["node_modules"] }, null, 2), "utf8");
+      expect(ensureMockInTsconfigExclude(path)).toBe(true);
+      expect(readFileSync(path, "utf8")).toMatch(/"exclude"\s*:\s*\[[^\]]*"mock"[^\]]*\]/);
+    });
+  });
+
+  it("no-op when 'mock' already in exclude", () => {
+    withTmp((dir) => {
+      const path = join(dir, "tsconfig.json");
+      const original = JSON.stringify({ exclude: ["node_modules", "mock"] }, null, 2);
+      writeFileSync(path, original, "utf8");
+      expect(ensureMockInTsconfigExclude(path)).toBe(false);
+      expect(readFileSync(path, "utf8")).toBe(original);
+    });
+  });
+
+  it("no-op when tsconfig has no exclude field", () => {
+    withTmp((dir) => {
+      const path = join(dir, "tsconfig.json");
+      const original = JSON.stringify({ compilerOptions: { strict: true } }, null, 2);
+      writeFileSync(path, original, "utf8");
+      expect(ensureMockInTsconfigExclude(path)).toBe(false);
+      expect(readFileSync(path, "utf8")).toBe(original);
+    });
+  });
+
+  it("handles inline exclude (rewo-shape)", () => {
+    withTmp((dir) => {
+      const path = join(dir, "tsconfig.json");
+      writeFileSync(path, `{\n  "exclude": ["node_modules", "supabase/functions"]\n}\n`, "utf8");
+      expect(ensureMockInTsconfigExclude(path)).toBe(true);
+      const after = readFileSync(path, "utf8");
+      expect(after).toContain('"node_modules"');
+      expect(after).toContain('"supabase/functions"');
+      expect(after).toContain('"mock"');
+    });
+  });
+
+  it("handles empty exclude array", () => {
+    withTmp((dir) => {
+      const path = join(dir, "tsconfig.json");
+      writeFileSync(path, `{ "exclude": [] }`, "utf8");
+      expect(ensureMockInTsconfigExclude(path)).toBe(true);
+      expect(readFileSync(path, "utf8")).toContain('["mock"]');
+    });
   });
 });

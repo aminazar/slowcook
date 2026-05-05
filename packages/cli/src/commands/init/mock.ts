@@ -187,6 +187,22 @@ export async function initMock(argv: string[], cliVersion: string): Promise<void
     writeFileSync(full, f.contents, "utf8");
     written += 1;
   }
+
+  // Patch the consumer's top tsconfig.json to exclude `mock` so its TS
+  // (with mock-only imports like @slowcook-ai/mock-runtime) doesn't
+  // pollute consumer-side typecheck. Caught on rewo issue #149: the
+  // brew agent burned 2 iters chasing false typecheck errors that came
+  // from mock/ files being slurped into the top tsconfig.
+  const tsconfigPath = join(args.cwd, "tsconfig.json");
+  if (existsSync(tsconfigPath)) {
+    const tsconfigUpdated = ensureMockInTsconfigExclude(tsconfigPath);
+    if (tsconfigUpdated) {
+      console.log(`  PATCH  tsconfig.json (added "mock" to exclude)`);
+    } else {
+      console.log(`  SKIP   tsconfig.json (mock already in exclude or no exclude field)`);
+    }
+  }
+
   console.log(`Done. Wrote ${written} file(s); skipped ${skipped}.`);
   console.log();
   console.log("Next steps:");
@@ -196,6 +212,38 @@ export async function initMock(argv: string[], cliVersion: string): Promise<void
   console.log("  4. Commit + push the mock/ directory");
   console.log("  5. Future vibe runs (slowcook 0.16-α.3+) populate mock/scenarios/ +");
   console.log("     extend mock/src/lib/scenario-registry.ts");
+}
+
+/**
+ * Patch the consumer's tsconfig.json so `mock` is in the `exclude`
+ * array. Idempotent — returns false when nothing changed.
+ *
+ * tsconfig.json may legitimately contain trailing commas + comments
+ * (TypeScript's parser tolerates both). We use a conservative regex
+ * approach: find the existing `"exclude": [...]` line + append `"mock"`
+ * if it isn't already there. If no `exclude` field exists, leave the
+ * file alone (consumer can add it themselves; we don't want to risk
+ * malforming a file with comments).
+ */
+export function ensureMockInTsconfigExclude(tsconfigPath: string): boolean {
+  if (!existsSync(tsconfigPath)) return false;
+  const original = readFileSync(tsconfigPath, "utf8");
+  const excludeMatch = original.match(/"exclude"\s*:\s*\[([^\]]*)\]/);
+  if (!excludeMatch) return false; // No exclude field — leave alone
+  const arrBody = excludeMatch[1]!;
+  // Already excludes mock? Match `"mock"` as a whole-word entry.
+  if (/"mock"\s*(,|$)/m.test(arrBody) || /,\s*"mock"\s*(,|$)/m.test(arrBody)) {
+    return false;
+  }
+  // Insert "mock" before the closing bracket. Preserve trailing comma
+  // semantics: if arrBody is empty (`[]`), write `["mock"]`; otherwise
+  // `..., "mock"`.
+  const trimmedBody = arrBody.trim();
+  const newBody = trimmedBody.length === 0 ? `"mock"` : `${arrBody.replace(/\s*$/, "")}, "mock"`;
+  const updated = original.replace(excludeMatch[0], `"exclude": [${newBody}]`);
+  if (updated === original) return false;
+  writeFileSync(tsconfigPath, updated, "utf8");
+  return true;
 }
 
 /**
