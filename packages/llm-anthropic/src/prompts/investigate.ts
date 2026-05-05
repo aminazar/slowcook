@@ -79,9 +79,9 @@ fix_scope:
   - "supabase/migrations/"   # for example, when the fix needs DDL
 
 related_specs:               # optional, omit if none
-  - id: "story-007"
+  - id: "story-N"
     relationship: touches
-    note: "/api/X is owned by story-007's spec; check that contract"
+    note: "/api/X is owned by story-N's spec; check that contract"
 \`\`\`
 
 **Output format is strict.** Wrap the YAML in a single \`<bug_profile>...</bug_profile>\` XML block. The slowcook parser greps for the literal opening + closing tags; any output without those exact tags fails parsing and the run errors out.

@@ -7,8 +7,8 @@
  * Output is multi-artifact via XML-tagged blocks; slowcook parses each
  * block, writes the files, and skips anything that already exists.
  *
- * Before B2, consumers had to hand-author stubs + helpers (the story-005
- * manual intervention on rewo). B2 automates both so an issue can flow
+ * Before B2, consumers had to hand-author stubs + helpers (the story-N
+ * manual intervention on item). B2 automates both so an issue can flow
  * refine → spec → testgen → brew with zero human touchpoints between
  * "merge tests PR" and "review implementation PR."
  */
@@ -147,7 +147,7 @@ export interface MockFooClient {
   calls: Array<{ table: string; op: string; args: unknown[] }>;
 }
 
-export function mockFoo(config: MockFooConfig = {}): MockFooClient { /* fluent chain; see rewo's mockSupabase as reference */ }
+export function mockFoo(config: MockFooConfig = {}): MockFooClient { /* fluent chain; see item's mockSupabase as reference */ }
 
 /**
  * Signature-asserting wrapper for the module's exported factory function.
@@ -184,7 +184,7 @@ A whole class of handlers does:
 2. If not, INSERT X
 3. Return 201 with the inserted row
 
-Test-authoring bug pattern observed across rewo's brew-007 runs: the
+Test-authoring bug pattern observed across past brew runs runs: the
 test description says "with NO existing X" but the test seeds
 \`tables.X.data = { ...full row... }\`, treating the seed as "the row
 the handler will return." That's wrong — the seed is what the
@@ -201,13 +201,13 @@ it("Given NO existing bookmark, When POST, Then inserts and returns 201", async 
   const supabase = mockSupabase({
     user: { id: "member-a" },
     tables: {
-      rewos: { data: { id: "rewo-abc", slug: "abc123" } },
+      items: { data: { id: "item-abc", slug: "abc123" } },
       bookmarks: { data: null },              // ← NULL: no existing row
     },
   });
   vi.mocked(createClient).mockImplementation(realShapedCreateClient(supabase));
 
-  const res = await POST(buildReq("POST", { rewoSlug: "abc123" }));
+  const res = await POST(buildReq("POST", { itemSlug: "abc123" }));
   expect(res.status).toBe(201);
 
   // Assert the handler actually issued the INSERT — that's the contract,
@@ -219,8 +219,8 @@ it("Given NO existing bookmark, When POST, Then inserts and returns 201", async 
   // If asserting the response body, only assert FIELDS THE HANDLER COMPUTES,
   // not literal seeded ids — the mock can't return the inserted row's
   // generated id without stateful response handling.
-  const json = (await res.json()) as { bookmark: { rewo_id: string } };
-  expect(json.bookmark).toMatchObject({ rewo_id: "rewo-abc" });
+  const json = (await res.json()) as { bookmark: { item_id: string } };
+  expect(json.bookmark).toMatchObject({ item_id: "item-abc" });
 });
 \`\`\`
 
@@ -231,8 +231,8 @@ it("Given existing bookmark, When POST, Then returns 200 already_saved", async (
   const supabase = mockSupabase({
     user: { id: "member-a" },
     tables: {
-      rewos: { data: { id: "rewo-abc", slug: "abc123" } },
-      bookmarks: { data: { id: "bm-1", rewo_id: "rewo-abc" } },  // ← seeded existing row
+      items: { data: { id: "item-abc", slug: "abc123" } },
+      bookmarks: { data: { id: "bm-1", item_id: "item-abc" } },  // ← seeded existing row
     },
   });
   // ...
@@ -246,7 +246,7 @@ it("Given existing bookmark, When POST, Then returns 200 already_saved", async (
 - For "Given NO X" tests, seed \`tables.<X>.data = null\` (or absent).
 - For "Given EXISTING X" tests, seed the row's CURRENT-STATE shape.
 - For "INSERT then RETURN" assertions, prefer asserting the INSERT \`call\` arg shape over the response body's id (the mock can't generate ids).
-- If you need the response to have a specific id, assert ONLY the fields the handler synthesizes from input (e.g., rewo_id from the request body), not generated ids.
+- If you need the response to have a specific id, assert ONLY the fields the handler synthesizes from input (e.g., item_id from the request body), not generated ids.
 - NEVER seed a "post-insert state" row when the description says the row doesn't yet exist. Read the test's "Given" clause; it's the source of truth.
 
 Also add a barrel file when creating the first helper:
@@ -295,7 +295,7 @@ If you find yourself wanting to reach into mock/, stop — write the assertion a
 - **Use the \`@testing-library/jest-dom\` matchers** the \`a11y\` helper extends onto vitest: \`toBeInTheDocument\`, \`toHaveTextContent\`, \`toHaveClass\`, \`toBeDisabled\`, \`toHaveAccessibleName\`.
 - **Fire events via \`fireEvent\`** from \`@testing-library/react\`: \`fireEvent.change(input, { target: { value: "x" } })\`, \`fireEvent.click(button)\`.
 - **Mock \`fetch\`** when the component calls it: \`vi.stubGlobal("fetch", realShapedFetch(mockFetch({ routes: [...] })))\`. Use \`realShapedFetch\` so signature bugs fail loudly.
-- **Default to real timers at the describe level.** Flip to \`vi.useFakeTimers()\` ONLY inside the specific \`it()\` that exercises a debounce / interval / setTimeout path, and ALWAYS follow with \`await vi.advanceTimersByTimeAsync(ms)\` + \`vi.useRealTimers()\` before the test body ends. **NEVER** declare \`vi.useFakeTimers()\` in a shared \`beforeEach\` — Vitest v4 fakes \`queueMicrotask\` by default, so \`await fetch(...)\` promises never resolve under fake timers and \`findByText\` times out silently at 5s. This is the #1 cause of "brew halts on fetch-dependent UI tests it can't fix because tests/ is frozen" (rewo story-005, 2026-04-23).
+- **Default to real timers at the describe level.** Flip to \`vi.useFakeTimers()\` ONLY inside the specific \`it()\` that exercises a debounce / interval / setTimeout path, and ALWAYS follow with \`await vi.advanceTimersByTimeAsync(ms)\` + \`vi.useRealTimers()\` before the test body ends. **NEVER** declare \`vi.useFakeTimers()\` in a shared \`beforeEach\` — Vitest v4 fakes \`queueMicrotask\` by default, so \`await fetch(...)\` promises never resolve under fake timers and \`findByText\` times out silently at 5s. This is the #1 cause of "brew halts on fetch-dependent UI tests it can't fix because tests/ is frozen" (a past story, 2026-04-23).
 - **Observe router calls** via \`renderWithProviders\`'s returned \`{ router }\` — e.g., \`expect(router.push).toHaveBeenCalledWith("/profile")\` if you passed a spy.
 
 ### Mandatory axe test
@@ -391,7 +391,7 @@ ${projectContext}
 
 When the project context includes a "Code history index" section, those entries are **the contract for naming + mocking idioms**. Three rules:
 
-1. **Component imports MUST use existing names** from history-index.components. If you're testing a surface that maps to an existing component, import THAT component by its existing name + use its existing prop signature. Inventing \`MyXList\` while the prod tree has \`XPage\` is the canonical failure mode this rule prevents (rewo PR #147).
+1. **Component imports MUST use existing names** from history-index.components. If you're testing a surface that maps to an existing component, import THAT component by its existing name + use its existing prop signature. Inventing \`MyXList\` while the prod tree has \`XPage\` is the canonical failure mode this rule prevents (past dogfood).
 
 2. **Mocking idioms MUST use existing test helpers** from history-index.test_helpers. If a helper exists for the idiom you need (\`renderWithProviders\`, \`mockFetch\`, etc.), import + use it. Don't invent new headers like \`x-test-viewer\` or new mocking conventions when the codebase already has its own.
 

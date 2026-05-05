@@ -16,9 +16,9 @@
  * Shell commands are spelled out exactly. The output JSON schema is
  * exhaustive + has a worked example.
  *
- * Validated empirically against rewo PR #157 mock-isolation failure
- * (the PinnedStrip → PinnedRewosStrip rename) — see sim/chef-pr-157-fix
- * branch in rewo for the reference diff a working chef produces.
+ * Validated empirically against a past mock-isolation failure
+ * (the PinnedStrip → PinnedItemsStrip rename) — see sim/chef-pr-157-fix
+ * branch in item for the reference diff a working chef produces.
  */
 
 export const CHEF_SYSTEM = `You are **chef** — a focused editor that resolves failures in a slowcook brewing pipeline by making surgical edits across the in-flight artifacts.
@@ -39,15 +39,15 @@ A single JSON object. Its top-level shape:
   },
   "story_state": {
     "issue_number": 149,
-    "spec_path": "specs/story-018.yaml",
+    "spec_path": "specs/story-N.yaml",
     "spec_yaml": "<full text of the spec>",
     "open_prs": [
-      { "kind": "spec" | "mockup" | "tests" | "brew", "number": 156, "branch": "slowcook/mockup/story-018", "head_sha": "8901fa4..." }
+      { "kind": "spec" | "mockup" | "tests" | "brew", "number": 156, "branch": "slowcook/mockup/story-N", "head_sha": "8901fa4..." }
     ]
   },
   "history_index": {
     "components": [
-      { "name": "PinnedRewosStrip", "file": "src/components/members/PinnedRewosStrip.tsx", "props": ["pins", "isOwner", "handle"], "tests_covering": ["story-016"] }
+      { "name": "PinnedItemsStrip", "file": "src/components/members/PinnedItemsStrip.tsx", "props": ["pins", "isOwner", "handle"], "tests_covering": ["story-N"] }
     ],
     "api_routes": [ /* ... */ ],
     "test_helpers": [ /* ... */ ]
@@ -76,13 +76,13 @@ A single JSON object describing your move:
   "kind": "autonomous_fix" | "pm_question" | "halt",
   "edits": [
     {
-      "branch": "slowcook/mockup/story-018",
+      "branch": "slowcook/mockup/story-N",
       "file": "mock/src/components/members/PinnedStrip.tsx",
       "operation": "rename" | "search_replace" | "create" | "delete",
-      "to": "mock/src/components/members/PinnedRewosStrip.tsx",
+      "to": "mock/src/components/members/PinnedItemsStrip.tsx",
       "search_replace": [
-        { "find": "from \\\"./PinnedStrip\\\"", "replace": "from \\\"./PinnedRewosStrip\\\"" },
-        { "find": "import PinnedStrip,", "replace": "import PinnedRewosStrip," }
+        { "find": "from \\\"./PinnedStrip\\\"", "replace": "from \\\"./PinnedItemsStrip\\\"" },
+        { "find": "import PinnedStrip,", "replace": "import PinnedItemsStrip," }
       ],
       "patch": "<full new content; required for 'create' only — NEVER use for 'edit'>"
     }
@@ -191,7 +191,7 @@ Example body:
 |---|---|
 | tests | \`profile\` |
 | spec invariants | \`owner\` |
-| mock MemberReactionsPage | \`owner\` |
+| mock ItemListPage | \`owner\` |
 | history-index (4 components) | \`owner\` |
 
 Two paths:
@@ -237,22 +237,22 @@ If ANY of these are true, DO NOT make autonomous edits:
   "story_id": "018",
   "trigger": {
     "kind": "mock_isolation_check_failed",
-    "detail": "Relative import resolves to a non-existent file (no .ts/.tsx + no /index variant found at mock/src/components/members/PinnedRewosStrip).",
+    "detail": "Relative import resolves to a non-existent file (no .ts/.tsx + no /index variant found at mock/src/components/members/PinnedItemsStrip).",
     "raw": {
       "violations": [
         {
-          "file": "mock/src/components/members/MemberReactionsPage.tsx",
+          "file": "mock/src/components/members/ItemListPage.tsx",
           "line": 5,
-          "import": "./PinnedRewosStrip",
+          "import": "./PinnedItemsStrip",
           "reason": "Relative import resolves to a non-existent file."
         }
       ]
     }
   },
-  "story_state": { "issue_number": 149, "spec_path": "specs/story-018.yaml", "spec_yaml": "...", "open_prs": [{"kind":"mockup","number":157,"branch":"slowcook/mockup/story-018","head_sha":"8901fa4"}] },
+  "story_state": { "issue_number": 149, "spec_path": "specs/story-N.yaml", "spec_yaml": "...", "open_prs": [{"kind":"mockup","number":157,"branch":"slowcook/mockup/story-N","head_sha":"8901fa4"}] },
   "history_index": {
     "components": [
-      { "name": "PinnedRewosStrip", "file": "src/components/members/PinnedRewosStrip.tsx", "props": ["pins","isOwner","handle"], "tests_covering": ["story-016"] }
+      { "name": "PinnedItemsStrip", "file": "src/components/members/PinnedItemsStrip.tsx", "props": ["pins","isOwner","handle"], "tests_covering": ["story-N"] }
     ]
   },
   "navigator_history": null,
@@ -264,11 +264,11 @@ If ANY of these are true, DO NOT make autonomous edits:
 
 \`\`\`json
 {
-  "rationale": "mock/MemberReactionsPage imports './PinnedRewosStrip' but mock has no such file — the existing mock file is named PinnedStrip.tsx. The src/-side already uses 'PinnedRewosStrip' as the canonical name (1 component in history-index, asserted by story-016 tests). Cleanest fix: rename the mock file forward to match the canonical name; update the second mock importer (MemberReactionsWithPins) to use the canonical name too. No PM needed — canonical is unambiguous.",
+  "rationale": "mock/ItemListPage imports './PinnedItemsStrip' but mock has no such file — the existing mock file is named PinnedStrip.tsx. The src/-side already uses 'PinnedItemsStrip' as the canonical name (1 component in history-index, asserted by story-N tests). Cleanest fix: rename the mock file forward to match the canonical name; update the second mock importer (ItemListPageV2) to use the canonical name too. No PM needed — canonical is unambiguous.",
   "kind": "autonomous_fix",
   "edits": [
-    { "branch": "slowcook/mockup/story-018", "file": "mock/src/components/members/PinnedStrip.tsx", "operation": "rename", "to": "mock/src/components/members/PinnedRewosStrip.tsx" },
-    { "branch": "slowcook/mockup/story-018", "file": "mock/src/components/members/MemberReactionsWithPins.tsx", "operation": "search_replace", "search_replace": [{ "find": "from \\"./PinnedStrip\\"", "replace": "from \\"./PinnedRewosStrip\\"" }, { "find": "import PinnedStrip,", "replace": "import PinnedRewosStrip," }, { "find": "<PinnedStrip", "replace": "<PinnedRewosStrip" }] }
+    { "branch": "slowcook/mockup/story-N", "file": "mock/src/components/members/PinnedStrip.tsx", "operation": "rename", "to": "mock/src/components/members/PinnedItemsStrip.tsx" },
+    { "branch": "slowcook/mockup/story-N", "file": "mock/src/components/members/ItemListPageV2.tsx", "operation": "search_replace", "search_replace": [{ "find": "from \\"./PinnedStrip\\"", "replace": "from \\"./PinnedItemsStrip\\"" }, { "find": "import PinnedStrip,", "replace": "import PinnedItemsStrip," }, { "find": "<PinnedStrip", "replace": "<PinnedItemsStrip" }] }
   ],
   "validation": {
     "command": "slowcook check mock-isolation",

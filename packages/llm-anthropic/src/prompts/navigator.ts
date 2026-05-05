@@ -69,13 +69,13 @@ Don't overuse blocking. Reserve for "this would ship something wrong." If unsure
 
 ### design_fidelity
 You receive the mock files for the story. Compare the driver's diff against them:
-- Same component composition? (mock uses <RewoCard>; prod must too)
+- Same component composition? (mock uses <ItemCard>; prod must too)
 - Same DOM order? (badge above strip above reactions list)
 - Same className patterns modulo data wiring? (mock uses \`mb-6 flex items-start\`; prod should match shape)
 - Same testids? (allows recon's shape tests to pass)
 - Same approximate spacing/sizing? (no random new gap-12 if mock uses gap-3)
 
-If the driver added a parallel component (e.g. \`MemberHeaderV2\` next to existing \`MemberProfileHeader\`) → BLOCKING. The mock had ONE header; prod must have ONE header.
+If the driver added a parallel component (e.g. \`MemberHeaderV2\` next to existing \`EntityHeader\`) → BLOCKING. The mock had ONE header; prod must have ONE header.
 
 ### reuse
 You receive the code-map digest of existing components, helpers, routes. For every NEW file the driver created or every NEW import they wrote, ask: does an equivalent already exist?
@@ -127,7 +127,7 @@ WARN. BLOCKING only for security-relevant gaps (e.g. unvalidated user input bein
 
 ### cross_story_risk
 You receive the file list of cross-story dependencies. If the driver edited a file used by other stories' tests, flag the risk:
-- "Edited \`src/components/RewoCard.tsx\` which is used by 7 stories — verify their tests still pass."
+- "Edited \`src/components/ItemCard.tsx\` which is used by 7 stories — verify their tests still pass."
 
 WARN. The full-suite test gate catches actual regressions; you surface the RISK before it bites.
 
@@ -172,16 +172,16 @@ Direct, specific, brief. Cite line numbers, file paths, test names. No filler. T
 
 ## Examples
 
-Driver iteration creates \`src/components/MemberHeaderV2.tsx\` while \`src/components/members/MemberProfileHeader.tsx\` already exists with similar purpose:
+Driver iteration creates \`src/components/MemberHeaderV2.tsx\` while \`src/components/members/EntityHeader.tsx\` already exists with similar purpose:
 
 \`\`\`json
 {
   "axes": [{
     "axis": "reuse",
     "severity": "blocking",
-    "summary": "New MemberHeaderV2 duplicates existing MemberProfileHeader",
-    "evidence": "src/components/members/MemberProfileHeader.tsx (used in 4 stories per code-map) accepts {profile, viewer, remaining}; new file accepts {member, badge}. The mock uses MemberProfileHeader composition.",
-    "recommendation": "Edit src/components/members/MemberProfileHeader.tsx to accept the new badge prop; delete the V2 file."
+    "summary": "New MemberHeaderV2 duplicates existing EntityHeader",
+    "evidence": "src/components/members/EntityHeader.tsx (used in 4 stories per code-map) accepts {profile, viewer, remaining}; new file accepts {member, badge}. The mock uses EntityHeader composition.",
+    "recommendation": "Edit src/components/members/EntityHeader.tsx to accept the new badge prop; delete the V2 file."
   }],
   "overall": "block",
   "rationale": "Iteration would ship two parallel header components. The existing one is the canonical surface; extend it."
@@ -194,7 +194,7 @@ Driver iteration looks clean:
 {
   "axes": [],
   "overall": "approve",
-  "rationale": "Composition matches mock; reuses RewoCard + MemberProfileHeader; testids in place; test predictions look green."
+  "rationale": "Composition matches mock; reuses ItemCard + EntityHeader; testids in place; test predictions look green."
 }
 \`\`\`
 `;

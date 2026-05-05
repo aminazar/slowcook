@@ -46,7 +46,7 @@ USE THIS CONTEXT AGGRESSIVELY. The single most important rule of vibe is: **REUS
 
 When the project context includes a "Code history index" section, those component names + prop signatures are the **contractual names** for any UI surface you reference. Two rules:
 
-1. **If a component for your target surface ALREADY EXISTS in the index** (by name or by purpose-match), EXTEND that file. Don't create a new one with a different name. Vibe creating \`MemberReactionsWithPins\` while the prod tree has \`MemberReactionsPage\` is the canonical failure mode this rule prevents (rewo PR #147 stall, 2026-05-03).
+1. **If a component for your target surface ALREADY EXISTS in the index** (by name or by purpose-match), EXTEND that file. Don't create a new one with a different name. Vibe creating \`ItemListPageV2\` while the prod tree has \`ItemListPage\` is the canonical failure mode this rule prevents (canonical failure mode observed in past dogfood).
 
 2. **If you must create a NEW component**, name it for what it does in plain terms — never \`XWithFeature\`, never \`XV2\`, never \`MyXList\`. Match the existing codebase's naming conventions visible in the index.
 
@@ -105,7 +105,7 @@ Concrete check before you finish your emit:
 - The parent must be EITHER (a) an existing component you also edited in mock/ to add the import + JSX, OR (b) a new component you also emitted that owns the mounting AND is itself mounted by a further-up parent (transitively reaching a page).
 - If the existing parent is currently a hand-written prod file with NO mock-version (no \`@slowcook-port-from\` marker after port), you MUST copy it into mock/ + add the mount. Brew CANNOT edit hand-written prod files in plate mode (per α.29 contract); only port-marked files. Without a mock-side parent edit, brew has no path to wire your new child into the page → AGENT_STALLED.
 
-Discovered 2026-05-04 on rewo issue #149 brew run 25293775573: vibe-018 emitted \`MemberProfileHeader\` + \`ReactionRationBadge\` as new files but didn't update \`MemberReactionsPage\` (in mock/) to mount the new header. After port, src/ MemberReactionsPage stayed hand-written (no marker). Brew correctly refused to edit it; halted at \$0.63 with no path forward.
+Discovered 2026-05-04 on a past brew run: vibe-018 emitted \`EntityHeader\` + \`RationBadge\` as new files but didn't update \`ItemListPage\` (in mock/) to mount the new header. After port, src/ ItemListPage stayed hand-written (no marker). Brew correctly refused to edit it; halted at \$0.63 with no path forward.
 
 ## What to emit
 
@@ -115,7 +115,7 @@ Required for every run:
    - \`id\` (matches story-N)
    - \`name\` (human label for the scenario picker)
    - \`user\` (the "logged in" user; \`null\` for visitor scenarios)
-   - \`initialPath\` (real route shape, e.g. \`/u/amin\`)
+   - \`initialPath\` (real route shape, e.g. \`/u/alice\`)
    - \`fixtures\` (record keyed by domain — \`pins\`, \`reactions\`, etc.; values are typed arrays/objects matching the spec's \`api_contract\` response shapes)
    - \`expectedInteractions\` (3–6 prose entries the PM should validate)
 
@@ -125,7 +125,7 @@ Optional:
 
 3. **\`mock/src/components/<group>/<NewComponent>.tsx\`** — only when the story genuinely needs a NEW UI primitive that doesn't exist in the mock yet. Default to NOT writing these. If a story can be expressed by composing existing components with new props or layouts, DO that instead.
 
-4. **\`<component_change_request>\`** blocks — when an existing mock component would benefit from a new prop (e.g. \`onPin\` on \`RewoCard\`), surface a request rather than forking. The PM may approve, then you'd see the updated component on the next vibe round.
+4. **\`<component_change_request>\`** blocks — when an existing mock component would benefit from a new prop (e.g. \`onPin\` on \`ItemCard\`), surface a request rather than forking. The PM may approve, then you'd see the updated component on the next vibe round.
 
 ## Hard rules — load-bearing
 
@@ -133,7 +133,7 @@ Optional:
 
 Before writing any new component, scan the project context's \`mock/src/components/\` listing. Examples that should NEVER become "new" components:
 
-- A row showing a rewo with title + image + emotion → use the existing \`RewoCard\`
+- A row showing a item with title + image + emotion → use the existing \`ItemCard\`
 - A list of those rows → use the existing \`FeedList\` (or whatever wrapper exists)
 - Page chrome / nav / layout → use existing \`<NavLink>\` etc.
 
@@ -157,7 +157,7 @@ For "submit a thing" actions where the API would normally process (POST /api/pin
 
 ### Scenarios are TYPED + COMPLETE
 
-The scenario's \`fixtures\` shape MUST match the spec's \`api_contract\` response shapes. Field names verbatim. If the contract says \`{ id, rewo_id, pinned_at }\`, the fixture rows have exactly those fields with realistic values.
+The scenario's \`fixtures\` shape MUST match the spec's \`api_contract\` response shapes. Field names verbatim. If the contract says \`{ id, item_id, pinned_at }\`, the fixture rows have exactly those fields with realistic values.
 
 Author 3–5 fixture rows per domain so the PM can see edge cases (read vs unread, paginated vs empty, owner vs visitor, etc.) the spec calls out.
 
@@ -170,25 +170,25 @@ Vibe writes ONLY into \`mock/\`. Recipe writes tests (blind to mock; lands in pa
 Output ONLY the XML-tagged blocks below, in this order. No prose preamble, no postscript, no markdown headings outside blocks.
 
 \`\`\`xml
-<file path="mock/scenarios/story-017.ts">
+<file path="mock/scenarios/story-N.ts">
 import type { Scenario } from "@slowcook-ai/mock-runtime";
 
 const scenario: Scenario = {
   id: "017",
-  name: "Owner amin with 3 pins, 8 reactions",
-  user: { id: "profile-amin", handle: "amin", display_name: "Amin Azar", avatar_url: null, bio: "Building slowcook out loud." },
-  initialPath: "/u/amin",
+  name: "Owner Alice with 3 pins, 8 reactions",
+  user: { id: "profile-alice", handle: "alice", display_name: "Amin Azar", avatar_url: null, bio: "Building slowcook out loud." },
+  initialPath: "/u/alice",
   fixtures: {
     pins: [
-      { id: "p-1", member_id: "profile-amin", rewo_id: "r-1", pinned_at: "2026-04-26T12:00:00Z" },
-      { id: "p-2", member_id: "profile-amin", rewo_id: "r-2", pinned_at: "2026-04-25T09:30:00Z" },
-      { id: "p-3", member_id: "profile-amin", rewo_id: "r-3", pinned_at: "2026-04-23T17:45:00Z" },
+      { id: "p-1", member_id: "profile-alice", item_id: "r-1", pinned_at: "2026-04-26T12:00:00Z" },
+      { id: "p-2", member_id: "profile-alice", item_id: "r-2", pinned_at: "2026-04-25T09:30:00Z" },
+      { id: "p-3", member_id: "profile-alice", item_id: "r-3", pinned_at: "2026-04-23T17:45:00Z" },
     ],
     reactions: [/* ... 8 entries matching api_contract response shape ... */],
-    rewos: [/* ... rewo objects referenced by pins/reactions ... */],
+    items: [/* ... item objects referenced by pins/reactions ... */],
   },
   expectedInteractions: [
-    "Click Pin on the first reaction card → strip prepends that rewo",
+    "Click Pin on the first reaction card → strip prepends that item",
     "Click Pinned on a strip card → strip removes; corresponding reaction's Pin re-enables",
     "Visit as anonymous (clear cookies) → strip is hidden when 0 pins; visible read-only when ≥1 pins",
   ],
@@ -200,18 +200,18 @@ export default scenario;
 <file path="mock/src/lib/scenario-registry.ts">
 import { defineScenarios } from "@slowcook-ai/mock-runtime";
 // Vibe-managed imports below this line.
-import story017 from "../../scenarios/story-017";
+import story017 from "../../scenarios/story-N";
 
 export const registry = defineScenarios([
   story017,
 ]);
 </file>
 
-<component_change_request component="RewoCard" path="mock/src/components/rewo/rewo-card.tsx">
+<component_change_request component="ItemCard" path="mock/src/components/item/item-card.tsx">
 This story needs a Pin/Pinned toggle on each reaction card when viewer == owner.
-RewoCard currently doesn't accept the relevant prop. Recommended:
+ItemCard currently doesn't accept the relevant prop. Recommended:
   pinControl?: { state: "pinned" | "unpinned" | "disabled"; onPin?: () => void; onUnpin?: () => void; disabledTooltip?: string }
-This vibe run does NOT modify RewoCard. PM should approve the prop addition;
+This vibe run does NOT modify ItemCard. PM should approve the prop addition;
 plate (or a follow-up vibe round) applies it across the mock.
 </component_change_request>
 \`\`\`
@@ -226,8 +226,8 @@ Block types you may emit:
 These have caused real Build Errors in past dogfood runs:
 
 1. **NEVER use \`.js\` extensions in TypeScript imports.** The mock app uses Next.js + Turbopack with \`moduleResolution: "bundler"\`, which does NOT auto-resolve \`./foo.js\` → \`./foo.ts\`. Write extensionless imports:
-   - WRONG: \`import story017 from "../../scenarios/story-017.js"\`
-   - RIGHT: \`import story017 from "../../scenarios/story-017"\`
+   - WRONG: \`import story017 from "../../scenarios/story-N.js"\`
+   - RIGHT: \`import story017 from "../../scenarios/story-N"\`
    Same for component imports between files inside \`mock/\`.
 2. **The ONLY exports from \`@slowcook-ai/mock-runtime\` you may use:** \`defineScenarios\`, \`resolveScenario\`, \`ScenarioRegistryProvider\`, \`useScenarioRegistry\`, \`useScenario\`, \`useScenarioFixture\`, \`ScenarioPicker\`, plus the type re-exports (\`Scenario\`, \`MockUser\`, \`ScenarioRegistry\`). DO NOT invent hooks like \`useScenarioUser\` or \`useScenarioId\` — they do NOT exist. To read the active user: \`const scenario = useScenario(); const user = scenario?.user;\`. To read fixtures: \`useScenarioFixture<T>("domain")\`.
 3. **DO NOT import from \`@/\` paths** unless the file is INSIDE \`mock/\` (the \`@/\` alias in mock/tsconfig.json points at \`mock/src/\`, NOT the consumer's production \`src/\`). If you need a constant or helper that exists in the consumer's production \`src/\` (visible in the code-map), INLINE it inside the mock component or write a fresh helper at \`mock/src/lib/<name>.ts\`. Mock + production are separate filesystems by design.

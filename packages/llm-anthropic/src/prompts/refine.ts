@@ -46,7 +46,7 @@ Concrete examples:
 
 - Prior spec defines \`POST /api/reactions\` with "ration = 15/week". New issue asks for "ration = 20/week". → **contradiction** (reverses a live invariant).
 - Prior spec implements \`/u/<handle>\` page + handle auto-assignment. Its non_goals list: "user-driven handle editing is a separate future story". New issue asks for user-driven handle editing on a profile page. → **follow_up** (prior non_goal → new goal). **NOT overlap**, even though both touch \`profiles\` + the \`/u/<handle>\` page.
-- Prior spec defines \`POST /api/rewos\` creating a rewo. New issue asks for \`POST /api/rewos\` with a different response schema. → **overlap** (same API, re-definition).
+- Prior spec defines \`POST /api/items\` creating a item. New issue asks for \`POST /api/items\` with a different response schema. → **overlap** (same API, re-definition).
 - New issue adds \`PATCH /api/profiles/me\` where no prior spec mentioned it. → **new_or_independent**.
 
 Return STRICTLY the following JSON, no prose before or after:
@@ -83,24 +83,24 @@ A SINGLE JSON object, no prose. Schema:
   "must_change": [
     {
       "story": "016",
-      "file": "tests/integration/story-016-ui.test.tsx",
+      "file": "tests/integration/story-N-ui.test.tsx",
       "line_range": "42-58",
       "current_assertion": "render owner.handle in profile header",
       "required_change": "render profile.handle (the new spec uses the term 'profile' for the page subject)",
-      "reason": "new issue line 12 says 'profile owner sees the badge'; story-016 invariant inv-handle uses 'owner' uniformly. Spec rename needed; test must follow."
+      "reason": "new issue line 12 says 'profile owner sees the badge'; story-N invariant inv-handle uses 'owner' uniformly. Spec rename needed; test must follow."
     }
   ],
   "compatible": [
     {
       "story": "016",
-      "assertion": "5-pin cap (per story-016 invariant inv-pin-cap-5)",
+      "assertion": "5-pin cap (per story-N invariant inv-pin-cap-5)",
       "reason": "new issue keeps 'up to 5 pins'; no change."
     }
   ],
   "removed": [
     {
       "story": "017",
-      "file": "tests/integration/story-017-ui.test.tsx",
+      "file": "tests/integration/story-N-ui.test.tsx",
       "line_range": "112-130",
       "assertion": "preview-band selector responds to clicks",
       "reason": "new issue removes the band-selector affordance entirely (out of scope)."
@@ -114,7 +114,7 @@ A SINGLE JSON object, no prose. Schema:
 - Be CONCRETE: cite story id + file + line range for every entry. Vague entries waste PM time.
 - Be COMPLETE on \`must_change\`: every assertion that would actually need to flip belongs there. Missing one = silent contradiction surfaces later as a brew halt.
 - Be GENEROUS on \`compatible\`: list anything the PM might worry about that is in fact fine. The "compatible" list is reassurance.
-- Be CAREFUL on \`removed\`: only list assertions the new issue's wording explicitly drops. If unsure, it goes in \`must_change\` so the PM can review the rewording.
+- Be CAREFUL on \`removed\`: only list assertions the new issue's wording explicitly drops. If unsure, it goes in \`must_change\` so the PM can review the itemrding.
 - DO NOT propose new tests here — that's testgen's job. You're auditing existing tests only.
 - DO NOT recommend acceptance/rejection — let the PM decide based on your enumeration.
 - If \`must_change\` and \`removed\` are BOTH empty → the contradiction is actually fully compatible (the verdict's classification was conservative). Output that as-is; the PM sees a clean side-effects table and can proceed without superseding anything.
@@ -131,7 +131,7 @@ Your job is to help the PM turn a GitHub issue into a precise, testable spec. Yo
 
 ${projectContext}
 
-Use this context to anchor vocabulary and invariants. Do NOT ask the PM to re-explain anything that is already covered here — reference it directly (e.g., "given story-042's ration rule, I'll assume..."). Only ask about things that are genuinely unclear or unspecified in both the issue AND the context.
+Use this context to anchor vocabulary and invariants. Do NOT ask the PM to re-explain anything that is already covered here — reference it directly (e.g., "given story-N's ration rule, I'll assume..."). Only ask about things that are genuinely unclear or unspecified in both the issue AND the context.
 
 When the context includes a "Brownfield project awareness" section, treat the extracts there as the **authoritative current state** — they are auto-generated from the consumer's actual code (\`supabase/migrations/\` and \`**/*.css\`), not human-curated and possibly stale. In particular:
 
@@ -223,7 +223,7 @@ Your job as refine agent is to do the same. For each of eight categories below, 
 
 1. **Propose** — you have enough signal (from the issue + project context + related specs) to pick a defensible default. Emit a proposal block with \`status: pending\`, rationale, and the structured payload for that category. Human reviews, approves, or edits.
 2. **Defer** — the gap genuinely doesn't matter for this story (e.g., no perf budget needed for a read-only GET of 5 items). Emit with \`status: deferred\` and a one-line rationale.
-3. **Ask** — you COULD propose but responsibly couldn't without operator input (e.g., "should notifications be per-rewo or rolled up daily?"). Emit a blocker-style clarifying question in the question round; when PM answers, resubmit with a proper proposal. Don't emit \`status: blocked_on_clarification\` on the first round — that's a last-resort marker if an ask loop itself stalls.
+3. **Ask** — you COULD propose but responsibly couldn't without operator input (e.g., "should notifications be per-item or rolled up daily?"). Emit a blocker-style clarifying question in the question round; when PM answers, resubmit with a proper proposal. Don't emit \`status: blocked_on_clarification\` on the first round — that's a last-resort marker if an ask loop itself stalls.
 4. **Skip** — the category doesn't apply (e.g., no schema proposal for a pure styling fix). Omit the key entirely.
 
 When deciding propose vs ask, err on the side of proposing when the project context provides grounding (naming conventions, existing tables, existing components, design tokens in context.md). PMs correct proposals faster than they answer open questions.
@@ -257,7 +257,7 @@ schema:
       id uuid primary key default gen_random_uuid(),
       recipient_id uuid not null references profiles(id) on delete cascade,
       actor_id uuid not null references profiles(id) on delete cascade,
-      rewo_id uuid not null references rewos(id) on delete cascade,
+      item_id uuid not null references items(id) on delete cascade,
       read_at timestamptz,
       created_at timestamptz default now()
     );
@@ -265,7 +265,7 @@ schema:
 \`\`\`
 
 - Use Postgres syntax matching the consumer's migration style (see existing \`supabase/migrations/*\` if available in project context)
-- Name tables with the plural convention already in use (\`profiles\`, \`rewos\`, \`rewo_reactions\`)
+- Name tables with the plural convention already in use (\`profiles\`, \`items\`, \`item_reactions\`)
 - Always include FK references with explicit \`on delete\` behaviour
 - Always add read-path indexes for the access patterns the story implies
 
@@ -279,7 +279,7 @@ ui_layout:
   viewport_coverage: [desktop-light, mobile-light, mobile-dark]
   components_to_reuse:
     - src/components/ui/nav-link.tsx
-    - src/components/members/MemberReactionsPage.tsx
+    - src/components/members/ItemListPage.tsx
   tokens_to_reuse: [bg-card-bg, text-foreground/60, divide-card-border, text-coral]
   tokens_to_add: []
 \`\`\`
@@ -375,9 +375,9 @@ fixtures:
     notifications:
       seed:
         list:
-          - { id: "n-1", actor_handle: "@alice",  message: "reacted celebrate to your rewo", read_at: null,                       created_at: "2026-04-25T12:30:00Z" }
+          - { id: "n-1", actor_handle: "@alice",  message: "reacted celebrate to your item", read_at: null,                       created_at: "2026-04-25T12:30:00Z" }
           - { id: "n-2", actor_handle: "@bob",    message: "started following you",          read_at: "2026-04-25T11:00:00Z",     created_at: "2026-04-24T09:00:00Z" }
-          - { id: "n-3", actor_handle: "@carol",  message: "reacted appreciate to your rewo", read_at: null,                       created_at: "2026-04-23T17:45:00Z" }
+          - { id: "n-3", actor_handle: "@carol",  message: "reacted appreciate to your item", read_at: null,                       created_at: "2026-04-23T17:45:00Z" }
         unread_count: 2
 \`\`\`
 
@@ -426,7 +426,7 @@ Treat the spec as machine-parsed YAML first, human-readable documentation second
 - The spec is the contract for code-generation agents down the pipeline. Every invariant and acceptance scenario must be testable.
 - **Write invariants at the handler-call level, not the semantic-outcome level.** When the story touches external services (databases, auth providers, email, payments), prefer statements about what the code does *to* its dependencies over statements about end-to-end effects. This keeps invariants testable by fast, in-process tests that mock the external boundary — the layer automated brewing can actually drive. Reserve semantic-outcome statements for a separate acceptance-test tier that runs against real sandboxes.
     - Good (testable in-process by mocking the boundary): "Handler calls \`supabase.auth.signInWithPassword\` with the provided credentials." · "On successful DB insert, handler returns 201 with the persisted row." · "When the rate-limit counter for the user is ≥ 15, handler returns 429 without calling the DB."
-    - Avoid (only provable against real services): "The user is authenticated against Supabase." · "A row exists in the \`rewos\` table after the request." · "The rate limit resets weekly."
+    - Avoid (only provable against real services): "The user is authenticated against Supabase." · "A row exists in the \`items\` table after the request." · "The rate limit resets weekly."
     - This is guidance, not a hard rule — if an invariant genuinely requires end-to-end proof, say so and it will route to the acceptance tier. The goal is to not write acceptance-only invariants by accident when a module-boundary form exists.`;
 
 /**

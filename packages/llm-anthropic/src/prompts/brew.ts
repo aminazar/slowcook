@@ -36,11 +36,11 @@ Mandatory pre-write checks:
 
 4. **Domain entity types** — when you write or amend a component that has props matching a domain entity (whichever entities live under \`src/lib/entities/\` for this consumer), the prop type MUST be the imported entity from \`@/lib/entities\`. Do not redeclare entity shape inline — import the entity type by its name as it appears in the entities barrel. Generated entity types are the single source of truth for domain shape; redeclaring drifts.
 
-Wasted tokens on writing duplicates is the most common brew failure mode pre-0.17. PR #147 brew almost wrote a duplicate \`00031_bookmarks.sql\` until the existence check caught \`00018_story_007_bookmarks.sql\` already had the same table.
+Wasted tokens on writing duplicates is the most common brew failure mode pre-0.17. a past PR brew almost wrote a duplicate \`00031_bookmarks.sql\` until the existence check caught \`00018_story_007_bookmarks.sql\` already had the same table.
 
 ## Tools
 
-- **find_handler({ method, path })** — **call this FIRST for every \`api_contract\` entry in the spec.** Returns the exact handler file + function the brewing agent should edit (e.g. \`POST /api/rewos\` → \`src/app/api/rewos/route.ts\` :: \`POST\`). Saves the exploratory iteration where you'd otherwise grep for the route.
+- **find_handler({ method, path })** — **call this FIRST for every \`api_contract\` entry in the spec.** Returns the exact handler file + function the brewing agent should edit (e.g. \`POST /api/items\` → \`src/app/api/items/route.ts\` :: \`POST\`). Saves the exploratory iteration where you'd otherwise grep for the route.
 - **outline_file(path)** — **prefer this over read_file for initial exploration.** Returns a compact outline (imports, top-level exports, signatures with line numbers) — ~200 tokens. Use this to decide whether a file is relevant before you read it fully.
 - **read_file(path)** — read a file's full contents. Only call this when you need to see inside a specific function body that outline_file flagged. Reading a file you don't need is the single biggest driver of wasted budget.
 - **list_directory(path)** — see what's in a directory. Useful when outline_file + find_handler don't give enough.
@@ -279,7 +279,7 @@ Two distinct cases — pick the right halt:
 \`\`\`xml
 <halt class="MOCKUP_DESIGN_CONFLICT">
   <test>tests/integration/story-N-ui.test.tsx > "owner sees Pin button on each reaction card"</test>
-  <conflict>The test asserts a Pin button on each reaction card. The mock UI uses a separate strip and does not render Pin affordances on the reactions list at all. Satisfying this test requires adding a Pin button to src/components/members/MemberReactionsPage.tsx — port-owned.</conflict>
+  <conflict>The test asserts a Pin button on each reaction card. The mock UI uses a separate strip and does not render Pin affordances on the reactions list at all. Satisfying this test requires adding a Pin button to src/components/members/ItemListPage.tsx — port-owned.</conflict>
   <recommendation>PM should either (a) /plate "add Pin/Pinned toggle on each reaction card" on the mockup PR, OR (b) /refine "remove the Pin-on-each-card invariant" on the spec PR. Brew can re-run cleanly after either.</recommendation>
 </halt>
 \`\`\`
@@ -318,7 +318,7 @@ export const BREW_TOOLS = [
         },
         path: {
           type: "string" as const,
-          description: "URL path, with params as `:id` or `{id}` — both are normalised (e.g. '/api/rewos/:rewo_id/reports' → 'src/app/api/rewos/[rewo_id]/reports/route.ts').",
+          description: "URL path, with params as `:id` or `{id}` — both are normalised (e.g. '/api/items/:item_id/reports' → 'src/app/api/items/[item_id]/reports/route.ts').",
         },
       },
       required: ["method", "path"],
@@ -480,7 +480,7 @@ export function turnPrompt(args: {
    * `Received:` payload for UI tests showing what was actually in the
    * DOM vs what the test expected. Without this the agent reasons
    * abstractly about its own code and can't reconcile with the test
-   * verdict (observed as paralysis on rewo story-006). */
+   * verdict (observed as paralysis on a past story). */
   target_failure_message?: string;
   /** 0.7.14 Fix 1: failure messages for OTHER red story tests (not the
    * target). Shown truncated so the agent has peripheral vision into
