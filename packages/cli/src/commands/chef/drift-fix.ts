@@ -136,23 +136,64 @@ export function parseBrewHaltOutput(text: string): {
  * test file. Pure: takes a {testFile → contents} map and returns a
  * {testFile → importedSourceFiles[]} map.
  *
- * Resolves only relative imports (./ or ../); skips package imports
- * (those don't live in the consumer repo).
+ * Captures relative imports (./ ../) AND tsconfig-path-style aliases
+ * (`@/...`, `~/...`). Skips bare package imports. The chef-drift
+ * resolver maps `@/X` → `src/X` and `~/X` → `src/X` per the Next.js
+ * + most-Vite-template default; consumers using a different alias
+ * mapping can override via tsconfig.json compilerOptions.paths (TODO).
  */
 export function collectImportedSourceFiles(testContents: Record<string, string>): Record<string, string[]> {
   const out: Record<string, string[]> = {};
+  // Match: from "./X" / "../X" / "@/X" / "~/X" — but NOT bare names
+  // ("react", "vitest") or scoped packages ("@testing-library/...")
+  // (we exclude scoped packages by requiring the next char after "@"
+  // to be "/", which rules out "@scope/pkg" forms).
+  const importRe = /from\s+["'](\.{1,2}\/[^"']+|@\/[^"']+|~\/[^"']+)["']/g;
   for (const [testFile, content] of Object.entries(testContents)) {
     const sources = new Set<string>();
-    const importRe = /from\s+["'](\.[^"']+)["']/g;
     let m: RegExpExecArray | null;
     while ((m = importRe.exec(content)) !== null) {
-      const rel = m[1]!;
-      // Strip trailing extension if present so chef sees module paths.
-      sources.add(rel);
+      sources.add(m[1]!);
     }
     out[testFile] = [...sources];
   }
   return out;
+}
+
+/**
+ * Resolve an import path string (./X, ../X, @/X, ~/X) to a candidate
+ * absolute file path under the repo, trying each known extension.
+ * Returns null if no file resolves. Pure logic with single-call
+ * existsSync at each candidate (caller can mock by injecting a
+ * different `exists` predicate).
+ */
+export function resolveImportToFile(
+  importPath: string,
+  testFile: string,
+  repoRoot: string,
+  exists: (p: string) => boolean,
+): string | null {
+  const exts = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
+  // Resolve base dir according to the import's prefix.
+  let baseDir: string;
+  let rest: string;
+  if (importPath.startsWith("@/")) {
+    baseDir = join(repoRoot, "src");
+    rest = importPath.slice(2); // strip "@/"
+  } else if (importPath.startsWith("~/")) {
+    baseDir = join(repoRoot, "src");
+    rest = importPath.slice(2); // strip "~/"
+  } else if (importPath.startsWith("./") || importPath.startsWith("../")) {
+    baseDir = dirname(join(repoRoot, testFile));
+    rest = importPath;
+  } else {
+    return null;
+  }
+  for (const ext of exts) {
+    const candidate = join(baseDir, rest + ext);
+    if (exists(candidate) && !candidate.endsWith("/")) return candidate;
+  }
+  return null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -703,23 +744,19 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
         }
       }
       const importedSourcesMap = collectImportedSourceFiles(failingTestContents);
-      // Resolve relative imports against each test file's directory + read
-      // the source content. Only resolves relative imports — package
-      // imports aren't in-repo.
+      // Resolve relative imports (./X, ../X) AND tsconfig path-aliases
+      // (@/X → src/X, ~/X → src/X) + read each source file. Bare
+      // package imports skip; @scope/pkg also skips by construction
+      // (collectImportedSourceFiles excludes them via the alias regex).
       const sourceContents: Record<string, string> = {};
       for (const [testFile, sources] of Object.entries(importedSourcesMap)) {
-        const testDir = dirname(testFile);
-        for (const rel of sources) {
-          for (const ext of ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]) {
-            const candidate = join(args.repoRoot, testDir, rel + ext);
-            if (existsSync(candidate) && !candidate.endsWith("/")) {
-              const projRel = candidate.replace(args.repoRoot + "/", "");
-              if (sourceContents[projRel]) break;
-              const c = readFileSync(candidate, "utf8");
-              sourceContents[projRel] = c.length > 6000 ? c.slice(0, 6000) + "\n// ... truncated" : c;
-              break;
-            }
-          }
+        for (const importPath of sources) {
+          const candidate = resolveImportToFile(importPath, testFile, args.repoRoot, existsSync);
+          if (!candidate) continue;
+          const projRel = candidate.replace(args.repoRoot + "/", "");
+          if (sourceContents[projRel]) continue;
+          const c = readFileSync(candidate, "utf8");
+          sourceContents[projRel] = c.length > 6000 ? c.slice(0, 6000) + "\n// ... truncated" : c;
         }
       }
       triggerRaw = {

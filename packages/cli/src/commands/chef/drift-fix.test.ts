@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseBrewHaltOutput, collectImportedSourceFiles } from "./drift-fix.js";
+import { parseBrewHaltOutput, collectImportedSourceFiles, resolveImportToFile } from "./drift-fix.js";
 
 describe("parseBrewHaltOutput", () => {
   it("extracts FAIL <path> entries", () => {
@@ -115,5 +115,74 @@ import type { B } from "./mod";
     const r = collectImportedSourceFiles(contents);
     expect(r["src/a.test.ts"]).toEqual(["./a"]);
     expect(r["src/b.test.ts"]).toEqual(["./b"]);
+  });
+
+  it("captures @/ and ~/ path-alias imports; skips bare and scoped packages", () => {
+    const contents = {
+      "tests/integration/foo.test.tsx": `
+import { describe, it } from "vitest";
+import { axe } from "@testing-library/react";
+import { MemberReactionsPage } from "@/components/members/MemberReactionsPage";
+import { mockFetch } from "@tests/helpers/mocks/fetch";
+import { someUtil } from "~/lib/utils";
+`,
+    };
+    const r = collectImportedSourceFiles(contents);
+    expect(r["tests/integration/foo.test.tsx"]).toContain("@/components/members/MemberReactionsPage");
+    expect(r["tests/integration/foo.test.tsx"]).toContain("~/lib/utils");
+    // bare + scoped packages excluded (any @scope/... that isn't @/ is treated
+    // as a package, even if it's actually a tsconfig path alias — chef can
+    // only resolve the canonical @/ alias today)
+    expect(r["tests/integration/foo.test.tsx"]).not.toContain("@testing-library/react");
+    expect(r["tests/integration/foo.test.tsx"]).not.toContain("vitest");
+    expect(r["tests/integration/foo.test.tsx"]).not.toContain("@tests/helpers/mocks/fetch");
+  });
+});
+
+describe("resolveImportToFile", () => {
+  const exists = (p: string) => {
+    const present = new Set([
+      "/repo/src/components/Foo.tsx",
+      "/repo/src/components/members/MemberReactionsPage.tsx",
+      "/repo/src/lib/helper.ts",
+      "/repo/src/lib/index.ts",
+      "/repo/tests/helpers/render.ts",
+    ]);
+    return present.has(p);
+  };
+
+  it("resolves @/X to src/X.tsx", () => {
+    const r = resolveImportToFile(
+      "@/components/members/MemberReactionsPage",
+      "tests/integration/story-018-ui.test.tsx",
+      "/repo",
+      exists,
+    );
+    expect(r).toBe("/repo/src/components/members/MemberReactionsPage.tsx");
+  });
+
+  it("resolves ~/X to src/X.ts", () => {
+    const r = resolveImportToFile("~/lib/helper", "tests/foo.test.ts", "/repo", exists);
+    expect(r).toBe("/repo/src/lib/helper.ts");
+  });
+
+  it("resolves relative ./X against the test file's dir", () => {
+    const r = resolveImportToFile("./Foo", "src/components/Foo.test.tsx", "/repo", exists);
+    expect(r).toBe("/repo/src/components/Foo.tsx");
+  });
+
+  it("returns null for bare package names", () => {
+    const r = resolveImportToFile("react", "src/foo.test.ts", "/repo", exists);
+    expect(r).toBeNull();
+  });
+
+  it("returns null for unresolvable @/X", () => {
+    const r = resolveImportToFile("@/does/not/exist", "src/foo.test.ts", "/repo", exists);
+    expect(r).toBeNull();
+  });
+
+  it("falls through to /index.ts when X.{ts,tsx} doesn't exist", () => {
+    const r = resolveImportToFile("@/lib", "src/foo.test.ts", "/repo", exists);
+    expect(r).toBe("/repo/src/lib/index.ts");
   });
 });
