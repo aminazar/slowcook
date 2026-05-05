@@ -85,3 +85,19 @@ export {
   type ChefVerdict,
   type ChefPromptArgs,
 } from "./prompts/chef.js";
+// 0.16.0-alpha.1 — chef-orchestrate (cli α.10 L3). High-level pipeline
+// orchestrator. Decides between redispatch_brew / rebase / escalate /
+// close for a halted brew PR. Sibling to chef-drift; receives the same
+// pipeline context plus chef-drift's prior ledger.
+export {
+  CHEF_ORCHESTRATE_SYSTEM,
+  buildChefOrchestratePrompt,
+  type ChefOrchestrateKind,
+  type ChefOrchestrateVerdict,
+  type ChefOrchestrateAction,
+  type ChefOrchestrateRedispatchAction,
+  type ChefOrchestrateRebaseAction,
+  type ChefOrchestrateEscalateAction,
+  type ChefOrchestrateCloseAction,
+  type ChefOrchestratePromptArgs,
+} from "./prompts/orchestrate.js";

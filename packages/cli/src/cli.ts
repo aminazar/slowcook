@@ -84,7 +84,9 @@ Commands available in ${VERSION}:
   recipe             Generate Vitest tests from merged specs (a "recipe" — the test contract brew follows). Aliases: testgen.
   investigate        (alpha.2a, scaffold) Diagnose a bug from a GitHub issue and emit a bug-profile.
   sift               (alpha.4) Narrow red→green ratchet for a bug fix; bounded by bug-profile fix_scope.
-  chef               (alpha.5c) Pipeline orchestrator — classify PR failure, dispatch retry / escalate.
+  chef               (alpha.5c) PR-CI failure classifier — dispatches retry / escalate based on check status.
+  chef-drift         (0.18.0-α.9 L1) Surgical drift-fixer. Triggered by mock-isolation / recon / brew / navigator halts.
+  chef-orchestrate   (0.19.0-α.2 L3) Pipeline orchestrator. Decides redispatch_brew / rebase / escalate / close on a halted PR.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -195,6 +197,18 @@ async function main(): Promise<void> {
       {
         const { chefDrift } = await import("./commands/chef/drift-fix.js");
         await chefDrift(args.slice(1), VERSION);
+        return;
+      }
+    case "chef-orchestrate":
+      // 0.19.0-α.2 L3 — chef as pipeline orchestrator. Reads the chef-
+      // drift ledger + PR state + spec + open PRs and decides between
+      // redispatch_brew / rebase / escalate / close. Sibling to chef-
+      // drift; runs AFTER chef-drift halts. α.0 implements escalate +
+      // close end-to-end; redispatch + rebase persist the verdict for
+      // a follow-up workflow step to act on.
+      {
+        const { chefOrchestrate } = await import("./commands/chef/orchestrate.js");
+        await chefOrchestrate(args.slice(1), VERSION);
         return;
       }
     case "map":

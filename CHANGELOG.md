@@ -6,6 +6,20 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.2 — chef L3 (chef-orchestrate) + L2 path-alias fix
+
+Cut 2026-05-05.
+
+**Chef L3 (cli α.10 L3 α.0)** — new `slowcook chef-orchestrate --pr <n> --story <id>` command + chef-orchestrate prompt + ChefOrchestrateVerdict types in `@slowcook-ai/llm-anthropic`. Sibling to chef-drift: where chef-drift edits source files surgically, chef-orchestrate decides what to do with a halted PR (one of `redispatch_brew | rebase | escalate | close`). Reads chef-drift's prior ledger, PR state, spec, all open PRs for the story, and the recent runner output. α.0 implements `escalate` (post comment to source issue + apply chef:escalate label) and `close` (post comment + gh pr close) end-to-end. `redispatch_brew` and `rebase` persist the verdict to `.brewing/chef-orchestrate/story-<id>.json` for a follow-up workflow step to act on (auto-execution lands in α.10 L3 α.1). 10 new unit tests on `validateVerdictShape` (per-kind action shape).
+
+**Chef L2 path-alias fix (cli α.1)** — `collectImportedSourceFiles` + new `resolveImportToFile` helper now resolve `@/X` and `~/X` (Next.js / Vite default tsconfig path aliases) in addition to relative `./X` `../X` imports. Previously chef-drift saw 0 source files when failing tests imported via `@/components/...`. Validated on rewo PR #153: alpha.0 → 0 source files visible, HALT; alpha.1 → 3 source files visible, AUTONOMOUS_FIX. Limitation: arbitrary tsconfig.paths entries (`@tests/`, `@app/`, etc.) still treated as scoped packages — reading consumer's `tsconfig.json` paths is α.3.
+
+### Test coverage
+
+`@slowcook-ai/cli` 579/579 passing (was 562). `@slowcook-ai/llm-anthropic` 13/13 passing.
+
+---
+
 ## 0.19.0-alpha.0 — chef α.10 L2 finisher mode + prompt domain sweep (in-repo)
 
 Cut 2026-05-05 (in-repo only; not yet on npm). First entry on the post-0.18 alpha line. Two unrelated additions:
