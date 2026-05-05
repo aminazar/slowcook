@@ -43,6 +43,10 @@ interface Args {
   model: string;
   budgetUsd: number;
   dryRun: boolean;
+  /** L2 finisher mode — when set, chef checks out this PR's branch,
+   *  commits to it, pushes back, and writes the audit comment on the
+   *  PR (not the source issue). */
+  prNumber: number | null;
 }
 
 interface ChefMoveLedgerEntry {
@@ -81,6 +85,76 @@ function isFrozenPath(path: string): boolean {
   return FROZEN_PATH_PATTERNS.some((re) => re.test(path));
 }
 
+/**
+ * Parse a vitest-style test runner output to extract the failing test
+ * files. Brew agent halts include the runner's stdout/stderr; chef
+ * needs to know exactly which test files are red so it can grep their
+ * imports + propose surgical edits to the source files under test.
+ *
+ * Recognises:
+ *   - `FAIL  src/foo/bar.test.ts > description > it works`
+ *   - `× src/foo/bar.test.ts > description > it works`
+ *   - ` ❯ src/foo/bar.test.ts (...)` with a 'Tests fail' summary nearby
+ *   - `Test Files X failed | Y passed` summary lines (signal only)
+ *
+ * Returns { failingFiles: string[]; failingTestNames: string[] }.
+ * Pure — does no IO. Exported for unit tests.
+ */
+export function parseBrewHaltOutput(text: string): {
+  failingFiles: string[];
+  failingTestNames: string[];
+} {
+  const failingFiles = new Set<string>();
+  const failingTestNames = new Set<string>();
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/\[\d+m/g, "").trim();
+    // Match "FAIL <path>" or "× <path>" prefix forms.
+    const failMatch = line.match(/^(?:FAIL|×|✗|❯ FAIL)\s+([\w./-]+\.(?:test|spec)\.(?:ts|tsx|js|jsx))(?:\s+>\s+(.*))?$/);
+    if (failMatch) {
+      failingFiles.add(failMatch[1]!);
+      if (failMatch[2]) failingTestNames.add(failMatch[2].trim());
+      continue;
+    }
+    // vitest line shape: "  ❯ <path>  (<n> tests | <m> failed)"
+    const navMatch = line.match(/^❯\s+([\w./-]+\.(?:test|spec)\.(?:ts|tsx|js|jsx))\s+\(.*?(?:\d+\s+failed)/);
+    if (navMatch) failingFiles.add(navMatch[1]!);
+    // "AssertionError: ..." after a "FAIL <test name>" header form some
+    // runners emit. We track the most recent test-name candidate.
+    const testNameMatch = line.match(/^(?:FAIL|×|✗)\s+(.+?)(?:\s+\d+ms)?$/);
+    if (testNameMatch && /\s>\s/.test(testNameMatch[1]!)) {
+      failingTestNames.add(testNameMatch[1]!);
+    }
+  }
+  return {
+    failingFiles: [...failingFiles],
+    failingTestNames: [...failingTestNames],
+  };
+}
+
+/**
+ * Extract the set of source files (non-test) imported by each failing
+ * test file. Pure: takes a {testFile → contents} map and returns a
+ * {testFile → importedSourceFiles[]} map.
+ *
+ * Resolves only relative imports (./ or ../); skips package imports
+ * (those don't live in the consumer repo).
+ */
+export function collectImportedSourceFiles(testContents: Record<string, string>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [testFile, content] of Object.entries(testContents)) {
+    const sources = new Set<string>();
+    const importRe = /from\s+["'](\.[^"']+)["']/g;
+    let m: RegExpExecArray | null;
+    while ((m = importRe.exec(content)) !== null) {
+      const rel = m[1]!;
+      // Strip trailing extension if present so chef sees module paths.
+      sources.add(rel);
+    }
+    out[testFile] = [...sources];
+  }
+  return out;
+}
+
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     storyId: "",
@@ -92,6 +166,7 @@ function parseArgs(argv: string[]): Args {
     model: "claude-sonnet-4-5-20250929",
     budgetUsd: 1.0,
     dryRun: false,
+    prNumber: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -105,6 +180,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--model" && next) { args.model = next; i++; }
     else if (a === "--budget-usd" && next) { args.budgetUsd = parseFloat(next); i++; }
     else if (a === "--dry-run") { args.dryRun = true; }
+    else if (a === "--pr" && next) { args.prNumber = parseInt(next, 10); i++; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
   if (!args.storyId) { console.error("--story <id> is required"); printHelp(); process.exit(64); }
@@ -134,6 +210,10 @@ Options:
   --model <id>             Anthropic model id.
   --budget-usd <n>         Per-episode budget cap (default: 1.00).
   --dry-run                Print verdict; do not apply edits.
+  --pr <number>            L2 finisher mode — operate on a brew PR's branch
+                           rather than the current branch. Chef checks out the
+                           PR head, commits to it, pushes back, and writes the
+                           audit comment on the PR (not the source issue).
 
 Requires: ANTHROPIC_API_KEY in env. Run from consumer repo root.
 Frozen surface: tests/, vitest.config.*, .brewing/{auto-gen}/ — never edited.
@@ -363,6 +443,43 @@ function postIssueComment(repoRoot: string, issueNumber: number, body: string): 
   }
 }
 
+/**
+ * L2 finisher mode — fetch the brew PR's branch + check it out.
+ * Returns the original branch name so chef can push back to it.
+ *
+ * Throws on any failure: PR-mode is opt-in via --pr, so we don't
+ * silently fall back to the current branch (would commit to main).
+ */
+function checkoutPrBranch(repoRoot: string, prNumber: number): { branchName: string; localRef: string } {
+  const repoSlug = execSync(
+    `git -C "${repoRoot}" remote get-url origin | sed -E 's|^.*github\\.com[:/]||; s|\\.git$||'`,
+    { encoding: "utf8" },
+  ).trim();
+  const prJson = execSync(
+    `gh pr view ${prNumber} --repo "${repoSlug}" --json headRefName,headRefOid`,
+    { encoding: "utf8" },
+  );
+  const pr = JSON.parse(prJson) as { headRefName: string; headRefOid: string };
+  const localRef = `chef-finisher/pr-${prNumber}`;
+  // Fetch the PR head + create/reset the local tracking branch.
+  execSync(`git -C "${repoRoot}" fetch origin pull/${prNumber}/head:${localRef} --force`, { stdio: "inherit" });
+  execSync(`git -C "${repoRoot}" checkout ${localRef}`, { stdio: "inherit" });
+  return { branchName: pr.headRefName, localRef };
+}
+
+function pushChefEditsToPrBranch(repoRoot: string, prBranch: string, localRef: string): boolean {
+  try {
+    execSync(
+      `git -C "${repoRoot}" push origin ${localRef}:${prBranch}`,
+      { stdio: "inherit" },
+    );
+    return true;
+  } catch (e) {
+    console.warn(`  warn: push to PR branch '${prBranch}' failed: ${(e as Error).message.slice(0, 200)}`);
+    return false;
+  }
+}
+
 function commitChefEdits(repoRoot: string, summary: string, edits: ChefEdit[]): { sha: string | null; pushed: boolean } {
   // Stage ONLY the files chef edited (never `git add -A` — that
   // accidentally captures workflow-side clones like `_slowcook/` etc.
@@ -436,7 +553,21 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
   const apiKey = process.env["ANTHROPIC_API_KEY"];
   if (!apiKey) { console.error("ANTHROPIC_API_KEY env var is required."); process.exit(2); }
 
-  console.log(`slowcook chef-drift · story-${args.storyId} · trigger=${args.triggerKind}`);
+  console.log(`slowcook chef-drift · story-${args.storyId} · trigger=${args.triggerKind}${args.prNumber ? ` · finisher mode (PR #${args.prNumber})` : ""}`);
+
+  // L2 finisher mode: check out the PR branch BEFORE reading any
+  // ledger or repo state. The brew PR's branch has its own .brewing/
+  // and a different working tree shape than main.
+  let prCheckout: { branchName: string; localRef: string } | null = null;
+  if (args.prNumber !== null) {
+    try {
+      prCheckout = checkoutPrBranch(args.repoRoot, args.prNumber);
+      console.log(`  finisher: checked out '${prCheckout.branchName}' as ${prCheckout.localRef}`);
+    } catch (e) {
+      console.error(`  ! could not check out PR #${args.prNumber}: ${(e as Error).message.slice(0, 200)}`);
+      process.exit(2);
+    }
+  }
 
   const ledger = loadLedger(args.repoRoot, args.storyId);
   if (ledger.cumulative_cost_usd >= args.budgetUsd) {
@@ -553,6 +684,58 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
       console.log(`  enriched trigger: ${candidateExisting.length} candidate file(s), ${symbolsToGrep.size} symbol(s) checked, ${totalMockImps} mock importer(s), ${totalSrcImps} src importer(s) total`);
     }
   }
+
+  // L2 brew-halt enrichment: parse the brew runner output (passed via
+  // --trigger-raw with a 'runner_output' field) to identify failing
+  // test files, read their contents, list the source files they import,
+  // and read those too. Chef has no read tools — must inject the
+  // material it needs to write surgical search_replace pairs.
+  if (args.triggerKind === "brew_halt_class") {
+    const runnerOutput = (triggerRaw["runner_output"] as string | undefined) ?? args.triggerDetail;
+    if (typeof runnerOutput === "string" && runnerOutput.length > 0) {
+      const { failingFiles, failingTestNames } = parseBrewHaltOutput(runnerOutput);
+      const failingTestContents: Record<string, string> = {};
+      for (const f of failingFiles) {
+        const abs = join(args.repoRoot, f);
+        if (existsSync(abs)) {
+          const c = readFileSync(abs, "utf8");
+          failingTestContents[f] = c.length > 6000 ? c.slice(0, 6000) + "\n// ... truncated" : c;
+        }
+      }
+      const importedSourcesMap = collectImportedSourceFiles(failingTestContents);
+      // Resolve relative imports against each test file's directory + read
+      // the source content. Only resolves relative imports — package
+      // imports aren't in-repo.
+      const sourceContents: Record<string, string> = {};
+      for (const [testFile, sources] of Object.entries(importedSourcesMap)) {
+        const testDir = dirname(testFile);
+        for (const rel of sources) {
+          for (const ext of ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]) {
+            const candidate = join(args.repoRoot, testDir, rel + ext);
+            if (existsSync(candidate) && !candidate.endsWith("/")) {
+              const projRel = candidate.replace(args.repoRoot + "/", "");
+              if (sourceContents[projRel]) break;
+              const c = readFileSync(candidate, "utf8");
+              sourceContents[projRel] = c.length > 6000 ? c.slice(0, 6000) + "\n// ... truncated" : c;
+              break;
+            }
+          }
+        }
+      }
+      triggerRaw = {
+        ...triggerRaw,
+        failing_test_files: failingFiles,
+        failing_test_names: failingTestNames,
+        failing_test_contents: failingTestContents,
+        imported_source_files_per_test: importedSourcesMap,
+        source_file_contents: sourceContents,
+        enrichment_note:
+          "cli-precomputed (chef has no read tools): failing_test_contents shows you each red test verbatim. source_file_contents gives you the full text of every source file imported by those tests. Plan search_replace pairs against source_file_contents — never edit failing_test_contents (tests/ is frozen). If the failure can only be fixed by changing a test, return pm_question instead.",
+      };
+      console.log(`  brew-halt enriched: ${failingFiles.length} failing test file(s), ${Object.keys(sourceContents).length} source file(s) under test`);
+    }
+  }
+
   let navigatorHistory: unknown = null;
   if (args.navigatorHistoryPath && existsSync(args.navigatorHistoryPath)) {
     try { navigatorHistory = JSON.parse(readFileSync(args.navigatorHistoryPath, "utf8")); } catch { /* ignore */ }
@@ -697,20 +880,34 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
   }
 
   // Commit chef's edits locally (workflow handles the push) when validation passed.
+  // L2 finisher mode: also push to the PR's branch directly so the PR re-runs CI.
+  let commitSha: string | null = null;
   if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
     const summary = `move ${moveN} on story-${args.storyId} — ${args.triggerKind}: ${verdict.rationale.slice(0, 120)}`;
     const result = commitChefEdits(args.repoRoot, summary, verdict.edits);
-    if (result.sha) console.log(`  committed: ${result.sha.slice(0, 7)}`);
+    if (result.sha) {
+      commitSha = result.sha;
+      console.log(`  committed: ${result.sha.slice(0, 7)}`);
+    }
+    if (commitSha && prCheckout) {
+      const pushed = pushChefEditsToPrBranch(args.repoRoot, prCheckout.branchName, prCheckout.localRef);
+      if (pushed) console.log(`  finisher: pushed ${commitSha.slice(0, 7)} → ${prCheckout.branchName}`);
+    }
   }
 
   ledger.moves.push(moveEntry);
   ledger.cumulative_cost_usd += resp.costUsd;
   if (!args.dryRun) saveLedger(args.repoRoot, ledger);
 
-  if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && issueNumber > 0 && !args.dryRun) {
+  // Audit comment routing: in finisher mode (--pr) write to the PR;
+  // otherwise write to the source issue (L1 behavior).
+  if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
     const body = buildAuditCommentBody({ ledger, move: moveEntry, verdict });
-    try { postIssueComment(args.repoRoot, issueNumber, body); }
-    catch (e) { console.warn(`  warn: audit comment failed (non-fatal): ${(e as Error).message.slice(0, 200)}`); }
+    const target = args.prNumber ?? (issueNumber > 0 ? issueNumber : null);
+    if (target !== null) {
+      try { postIssueComment(args.repoRoot, target, body); }
+      catch (e) { console.warn(`  warn: audit comment failed (non-fatal): ${(e as Error).message.slice(0, 200)}`); }
+    }
   }
 
   console.log(`\n  done · post_state=${moveEntry.post_state} · move=${moveN} · cum-cost=$${ledger.cumulative_cost_usd.toFixed(4)}`);

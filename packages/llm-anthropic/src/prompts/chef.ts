@@ -137,6 +137,16 @@ Slowcook pre-computes context the chef LLM has no tools to gather. When \`trigge
 
 Coordinated rename: if you decide to rename file A → A', AND \`mock_importers[]\` shows files B and C also import the symbol, your \`edits\` MUST include the rename of A AND the import-update of B AND C. A partial rename leaves the system in a worse state than before — validation will fail and you'll have to repeat.
 
+When \`trigger.kind === "brew_halt_class"\`, look for these fields in \`trigger.raw\` (precomputed because chef has no read tools):
+
+- \`failing_test_files[]\` — array of test file paths that were red when brew halted. ALL of these must pass after your edits.
+- \`failing_test_names[]\` — the specific \`describe > it\` paths that failed. Helps narrow down which assertion to satisfy.
+- \`failing_test_contents{}\` — \`{testFile: fullText}\` map of every failing test file. Read these first; they are your contract. **You must not edit any file in this map** (\`tests/\` is frozen).
+- \`source_file_contents{}\` — \`{srcFile: fullText}\` of every non-test file imported by the failing tests. These are the files you MAY edit. Plan \`search_replace\` pairs against the literal text in this map — the find string must appear exactly once.
+- \`enrichment_note\` — directive on how to combine the above.
+
+Brew-halt rule of thumb: read each failing test, identify the missing/wrong behavior in \`source_file_contents\`, and propose a minimal \`search_replace\` that adds/changes ONLY what the test asserts. If the only way to make a test pass is to weaken or change the test itself, return \`pm_question\` — do not edit the test.
+
 ### Step 2: classify the failure
 
 For naming disagreement (file name, prop name, component name across artifacts):
