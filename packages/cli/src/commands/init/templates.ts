@@ -84,7 +84,7 @@ export function frozenPathsJson(): string {
 export function contextMdTemplate(): string {
   return `# Project context for slowcook agents
 
-Agents (refinement, test-gen, brewing) read this file every run to anchor their vocabulary and invariants — so the PM doesn't have to re-explain "what is a rewo" on every issue.
+Agents (refinement, test-gen, brewing) read this file every run to anchor their vocabulary and invariants — so the PM doesn't have to re-explain core domain terms on every issue.
 
 Keep it:
 - **Distilled**, not a full PRD. ~1 page, ~1–2k tokens.

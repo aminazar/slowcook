@@ -71,7 +71,7 @@ npx slowcook init [--owner <handle>] [--force] [--dry-run] [--cwd <path>]
 | Flag | Default | Description |
 |---|---|---|
 | `--cwd <path>` | `.` | Target project directory |
-| `--owner <handle>` | detected from git remote | CODEOWNERS handle/team (e.g. `@aminazar`, `@acme/frontend`) |
+| `--owner <handle>` | detected from git remote | CODEOWNERS handle/team (e.g. `@your-handle`, `@acme/frontend`) |
 | `--force` | false | Overwrite existing slowcook files |
 | `--dry-run` | false | Print the plan without writing anything |
 

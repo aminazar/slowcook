@@ -576,7 +576,7 @@ Refresh the dev server — the scenario appears in the picker.
 "use client";
 import { useScenarioFixture } from "@slowcook-ai/mock-runtime";
 
-interface Pin { id: string; rewo_id: string; pinned_at: string; }
+interface Pin { id: string; item_id: string; pinned_at: string; }
 
 export function PinsStrip() {
   const pins = useScenarioFixture<Pin[]>("pins");

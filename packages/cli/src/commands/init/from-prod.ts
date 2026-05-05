@@ -102,11 +102,11 @@ Options:
 What's NOT yet automated (0.18.0 ships scaffolding only):
   - Per-table fixture file content from supabase/migrations/
   - Per-endpoint api-client function bodies from src/ fetch call sites
-  - Server-mock fluent client beyond the rewo-derived skeleton
+  - Server-mock fluent client beyond the reference skeleton
 
-For projects that don't match the rewo prod shape (Supabase + Next RSC),
+For projects that don't match the reference prod shape (Supabase + Next RSC),
 fall back to writing mock/ by hand using the strategies in mock/LESSONS.md
-of the rewo dogfood as a reference.
+as a reference.
 `);
 }
 
@@ -170,7 +170,7 @@ export async function initFromProd(argv: string[], _cliVersion: string): Promise
       "  4. Add mock/package.json + next.config.js + tsconfig (mirror prod's, drop test/lint deps)\n" +
       "  5. cd mock && npm install && npm run dev"
   );
-  console.log("\n0.18.1+ will automate steps 1-4. Until then this is hand-written; the rewo perfect-mock is the worked reference.");
+  console.log("\n0.18.1+ will automate steps 1-4. Until then this is hand-written; see mock/LESSONS.md for the worked reference.");
 }
 
 // ----- helpers -----

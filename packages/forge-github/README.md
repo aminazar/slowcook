@@ -14,8 +14,8 @@ npm i @slowcook-ai/forge-github
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 
 const adapter = new GitHubAdapter({
-  owner: "reworthy",
-  repo: "app",
+  owner: "your-org",
+  repo: "your-repo",
   token: process.env.GITHUB_TOKEN!,
 });
 

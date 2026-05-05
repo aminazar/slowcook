@@ -154,7 +154,7 @@ import { test as base } from "@playwright/test";
 
 export const test = base.extend<{}>({
   // Consumers extend this with per-test fixtures (authenticated page, seeded
-  // rewo id, etc.). Slowcook's scaffold just re-exports \`test\` so imports
+  // record id, etc.). Slowcook's scaffold just re-exports \`test\` so imports
   // converge on one path: \`import { test, expect } from "@tests/acceptance/_setup/sandbox"\`.
 });
 
@@ -310,8 +310,8 @@ import { afterEach } from "vitest";
 // same file that render the same component see each other's DOM —
 // e.g., a warning banner from one test lingers into a later test that
 // expects it to NOT be present. Identified by the brew agent as the
-// root cause of the "warning shouldn't render when handle_confirmed=true"
-// paralysis on rewo story-006 (2026-04-23).
+// root cause of "warning shouldn't render when X=true" style paralysis
+// (slowcook 0.7.x dogfood, 2026-04-23).
 afterEach(() => {
   cleanup();
 });
@@ -512,7 +512,7 @@ function a11yHelper(): string {
 //     "Invalid Chai property: toBeInTheDocument" error.
 //
 // 0.7.11 backstory: the jest-dom import was missing in 0.7.5 Phase A.
-// First UI brew run on rewo (story-006, \$3.39 spent) halted in agent
+// First UI brew run during dogfood (~\$3.39 spent) halted in agent
 // analysis-paralysis because 16 tests failed with the misleading Chai
 // error — agent read "alert test fails" as "my code renders an alert
 // wrongly" and couldn't reconcile. Adding this import makes all the
