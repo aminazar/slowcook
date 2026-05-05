@@ -460,14 +460,37 @@ jobs:
 
             if [ "$OTHER_MERGED" -ge 1 ]; then
               MODE="plate"
-              echo "Both halves merged for story-$id; dispatching brew (mode=$MODE)."
-              gh workflow run slowcook-brew.yml \\
-                --repo \${{ github.repository }} \\
-                -f story_id=$id \\
-                -f budget_usd=10 \\
-                -f max_iterations=10 \\
-                -f model=claude-sonnet-4-6 \\
-                -f mode=$MODE || true
+              # 0.18 — recon gate. Run slowcook recon first; brew dispatches
+              # only when recon exits 0 (clean) OR 1 (rename_needed —
+              # advisory). Exit 2 (escalate) means structural gaps brew
+              # CANNOT fix without upstream intervention; in that case we
+              # post a comment + skip dispatch. Recon writes
+              # .brewing/recon-result.json + emits shape tests as a side
+              # effect (mock files persist on the mockup branch but won't
+              # cascade to a brew commit because brew dispatch is skipped).
+              echo "Both halves merged for story-$id; running recon before brew dispatch."
+              if npx --yes "$SLOWCOOK_CLI" recon --story "$id"; then
+                echo "Recon clean; dispatching brew (mode=$MODE)."
+                gh workflow run slowcook-brew.yml \\
+                  --repo \${{ github.repository }} \\
+                  -f story_id=$id \\
+                  -f budget_usd=10 \\
+                  -f max_iterations=10 \\
+                  -f model=claude-sonnet-4-6 \\
+                  -f mode=$MODE || true
+              else
+                RECON_EXIT=$?
+                if [ "$RECON_EXIT" = "2" ]; then
+                  echo "::warning::Recon escalated (exit 2) for story-$id; brew NOT dispatched. PM should resolve before retry."
+                  ISSUE_NUM=$(gh pr list --repo \${{ github.repository }} --search "story-$id" --state merged --json body --jq '[.[] | select(.body | match("#[0-9]+"))] | first | .body | match("#([0-9]+)") | .captures[0].string' || echo "")
+                  if [ -n "$ISSUE_NUM" ]; then
+                    gh issue comment "$ISSUE_NUM" --repo \${{ github.repository }} \\
+                      --body "🛑 **brew-auto: recon gate failed (exit 2)** for story-$id. See \`.brewing/recon-result.json\` on the merged tests PR. Resolve the structural gap (typically: rename + dispatch testgen --regenerate, or amend the spec) then re-trigger by re-merging or re-running this workflow." || true
+                  fi
+                else
+                  echo "::warning::Recon failed unexpectedly (exit $RECON_EXIT) for story-$id; brew NOT dispatched."
+                fi
+              fi
             else
               # 0.17.0 — brew NEVER runs without a mock + PM-reviewed plate
               # amendments. The legacy backend-only fallback is removed —
