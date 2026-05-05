@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.0 — chef α.10 L2 finisher mode + prompt domain sweep (in-repo)
+
+Cut 2026-05-05 (in-repo only; not yet on npm). First entry on the post-0.18 alpha line. Two unrelated additions:
+
+**Chef α.10 L2 (cli, llm-anthropic):** `slowcook chef-drift --pr <number>` enables finisher mode — chef checks out the PR's branch as a local `chef-finisher/pr-<n>` ref, makes its surgical edits there, commits, and pushes back to the PR's head branch (re-running CI). Audit comment routes to the PR (not the source issue). New `brew_halt_class` enrichment: cli precomputes `failing_test_files` / `failing_test_contents` / `source_file_contents` (resolves relative imports against the test dir) and injects them into `trigger.raw` so chef can write surgical search_replace pairs without read tools. Chef prompt explicitly bans editing `failing_test_contents` (tests/ is frozen) — if only a test edit can fix it, return `pm_question`.
+
+New unit tests in `packages/cli/src/commands/chef/drift-fix.test.ts` (11 cases) cover both pure helpers (`parseBrewHaltOutput`, `collectImportedSourceFiles`); end-to-end finisher run requires a real halted brew PR + ANTHROPIC_API_KEY and is left to the next dogfood iteration.
+
+**Prompt + consumer-surface domain sweep:** all 8 agent prompts (`brew`, `chef`, `investigate`, `navigator`, `plate`, `refine`, `testgen`, `vibe`) plus consumer-facing surfaces (init templates, mock-readme generator, init from-prod help/console, forge-github README, stack-ts emitted test setup) had rewo-domain references rewritten to neutral examples (Item / EntityHeader / RationBadge / your-org / your-repo / etc). Internal source/JSDoc comments that explain WHY a check exists keep the historical rewo references — slowcook devs need that context. Net: agents see no per-project vocabulary; consumer-emitted code/help shows neutral examples.
+
+### Test coverage
+
+`@slowcook-ai/cli` 562/562 passing (was 551 at 0.18.0). `@slowcook-ai/llm-anthropic` 13/13 passing.
+
+---
+
 ## 0.18.0 — pair-brew + chef stable cut
 
 Cut 2026-05-05. Promotes the 0.18-alpha line to stable. `latest` dist-tag now points at 0.18.0; the 0.13.x line that was previously `latest` is retired.
