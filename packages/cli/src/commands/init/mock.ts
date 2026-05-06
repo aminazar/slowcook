@@ -203,15 +203,158 @@ export async function initMock(argv: string[], cliVersion: string): Promise<void
     }
   }
 
+  // Wire mock as a pnpm-workspace member when the consumer is on pnpm
+  // so its node_modules dedupes against the prod tree (Next/React/
+  // Vitest/Tailwind are typically the same versions both sides). Two
+  // separate node_modules costs ~200-500MB on a typical Next 16 + RTL
+  // setup. Discovered post-rewo (2026-05-06) — by which time the rewo
+  // mock had its own node_modules + lockfile.
+  const wsResult = ensurePnpmWorkspace(args.cwd);
+  switch (wsResult.kind) {
+    case "added-to-existing":
+      console.log(`  PATCH  ${wsResult.path} (appended mock to packages list)`);
+      break;
+    case "already-listed":
+      console.log(`  SKIP   ${wsResult.path} (mock already a workspace member)`);
+      break;
+    case "created":
+      console.log(`  WRITE  ${wsResult.path} (created — pnpm workspace lists [mock])`);
+      break;
+    case "not-pnpm":
+      console.log(`  SKIP   pnpm-workspace.yaml (consumer uses ${wsResult.pkgManager}; recommend pnpm to share node_modules)`);
+      break;
+  }
+
   console.log(`Done. Wrote ${written} file(s); skipped ${skipped}.`);
   console.log();
   console.log("Next steps:");
-  console.log("  1. cd mock && npm install");
-  console.log("  2. npm run dev   # http://localhost:3100");
+  if (wsResult.kind === "not-pnpm") {
+    console.log("  1. cd mock && npm install   # (or yarn install — separate node_modules)");
+    console.log("  2. cd mock && npm run dev   # http://localhost:3100");
+    console.log("  TIP: pnpm + a workspace would let mock + prod share node_modules");
+    console.log("       (saves ~200-500MB). Migrate later via:");
+    console.log("         echo 'packages:\\n  - mock' > pnpm-workspace.yaml");
+    console.log("         rm -rf node_modules mock/node_modules package-lock.json mock/package-lock.json");
+    console.log("         pnpm install");
+  } else {
+    console.log("  1. pnpm install                 # at repo root — installs both halves");
+    console.log("  2. pnpm --filter mock dev      # http://localhost:3100");
+  }
   console.log("  3. Verify the empty scenario picker renders");
   console.log("  4. Commit + push the mock/ directory");
   console.log("  5. Future vibe runs (slowcook 0.16-α.3+) populate mock/scenarios/ +");
   console.log("     extend mock/src/lib/scenario-registry.ts");
+}
+
+/**
+ * Detect the consumer's package manager from lockfile presence.
+ * Pure: takes an `exists` predicate so it can be unit-tested without IO.
+ */
+export function detectPackageManager(
+  cwd: string,
+  exists: (p: string) => boolean,
+): "pnpm" | "npm" | "yarn" | "unknown" {
+  if (exists(join(cwd, "pnpm-lock.yaml")) || exists(join(cwd, "pnpm-workspace.yaml"))) return "pnpm";
+  if (exists(join(cwd, "yarn.lock"))) return "yarn";
+  if (exists(join(cwd, "package-lock.json"))) return "npm";
+  return "unknown";
+}
+
+/**
+ * Detect whether `mock` is already declared in the consumer's
+ * pnpm-workspace.yaml `packages` list. Pure parser — handles the
+ * common YAML shapes: flow array (`packages: [mock]`) + block list
+ * (`packages:\n  - mock`). Returns true on any literal "mock" entry.
+ */
+export function isMockInPnpmWorkspace(yamlContent: string): boolean {
+  // Strip comments to keep the regex simple.
+  const stripped = yamlContent.replace(/#[^\n]*/g, "");
+  // Block-list entries: `- mock` or `- "mock"` or `- 'mock'`
+  if (/^\s*-\s*["']?mock["']?\s*$/m.test(stripped)) return true;
+  // Flow-array form: `packages: [..., mock, ...]`
+  const flowMatch = stripped.match(/packages\s*:\s*\[([^\]]*)\]/);
+  if (flowMatch) {
+    const items = flowMatch[1]!.split(",").map((s) => s.trim().replace(/^["']|["']$/g, ""));
+    if (items.includes("mock")) return true;
+  }
+  return false;
+}
+
+/**
+ * Result of ensurePnpmWorkspace — what the cli did (if anything) so the
+ * caller can print accurate "Next steps" text.
+ */
+export type EnsureWorkspaceResult =
+  | { kind: "added-to-existing"; path: string }
+  | { kind: "already-listed"; path: string }
+  | { kind: "created"; path: string }
+  | { kind: "not-pnpm"; pkgManager: "npm" | "yarn" | "unknown" };
+
+/**
+ * Make sure `mock` is a pnpm-workspace member when the consumer is on
+ * pnpm. Three paths:
+ *   - pnpm-workspace.yaml exists + lists "mock"        → already-listed
+ *   - pnpm-workspace.yaml exists + missing "mock"      → added-to-existing
+ *   - pnpm-lock.yaml present + no workspace.yaml       → created (block-list shape)
+ *   - npm/yarn/unknown (no pnpm signal)                → not-pnpm
+ *
+ * We DON'T auto-migrate npm/yarn consumers — that requires re-resolving
+ * the lockfile and is too invasive for an `init mock` step. Caller
+ * prints a one-line recommendation in that case.
+ *
+ * Conservative writes: when adding to an existing block-list workspace,
+ * we append a new `- mock` line preserving prior content; we never
+ * rewrite the whole file.
+ */
+export function ensurePnpmWorkspace(cwd: string): EnsureWorkspaceResult {
+  const pkgMgr = detectPackageManager(cwd, existsSync);
+  if (pkgMgr !== "pnpm") {
+    return { kind: "not-pnpm", pkgManager: pkgMgr };
+  }
+  const workspacePath = join(cwd, "pnpm-workspace.yaml");
+  const relPath = "pnpm-workspace.yaml";
+  if (existsSync(workspacePath)) {
+    const original = readFileSync(workspacePath, "utf8");
+    if (isMockInPnpmWorkspace(original)) {
+      return { kind: "already-listed", path: relPath };
+    }
+    // Append a `- mock` entry to the existing packages list. If we can't
+    // find a `packages:` block, fall through to create it.
+    let updated: string;
+    if (/^packages\s*:/m.test(original)) {
+      // Existing block-list — append at the end of the list.
+      // Heuristic: find the last `-` line under packages: and add after.
+      // Simplest correct: append `\n  - mock\n` after `packages:`'s last
+      // child (we accept slight indentation imperfection over parser risk).
+      const lines = original.split("\n");
+      let lastBlockIdx = -1;
+      let inPackages = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (/^packages\s*:/.test(lines[i]!)) { inPackages = true; continue; }
+        if (!inPackages) continue;
+        if (/^\s*-\s+/.test(lines[i]!)) lastBlockIdx = i;
+        else if (/^\S/.test(lines[i]!) && lines[i]!.trim() !== "") break;
+      }
+      if (lastBlockIdx === -1) {
+        // packages: is empty or flow form; append a fresh block-list line.
+        updated = original.replace(/(^packages\s*:.*$)/m, `$1\n  - mock`);
+      } else {
+        // Preserve the indent of the prior list item.
+        const priorIndent = lines[lastBlockIdx]!.match(/^(\s*)-/)![1] ?? "  ";
+        lines.splice(lastBlockIdx + 1, 0, `${priorIndent}- mock`);
+        updated = lines.join("\n");
+      }
+    } else {
+      updated = original.trimEnd() + `\npackages:\n  - mock\n`;
+    }
+    writeFileSync(workspacePath, updated, "utf8");
+    return { kind: "added-to-existing", path: relPath };
+  }
+  // No workspace.yaml — create a minimal one. Block-list form is more
+  // approachable than flow-array for downstream edits.
+  const fresh = `# pnpm workspace — auto-created by 'slowcook init mock' so the\n# mock app shares node_modules with the prod tree (no duplicate installs).\npackages:\n  - mock\n`;
+  writeFileSync(workspacePath, fresh, "utf8");
+  return { kind: "created", path: relPath };
 }
 
 /**

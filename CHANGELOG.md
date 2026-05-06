@@ -6,6 +6,29 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.3 — slowcook init mock auto-configures pnpm workspace
+
+Cut 2026-05-06.
+
+`slowcook init mock` now wires `mock` as a pnpm-workspace member when the consumer is on pnpm — eliminating the duplicate-`node_modules` problem (mock + prod sharing 200-500MB of identical Next/React/Vitest/Tailwind transitive deps that previously installed twice). New behavior:
+
+- pnpm consumer + `pnpm-workspace.yaml` exists → appends `- mock` to the existing block-list (preserves prior indentation + entries)
+- pnpm consumer + no workspace file → creates `pnpm-workspace.yaml` with `packages: [- mock]`
+- pnpm consumer + mock already declared → no-op
+- npm/yarn consumer → prints a one-line recommendation (no auto-migration; that needs lockfile re-resolution)
+
+The post-init "Next steps" text adapts: pnpm consumers see `pnpm install` at root + `pnpm --filter mock dev`; npm/yarn consumers see the legacy `cd mock && npm install` flow plus an inline migration hint.
+
+Three new exported helpers: `detectPackageManager` (lockfile-presence pure), `isMockInPnpmWorkspace` (yaml-shape-aware), `ensurePnpmWorkspace` (the orchestrator). 17 new unit tests on those helpers.
+
+Discovered post-rewo dogfood (2026-05-06): rewo's `mock/` ended up with its own `pnpm-lock.yaml` + `node_modules` distinct from the root `package-lock.json`, costing duplicate disk + double install time on every fresh clone. Fix is upstream-only — rewo migration is consumer's call (lockfile re-resolution risk).
+
+### Test coverage
+
+`@slowcook-ai/cli` 596/596 passing (was 579).
+
+---
+
 ## 0.19.0-alpha.2 — chef L3 (chef-orchestrate) + L2 path-alias fix
 
 Cut 2026-05-05.

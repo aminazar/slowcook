@@ -2,7 +2,15 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initMock, planMockFiles, parseMockInitArgs, ensureMockInTsconfigExclude } from "./mock.js";
+import {
+  initMock,
+  planMockFiles,
+  parseMockInitArgs,
+  ensureMockInTsconfigExclude,
+  detectPackageManager,
+  isMockInPnpmWorkspace,
+  ensurePnpmWorkspace,
+} from "./mock.js";
 
 function mkRepo(): string {
   return mkdtempSync(join(tmpdir(), "slowcook-init-mock-"));
@@ -242,6 +250,135 @@ describe("ensureMockInTsconfigExclude", () => {
       writeFileSync(path, `{ "exclude": [] }`, "utf8");
       expect(ensureMockInTsconfigExclude(path)).toBe(true);
       expect(readFileSync(path, "utf8")).toContain('["mock"]');
+    });
+  });
+});
+
+describe("detectPackageManager", () => {
+  const exists = (paths: string[]) => (p: string) => paths.includes(p);
+
+  it("returns pnpm when pnpm-workspace.yaml is present", () => {
+    expect(detectPackageManager("/repo", exists(["/repo/pnpm-workspace.yaml"]))).toBe("pnpm");
+  });
+
+  it("returns pnpm when only pnpm-lock.yaml is present", () => {
+    expect(detectPackageManager("/repo", exists(["/repo/pnpm-lock.yaml"]))).toBe("pnpm");
+  });
+
+  it("returns yarn when yarn.lock is present", () => {
+    expect(detectPackageManager("/repo", exists(["/repo/yarn.lock"]))).toBe("yarn");
+  });
+
+  it("returns npm when package-lock.json is present", () => {
+    expect(detectPackageManager("/repo", exists(["/repo/package-lock.json"]))).toBe("npm");
+  });
+
+  it("returns unknown when no lockfile present", () => {
+    expect(detectPackageManager("/repo", exists([]))).toBe("unknown");
+  });
+
+  it("prefers pnpm signal even if a package-lock.json also exists", () => {
+    expect(detectPackageManager("/repo", exists(["/repo/pnpm-lock.yaml", "/repo/package-lock.json"]))).toBe("pnpm");
+  });
+});
+
+describe("isMockInPnpmWorkspace", () => {
+  it("detects mock in block-list form", () => {
+    expect(isMockInPnpmWorkspace(`packages:\n  - mock\n  - apps/web\n`)).toBe(true);
+  });
+
+  it("detects mock in quoted block-list form", () => {
+    expect(isMockInPnpmWorkspace(`packages:\n  - "mock"\n`)).toBe(true);
+  });
+
+  it("detects mock in flow-array form", () => {
+    expect(isMockInPnpmWorkspace(`packages: [mock, "apps/*"]\n`)).toBe(true);
+  });
+
+  it("returns false when mock not present", () => {
+    expect(isMockInPnpmWorkspace(`packages:\n  - apps/web\n  - packages/*\n`)).toBe(false);
+  });
+
+  it("ignores 'mock' inside comments", () => {
+    expect(isMockInPnpmWorkspace(`packages:\n  - apps/web\n  # - mock (commented out)\n`)).toBe(false);
+  });
+
+  it("matches mock-as-substring only when whole-entry", () => {
+    // 'mock-runtime' as a substring should NOT count as 'mock'
+    expect(isMockInPnpmWorkspace(`packages:\n  - mock-runtime\n  - apps/*\n`)).toBe(false);
+  });
+});
+
+describe("ensurePnpmWorkspace", () => {
+  function withTmp(fn: (dir: string) => void): void {
+    const dir = mkRepo();
+    try { fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  it("returns not-pnpm when consumer has no pnpm signal", () => {
+    withTmp((dir) => {
+      writeFileSync(join(dir, "package-lock.json"), "{}", "utf8");
+      const r = ensurePnpmWorkspace(dir);
+      expect(r.kind).toBe("not-pnpm");
+      if (r.kind === "not-pnpm") expect(r.pkgManager).toBe("npm");
+      expect(existsSync(join(dir, "pnpm-workspace.yaml"))).toBe(false);
+    });
+  });
+
+  it("creates pnpm-workspace.yaml when consumer is pnpm but has no workspace file", () => {
+    withTmp((dir) => {
+      writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9.0\n", "utf8");
+      const r = ensurePnpmWorkspace(dir);
+      expect(r.kind).toBe("created");
+      const written = readFileSync(join(dir, "pnpm-workspace.yaml"), "utf8");
+      expect(written).toContain("packages:");
+      expect(written).toContain("- mock");
+    });
+  });
+
+  it("appends mock to existing block-list workspace", () => {
+    withTmp((dir) => {
+      writeFileSync(
+        join(dir, "pnpm-workspace.yaml"),
+        `packages:\n  - apps/web\n  - packages/*\n`,
+        "utf8",
+      );
+      const r = ensurePnpmWorkspace(dir);
+      expect(r.kind).toBe("added-to-existing");
+      const written = readFileSync(join(dir, "pnpm-workspace.yaml"), "utf8");
+      expect(written).toContain("- mock");
+      // Prior entries preserved
+      expect(written).toContain("- apps/web");
+      expect(written).toContain("- packages/*");
+    });
+  });
+
+  it("reports already-listed when mock is already declared", () => {
+    withTmp((dir) => {
+      writeFileSync(
+        join(dir, "pnpm-workspace.yaml"),
+        `packages:\n  - mock\n  - apps/*\n`,
+        "utf8",
+      );
+      const before = readFileSync(join(dir, "pnpm-workspace.yaml"), "utf8");
+      const r = ensurePnpmWorkspace(dir);
+      expect(r.kind).toBe("already-listed");
+      // File untouched
+      expect(readFileSync(join(dir, "pnpm-workspace.yaml"), "utf8")).toBe(before);
+    });
+  });
+
+  it("preserves prior list-item indentation when appending", () => {
+    withTmp((dir) => {
+      writeFileSync(
+        join(dir, "pnpm-workspace.yaml"),
+        `packages:\n    - apps/web\n`,  // 4-space indent
+        "utf8",
+      );
+      const r = ensurePnpmWorkspace(dir);
+      expect(r.kind).toBe("added-to-existing");
+      const written = readFileSync(join(dir, "pnpm-workspace.yaml"), "utf8");
+      expect(written).toContain("    - mock");
     });
   });
 });
