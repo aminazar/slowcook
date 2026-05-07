@@ -6,6 +6,26 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.4 → α.8 — pair-brew prod wiring, recon shape v2, refactor + reuse-scan
+
+Cut 2026-05-07. Five-alpha autonomous run shipping the long-deferred slowcook task list (#76, #77, #75, #64, plus reuse-scan as a follow-on). All pure-helper-tested locally; no Anthropic dispatch needed beyond the L3 dogfood ($0.012 on rewo PR #153). 562 → 668 cli tests across the run.
+
+- **α.4 — pair-brew navigator hook in production loop (#76)**: optional `ctx.navigatorHook` on `BrewContext` fires post-iter, pre-checkpoint. On `block` verdict, reverts iteration + folds concerns into next iter's history. Pure decision helper `decideNavigatorAction` exported + 7 tests. Default Anthropic-backed implementation deferred to α.9+.
+- **α.5 — navigator may emit hard-signal tests on persistent BLOCKING (#77)**: `NavigatorHookVerdict` gains optional `proposedTest: { path, content }`. Path-validated (`tests/navigator/`-only) + written to disk during the BLOCK branch so the next iter's red-set picks it up. Hard signal escapes soft-prompt-ignored loops (the entities-falsified failure mode). 13 unit tests.
+- **α.6 — recon shape-emit v2 (#75)**: `synthesiseShapeTestFile({ emitMode: "v2" })` imports each component, mounts via `@testing-library/react`, queries the live DOM for testid presence, class tokens, header element. Catches dynamic-className drift v1's source-grep tests miss. v1 stays default; opt into v2. 11 unit tests.
+- **α.7 — refactor command (#64)**: `slowcook refactor` reads `.brewing/refactor/proposals.json`, filters by `--scope`, ranks by benefit-per-cost, prints table or JSON. Boundedness rule: every `filesAffected` must match at least one scope pattern (refactors stay surgical). Source-agnostic — hand-authored JSON, recon emissions, future LLM proposers all feed the same pipeline. 18 unit tests.
+- **α.8 — recon `--reuse-scan` flag**: deterministic near-duplicate detection across components AND API/utility modules. Pure regex-based structural-signature extraction (jsxTags / propsUsed / callsUsed / imports / exports), Jaccard similarity with auto-categorization (component-vs-component vs api-vs-api; cross-category short-circuits to 0). `--write-proposals` appends synthesized RefactorProposal entries directly to the file `slowcook refactor` consumes. Fixed TS-generic-as-JSX-tag false positive via negative lookbehind. 22 unit tests.
+
+### Empirical run on rewo `src/`
+
+After cleanup, 11 real-signal pairs surfaced (out of 65 raw matches at threshold 0.7). Most prominent finding: 6 `@slowcook-stub` files left behind from incomplete story-016/018 brews showing as 100% similar — that's stub-leakage signal, not refactor signal. Genuine moderate duplication: `reactions POST` ↔ `rewos POST` (77%), `invites/send-email` ↔ `invites/validate` (73%). Verdict: don't build pre-write prevention — chronic dup-creation isn't actually happening; periodic reuse-scan + a separate stale-stub detector are the right level.
+
+### Test coverage
+
+`@slowcook-ai/cli` 668/668 passing (was 562 at session start). `@slowcook-ai/llm-anthropic` 13/13.
+
+---
+
 ## 0.19.0-alpha.3 — slowcook init mock auto-configures pnpm workspace
 
 Cut 2026-05-06.
