@@ -325,6 +325,14 @@ async function countChefComments(
   }
 }
 
+// 0.19.0-α.12 — slowcook:cost HTML marker for chef (PR-CI handler).
+// chef doesn't call an LLM (it's a deterministic classifier), so cost
+// is always 0; we still emit the marker so downstream aggregation
+// (`gh issue view N | grep slowcook:cost`) sees every chef comment.
+function chefCostMarker(kind: string, prNumber: number, cliVersion: string): string {
+  return `<!-- slowcook:cost agent=chef usd=0.0000 kind=${kind} pr=${prNumber} cli=${cliVersion} -->`;
+}
+
 async function postEscalation(
   forge: InstanceType<typeof GitHubAdapter>,
   prNumber: number,
@@ -334,7 +342,8 @@ async function postEscalation(
 ): Promise<void> {
   const body =
     `### slowcook · chef ⚠️ escalate\n\n${detail}\n\n` +
-    `<sub>chef ${cliVersion} · prior chef-comments on this PR: ${priorComments}</sub>`;
+    `<sub>chef ${cliVersion} · prior chef-comments on this PR: ${priorComments}</sub>\n\n` +
+    chefCostMarker("escalate", prNumber, cliVersion);
   await forge.createIssueComment(prNumber, body);
 }
 
@@ -350,7 +359,8 @@ async function postExternalDiagnostic(
     `The following check(s) are failing on this PR but are also failing on the merge base:\n\n` +
     failingChecks.map((c) => `- \`${c}\``).join("\n") +
     `\n\nThe PR's diff didn't introduce these — they're pre-existing. Chef won't iterate. Operator: admin-merge if appropriate, or fix the underlying on a separate PR.\n\n` +
-    `<sub>chef ${cliVersion} · prior chef-comments: ${priorComments}</sub>`;
+    `<sub>chef ${cliVersion} · prior chef-comments: ${priorComments}</sub>\n\n` +
+    chefCostMarker("external-fail", prNumber, cliVersion);
   await forge.createIssueComment(prNumber, body);
 }
 
@@ -377,7 +387,8 @@ async function dispatchRetry(
     `Failing checks introduced by this PR:\n\n` +
     failingChecks.map((c) => `- \`${c}\``).join("\n") +
     `\n\nWould dispatch retry to the **${agent}** workflow. Auto-dispatch isn't wired up in chef alpha.5c — operator: rerun the failing job(s) manually via the GitHub Actions UI or 'gh run rerun'.\n\n` +
-    `<sub>chef ${cliVersion} · alpha.5c</sub>`;
+    `<sub>chef ${cliVersion} · alpha.5c</sub>\n\n` +
+    chefCostMarker(`self-fail-${agent}`, prNumber, cliVersion);
   await forge.createIssueComment(prNumber, body);
 }
 

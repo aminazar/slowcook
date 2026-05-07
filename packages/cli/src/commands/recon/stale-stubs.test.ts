@@ -122,4 +122,13 @@ describe("buildStaleStubComment", () => {
     const body = buildStaleStubComment(stub, 14);
     expect(body).toContain("slowcook recon --stub-scan");
   });
+
+  it("appends a slowcook:cost HTML marker (α.12)", () => {
+    const body = buildStaleStubComment(stub, 14, "0.19.0-alpha.12");
+    expect(body).toContain("<!-- slowcook:cost agent=recon");
+    expect(body).toContain("kind=stub-escalate");
+    expect(body).toContain("path=src/app/api/pins/route.ts");
+    expect(body).toContain("story=016");
+    expect(body).toContain("cli=0.19.0-alpha.12");
+  });
 });

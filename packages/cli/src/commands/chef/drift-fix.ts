@@ -558,7 +558,7 @@ function commitChefEdits(repoRoot: string, summary: string, edits: ChefEdit[]): 
   }
 }
 
-function buildAuditCommentBody(args: { ledger: ChefLedger; move: ChefMoveLedgerEntry; verdict: ChefVerdict }): string {
+function buildAuditCommentBody(args: { ledger: ChefLedger; move: ChefMoveLedgerEntry; verdict: ChefVerdict; cliVersion: string }): string {
   const { move, verdict } = args;
   const lines: string[] = [];
   lines.push(`### [chef-drift] Move ${move.n} on story-${args.ledger.story_id}`);
@@ -585,10 +585,17 @@ function buildAuditCommentBody(args: { ledger: ChefLedger; move: ChefMoveLedgerE
     lines.push("");
   }
   lines.push(`**Cost:** $${move.cost_usd.toFixed(2)} (cumulative: $${args.ledger.cumulative_cost_usd.toFixed(2)})`);
+  // 0.19.0-α.12 — slowcook:cost HTML marker for downstream aggregation
+  // (`gh issue view N | grep slowcook:cost`). Format matches vibe / plate /
+  // brew / refine / testgen.
+  lines.push("");
+  lines.push(
+    `<!-- slowcook:cost agent=chef-drift usd=${move.cost_usd.toFixed(4)} cumulative_usd=${args.ledger.cumulative_cost_usd.toFixed(4)} decision=${move.decision} trigger=${move.trigger_kind} story=${args.ledger.story_id} move=${move.n} cli=${args.cliVersion} -->`,
+  );
   return lines.join("\n");
 }
 
-export async function chefDrift(argv: string[], _cliVersion: string): Promise<void> {
+export async function chefDrift(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
   const apiKey = process.env["ANTHROPIC_API_KEY"];
@@ -939,7 +946,7 @@ export async function chefDrift(argv: string[], _cliVersion: string): Promise<vo
   // Audit comment routing: in finisher mode (--pr) write to the PR;
   // otherwise write to the source issue (L1 behavior).
   if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
-    const body = buildAuditCommentBody({ ledger, move: moveEntry, verdict });
+    const body = buildAuditCommentBody({ ledger, move: moveEntry, verdict, cliVersion });
     const target = args.prNumber ?? (issueNumber > 0 ? issueNumber : null);
     if (target !== null) {
       try { postIssueComment(args.repoRoot, target, body); }

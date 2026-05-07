@@ -77,8 +77,11 @@ export function classifyStubAge(
 /**
  * Synthesize a PM-actionable comment body for an overdue stub.
  * Pure: no IO. Caller posts via gh.
+ *
+ * 0.19.0-α.12 — appends slowcook:cost HTML marker so the comment is
+ * grep-able by downstream cost / activity aggregation tools.
  */
-export function buildStaleStubComment(stub: StubFile, graceDays: number): string {
+export function buildStaleStubComment(stub: StubFile, graceDays: number, cliVersion = "0.19.0"): string {
   const lines: string[] = [];
   lines.push(`### slowcook · stub still incomplete after ${graceDays} days`);
   lines.push("");
@@ -93,5 +96,9 @@ export function buildStaleStubComment(stub: StubFile, graceDays: number): string
   lines.push("3. **Withdraw the story** if the feature is no longer wanted — close the issue + delete the stub file.");
   lines.push("");
   lines.push(`<sub>Posted by \`slowcook recon --stub-scan\`. Re-running this scan will re-post if the stub is still here in another ${graceDays} days.</sub>`);
+  lines.push("");
+  lines.push(
+    `<!-- slowcook:cost agent=recon usd=0.0000 kind=stub-escalate path=${stub.path} story=${stub.storyId ?? "unknown"} age_days=${stub.ageDays ?? "unknown"} cli=${cliVersion} -->`,
+  );
   return lines.join("\n");
 }

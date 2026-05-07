@@ -187,7 +187,7 @@ Exit codes:
 `);
 }
 
-export async function recon(argv: string[], _cliVersion: string): Promise<void> {
+export async function recon(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
   if (args.reuseScan) {
@@ -196,7 +196,7 @@ export async function recon(argv: string[], _cliVersion: string): Promise<void> 
   }
 
   if (args.stubScan) {
-    await runStubScan(args);
+    await runStubScan(args, cliVersion);
     return;
   }
 
@@ -553,7 +553,7 @@ function walkTsFiles(root: string, out: string[]): void {
  * reports stale ones + (when --stub-escalate) posts PM comment on each
  * stub's source issue.
  */
-async function runStubScan(args: ReconArgs): Promise<void> {
+async function runStubScan(args: ReconArgs, cliVersion: string): Promise<void> {
   const { execSync } = await import("node:child_process");
   const {
     detectStubMarker,
@@ -662,7 +662,7 @@ async function runStubScan(args: ReconArgs): Promise<void> {
           continue;
         }
         const issueNumber = parseInt(issueMatch[1]!, 10);
-        const body = buildStaleStubComment(s, args.stubMaxAgeDays);
+        const body = buildStaleStubComment(s, args.stubMaxAgeDays, cliVersion);
         const tmp = "/tmp/slowcook-stale-stub-comment.md";
         writeFileSync(tmp, body, "utf8");
         try {

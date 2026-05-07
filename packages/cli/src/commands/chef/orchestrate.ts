@@ -288,17 +288,33 @@ export function persistVerdict(
   return path;
 }
 
+/**
+ * 0.19.0-α.12 — append a slowcook:cost HTML marker to a chef-orchestrate
+ * comment body. Pure: takes the LLM-emitted body + cost data, returns
+ * the body with the marker appended. Format matches refine / brew /
+ * plate / vibe so `gh issue view N | grep slowcook:cost` aggregates
+ * spend across the whole pipeline including chef-orchestrate.
+ */
+function withCostMarker(body: string, kind: string, costUsd: number, cliVersion: string, prNumber: number): string {
+  return (
+    body.replace(/\n+$/, "") +
+    `\n\n<!-- slowcook:cost agent=chef-orchestrate usd=${costUsd.toFixed(4)} kind=${kind} pr=${prNumber} cli=${cliVersion} -->\n`
+  );
+}
+
 function applyEscalate(
   repoRoot: string,
   prNumber: number,
   action: ChefOrchestrateEscalateAction,
+  costUsd: number,
+  cliVersion: string,
 ): { posted: boolean; labeled: boolean } {
   const slug = repoSlug(repoRoot);
   let posted = false;
   let labeled = false;
   // Comment on the source ISSUE (escalation goes to the PM, not the bot PR).
   const tmp = "/tmp/chef-orchestrate-escalate-comment.md";
-  writeFileSync(tmp, action.comment, "utf8");
+  writeFileSync(tmp, withCostMarker(action.comment, "escalate", costUsd, cliVersion, prNumber), "utf8");
   try {
     execSync(
       `gh issue comment ${action.issue_number} --repo "${slug}" --body-file ${tmp}`,
@@ -325,12 +341,14 @@ function applyClose(
   repoRoot: string,
   prNumber: number,
   action: ChefOrchestrateCloseAction,
+  costUsd: number,
+  cliVersion: string,
 ): { commented: boolean; closed: boolean } {
   const slug = repoSlug(repoRoot);
   let commented = false;
   let closed = false;
   const tmp = "/tmp/chef-orchestrate-close-comment.md";
-  writeFileSync(tmp, action.comment, "utf8");
+  writeFileSync(tmp, withCostMarker(action.comment, "close", costUsd, cliVersion, prNumber), "utf8");
   try {
     execSync(
       `gh pr comment ${prNumber} --repo "${slug}" --body-file ${tmp}`,
@@ -352,7 +370,7 @@ function applyClose(
   return { commented, closed };
 }
 
-export async function chefOrchestrate(argv: string[], _cliVersion: string): Promise<void> {
+export async function chefOrchestrate(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
   const apiKey = process.env["ANTHROPIC_API_KEY"];
@@ -433,14 +451,14 @@ export async function chefOrchestrate(argv: string[], _cliVersion: string): Prom
     case "escalate": {
       const action = verdict.action as ChefOrchestrateEscalateAction;
       console.log(`  → escalate: post comment on issue #${action.issue_number} + apply label '${action.label}' to PR #${args.prNumber}`);
-      const r = applyEscalate(args.repoRoot, args.prNumber, action);
+      const r = applyEscalate(args.repoRoot, args.prNumber, action, resp.costUsd, cliVersion);
       console.log(`     posted=${r.posted} labeled=${r.labeled}`);
       break;
     }
     case "close": {
       const action = verdict.action as ChefOrchestrateCloseAction;
       console.log(`  → close PR #${args.prNumber}: ${action.reason}`);
-      const r = applyClose(args.repoRoot, args.prNumber, action);
+      const r = applyClose(args.repoRoot, args.prNumber, action, resp.costUsd, cliVersion);
       console.log(`     commented=${r.commented} closed=${r.closed}`);
       break;
     }
