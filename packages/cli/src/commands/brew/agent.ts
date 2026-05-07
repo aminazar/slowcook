@@ -104,6 +104,92 @@ export interface BrewContext {
    *   editing a frozen UI file.
    */
   mode?: "legacy" | "plate";
+  /**
+   * 0.19.0-alpha.4 — pair-brew navigator hook (production wiring of
+   * the validated pair-sim experiment). Fires AFTER the iteration's
+   * existing regression / no-progress checks have passed, BEFORE the
+   * checkpoint is committed. Use it to add a "design fidelity / cross-
+   * story risk / responsive / accessibility" verdict beyond what
+   * vitest can observe.
+   *
+   * Returning a verdict with `overall: "block"` causes the iteration
+   * to revert + treat as a no-progress iter (its concerns fold into
+   * the next iter's `prior_attempts` history). Returning null OR a
+   * non-block verdict lets the iteration proceed to checkpoint as
+   * normal.
+   *
+   * Default: undefined — no behavioral change vs pre-α.4 brew. Inject
+   * via the cli's `--with-navigator` flag (wired up in α.5+) or via
+   * a unit-test stub.
+   */
+  navigatorHook?: NavigatorHook;
+}
+
+/**
+ * 0.19.0-alpha.4 — interface for the pair-brew navigator review.
+ * Pure I/O contract; brew/agent.ts calls it with iteration context
+ * and consumes the verdict deterministically. The default Anthropic-
+ * backed implementation lives in `pair-navigator.ts`; tests inject
+ * a stub.
+ */
+export interface NavigatorHook {
+  /**
+   * Called after a successful iteration's existing checks pass + before
+   * the checkpoint is committed. Implementations may call an LLM, do
+   * static analysis, or return null to abstain.
+   *
+   * @returns null when the navigator abstains (no opinion / disabled
+   *   for this iter); a NavigatorHookVerdict otherwise.
+   */
+  review(input: NavigatorHookInput): Promise<NavigatorHookVerdict | null>;
+}
+
+export interface NavigatorHookInput {
+  iteration: number;
+  storyId: string;
+  /** Files changed by this iteration. */
+  filesTouched: string[];
+  /** Diff lines added in this iteration. */
+  linesAdded: number;
+  /** Diff lines removed in this iteration. */
+  linesRemoved: number;
+  /** Driver's stated rationale for the changes. */
+  rationale: string;
+  /** Tests that just went red→green this iter. */
+  gainedTests: string[];
+  /** Repo root, so the hook can read additional context if needed. */
+  repoRoot: string;
+}
+
+export interface NavigatorHookVerdict {
+  overall: "approve" | "block";
+  /** Per-axis concerns; surfaced in audit + folded into next iter on block. */
+  concerns: string[];
+  /** Cost incurred (USD). Tracked against budget by callers that care. */
+  costUsd?: number;
+}
+
+/**
+ * 0.19.0-alpha.4 — pure decision helper for navigator verdicts. Pulled
+ * out of the runBrew loop so unit tests can exercise the consumer
+ * logic without standing up the full brew context.
+ *
+ * Inputs: a verdict (or null when no hook configured / abstaining).
+ * Output: { action, concernsSummary, costUsd } — concernsSummary is
+ *   only set when action='block' (used for revert-history note).
+ */
+export function decideNavigatorAction(
+  verdict: NavigatorHookVerdict | null,
+): { action: "approve" | "block"; concernsSummary: string; costUsd: number } {
+  if (!verdict) {
+    return { action: "approve", concernsSummary: "", costUsd: 0 };
+  }
+  const cost = verdict.costUsd ?? 0;
+  if (verdict.overall === "block") {
+    const summary = verdict.concerns.slice(0, 5).join("; ") || "(no concerns text)";
+    return { action: "block", concernsSummary: summary, costUsd: cost };
+  }
+  return { action: "approve", concernsSummary: "", costUsd: cost };
 }
 
 export interface FrozenPaths {
@@ -889,6 +975,53 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         `ITER ${iteration} REVERT no-progress  files=[${diff.changedPaths.slice(0, 3).join(",")}${diff.changedPaths.length > 3 ? "+" + (diff.changedPaths.length - 3) : ""}] +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
+    }
+
+    // 0.19.0-alpha.4 — pair-brew navigator hook. Fires only when one
+    // is configured (default: no hook → no behavioral change). On
+    // 'block', the iteration reverts + folds the concerns into next
+    // iter's prior_attempts. On 'approve' or null, the checkpoint
+    // proceeds.
+    if (ctx.navigatorHook) {
+      const navVerdict = await ctx.navigatorHook.review({
+        iteration,
+        storyId: ctx.storyId,
+        filesTouched: diff.changedPaths,
+        linesAdded: diff.linesAdded,
+        linesRemoved: diff.linesRemoved,
+        rationale: turnResult.rationale,
+        gainedTests: gains,
+        repoRoot: ctx.repoRoot,
+      });
+      const navDecision = decideNavigatorAction(navVerdict);
+      spendUsd += navDecision.costUsd;
+      if (navDecision.action === "block") {
+        appendRunLog(
+          ctx,
+          `ITER ${iteration} NAVIGATOR_BLOCK files=${diff.changedPaths.length} concerns=${(navVerdict?.concerns.length ?? 0)} cost=$${navDecision.costUsd.toFixed(2)}`
+        );
+        revertToSnapshot(ctx, snapshot);
+        priorAttempts.push({
+          iteration,
+          outcome: "reverted-no-progress",
+          note: `navigator blocked: ${navDecision.concernsSummary}`,
+          files_touched: diff.changedPaths,
+        });
+        iterationLogs.push({
+          iteration,
+          target_test_id: currentTarget,
+          outcome: "reverted-no-progress",
+          note: `navigator blocked: ${navDecision.concernsSummary}`,
+          files_touched: diff.changedPaths,
+          lines_added: diff.linesAdded,
+          lines_removed: diff.linesRemoved,
+          spend_delta_usd: turnResult.spendDelta + navDecision.costUsd,
+          rationale: turnResult.rationale,
+        });
+        stagnation += 1;
+        continue;
+      }
+      // approve → fall through to checkpoint commit
     }
 
     // Progress! checkpoint

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findHandler, outlineFile, parseHaltEnvelope } from "./agent.js";
+import { findHandler, outlineFile, parseHaltEnvelope, decideNavigatorAction } from "./agent.js";
+import type { NavigatorHookVerdict } from "./agent.js";
 
 function mkRepo(): string {
   return mkdtempSync(join(tmpdir(), "slowcook-brew-helpers-"));
@@ -202,5 +203,61 @@ Trailing notes...`;
     const out = parseHaltEnvelope(rationale);
     expect(out?.class).toBe("MOCKUP_DESIGN_CONFLICT");
     expect(out?.summary).toBe("name mismatch");
+  });
+});
+
+describe("decideNavigatorAction (pair-brew prod hook helper)", () => {
+  it("returns approve / 0-cost when verdict is null (no hook configured)", () => {
+    const r = decideNavigatorAction(null);
+    expect(r.action).toBe("approve");
+    expect(r.costUsd).toBe(0);
+    expect(r.concernsSummary).toBe("");
+  });
+
+  it("returns approve when verdict is approve", () => {
+    const v: NavigatorHookVerdict = { overall: "approve", concerns: [] };
+    const r = decideNavigatorAction(v);
+    expect(r.action).toBe("approve");
+    expect(r.concernsSummary).toBe("");
+  });
+
+  it("returns block + summary + cost when verdict is block", () => {
+    const v: NavigatorHookVerdict = {
+      overall: "block",
+      concerns: ["mobile breakpoint missing", "cross-story regression risk on /feed"],
+      costUsd: 0.0123,
+    };
+    const r = decideNavigatorAction(v);
+    expect(r.action).toBe("block");
+    expect(r.costUsd).toBe(0.0123);
+    expect(r.concernsSummary).toBe("mobile breakpoint missing; cross-story regression risk on /feed");
+  });
+
+  it("caps concerns summary at 5 entries", () => {
+    const v: NavigatorHookVerdict = {
+      overall: "block",
+      concerns: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+    };
+    const r = decideNavigatorAction(v);
+    expect(r.concernsSummary).toBe("c1; c2; c3; c4; c5");
+  });
+
+  it("uses '(no concerns text)' fallback when block has empty concerns array", () => {
+    const v: NavigatorHookVerdict = { overall: "block", concerns: [] };
+    const r = decideNavigatorAction(v);
+    expect(r.concernsSummary).toBe("(no concerns text)");
+  });
+
+  it("treats missing costUsd as 0", () => {
+    const v: NavigatorHookVerdict = { overall: "approve", concerns: [] };
+    const r = decideNavigatorAction(v);
+    expect(r.costUsd).toBe(0);
+  });
+
+  it("preserves costUsd on approve verdicts (still tallies budget)", () => {
+    const v: NavigatorHookVerdict = { overall: "approve", concerns: [], costUsd: 0.005 };
+    const r = decideNavigatorAction(v);
+    expect(r.action).toBe("approve");
+    expect(r.costUsd).toBe(0.005);
   });
 });
