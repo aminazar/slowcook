@@ -48,6 +48,11 @@ interface ReconArgs {
   reuseThreshold: number;
   reuseRoot: string;
   reuseWriteProposals: boolean;
+  /** 0.19.0-α.10 (#85) — repeatable glob patterns to exclude from the
+   *  reuse scan. Auto-template files (matched by isAutoTemplateFile)
+   *  are excluded by default; --no-skip-auto-templates disables that. */
+  reuseExcludes: string[];
+  reuseSkipAutoTemplates: boolean;
 }
 
 interface RenameProposal {
@@ -94,6 +99,8 @@ function parseArgs(argv: string[]): ReconArgs {
     reuseThreshold: 0.7,
     reuseRoot: "src",
     reuseWriteProposals: false,
+    reuseExcludes: [],
+    reuseSkipAutoTemplates: true,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -106,6 +113,8 @@ function parseArgs(argv: string[]): ReconArgs {
     else if (a === "--reuse-threshold" && next) { args.reuseThreshold = parseFloat(next); i++; }
     else if (a === "--reuse-root" && next) { args.reuseRoot = next; i++; }
     else if (a === "--write-proposals") { args.reuseWriteProposals = true; }
+    else if (a === "--exclude" && next) { args.reuseExcludes.push(next); i++; }
+    else if (a === "--no-skip-auto-templates") { args.reuseSkipAutoTemplates = false; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
   if (!args.reuseScan && !args.story) {
@@ -137,14 +146,22 @@ Options (story mode — default):
   --out <path>   Output JSON path (default: .brewing/recon-result.json).
   --verbose      Print detailed breakdown to stdout.
 
-Options (reuse-scan mode — 0.19.0-α.8):
-  --reuse-scan         Story-agnostic; flag near-duplicate components +
-                       API handlers + utility modules across the codebase.
-  --reuse-root <path>  Subtree to scan (default: src).
-  --reuse-threshold <n>  Similarity threshold 0-1 (default: 0.7).
-  --write-proposals    Append synthesized RefactorProposal entries to
-                       .brewing/refactor/proposals.json so the refactor
-                       command ranks them.
+Options (reuse-scan mode — 0.19.0-α.8+):
+  --reuse-scan              Story-agnostic; flag near-duplicate components +
+                            API handlers + utility modules across the codebase.
+  --reuse-root <path>       Subtree to scan (default: src).
+  --reuse-threshold <n>     Similarity threshold 0-1 (default: 0.7).
+  --write-proposals         Append synthesized RefactorProposal entries to
+                            .brewing/refactor/proposals.json so the refactor
+                            command ranks them.
+  --exclude <glob>          (α.10) Repeatable. Skip files matching the glob.
+                            Supports: exact / "src/dir/" / "src/dir/*" /
+                            "src/dir/**" / "*.mock.ts".
+  --no-skip-auto-templates  (α.10) By default, recon skips files marked with
+                            @slowcook-template / @slowcook-stub / @generated /
+                            "AUTO-GENERATED" / "do not edit by hand". This
+                            disables that filter (you'll see template-vs-template
+                            duplicates again).
 
 Exit codes:
   0  status=clean OR status=rename_needed OR --reuse-scan completed
@@ -397,11 +414,19 @@ async function runReuseScan(args: ReconArgs): Promise<void> {
     extractStructuralSignature,
     scanForDuplicates,
     pairToRefactorProposal,
+    isAutoTemplateFile,
+    matchesExcludePattern,
   } = await import("./reuse.js");
 
   console.log(
     `slowcook recon --reuse-scan · root: ${args.reuseRoot} · threshold: ${args.reuseThreshold} · cwd: ${relative(process.cwd(), args.repoRoot) || "."}`
   );
+  if (args.reuseExcludes.length > 0) {
+    console.log(`  excludes: ${args.reuseExcludes.join(", ")}`);
+  }
+  if (args.reuseSkipAutoTemplates) {
+    console.log(`  auto-template skip: ENABLED (--no-skip-auto-templates to disable)`);
+  }
 
   const rootAbs = join(args.repoRoot, args.reuseRoot);
   if (!existsSync(rootAbs)) {
@@ -409,9 +434,33 @@ async function runReuseScan(args: ReconArgs): Promise<void> {
     process.exit(2);
   }
 
+  const allFiles: string[] = [];
+  walkTsFiles(rootAbs, allFiles);
+
+  // Apply --exclude patterns first (cheap filename match), then read
+  // file content + apply auto-template skip (more expensive — needs
+  // file read).
   const files: string[] = [];
-  walkTsFiles(rootAbs, files);
-  console.log(`  scanning ${files.length} .ts/.tsx files under ${args.reuseRoot}/`);
+  let excludedByPattern = 0;
+  let excludedAsTemplate = 0;
+  for (const abs of allFiles) {
+    const rel = relative(args.repoRoot, abs).replace(/\\/g, "/");
+    if (args.reuseExcludes.some((p) => matchesExcludePattern(rel, p))) {
+      excludedByPattern++;
+      continue;
+    }
+    if (args.reuseSkipAutoTemplates) {
+      const head = readFileSync(abs, "utf8");
+      if (isAutoTemplateFile(head)) {
+        excludedAsTemplate++;
+        continue;
+      }
+    }
+    files.push(abs);
+  }
+  console.log(
+    `  scanning ${files.length} .ts/.tsx files under ${args.reuseRoot}/ (excluded: ${excludedByPattern} by pattern, ${excludedAsTemplate} as auto-template)`
+  );
 
   const sigs = files.map((abs) => {
     const rel = relative(args.repoRoot, abs).replace(/\\/g, "/");
