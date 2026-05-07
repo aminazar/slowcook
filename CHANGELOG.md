@@ -6,6 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.9 → α.11 — chef stack auto-loop, default pair-brew nav, reuse/stub filters
+
+Cut 2026-05-07 (afternoon session). Four-task autonomous run closing the post-checkpoint task list (#83 / #82 / #85 / #84). 668 → 718 cli tests across the run; $0 Anthropic spend (only deterministic helpers + dry-run dispatches).
+
+- **α.9 — Default Anthropic-backed pair-brew + `--with-navigator` flag (#82)**: `slowcook brew --with-navigator` constructs a default `NavigatorHook` that calls Anthropic with `NAVIGATOR_SYSTEM` + `buildNavigatorPrompt`, parses the response as `NavigatorVerdict`, adapts to the brew-loop's `NavigatorHookVerdict` shape via the pure helper `navigatorVerdictToHookVerdict`. Per-call cost-budget guard (default $0.10/iter) returns null on overrun → brew abstains. Lean prompt-context loader pulls mockFiles + codeMapDigest + specYaml from disk. 18 unit tests on the pure helpers. End-to-end real brew validation awaits ANTHROPIC budget.
+- **α.10 — Reuse-scan filters (#85)**: `recon --reuse-scan` now defaults to skipping files marked `@slowcook-template` / `@slowcook-stub` / `@generated` / "AUTO-GENERATED" / "do not edit by hand" (header-only check, first 400 chars). New `--exclude <glob>` flag for project-specific filtering. Empirical impact on rewo: 65 → 7 pairs (89% noise reduction); the 19 excluded files were exactly the noise — entities templates + stubs + mock barrels. `--no-skip-auto-templates` disables the default. 13 unit tests.
+- **α.11 — Stale-stub detector (#84)**: `recon --stub-scan` walks `src/` for `@slowcook-stub` markers, ages each via `git log --diff-filter=A --follow --reverse` (file's first-add commit), classifies fresh/stale/unknown against `--stub-max-age-days` (default 14). Optional `--stub-escalate` posts a PM-actionable comment on the stub's source issue with three options (re-dispatch / hand-write / withdraw). Closes the gap reuse-scan exposed: stubs are incomplete-work signal, not refactor signal. 19 unit tests.
+
+### Workflow integration (rewo-side)
+
+- **chef-drift exit-1 → chef-orchestrate auto-chain (#83)**: when chef-drift exits 1 in `--pr` finisher mode, the workflow now automatically dispatches chef-orchestrate against the same PR. Closes the chef stack manual-dispatch loop. Final-exit-code policy: workflow exits 0 when chef-drift OR chef-orchestrate succeeded; exits 1 only when both halted. Dry-run dispatch (run 25470122594) validated the YAML structure + step gating; failure-path empirical validation awaits next organic halt.
+
+### Operations note
+
+Yesterday's npm → pnpm migration on rewo broke the scheduled tier-2 acceptance workflow (`npm ci` against a missing `package-lock.json`). Surfaced today; fixed by switching all rewo consumer-deps install steps (acceptance / brew / sift / vibe / slowcook / pair-sim) to `pnpm/action-setup@v4` + `pnpm install --frozen-lockfile`. Knock-on bug from a clean migration; would have hit the next dispatched workflow regardless of which.
+
+### Test coverage
+
+`@slowcook-ai/cli` 718/718 passing (was 562 at session start, 668 at midday checkpoint). `@slowcook-ai/llm-anthropic` 13/13.
+
+---
+
 ## 0.19.0-alpha.4 → α.8 — pair-brew prod wiring, recon shape v2, refactor + reuse-scan
 
 Cut 2026-05-07. Five-alpha autonomous run shipping the long-deferred slowcook task list (#76, #77, #75, #64, plus reuse-scan as a follow-on). All pure-helper-tested locally; no Anthropic dispatch needed beyond the L3 dogfood ($0.012 on rewo PR #153). 562 → 668 cli tests across the run.

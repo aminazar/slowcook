@@ -15,7 +15,7 @@
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.8` (alpha) | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: + chef L2 finisher + chef L3 orchestrator + pair-brew prod hook + navigator-emitted tests + recon shape v2 + recon `--reuse-scan` + `slowcook refactor` + init mock pnpm-workspace |
+| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.11` (alpha) | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: + chef L2 finisher + chef L3 orchestrator + chef stack auto-chain + pair-brew prod hook + `--with-navigator` flag + navigator-emitted tests + recon shape v2 + `recon --reuse-scan` (with auto-template skip + `--exclude`) + `recon --stub-scan` (stale-stub detector) + `slowcook refactor` + init mock pnpm-workspace |
 | `@slowcook-ai/llm-anthropic` | `0.15.0` | chef + navigator structured prompts; refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit |
 | `@slowcook-ai/forge-github` | `0.11.7` | vibe template `regenerate` dispatch input (deletes existing mockup branch + closes PR before re-vibing); brew-auto plate-only mode |
 | `@slowcook-ai/stack-ts` | `0.9.8` | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
@@ -44,13 +44,16 @@
 - **Navigator emits hard-signal tests** (cli `0.19.0-α.5`, #77): when soft prompts are ignored across iters, navigator's verdict can carry a `proposedTest` written to `tests/navigator/`. Path-validated. Hard signal escapes the entities-falsified soft-prompt-ignored failure mode.
 - **Recon shape v2** (cli `0.19.0-α.6`, #75): `synthesiseShapeTestFile({ emitMode: "v2" })` imports + mounts each component via `@testing-library/react` + queries the live DOM. Catches dynamic-className drift v1's source-grep tests miss.
 - **Refactor command** (cli `0.19.0-α.7`, #64): `slowcook refactor` reads `.brewing/refactor/proposals.json`, filters by `--scope`, ranks by benefit-per-cost. Source-agnostic; boundedness rule keeps refactors surgical.
-- **Recon `--reuse-scan`** (cli `0.19.0-α.8`): deterministic near-duplicate detection across components AND API/utility files. Pure regex + Jaccard; auto-categorizes by JSX presence; cross-category short-circuits to 0. `--write-proposals` feeds `slowcook refactor` directly. Validated on rewo: 11 real-signal pairs after filtering template noise; chronic dup-creation NOT actually present, so pre-write prevention deferred.
+- **Recon `--reuse-scan`** (cli `0.19.0-α.8`+, `α.10` filters): deterministic near-duplicate detection across components AND API/utility files. Pure regex + Jaccard; auto-categorizes by JSX presence; cross-category short-circuits to 0. `α.10` adds default auto-template-skip (matches `@slowcook-template` / `@generated` / "AUTO-GENERATED" headers) + `--exclude <glob>`. Empirical: 65 → 7 pairs on rewo (89% noise reduction).
+- **Default Anthropic-backed pair-brew + `--with-navigator`** (cli `0.19.0-α.9`, #82): `slowcook brew --with-navigator` injects the default `NavigatorHook` into ctx. Adapter pure-tested; end-to-end real brew validation awaits ANTHROPIC budget.
+- **Recon `--stub-scan`** (cli `0.19.0-α.11`, #84): walks `src/` for `@slowcook-stub` markers, ages each via `git log --diff-filter=A`, classifies fresh/stale/unknown against `--stub-max-age-days` (default 14). Optional `--stub-escalate` posts PM-actionable comments on the source issue. Different signal class from reuse-scan (incomplete work, not refactor).
+- **Chef stack auto-loop** (rewo-side workflow, #83): chef-drift exit-1 in `--pr` finisher mode auto-dispatches chef-orchestrate. Closes the manual-dispatch gap.
 - **`slowcook init mock` auto-wires pnpm workspace** (cli `0.19.0-α.3`): detects pnpm consumers + appends `mock` to `pnpm-workspace.yaml` (or creates it). Eliminates duplicate-`node_modules` trap. Honors npm/yarn consumers with a recommendation rather than auto-migrating.
 
 **Pending** (genuinely open, not yet shipped):
-- Default Anthropic-backed pair-brew navigator + `--with-navigator` cli flag (α.9+)
-- Workflow integration: chef-drift exit-1 chains to chef-orchestrate
-- Stale-stub detector (separate from reuse-scan; fires on `@slowcook-stub` markers older than N days)
+- Empirical real-brew validation of `--with-navigator` (needs ANTHROPIC budget + a halt-prone story)
+- Empirical chain validation of chef-drift exit-1 → chef-orchestrate (needs an organic halt)
+- Persistent-block tracking in the default pair-navigator's prompt context loader (so the proposedTest hard-signal escalation logic α.5 can fire)
 - Drift detection (planned 0.19)
 
 **End-to-end validated (legacy mode):** rewo issue #149 → PR #154 on 2026-05-04 ($1.29, 5 iters, 35/35 green). The plate-mode `@slowcook-port-from` carve-out has been deleted from the roadmap — the entities-hypothesis falsification (above) showed prop-shape drift can't be retired with structural rails alone. The architecture has settled on **pair-brew + chef as a two-layer system**: pair-brew (α.8 prototype shipped) is the failure DETECTOR — driver writes; navigator reviews per-iteration, can BLOCK with structured axes. Chef α.9 L1 (shipped + empirically validated) is the failure RESOLVER — surgical micromanaging editor that takes recon/brew/navigator escalations, makes search_replace edits across spec + mockup + src/, never touches tests, escalates to PM only on genuine ambiguity. See `docs/experiments/pair-brew-real-runs-2026-05-04.md` + the chef commits `a7df238…e86d75e` for the empirical record.
