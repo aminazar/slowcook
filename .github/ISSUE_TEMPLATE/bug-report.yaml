@@ -1,0 +1,119 @@
+name: Bug report
+description: Report a slowcook bug. Read REPORTING.md before filing.
+title: "[bug] "
+labels:
+  - bug
+  - needs-info
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please read [REPORTING.md](https://github.com/aminazar/slowcook/blob/main/REPORTING.md).
+        We **don't accept artifact bundles or log uploads** — share URLs to your visible GitHub
+        surfaces and we'll work from there. For private repos, the recipe at the bottom of
+        REPORTING.md (Triage role or scoped read-only PAT) keeps secrets in your control.
+
+  - type: input
+    id: source-issue-url
+    attributes:
+      label: Source-issue URL
+      description: |
+        The GitHub issue that started the affected story (the issue refine read).
+        Public repos: paste the URL. Private repos: name the issue + state your read-access plan
+        (Triage role grant or scoped PAT) — the maintainer will follow up.
+      placeholder: https://github.com/your-org/your-repo/issues/N
+    validations:
+      required: true
+
+  - type: textarea
+    id: pr-urls
+    attributes:
+      label: PR URLs
+      description: |
+        Whichever slowcook-bot PRs are involved (`/spec/`, `/mockup/`, `/tests/`, `/brew/`).
+        One per line.
+      placeholder: |
+        https://github.com/your-org/your-repo/pull/123
+        https://github.com/your-org/your-repo/pull/124
+    validations:
+      required: false
+
+  - type: input
+    id: workflow-run-url
+    attributes:
+      label: Workflow run URL
+      description: |
+        The specific failed run. Public repos: logs + artifacts are visible to maintainer
+        directly. Private repos: name the run; maintainer pulls it once read access is granted.
+      placeholder: https://github.com/your-org/your-repo/actions/runs/123456789
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Affected agent / command
+      description: Which slowcook agent / command misbehaved? Pick the closest.
+      options:
+        - "refine (spec from issue)"
+        - "vibe (mockup from spec)"
+        - "plate (mockup amendments)"
+        - "recipe / testgen (tests from spec)"
+        - "brew (implementation loop)"
+        - "chef (PR-CI failure handler)"
+        - "chef-drift (surgical drift-fixer)"
+        - "chef-orchestrate (pipeline orchestrator)"
+        - "recon (pre-brew structural check, --reuse-scan, --stub-scan)"
+        - "investigate (bug-profile from issue)"
+        - "sift (bug-fix narrowing)"
+        - "init (init / init from-prod / init entities / init mock)"
+        - "port (mock → src copy)"
+        - "refactor (proposal ranker)"
+        - "docs / cli infra"
+        - "other / not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: cli-version
+    attributes:
+      label: cli version
+      description: Output of `slowcook --version` (or the value from `.brewing/slowcook-cli-version`).
+      placeholder: 0.19.0-alpha.14
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-vs-actual
+    attributes:
+      label: Expected vs. actual
+      description: One paragraph each. What did you expect slowcook to do? What did it do instead?
+      placeholder: |
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: cost-markers
+    attributes:
+      label: Cost markers (optional)
+      description: |
+        Output of `gh issue view <source-issue> --comments | grep slowcook:cost` for the
+        affected story — gives the maintainer a per-agent cost / verdict trail for reproduction.
+        Skip if your repo is private + you haven't granted read access yet.
+      placeholder: |
+        <!-- slowcook:cost agent=refine usd=0.4630 round=questions ... -->
+        <!-- slowcook:cost agent=brew usd=0.6291 halted=AGENT_STALLED_NO_EDITS ... -->
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: read-reporting
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I read [REPORTING.md](https://github.com/aminazar/slowcook/blob/main/REPORTING.md)
+          required: true
+        - label: I'm not pasting log dumps, artifact bundles, or secrets into this issue
+          required: true

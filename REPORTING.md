@@ -142,11 +142,50 @@ without any custom bundling.
 
 ## Where to file
 
-- **Public bug reports**: <https://github.com/aminazar/slowcook/issues>
+- **Public bug reports**: <https://github.com/aminazar/slowcook/issues>.
+  The bug-report issue template (auto-applied when you click "New issue")
+  asks for the four URLs the maintainer needs.
 - **Private bug reports** (when artifacts can't be public): same repo,
   **but file a public issue** with the description + your reproduction
   arrangement. Don't paste private logs into a public issue. The
   maintainer responds with the access path that works for your setup.
+
+---
+
+## What you'll see when a fix ships
+
+When the maintainer ships a fix in a new alpha (e.g., `cli@0.19.0-alpha.X`),
+expect a comment on your bug issue along these lines:
+
+> Fixed in `cli@0.19.0-alpha.X`. Bump your `.brewing/slowcook-cli-version`
+> and re-run. Close this issue if resolved; comment if not.
+>
+> `<!-- slowcook:fix-notice cli=0.19.0-alpha.X issue=N -->`
+
+The issue stays **open** until you confirm the fix worked. You close it.
+That gives the maintainer signal that the fix actually landed in your
+context — not just in slowcook's own test suite.
+
+If the fix didn't work, comment on the issue with what's still broken.
+The maintainer reopens (if you closed) or continues debugging.
+
+## Triage labels
+
+The slowcook repo uses a small label set so you can filter for what's
+actionable:
+
+| Label | Meaning |
+|---|---|
+| `bug` | Confirmed bug. Auto-applied by the issue template. |
+| `needs-info` | Maintainer needs more context (additional URL, runner output, etc.). |
+| `confirmed` | Maintainer reproduced; working on a fix. |
+| `regression-test-pending` | Fix landed but the regression test is still TODO. |
+| `fixed-in-α.X` | Fix shipped in `cli@0.19.0-alpha.X`. Reporter to confirm + close. |
+| `blocked-on-anthropic` | Bug is in the Anthropic API / SDK, not slowcook. |
+| `wont-fix` | Out of scope or incompatible with architectural intent. |
+
+Filter via GitHub's issue search, e.g.:
+`gh issue list --repo aminazar/slowcook --label "fixed-in-α.13"`
 
 ---
 

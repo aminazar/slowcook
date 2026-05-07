@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How to file a slowcook bug
+    url: https://github.com/aminazar/slowcook/blob/main/REPORTING.md
+    about: Read this BEFORE filing. We don't accept artifact bundles — share URLs.
+  - name: AI-agent onboarding (Claude Code, Cursor, etc.)
+    url: https://github.com/aminazar/slowcook/blob/main/AGENTS.md
+    about: Pipeline overview, command reference, pitfalls memory.
+  - name: Discussion / question
+    url: https://github.com/aminazar/slowcook/discussions
+    about: For open-ended questions and design discussion (not bugs).
