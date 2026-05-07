@@ -167,6 +167,23 @@ export interface NavigatorHookVerdict {
   concerns: string[];
   /** Cost incurred (USD). Tracked against budget by callers that care. */
   costUsd?: number;
+  /**
+   * 0.19.0-alpha.5 (#77) — when navigator's soft signals (concerns
+   * folded into prompts) have been ignored across iterations, it may
+   * emit a HARD signal: a failing test that codifies the concern. The
+   * test file is written into tests/navigator/ + becomes part of the
+   * next iter's red-set, so driver MUST satisfy it.
+   *
+   * Path constraints (validated by validateProposedTestPath):
+   *   - must start with `tests/navigator/`
+   *   - must end with `.test.ts` or `.test.tsx`
+   *   - no .. or absolute paths
+   * Content is the literal file body (vitest test).
+   *
+   * Optional. Hook implementations gate this on their own escalation
+   * heuristics (e.g., 2+ consecutive blocks on the same concern).
+   */
+  proposedTest?: { path: string; content: string };
 }
 
 /**
@@ -190,6 +207,62 @@ export function decideNavigatorAction(
     return { action: "block", concernsSummary: summary, costUsd: cost };
   }
   return { action: "approve", concernsSummary: "", costUsd: cost };
+}
+
+/**
+ * 0.19.0-alpha.5 (#77) — validate a navigator-proposed test path.
+ * Pure: takes a candidate path string + returns either the normalized
+ * path or an error reason. Centralizes the path-shape rules so brew's
+ * apply step + tests share the same gate.
+ *
+ * Rules:
+ *   - must be relative
+ *   - must start with `tests/navigator/`
+ *   - must end with `.test.ts` or `.test.tsx`
+ *   - no `..` segments
+ *   - no leading slash
+ */
+export function validateProposedTestPath(
+  path: string,
+): { ok: true; path: string } | { ok: false; reason: string } {
+  if (typeof path !== "string" || path.length === 0) {
+    return { ok: false, reason: "path is empty" };
+  }
+  if (path.startsWith("/")) {
+    return { ok: false, reason: "absolute paths not allowed" };
+  }
+  if (path.split("/").includes("..")) {
+    return { ok: false, reason: "'..' segments not allowed" };
+  }
+  if (!path.startsWith("tests/navigator/")) {
+    return { ok: false, reason: "must start with 'tests/navigator/'" };
+  }
+  if (!path.endsWith(".test.ts") && !path.endsWith(".test.tsx")) {
+    return { ok: false, reason: "must end with '.test.ts' or '.test.tsx'" };
+  }
+  return { ok: true, path };
+}
+
+/**
+ * 0.19.0-alpha.5 (#77) — extract a navigator-proposed test from a
+ * verdict. Pure: returns the validated file payload OR null when the
+ * verdict has no proposedTest / fails validation. Caller owns the
+ * write side-effect.
+ *
+ * Note: only proposedTests on BLOCK verdicts are honored. An approve
+ * verdict with proposedTest is a logic error in the hook and we
+ * silently drop it (this prevents a navigator from polluting tests/
+ * mid-run on iterations it actually approved of).
+ */
+export function extractNavigatorProposedTest(
+  verdict: NavigatorHookVerdict | null,
+): { path: string; content: string } | null {
+  if (!verdict || verdict.overall !== "block" || !verdict.proposedTest) return null;
+  const { path, content } = verdict.proposedTest;
+  const v = validateProposedTestPath(path);
+  if (!v.ok) return null;
+  if (typeof content !== "string" || content.length === 0) return null;
+  return { path: v.path, content };
 }
 
 export interface FrozenPaths {
@@ -1001,17 +1074,36 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
           `ITER ${iteration} NAVIGATOR_BLOCK files=${diff.changedPaths.length} concerns=${(navVerdict?.concerns.length ?? 0)} cost=$${navDecision.costUsd.toFixed(2)}`
         );
         revertToSnapshot(ctx, snapshot);
+        // 0.19.0-alpha.5 (#77) — navigator may emit a hard-signal test
+        // when its soft prompts are being ignored. Write only AFTER
+        // revert (the reverted state is the file system the test will
+        // be run against). validateProposedTestPath has already
+        // confirmed the path is under tests/navigator/, so frozen-path
+        // checks won't catch it (tests/ is intentionally writable for
+        // navigator escalations only).
+        const proposed = extractNavigatorProposedTest(navVerdict);
+        let proposedTestNote = "";
+        if (proposed) {
+          const abs = join(ctx.repoRoot, proposed.path);
+          mkdirSync(dirname(abs), { recursive: true });
+          writeFileSync(abs, proposed.content, "utf8");
+          proposedTestNote = ` · navigator emitted test: ${proposed.path}`;
+          appendRunLog(
+            ctx,
+            `ITER ${iteration} NAVIGATOR_TEST_EMITTED  path=${proposed.path}  size=${proposed.content.length}b`
+          );
+        }
         priorAttempts.push({
           iteration,
           outcome: "reverted-no-progress",
-          note: `navigator blocked: ${navDecision.concernsSummary}`,
+          note: `navigator blocked: ${navDecision.concernsSummary}${proposedTestNote}`,
           files_touched: diff.changedPaths,
         });
         iterationLogs.push({
           iteration,
           target_test_id: currentTarget,
           outcome: "reverted-no-progress",
-          note: `navigator blocked: ${navDecision.concernsSummary}`,
+          note: `navigator blocked: ${navDecision.concernsSummary}${proposedTestNote}`,
           files_touched: diff.changedPaths,
           lines_added: diff.linesAdded,
           lines_removed: diff.linesRemoved,

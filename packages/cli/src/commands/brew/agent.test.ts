@@ -2,7 +2,14 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findHandler, outlineFile, parseHaltEnvelope, decideNavigatorAction } from "./agent.js";
+import {
+  findHandler,
+  outlineFile,
+  parseHaltEnvelope,
+  decideNavigatorAction,
+  validateProposedTestPath,
+  extractNavigatorProposedTest,
+} from "./agent.js";
 import type { NavigatorHookVerdict } from "./agent.js";
 
 function mkRepo(): string {
@@ -259,5 +266,101 @@ describe("decideNavigatorAction (pair-brew prod hook helper)", () => {
     const r = decideNavigatorAction(v);
     expect(r.action).toBe("approve");
     expect(r.costUsd).toBe(0.005);
+  });
+});
+
+describe("validateProposedTestPath (#77 navigator-emitted test gate)", () => {
+  it("accepts a path under tests/navigator/ ending in .test.ts", () => {
+    const r = validateProposedTestPath("tests/navigator/iter-3-mobile.test.ts");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.path).toBe("tests/navigator/iter-3-mobile.test.ts");
+  });
+
+  it("accepts .test.tsx as well", () => {
+    const r = validateProposedTestPath("tests/navigator/responsive.test.tsx");
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects empty path", () => {
+    const r = validateProposedTestPath("");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/empty/);
+  });
+
+  it("rejects absolute path", () => {
+    const r = validateProposedTestPath("/etc/passwd.test.ts");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/absolute/);
+  });
+
+  it("rejects '..' segments", () => {
+    const r = validateProposedTestPath("tests/navigator/../escape.test.ts");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/'\.\.'/);
+  });
+
+  it("rejects path outside tests/navigator/", () => {
+    const r = validateProposedTestPath("tests/integration/iter.test.ts");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/tests\/navigator/);
+  });
+
+  it("rejects path that doesn't end in .test.ts(x)", () => {
+    const r = validateProposedTestPath("tests/navigator/foo.ts");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/\.test\.ts/);
+  });
+});
+
+describe("extractNavigatorProposedTest (#77)", () => {
+  it("returns null for null verdict", () => {
+    expect(extractNavigatorProposedTest(null)).toBeNull();
+  });
+
+  it("returns null for verdict without proposedTest", () => {
+    const v: NavigatorHookVerdict = { overall: "block", concerns: ["x"] };
+    expect(extractNavigatorProposedTest(v)).toBeNull();
+  });
+
+  it("returns null for approve verdict (even with proposedTest — defensive)", () => {
+    const v: NavigatorHookVerdict = {
+      overall: "approve",
+      concerns: [],
+      proposedTest: { path: "tests/navigator/x.test.ts", content: "test stuff" },
+    };
+    expect(extractNavigatorProposedTest(v)).toBeNull();
+  });
+
+  it("returns the file payload for valid block + proposedTest", () => {
+    const v: NavigatorHookVerdict = {
+      overall: "block",
+      concerns: ["mobile breakpoint"],
+      proposedTest: {
+        path: "tests/navigator/iter-3-mobile.test.ts",
+        content: "import { test } from 'vitest';\ntest('mobile', () => {});\n",
+      },
+    };
+    const r = extractNavigatorProposedTest(v);
+    expect(r).not.toBeNull();
+    expect(r?.path).toBe("tests/navigator/iter-3-mobile.test.ts");
+    expect(r?.content).toContain("import { test }");
+  });
+
+  it("rejects proposedTest with bad path", () => {
+    const v: NavigatorHookVerdict = {
+      overall: "block",
+      concerns: ["x"],
+      proposedTest: { path: "tests/integration/sneaky.test.ts", content: "..." },
+    };
+    expect(extractNavigatorProposedTest(v)).toBeNull();
+  });
+
+  it("rejects proposedTest with empty content", () => {
+    const v: NavigatorHookVerdict = {
+      overall: "block",
+      concerns: ["x"],
+      proposedTest: { path: "tests/navigator/empty.test.ts", content: "" },
+    };
+    expect(extractNavigatorProposedTest(v)).toBeNull();
   });
 });
