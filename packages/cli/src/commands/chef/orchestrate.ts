@@ -33,6 +33,7 @@ import {
   type ChefOrchestrateRedispatchAction,
   type ChefOrchestrateVerdict,
 } from "@slowcook-ai/llm-anthropic";
+import { isReadOnlyMode, logReadOnlyBanner } from "../../lib/read-only.js";
 
 interface Args {
   storyId: string;
@@ -377,6 +378,7 @@ export async function chefOrchestrate(argv: string[], cliVersion: string): Promi
   if (!apiKey) { console.error("ANTHROPIC_API_KEY env var is required."); process.exit(2); }
 
   console.log(`slowcook chef-orchestrate · story-${args.storyId} · PR #${args.prNumber}`);
+  logReadOnlyBanner("chef-orchestrate");
 
   // Gather inputs.
   const prState = fetchPrSnapshot(args.repoRoot, args.prNumber);
@@ -451,15 +453,23 @@ export async function chefOrchestrate(argv: string[], cliVersion: string): Promi
     case "escalate": {
       const action = verdict.action as ChefOrchestrateEscalateAction;
       console.log(`  → escalate: post comment on issue #${action.issue_number} + apply label '${action.label}' to PR #${args.prNumber}`);
-      const r = applyEscalate(args.repoRoot, args.prNumber, action, resp.costUsd, cliVersion);
-      console.log(`     posted=${r.posted} labeled=${r.labeled}`);
+      if (isReadOnlyMode()) {
+        console.log(`     [SLOWCOOK_READ_ONLY=1] skipping comment post + label apply.`);
+      } else {
+        const r = applyEscalate(args.repoRoot, args.prNumber, action, resp.costUsd, cliVersion);
+        console.log(`     posted=${r.posted} labeled=${r.labeled}`);
+      }
       break;
     }
     case "close": {
       const action = verdict.action as ChefOrchestrateCloseAction;
       console.log(`  → close PR #${args.prNumber}: ${action.reason}`);
-      const r = applyClose(args.repoRoot, args.prNumber, action, resp.costUsd, cliVersion);
-      console.log(`     commented=${r.commented} closed=${r.closed}`);
+      if (isReadOnlyMode()) {
+        console.log(`     [SLOWCOOK_READ_ONLY=1] skipping PR comment + gh pr close.`);
+      } else {
+        const r = applyClose(args.repoRoot, args.prNumber, action, resp.costUsd, cliVersion);
+        console.log(`     commented=${r.commented} closed=${r.closed}`);
+      }
       break;
     }
     case "redispatch_brew": {

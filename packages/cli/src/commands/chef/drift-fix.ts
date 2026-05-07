@@ -32,6 +32,7 @@ import {
   type ChefVerdict,
   type ChefEdit,
 } from "@slowcook-ai/llm-anthropic";
+import { isReadOnlyMode, logReadOnlyBanner } from "../../lib/read-only.js";
 
 interface Args {
   storyId: string;
@@ -602,6 +603,7 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
   if (!apiKey) { console.error("ANTHROPIC_API_KEY env var is required."); process.exit(2); }
 
   console.log(`slowcook chef-drift · story-${args.storyId} · trigger=${args.triggerKind}${args.prNumber ? ` · finisher mode (PR #${args.prNumber})` : ""}`);
+  logReadOnlyBanner("chef-drift");
 
   // L2 finisher mode: check out the PR branch BEFORE reading any
   // ledger or repo state. The brew PR's branch has its own .brewing/
@@ -925,17 +927,23 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
 
   // Commit chef's edits locally (workflow handles the push) when validation passed.
   // L2 finisher mode: also push to the PR's branch directly so the PR re-runs CI.
+  // SLOWCOOK_READ_ONLY=1 gates BOTH the commit AND the push so a maintainer
+  // running chef-drift on a consumer's repo doesn't pollute their git history.
   let commitSha: string | null = null;
   if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
-    const summary = `move ${moveN} on story-${args.storyId} — ${args.triggerKind}: ${verdict.rationale.slice(0, 120)}`;
-    const result = commitChefEdits(args.repoRoot, summary, verdict.edits);
-    if (result.sha) {
-      commitSha = result.sha;
-      console.log(`  committed: ${result.sha.slice(0, 7)}`);
-    }
-    if (commitSha && prCheckout) {
-      const pushed = pushChefEditsToPrBranch(args.repoRoot, prCheckout.branchName, prCheckout.localRef);
-      if (pushed) console.log(`  finisher: pushed ${commitSha.slice(0, 7)} → ${prCheckout.branchName}`);
+    if (isReadOnlyMode()) {
+      console.log(`  [SLOWCOOK_READ_ONLY=1] would commit ${verdict.edits.length} edit(s) + push to PR; skipping.`);
+    } else {
+      const summary = `move ${moveN} on story-${args.storyId} — ${args.triggerKind}: ${verdict.rationale.slice(0, 120)}`;
+      const result = commitChefEdits(args.repoRoot, summary, verdict.edits);
+      if (result.sha) {
+        commitSha = result.sha;
+        console.log(`  committed: ${result.sha.slice(0, 7)}`);
+      }
+      if (commitSha && prCheckout) {
+        const pushed = pushChefEditsToPrBranch(args.repoRoot, prCheckout.branchName, prCheckout.localRef);
+        if (pushed) console.log(`  finisher: pushed ${commitSha.slice(0, 7)} → ${prCheckout.branchName}`);
+      }
     }
   }
 
@@ -945,12 +953,18 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
 
   // Audit comment routing: in finisher mode (--pr) write to the PR;
   // otherwise write to the source issue (L1 behavior).
+  // SLOWCOOK_READ_ONLY=1 gates the post too — maintainer-side replay
+  // doesn't comment on the consumer's repo.
   if (verdict.kind === "autonomous_fix" && moveEntry.post_state === "clean" && !args.dryRun) {
     const body = buildAuditCommentBody({ ledger, move: moveEntry, verdict, cliVersion });
     const target = args.prNumber ?? (issueNumber > 0 ? issueNumber : null);
     if (target !== null) {
-      try { postIssueComment(args.repoRoot, target, body); }
-      catch (e) { console.warn(`  warn: audit comment failed (non-fatal): ${(e as Error).message.slice(0, 200)}`); }
+      if (isReadOnlyMode()) {
+        console.log(`  [SLOWCOOK_READ_ONLY=1] would post audit comment on issue/PR #${target}; skipping.`);
+      } else {
+        try { postIssueComment(args.repoRoot, target, body); }
+        catch (e) { console.warn(`  warn: audit comment failed (non-fatal): ${(e as Error).message.slice(0, 200)}`); }
+      }
     }
   }
 

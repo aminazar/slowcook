@@ -9,8 +9,14 @@ user emails, draft spec text) often live inside slowcook prompts; a
 bundler is hard to verify against secret leakage. Instead we lean on
 GitHub-native surfaces that you control.
 
+> **Forge support today: GitHub only.** Slowcook's `forge` adapter
+> currently has one implementation: `@slowcook-ai/forge-github`. GitLab,
+> Bitbucket, etc. are architecturally possible (the core defines a
+> `ForgeAdapter` interface) but no other adapter is published. If your
+> consumer repo lives on GitLab, slowcook won't run today.
+
 This doc covers how to file a bug for both **public OSS repos** and
-**private repos**.
+**private repos** (both on GitHub).
 
 ---
 
@@ -64,14 +70,15 @@ the slowcook maintainer. Two options:
 
 ### Preferred: read-only triage role for the duration of the bug
 
-In your GitHub repo settings → Collaborators → add the slowcook
-maintainer's GitHub handle as a **Triage** role. That gives them:
+In your GitHub repo settings → Collaborators → add **`@aminazar`**
+(slowcook's maintainer today; check the [repo](https://github.com/aminazar/slowcook)
+for the current owner) as a **Triage** role. That gives them:
 
 - Read access to source, PRs, issues, workflow logs, artifacts
 - No ability to push, merge, change settings, or run actions
 
 When the bug is resolved (or after a fixed window — 7 days is a
-reasonable default), revoke. Maintainer doesn't expect indefinite
+reasonable default), revoke. @aminazar doesn't expect indefinite
 access.
 
 ### Fallback: scoped read-only PAT

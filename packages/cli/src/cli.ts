@@ -232,6 +232,15 @@ async function main(): Promise<void> {
         await refactor(args.slice(1), VERSION);
         return;
       }
+    case "docs":
+      // 0.19.0-α.13 — `slowcook docs <topic>` prints bundled docs.
+      // Useful when an agent / maintainer is on a fresh box without a
+      // cloned slowcook repo. Topics: reporting, agents, read-only.
+      {
+        const { docs } = await import("./commands/docs/index.js");
+        await docs(args.slice(1), VERSION);
+        return;
+      }
     case "vibe":
       // 0.15.0-α.1 — design-first mockup generator (plate-pipeline α.1).
       // Reads spec + brownfield extracts + code-map; emits a runnable

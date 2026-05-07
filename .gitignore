@@ -13,3 +13,10 @@ coverage/
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# 0.19.0-α.13 — docs auto-copied into packages/cli/ at prepublishOnly
+# time so `slowcook docs <topic>` finds them after npm install. The
+# canonical copies are at the repo root; the cli-side copies are build
+# artifacts and shouldn't be committed.
+/packages/cli/REPORTING.md
+/packages/cli/AGENTS.md

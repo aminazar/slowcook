@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, relative } from "node:path";
 import { buildHistoryIndex, type HistoryIndex } from "../refine/history-index.js";
 import { extractShape, synthesiseShapeTestFile, findMockFilesForStory } from "./shape-preserve.js";
+import { isReadOnlyMode } from "../../lib/read-only.js";
 
 interface ReconArgs {
   story: string;
@@ -630,7 +631,11 @@ async function runStubScan(args: ReconArgs, cliVersion: string): Promise<void> {
     console.log(`  ${tag}  ${ageStr}  ${story.padEnd(14)}  ${s.path}`);
   }
 
-  if (args.stubEscalate && stale.length > 0) {
+  if (args.stubEscalate && stale.length > 0 && isReadOnlyMode()) {
+    console.log(
+      `\n  [SLOWCOOK_READ_ONLY=1] --stub-escalate set but read-only mode is on; would post comments on ${stale.length} source issues. Skipping.`,
+    );
+  } else if (args.stubEscalate && stale.length > 0) {
     console.log("\n  --stub-escalate set; posting PM comments on source issues...");
     let repoSlug = "";
     try {
