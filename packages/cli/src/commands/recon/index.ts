@@ -36,6 +36,18 @@ interface ReconArgs {
   outPath: string;
   /** Print verbose breakdown to stdout. */
   verbose: boolean;
+  /**
+   * 0.19.0-α.8 — when true, recon enters reuse-scan mode (story-
+   * agnostic). Walks src/ + flags structurally near-duplicate
+   * components / API handlers / utility modules. Writes pairs to
+   * stdout + optionally appends synthesized RefactorProposal entries
+   * to .brewing/refactor/proposals.json (so `slowcook refactor`
+   * picks them up).
+   */
+  reuseScan: boolean;
+  reuseThreshold: number;
+  reuseRoot: string;
+  reuseWriteProposals: boolean;
 }
 
 interface RenameProposal {
@@ -78,6 +90,10 @@ function parseArgs(argv: string[]): ReconArgs {
     repoRoot: process.cwd(),
     outPath: "",
     verbose: false,
+    reuseScan: false,
+    reuseThreshold: 0.7,
+    reuseRoot: "src",
+    reuseWriteProposals: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -86,10 +102,14 @@ function parseArgs(argv: string[]): ReconArgs {
     else if (a === "--cwd" && next) { args.repoRoot = next; i++; }
     else if (a === "--out" && next) { args.outPath = next; i++; }
     else if (a === "--verbose" || a === "-v") { args.verbose = true; }
+    else if (a === "--reuse-scan") { args.reuseScan = true; }
+    else if (a === "--reuse-threshold" && next) { args.reuseThreshold = parseFloat(next); i++; }
+    else if (a === "--reuse-root" && next) { args.reuseRoot = next; i++; }
+    else if (a === "--write-proposals") { args.reuseWriteProposals = true; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
-  if (!args.story) {
-    console.error("--story <id> is required.");
+  if (!args.reuseScan && !args.story) {
+    console.error("--story <id> is required (or pass --reuse-scan for the story-agnostic dup-scan mode).");
     printHelp();
     process.exit(64);
   }
@@ -111,20 +131,34 @@ Compares the story's test files against the mock + src/ tree. Detects:
 Usage:
   slowcook recon --story <id> [--cwd <path>] [--out <path>] [--verbose]
 
-Options:
-  --story <id>   Story id (e.g. 017). Required.
+Options (story mode — default):
+  --story <id>   Story id (e.g. 017). Required unless --reuse-scan.
   --cwd <path>   Repo root (default: cwd).
   --out <path>   Output JSON path (default: .brewing/recon-result.json).
   --verbose      Print detailed breakdown to stdout.
 
+Options (reuse-scan mode — 0.19.0-α.8):
+  --reuse-scan         Story-agnostic; flag near-duplicate components +
+                       API handlers + utility modules across the codebase.
+  --reuse-root <path>  Subtree to scan (default: src).
+  --reuse-threshold <n>  Similarity threshold 0-1 (default: 0.7).
+  --write-proposals    Append synthesized RefactorProposal entries to
+                       .brewing/refactor/proposals.json so the refactor
+                       command ranks them.
+
 Exit codes:
-  0  status=clean OR status=rename_needed (recommendations only)
+  0  status=clean OR status=rename_needed OR --reuse-scan completed
   2  status=escalate (STORY_HISTORY_CONFLICT or VIBE_RECIPE_NAME_DRIFT)
 `);
 }
 
 export async function recon(argv: string[], _cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
+
+  if (args.reuseScan) {
+    await runReuseScan(args);
+    return;
+  }
 
   console.log(`slowcook recon · story-${args.story} · cwd: ${relative(process.cwd(), args.repoRoot) || "."}`);
 
@@ -351,3 +385,92 @@ function walkAndGrep(dir: string, needle: string): boolean {
 
 // re-export the index type for tests
 export type { HistoryIndex };
+
+/**
+ * 0.19.0-α.8 — story-agnostic reuse-scan mode. Walks args.reuseRoot,
+ * extracts a structural signature per .ts(x) file, runs pairwise
+ * similarity, prints the duplicates, and (when --write-proposals)
+ * appends RefactorProposal entries to .brewing/refactor/proposals.json.
+ */
+async function runReuseScan(args: ReconArgs): Promise<void> {
+  const {
+    extractStructuralSignature,
+    scanForDuplicates,
+    pairToRefactorProposal,
+  } = await import("./reuse.js");
+
+  console.log(
+    `slowcook recon --reuse-scan · root: ${args.reuseRoot} · threshold: ${args.reuseThreshold} · cwd: ${relative(process.cwd(), args.repoRoot) || "."}`
+  );
+
+  const rootAbs = join(args.repoRoot, args.reuseRoot);
+  if (!existsSync(rootAbs)) {
+    console.error(`Reuse-scan root does not exist: ${rootAbs}`);
+    process.exit(2);
+  }
+
+  const files: string[] = [];
+  walkTsFiles(rootAbs, files);
+  console.log(`  scanning ${files.length} .ts/.tsx files under ${args.reuseRoot}/`);
+
+  const sigs = files.map((abs) => {
+    const rel = relative(args.repoRoot, abs).replace(/\\/g, "/");
+    return extractStructuralSignature(rel, readFileSync(abs, "utf8"));
+  });
+
+  const pairs = scanForDuplicates(sigs, args.reuseThreshold);
+  console.log(`  found ${pairs.length} pair(s) at similarity >= ${args.reuseThreshold}`);
+  console.log("");
+
+  if (pairs.length === 0) {
+    console.log("(no duplicates flagged — codebase looks clean for the configured threshold)");
+    return;
+  }
+
+  for (const p of pairs) {
+    const pct = (p.similarity * 100).toFixed(0);
+    console.log(`  ${pct}% similar  [${p.category}]`);
+    console.log(`    A: ${p.a}`);
+    console.log(`    B: ${p.b}`);
+    console.log(
+      `    axes: jsx=${p.axes.jsx.toFixed(2)} props=${p.axes.props.toFixed(2)} calls=${p.axes.calls.toFixed(2)} imports=${p.axes.imports.toFixed(2)}`
+    );
+    console.log("");
+  }
+
+  if (args.reuseWriteProposals) {
+    const proposalsPath = join(args.repoRoot, ".brewing/refactor/proposals.json");
+    const existing: Array<ReturnType<typeof pairToRefactorProposal>> = existsSync(proposalsPath)
+      ? (JSON.parse(readFileSync(proposalsPath, "utf8")) as Array<ReturnType<typeof pairToRefactorProposal>>)
+      : [];
+    const byId = new Map<string, ReturnType<typeof pairToRefactorProposal>>();
+    for (const p of existing) byId.set(p.id, p);
+    let appended = 0;
+    for (const pair of pairs) {
+      const proposal = pairToRefactorProposal(pair);
+      if (!byId.has(proposal.id)) {
+        byId.set(proposal.id, proposal);
+        appended++;
+      }
+    }
+    const merged = [...byId.values()];
+    mkdirSync(dirname(proposalsPath), { recursive: true });
+    writeFileSync(proposalsPath, JSON.stringify(merged, null, 2), "utf8");
+    console.log(
+      `  wrote ${proposalsPath.replace(args.repoRoot + "/", "")} (+${appended} new of ${merged.length} total)`
+    );
+  }
+}
+
+function walkTsFiles(root: string, out: string[]): void {
+  for (const name of readdirSync(root)) {
+    if (name === "node_modules" || name === ".next" || name === ".git") continue;
+    const abs = join(root, name);
+    const st = statSync(abs);
+    if (st.isDirectory()) {
+      walkTsFiles(abs, out);
+    } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name) && !/\.d\.ts$/.test(name)) {
+      out.push(abs);
+    }
+  }
+}
