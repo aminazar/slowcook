@@ -53,6 +53,16 @@ interface ReconArgs {
    *  are excluded by default; --no-skip-auto-templates disables that. */
   reuseExcludes: string[];
   reuseSkipAutoTemplates: boolean;
+  /**
+   * 0.19.0-α.11 (#84) — when true, recon enters stub-scan mode
+   * (story-agnostic, no Anthropic). Walks src/ for @slowcook-stub
+   * markers, ages each via git log --diff-filter=A, reports stale
+   * ones + (optionally) escalates to PM via gh comment on source issue.
+   */
+  stubScan: boolean;
+  stubMaxAgeDays: number;
+  stubEscalate: boolean;
+  stubRoot: string;
 }
 
 interface RenameProposal {
@@ -101,6 +111,10 @@ function parseArgs(argv: string[]): ReconArgs {
     reuseWriteProposals: false,
     reuseExcludes: [],
     reuseSkipAutoTemplates: true,
+    stubScan: false,
+    stubMaxAgeDays: 14,
+    stubEscalate: false,
+    stubRoot: "src",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -115,10 +129,14 @@ function parseArgs(argv: string[]): ReconArgs {
     else if (a === "--write-proposals") { args.reuseWriteProposals = true; }
     else if (a === "--exclude" && next) { args.reuseExcludes.push(next); i++; }
     else if (a === "--no-skip-auto-templates") { args.reuseSkipAutoTemplates = false; }
+    else if (a === "--stub-scan") { args.stubScan = true; }
+    else if (a === "--stub-max-age-days" && next) { args.stubMaxAgeDays = parseInt(next, 10); i++; }
+    else if (a === "--stub-escalate") { args.stubEscalate = true; }
+    else if (a === "--stub-root" && next) { args.stubRoot = next; i++; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
-  if (!args.reuseScan && !args.story) {
-    console.error("--story <id> is required (or pass --reuse-scan for the story-agnostic dup-scan mode).");
+  if (!args.reuseScan && !args.stubScan && !args.story) {
+    console.error("--story <id> is required (or pass --reuse-scan / --stub-scan for the story-agnostic modes).");
     printHelp();
     process.exit(64);
   }
@@ -174,6 +192,11 @@ export async function recon(argv: string[], _cliVersion: string): Promise<void> 
 
   if (args.reuseScan) {
     await runReuseScan(args);
+    return;
+  }
+
+  if (args.stubScan) {
+    await runStubScan(args);
     return;
   }
 
@@ -521,5 +544,141 @@ function walkTsFiles(root: string, out: string[]): void {
     } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name) && !/\.d\.ts$/.test(name)) {
       out.push(abs);
     }
+  }
+}
+
+/**
+ * 0.19.0-α.11 (#84) — story-agnostic stub-scan mode. Walks args.stubRoot,
+ * finds @slowcook-stub markers, ages each via git log --diff-filter=A,
+ * reports stale ones + (when --stub-escalate) posts PM comment on each
+ * stub's source issue.
+ */
+async function runStubScan(args: ReconArgs): Promise<void> {
+  const { execSync } = await import("node:child_process");
+  const {
+    detectStubMarker,
+    daysBetween,
+    classifyStubAge,
+    buildStaleStubComment,
+  } = await import("./stale-stubs.js");
+  type StubFile = import("./stale-stubs.js").StubFile;
+
+  console.log(
+    `slowcook recon --stub-scan · root: ${args.stubRoot} · grace: ${args.stubMaxAgeDays} days · cwd: ${relative(process.cwd(), args.repoRoot) || "."}`
+  );
+
+  const rootAbs = join(args.repoRoot, args.stubRoot);
+  if (!existsSync(rootAbs)) {
+    console.error(`Stub-scan root does not exist: ${rootAbs}`);
+    process.exit(2);
+  }
+
+  const allFiles: string[] = [];
+  walkTsFiles(rootAbs, allFiles);
+  const nowIso = new Date().toISOString();
+
+  const stubs: StubFile[] = [];
+  for (const abs of allFiles) {
+    const rel = relative(args.repoRoot, abs).replace(/\\/g, "/");
+    const content = readFileSync(abs, "utf8");
+    const detect = detectStubMarker(content);
+    if (!detect.isStub) continue;
+    let firstAddedAt: string | null = null;
+    try {
+      // First-add date: oldest commit that added this file. --diff-filter=A
+      // only matches the addition; --reverse + head puts the earliest first.
+      const out = execSync(
+        `git -C "${args.repoRoot}" log --diff-filter=A --follow --format=%cI --reverse -- "${rel}" 2>/dev/null | head -n 1`,
+        { encoding: "utf8" },
+      ).trim();
+      if (out) firstAddedAt = out;
+    } catch {
+      // git log failed — leave firstAddedAt null
+    }
+    const ageDays = firstAddedAt ? daysBetween(firstAddedAt, nowIso) : null;
+    const classification = classifyStubAge(ageDays, args.stubMaxAgeDays);
+    stubs.push({
+      path: rel,
+      storyId: detect.storyId,
+      firstAddedAt,
+      ageDays,
+      classification,
+    });
+  }
+
+  console.log(`  found ${stubs.length} @slowcook-stub file(s)`);
+  const stale = stubs.filter((s) => s.classification === "stale");
+  const fresh = stubs.filter((s) => s.classification === "fresh");
+  const unknown = stubs.filter((s) => s.classification === "unknown");
+  console.log(`    ${stale.length} stale (≥ ${args.stubMaxAgeDays} days), ${fresh.length} fresh, ${unknown.length} unknown-age`);
+  console.log("");
+
+  if (stubs.length === 0) {
+    console.log("(no stubs found — pipeline is clean)");
+    return;
+  }
+
+  for (const s of [...stale, ...unknown, ...fresh]) {
+    const tag =
+      s.classification === "stale"
+        ? "STALE"
+        : s.classification === "unknown"
+        ? "?    "
+        : "fresh";
+    const ageStr = s.ageDays !== null ? `${s.ageDays.toString().padStart(5)}d` : "  ?  ";
+    const story = s.storyId ? `story-${s.storyId}` : "(no story id)";
+    console.log(`  ${tag}  ${ageStr}  ${story.padEnd(14)}  ${s.path}`);
+  }
+
+  if (args.stubEscalate && stale.length > 0) {
+    console.log("\n  --stub-escalate set; posting PM comments on source issues...");
+    let repoSlug = "";
+    try {
+      repoSlug = execSync(
+        `git -C "${args.repoRoot}" remote get-url origin | sed -E 's|^.*github\\.com[:/]||; s|\\.git$||'`,
+        { encoding: "utf8" },
+      ).trim();
+    } catch {
+      // leave repoSlug empty
+    }
+    if (!repoSlug) {
+      console.warn("  warn: could not detect repo slug; skipping escalations.");
+    } else {
+      for (const s of stale) {
+        if (!s.storyId) {
+          console.warn(`  skip: ${s.path} has no story id (can't find source issue).`);
+          continue;
+        }
+        // Look up source issue from spec yaml (specs/story-NNN.yaml).
+        const specPath = join(args.repoRoot, `specs/story-${s.storyId}.yaml`);
+        if (!existsSync(specPath)) {
+          console.warn(`  skip: ${s.path} — no spec at ${specPath} to read source_issue from.`);
+          continue;
+        }
+        const specYaml = readFileSync(specPath, "utf8");
+        const issueMatch = specYaml.match(/source_issue:\s*"#?(\d+)"/);
+        if (!issueMatch) {
+          console.warn(`  skip: ${s.path} — spec has no source_issue field.`);
+          continue;
+        }
+        const issueNumber = parseInt(issueMatch[1]!, 10);
+        const body = buildStaleStubComment(s, args.stubMaxAgeDays);
+        const tmp = "/tmp/slowcook-stale-stub-comment.md";
+        writeFileSync(tmp, body, "utf8");
+        try {
+          execSync(
+            `gh issue comment ${issueNumber} --repo "${repoSlug}" --body-file ${tmp}`,
+            { stdio: "inherit" },
+          );
+          console.log(`    posted on issue #${issueNumber} for ${s.path}`);
+        } catch (e) {
+          console.warn(`    failed to post on issue #${issueNumber}: ${(e as Error).message.slice(0, 200)}`);
+        }
+      }
+    }
+  } else if (stale.length > 0) {
+    console.log(
+      `\n  ${stale.length} stale stub(s) — re-run with --stub-escalate to post PM comments on source issues.`
+    );
   }
 }
