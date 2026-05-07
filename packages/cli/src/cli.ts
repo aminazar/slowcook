@@ -87,6 +87,7 @@ Commands available in ${VERSION}:
   chef               (alpha.5c) PR-CI failure classifier — dispatches retry / escalate based on check status.
   chef-drift         (0.18.0-α.9 L1) Surgical drift-fixer. Triggered by mock-isolation / recon / brew / navigator halts.
   chef-orchestrate   (0.19.0-α.2 L3) Pipeline orchestrator. Decides redispatch_brew / rebase / escalate / close on a halted PR.
+  refactor           (0.19.0-α.7) Rank refactor proposals by benefit/cost. Reads .brewing/refactor/proposals.json.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -220,6 +221,17 @@ async function main(): Promise<void> {
       // context without paying for `map generate`'s full ts-morph scan.
       await extract(args.slice(1), VERSION);
       return;
+    case "refactor":
+      // 0.19.0-α.7 — refactor command (#64). Reads candidate refactor
+      // proposals from .brewing/refactor/proposals.json, filters by
+      // --scope patterns, ranks by benefit/cost. α.7 ships
+      // ranking + reporting only; LLM-backed proposal generation +
+      // auto-application land in later alphas.
+      {
+        const { refactor } = await import("./commands/refactor/index.js");
+        await refactor(args.slice(1), VERSION);
+        return;
+      }
     case "vibe":
       // 0.15.0-α.1 — design-first mockup generator (plate-pipeline α.1).
       // Reads spec + brownfield extracts + code-map; emits a runnable
