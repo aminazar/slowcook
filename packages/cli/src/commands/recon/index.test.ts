@@ -99,3 +99,165 @@ describe("resolveImport (regression: rewo issue #149 false-positive 'clean')", (
     }
   });
 });
+
+describe("srcPathToAliasImport (#75 v2 helper)", () => {
+  it("converts src/<rel>.tsx to @/<rel>", async () => {
+    const { srcPathToAliasImport } = await import("./shape-preserve.js");
+    expect(srcPathToAliasImport("src/components/members/MemberReactionsPage.tsx")).toBe(
+      "@/components/members/MemberReactionsPage",
+    );
+  });
+
+  it("strips .ts extension", async () => {
+    const { srcPathToAliasImport } = await import("./shape-preserve.js");
+    expect(srcPathToAliasImport("src/lib/foo.ts")).toBe("@/lib/foo");
+  });
+
+  it("strips .tsx extension on nested path", async () => {
+    const { srcPathToAliasImport } = await import("./shape-preserve.js");
+    expect(srcPathToAliasImport("src/app/(main)/feed/page.tsx")).toBe(
+      "@/app/(main)/feed/page",
+    );
+  });
+
+  it("converts mock/src/<rel>.tsx to @/<rel> too", async () => {
+    const { srcPathToAliasImport } = await import("./shape-preserve.js");
+    expect(srcPathToAliasImport("mock/src/components/X.tsx")).toBe("@/components/X");
+  });
+});
+
+describe("synthesiseShapeTestFile v2 (#75 render-and-assert)", () => {
+  it("emits an import per component when emitMode=v2", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      emitMode: "v2",
+      shapes: [
+        {
+          file: "mock/src/components/Foo.tsx",
+          componentName: "Foo",
+          testids: ["foo-row"],
+          visualTokens: ["rounded-full"],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).toContain(`import Foo from "@/components/Foo";`);
+    expect(out).toContain("@testing-library/react");
+    expect(out).toContain("renders with default props (no throw)");
+    expect(out).toContain(`expect(() => render(<Foo />)).not.toThrow();`);
+  });
+
+  it("v2 testid assertion uses queryByTestId on rendered DOM (not source-grep)", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      emitMode: "v2",
+      shapes: [
+        {
+          file: "mock/src/components/Bar.tsx",
+          componentName: "Bar",
+          testids: ["badge-x"],
+          visualTokens: [],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).toContain(`queryByTestId("badge-x")`);
+    // v2 must NOT use the v1 source-grep regex shape
+    expect(out).not.toMatch(/expect\(src\)\.toMatch\(\/data-testid/);
+  });
+
+  it("v2 token assertion queries the rendered container by class*=", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      emitMode: "v2",
+      shapes: [
+        {
+          file: "mock/src/components/Baz.tsx",
+          componentName: "Baz",
+          testids: [],
+          visualTokens: ["rounded-full", "min-h-[44px]"],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).toContain(`container.querySelector('[class*="rounded-full"]')`);
+    expect(out).toContain(`container.querySelector('[class*="min-h-[44px]"]')`);
+  });
+
+  it("v2 emits afterEach cleanup when there's any shape", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      emitMode: "v2",
+      shapes: [
+        {
+          file: "mock/src/components/X.tsx",
+          componentName: "X",
+          testids: ["a"],
+          visualTokens: [],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).toContain(`import { describe, it, expect, afterEach } from "vitest";`);
+    expect(out).toContain(`afterEach(() => { cleanup(); });`);
+  });
+
+  it("v2 keeps the no-inline-hex anti-wiring source-grep test", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      emitMode: "v2",
+      shapes: [
+        {
+          file: "mock/src/components/X.tsx",
+          componentName: "X",
+          testids: ["a"],
+          visualTokens: [],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).toContain("token-family preservation (source-grep)");
+    expect(out).toContain("no inline hex in className/style");
+  });
+
+  it("v1 (default) emits source-grep tests, no @testing-library import", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      shapes: [
+        {
+          file: "mock/src/components/Foo.tsx",
+          componentName: "Foo",
+          testids: ["foo-row"],
+          visualTokens: [],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).not.toContain("@testing-library/react");
+    expect(out).toMatch(/expect\(src\)\.toMatch\(\/data-testid/);
+  });
+
+  it("v2 emits the it.skip line when no testids/tokens/header found", async () => {
+    const { synthesiseShapeTestFile } = await import("./shape-preserve.js");
+    const out = synthesiseShapeTestFile({
+      story: "018",
+      emitMode: "v2",
+      shapes: [
+        {
+          file: "mock/src/components/Empty.tsx",
+          componentName: "Empty",
+          testids: [],
+          visualTokens: [],
+          hasHeader: false,
+        },
+      ],
+    });
+    expect(out).toContain(`it.skip("no testids/tokens/header found in mock UI`);
+  });
+});
