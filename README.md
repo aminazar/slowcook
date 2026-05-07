@@ -5,6 +5,8 @@
 [![npm](https://img.shields.io/npm/v/@slowcook-ai/cli.svg)](https://www.npmjs.com/package/@slowcook-ai/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+> **🤖 If you're an AI agent (Claude Code, Cursor, etc.) helping a human ship features with slowcook, read [AGENTS.md](./AGENTS.md) first.** It has the pipeline overview, command reference, and the empirical pitfalls list — saves real money + time on your first session. To file a bug: [REPORTING.md](./REPORTING.md).
+
 > ⚠️ **Active development — expect breaking changes.** Slowcook is pre-1.0; the architecture itself is iterating in public. The 0.15 line was scrapped mid-cut (PR #145 closed) and replaced by today's 0.16 mock-app architecture. Public APIs, CLI commands, file layouts, and prompt contracts can and will change between alpha versions. Pin exact versions in your consumer (`.brewing/slowcook-cli-version`); read each release entry in [`CHANGELOG.md`](./CHANGELOG.md) before bumping. If you adopt slowcook today, treat it as a partnership — the project is still finding its shape and feedback from real consumers is what drives the next cut.
 
 ## Status
