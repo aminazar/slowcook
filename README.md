@@ -17,7 +17,7 @@
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.11` (alpha) | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: + chef L2 finisher + chef L3 orchestrator + chef stack auto-chain + pair-brew prod hook + `--with-navigator` flag + navigator-emitted tests + recon shape v2 + `recon --reuse-scan` (with auto-template skip + `--exclude`) + `recon --stub-scan` (stale-stub detector) + `slowcook refactor` + init mock pnpm-workspace |
+| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.14` (alpha) | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: + chef L2 finisher + chef L3 orchestrator + chef stack auto-chain + pair-brew prod hook + `--with-navigator` flag + navigator-emitted tests + recon shape v2 + `recon --reuse-scan` (with auto-template skip + `--exclude`) + `recon --stub-scan` (stale-stub detector) + uniform `slowcook:cost` markers across chef stack + `SLOWCOOK_READ_ONLY` env var + `slowcook docs <topic>` cmd + `slowcook refactor` + init mock pnpm-workspace |
 | `@slowcook-ai/llm-anthropic` | `0.15.0` | chef + navigator structured prompts; refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit |
 | `@slowcook-ai/forge-github` | `0.11.7` | vibe template `regenerate` dispatch input (deletes existing mockup branch + closes PR before re-vibing); brew-auto plate-only mode |
 | `@slowcook-ai/stack-ts` | `0.9.8` | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
@@ -52,10 +52,21 @@
 - **Chef stack auto-loop** (rewo-side workflow, #83): chef-drift exit-1 in `--pr` finisher mode auto-dispatches chef-orchestrate. Closes the manual-dispatch gap.
 - **`slowcook init mock` auto-wires pnpm workspace** (cli `0.19.0-α.3`): detects pnpm consumers + appends `mock` to `pnpm-workspace.yaml` (or creates it). Eliminates duplicate-`node_modules` trap. Honors npm/yarn consumers with a recommendation rather than auto-migrating.
 
+**OSS incident-response infrastructure (cli α.12-α.14, this round):**
+
+- **Uniform `slowcook:cost` markers** across all 11 agents that post comments — `gh issue view N | grep slowcook:cost` now aggregates per-story spend across the entire pipeline including the chef stack.
+- **chef-drift workflow uploads `halt-trigger.json` as artifact** — closes the LLM-input reproducibility gap noted in the read-only-access survey. Maintainer can `gh run download` + replay chef-drift locally with the exact input.
+- **`slowcook docs <topic>`** — prints bundled docs (`reporting`, `agents`, `read-only`) from the installed package.
+- **`SLOWCOOK_READ_ONLY=1` env var** — single knob that blocks every GitHub-side write across chef-drift / chef-orchestrate / recon stub-escalate. Designed for maintainer-replay on someone else's repo.
+- **REPORTING.md** — how to file slowcook bugs (public/private repo paths, no-bundle policy, GitHub-only forge caveat, fix-notice template, triage label table).
+- **AGENTS.md** — onboarding doc for AI coding agents (Claude Code, Cursor, etc.). Decision tree, pipeline diagram, 22-command quick reference, ~15-item pitfalls memory.
+- **CONTRIBUTING.md + bug-report issue template + 4 new persistent labels** on `aminazar/slowcook` (`needs-info` / `confirmed` / `regression-test-pending` / `blocked-on-anthropic`).
+
 **Pending** (genuinely open, not yet shipped):
 - Empirical real-brew validation of `--with-navigator` (needs ANTHROPIC budget + a halt-prone story)
 - Empirical chain validation of chef-drift exit-1 → chef-orchestrate (needs an organic halt)
 - Persistent-block tracking in the default pair-navigator's prompt context loader (so the proposedTest hard-signal escalation logic α.5 can fire)
+- Pipeline-level eval-fixture format + harness (deferred per architecture: bootstrap from the first organic real-project halt)
 - Drift detection (planned 0.19)
 
 **End-to-end validated (legacy mode):** rewo issue #149 → PR #154 on 2026-05-04 ($1.29, 5 iters, 35/35 green). The plate-mode `@slowcook-port-from` carve-out has been deleted from the roadmap — the entities-hypothesis falsification (above) showed prop-shape drift can't be retired with structural rails alone. The architecture has settled on **pair-brew + chef as a two-layer system**: pair-brew (α.8 prototype shipped) is the failure DETECTOR — driver writes; navigator reviews per-iteration, can BLOCK with structured axes. Chef α.9 L1 (shipped + empirically validated) is the failure RESOLVER — surgical micromanaging editor that takes recon/brew/navigator escalations, makes search_replace edits across spec + mockup + src/, never touches tests, escalates to PM only on genuine ambiguity. See `docs/experiments/pair-brew-real-runs-2026-05-04.md` + the chef commits `a7df238…e86d75e` for the empirical record.

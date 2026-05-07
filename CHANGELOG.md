@@ -6,6 +6,27 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.12 → α.14 — visibility, traceability, OSS process
+
+Cut 2026-05-07 (afternoon round 2). Five-task stretch closing the
+incident-response architecture (cost markers + artifact upload +
+REPORTING.md + AGENTS.md + bug-report issue template). 727 → 727
+cli tests (one round was pure docs/process; another added new tests
+for the read-only env-var helper).
+
+- **α.12 — uniform `slowcook:cost` markers across the chef stack (#86)**: chef-drift, chef-orchestrate, chef (PR-CI handler), and recon stub-scan now emit `<!-- slowcook:cost agent=X usd=Y kind=Z cli=V -->` HTML markers consistent with refine / vibe / plate / brew / testgen. `gh issue view N | grep slowcook:cost` now aggregates per-story spend across the WHOLE pipeline, not just the 5 agents that already emitted markers.
+- **rewo workflow: chef-drift uploads halt-trigger.json as artifact (#87)**: the LLM-input bytes (failing test runner output + source file contents) are now downloadable from the workflow run, closing the one reproducibility gap in the read-only-access flow. Validated empirically: maintainer can now `gh run download` + replay chef-drift locally with the EXACT input the LLM saw. (Rewo-side change; consumer workflows that mirror this pattern should adopt the same staging step.)
+- **α.13 — `slowcook docs <topic>` cmd + `SLOWCOOK_READ_ONLY` env var (#88)**: `slowcook docs reporting / agents / read-only` prints bundled docs from the installed package. New `SLOWCOOK_READ_ONLY=1` env var blocks every GitHub-side write (commits, pushes, comments, labels, PR closes) so a maintainer can replay slowcook commands on a consumer's repo without polluting state. Applied at chef-drift / chef-orchestrate / recon stub-escalate write sites. Brew not yet gated (its commit/push logic needs a wider rework; deferred). 8 unit tests on `isReadOnlyMode()`.
+- **REPORTING.md polish**: GitHub-only forge caveat at top; @aminazar named explicitly as the maintainer to grant Triage role to (with link to repo for current-owner check); "What you'll see when a fix ships" section with the comment-back template + `slowcook:fix-notice` HTML marker; triage label table.
+- **α.14 — AGENTS.md + README pointer (#89)**: canonical entry doc for AI coding agents (Claude Code, Cursor, etc.) helping a human ship features through slowcook. Decision tree, pipeline diagram, 22-command quick reference, ~15-item pitfalls memory. README first paragraph gets a bold pointer so any agent reading slowcook hits AGENTS.md first.
+- **OSS incident-response process (#90)**: bug-report issue template (forces source-issue / PR / workflow-run URLs + agent / version / expected-vs-actual + 2 pre-flight checkboxes); `.github/ISSUE_TEMPLATE/config.yml` disables blank issues; CONTRIBUTING.md (regression-test discipline + after-fix workflow + cli conventions). Created 4 persistent labels on `aminazar/slowcook`: `needs-info`, `confirmed`, `regression-test-pending`, `blocked-on-anthropic`. `fixed-in-α.X` created on-demand per fix.
+
+### Test coverage
+
+`@slowcook-ai/cli` 727/727 passing (was 718). `@slowcook-ai/llm-anthropic` 13/13.
+
+---
+
 ## 0.19.0-alpha.9 → α.11 — chef stack auto-loop, default pair-brew nav, reuse/stub filters
 
 Cut 2026-05-07 (afternoon session). Four-task autonomous run closing the post-checkpoint task list (#83 / #82 / #85 / #84). 668 → 718 cli tests across the run; $0 Anthropic spend (only deterministic helpers + dry-run dispatches).
