@@ -83,9 +83,11 @@ export function extractStructuralSignature(path: string, source: string): ScanSi
     }
   }
 
-  // JSX tags: <Foo> or <Foo />. Captures only the opening tag form;
-  // self-closing covered by /> alternation.
-  for (const m of source.matchAll(/<([A-Za-z][\w.]*)[\s/>]/g)) {
+  // JSX tags: <Foo> or <Foo />. The negative lookbehind excludes
+  // TypeScript generics — `Promise<Response>` has `e<` (identifier
+  // char then `<`) so it's skipped, while real JSX `<Foo` is preceded
+  // by whitespace/paren/brace/etc. and matches.
+  for (const m of source.matchAll(/(?<![A-Za-z_$0-9])<([A-Za-z][\w.]*)[\s/>]/g)) {
     jsxTags.add(m[1]!);
   }
 
