@@ -23,6 +23,16 @@ interface BrewArgs {
   baseBranch: string;
   /** "auto" detects from spec + mockup-PR state. "plate" or "legacy" force the mode. */
   mode: "auto" | "plate" | "legacy";
+  /**
+   * 0.19.0-alpha.9 — opt into pair-brew. When set, brew constructs a
+   * default Anthropic-backed NavigatorHook and injects it into ctx.
+   * Each iteration's would-be checkpoint passes through the navigator
+   * for review; on `block` verdict the iter reverts + concerns fold
+   * into next iter's prompt. Adds ~$0.01-0.05 per iter on top of
+   * driver spend.
+   */
+  withNavigator: boolean;
+  navigatorModel: string;
 }
 
 function parseArgs(argv: string[]): BrewArgs {
@@ -35,6 +45,8 @@ function parseArgs(argv: string[]): BrewArgs {
     model: "claude-sonnet-4-6",
     baseBranch: "main",
     mode: "auto",
+    withNavigator: false,
+    navigatorModel: "claude-sonnet-4-5-20250929",
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -56,6 +68,8 @@ function parseArgs(argv: string[]): BrewArgs {
       args.mode = next as "auto" | "plate" | "legacy";
       i++;
     }
+    else if (arg === "--with-navigator") { args.withNavigator = true; }
+    else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -91,6 +105,11 @@ Options:
   --wall-clock-minutes <n>   Wall-clock cap in minutes (default: 60)
   --model <id>               LLM model (default: claude-sonnet-4-6; override with --model claude-opus-4-7 for harder stories)
   --base <branch>            Base branch for PRs (default: main)
+  --with-navigator           (0.19.0-α.9) Run pair-brew — each iteration's would-be checkpoint passes
+                             through a navigator review (design fidelity / responsive / cross-story risk
+                             / etc.). On block, iter reverts + concerns fold into next iter's prompt.
+                             Adds ~$0.01-0.05 per iter on top of driver spend.
+  --navigator-model <id>     (with --with-navigator) Navigator LLM model id. Default: claude-sonnet-4-5-20250929.
   --help, -h                 Show this help
 
 Environment:
@@ -286,6 +305,62 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   console.log(`  branch: ${branchName}`);
   console.log(`  run log: ${runLogPath}\n`);
 
+  // 0.19.0-α.9 — opt-in pair-brew. When --with-navigator is set,
+  // construct a default Anthropic-backed NavigatorHook + inject it.
+  // The hook fires post-iter, pre-checkpoint (see brew/agent.ts).
+  let navigatorHook: BrewContext["navigatorHook"] = undefined;
+  if (args.withNavigator) {
+    const { createPairNavigatorHook } = await import("./pair-navigator.js");
+    const { PRICING_PER_M_TOKENS } = await import("@slowcook-ai/llm-anthropic");
+    const navPricing = PRICING_PER_M_TOKENS[args.navigatorModel] ?? { input: 3, output: 15 };
+    navigatorHook = createPairNavigatorHook({
+      anthropic,
+      model: args.navigatorModel,
+      pricingPerMTokens: navPricing,
+      // Lean loader: fills in only what's cheap to derive from the
+      // brew context. Spec yaml + cross-story file list are pulled
+      // from disk; mock files are scoped to the story dir; storyTestIds
+      // come from the spec's tier-1 entries when available.
+      loadPromptContext: async () => {
+        const { readFileSync, existsSync, readdirSync, statSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const mockFiles: Array<{ path: string; content: string }> = [];
+        const mockDir = join(args.repoRoot, "mock/src/components");
+        const walk = (dir: string): void => {
+          if (!existsSync(dir)) return;
+          for (const name of readdirSync(dir)) {
+            const abs = join(dir, name);
+            const st = statSync(abs);
+            if (st.isDirectory()) walk(abs);
+            else if (/\.tsx?$/.test(name)) {
+              mockFiles.push({
+                path: abs.replace(args.repoRoot + "/", ""),
+                content: readFileSync(abs, "utf8").slice(0, 4000),
+              });
+            }
+          }
+        };
+        walk(mockDir);
+        const codeMapPath = join(args.repoRoot, ".brewing/code-map.md");
+        const codeMapDigest = existsSync(codeMapPath)
+          ? readFileSync(codeMapPath, "utf8").slice(0, 8000)
+          : "";
+        const specYamlPath = join(args.repoRoot, `specs/story-${args.storyId}.yaml`);
+        const specYaml = existsSync(specYamlPath) ? readFileSync(specYamlPath, "utf8") : undefined;
+        const apiContract = (spec as unknown as { api_contract?: Array<{ method: string; path: string; description?: string }> })
+          .api_contract;
+        return {
+          mockFiles,
+          codeMapDigest,
+          storyTestIds: [],
+          apiContract,
+          specYaml,
+        };
+      },
+    });
+    console.log(`  --with-navigator: enabled (model=${args.navigatorModel})`);
+  }
+
   const ctx: BrewContext = {
     repoRoot: args.repoRoot,
     storyId: args.storyId,
@@ -305,6 +380,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     runLogPath,
     cliVersion,
     mode: resolvedMode,
+    navigatorHook,
   };
 
   try {
