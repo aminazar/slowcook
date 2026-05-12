@@ -1,0 +1,79 @@
+# Dependabot — automated dependency update PRs.
+#
+# Why: catch breaking-change-prone dep updates (Anthropic SDK, vitest,
+# Next.js, typescript) before they bite a consumer. The 0.7.21 vitest-4
+# fake-timers incident (memory: project_fake_timers_block_fetch_microtasks)
+# wasted ~$3 in brew iterations chasing what turned out to be tool drift,
+# not a slowcook bug — Dependabot would have surfaced the change with
+# release notes BEFORE a halted brew.
+#
+# Cadence: weekly batch for npm, monthly for GitHub Actions, daily for
+# security advisories. Grouping keeps PR volume manageable (~3-5/week
+# steady state, more in week 1 as the project catches up).
+#
+# Auto-merge policy: OFF for the first month — we want to see the noise
+# profile + which classes are safe to auto-accept. Revisit once the
+# floor is known. Likely candidates for auto-merge later: @types/*
+# patch updates only.
+
+version: 2
+updates:
+  # ---- npm: workspace packages (cli + llm-anthropic + stack-ts + ...) ----
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+    # Grouping is load-bearing. Without it, 15+ PRs/week land as
+    # individual updates for transitive @types changes. Grouped means
+    # ~3-5 PRs/week.
+    groups:
+      # Anthropic SDK + types together — they release in lockstep + a
+      # change here can affect every agent. Always read the changelog.
+      anthropic:
+        patterns:
+          - "@anthropic-ai/*"
+      # Vitest core + plugins move together; a major bump touches our
+      # test infra (jest-dom, fake-timers, etc.).
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      # @types/* updates: high volume, low risk; bundle them.
+      typescript-types:
+        patterns:
+          - "@types/*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Typescript + ts-morph + tsx: compilation surface; review carefully.
+      typescript-core:
+        patterns:
+          - "typescript"
+          - "ts-morph"
+          - "tsx"
+      # Playwright (tier-2 acceptance) + testing-library
+      testing:
+        patterns:
+          - "@playwright/*"
+          - "playwright"
+          - "@testing-library/*"
+          - "jest-axe"
+
+  # ---- GitHub Actions ----
+  # Lower cadence — Action versions move less often than npm deps.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
