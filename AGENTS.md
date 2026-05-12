@@ -128,6 +128,8 @@ All commands accept `--help` for full flag listings. One-line summaries:
 | `slowcook recipe --regression --bug-profile <path>` | Emit failing regression test for a sift'd bug | ~$0.50–1 |
 | `slowcook sift --bug-profile <path>` | Narrow red→green ratchet for a bug fix, bounded by `fix_scope` | ~$0.50–2 |
 | `slowcook refactor` | Read `.brewing/refactor/proposals.json`, rank by benefit/cost | $0 |
+| `slowcook garnish` | Local commit-gate for human tweaks on agent work — runs scoped tests, commits with `Tweaks-output-of:` trailers (learning signal for the upstream agent) | $0 |
+| `slowcook run-mock <story> --garnish` | DevTools Workspaces flow — boots mock locally, disables overlay, prints Chrome pairing instructions, auto-watches saves + auto-commits via garnish on green | $0 (per-commit; LLM only if test infra needs one) |
 | `slowcook docs <topic>` | Print bundled doc (`reporting`, `agents`, `read-only`) | $0 |
 | `slowcook help` | List all commands | $0 |
 
@@ -198,6 +200,31 @@ non-negotiable defaults unless the user specifically overrides.
   before filing a bug. Don't bundle artifacts; share URLs.
 - **Use `SLOWCOOK_READ_ONLY=1`** when reproducing a bug on someone else's
   repo. Blocks every GitHub-side write.
+
+### Local-developer flow (alternative to the remote overlay)
+
+- **`slowcook garnish`** is the right command when you (or another
+  engineer) edits files on top of an agent's commit. It runs the
+  relevant tests, commits on green with trailers that record which
+  upstream agent's work you tweaked. Don't `git commit` by hand on
+  top of agent work — you lose the learning-signal trailer.
+- **`slowcook run-mock <story> --garnish`** is the right command if
+  you want to edit the mock app via Chrome DevTools Workspaces.
+  It prints the one-time Chrome setup, then auto-garnishes on save.
+  The remote overlay is disabled in this mode — they're alternative
+  feedback channels, not stacked.
+
+### CI/CD posture (2026-05-12)
+
+- `main` is branch-protected: no force-push, no deletion. Admin
+  bypass is on, so solo merges still work. When you arrive as a
+  contributor, expect PR + 1 approval to land.
+- Dependabot opens weekly grouped PRs (anthropic / vitest /
+  typescript / testing) and monthly GitHub Actions version PRs.
+  Auto-merge is OFF; everything goes through a human glance.
+- Open ops backlog lives at [`docs/plans/ci-cd-roadmap.md`](./docs/plans/ci-cd-roadmap.md).
+  Two HIGH items are filed as GitHub issues; the rest are queued
+  in the doc until they become pressing.
 
 ---
 
