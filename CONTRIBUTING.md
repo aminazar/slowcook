@@ -48,6 +48,14 @@ warrants it).
   `workspace:^` unresolved → consumers hit `EUNSUPPORTEDPROTOCOL`).
 - `prepublishOnly: tsc -b` is wired; verify `dist/` is fresh after
   any package.json bump before publishing.
+- **After every publish run, run `scripts/smoke-install.sh
+  --since-publish`** in a clean shell. It spins up a temp dir per
+  workspace package and `npm install`s the just-published version.
+  Catches the slowcook#23 class of bug: workspace `package.json`
+  bumps that are committed but never `pnpm publish`-ed, leaving cli
+  releases with unresolvable transitive deps. The same script also
+  runs in CI on push-to-main + nightly via
+  `.github/workflows/smoke-install.yml`.
 
 ## After a fix lands
 

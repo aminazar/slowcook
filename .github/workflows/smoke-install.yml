@@ -1,0 +1,82 @@
+name: smoke-install
+
+# Verifies that every published @slowcook-ai/* package at @latest
+# (and the most recent alpha) installs cleanly in a fresh npm dir.
+#
+# Why this exists: pnpm publish only checks local workspace state —
+# it has no way to detect that a workspace package.json was bumped
+# without actually publishing. The May 2026 forge-github gap
+# (slowcook#23) is the canonical case: cli@0.18.0 + 0.19.x-alpha.* all
+# referenced unpublished forge-github versions; consumers chased an
+# unrunnable cli for ~a week.
+#
+# This workflow runs after every push to main (catches a publish that
+# just landed) AND on a daily schedule (catches yanks / retroactive
+# unpublishes). Also manually dispatchable for ad-hoc checks.
+
+on:
+  push:
+    branches: [main]
+    # Only run when a package.json *might* have been bumped — skip
+    # pure-docs commits to save runner time.
+    paths:
+      - 'packages/*/package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/smoke-install.yml'
+      - 'scripts/smoke-install.sh'
+  schedule:
+    # 06:00 UTC daily — early enough that a problem found in the
+    # overnight publish window is visible by the start of the workday.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Space-separated package names (with optional @version). Empty = all at @latest.'
+        required: false
+        default: ''
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write  # create/comment on the tracking issue if a failure recurs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: smoke-install
+        id: smoke
+        run: |
+          set +e
+          bash scripts/smoke-install.sh ${{ github.event.inputs.packages }} | tee smoke.log
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Fail job if smoke-install failed
+        if: steps.smoke.outputs.exit_code != '0'
+        run: exit 1
+
+      - name: Open / comment on tracking issue
+        if: failure() && (github.event_name == 'push' || github.event_name == 'schedule')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find the existing open smoke-install tracking issue, or open one.
+          issue=$(gh issue list --repo "${{ github.repository }}" \
+            --label "ci-cd" --search "smoke-install in:title state:open" \
+            --json number --jq '.[0].number // empty')
+
+          BODY=$(printf 'Smoke-install failed on run %s.\n\nLast 30 lines:\n\n```\n%s\n```' \
+            "${{ github.run_id }}" "$(tail -30 smoke.log)")
+
+          if [[ -n "$issue" ]]; then
+            gh issue comment "$issue" --repo "${{ github.repository }}" --body "$BODY"
+          else
+            gh issue create --repo "${{ github.repository }}" \
+              --title "smoke-install: published @slowcook-ai/* package failing to install" \
+              --label "bug,ci-cd" \
+              --body "$BODY"
+          fi
