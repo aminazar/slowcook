@@ -49,6 +49,19 @@ interface Args {
   skipInstall: boolean;
   /** Override branch name; default is `slowcook/mockup/story-<id>`. */
   branchOverride: string | null;
+  /**
+   * 0.19.0-α.16 — garnish mode (DevTools Workspaces flow).
+   *
+   * Replaces the remote-PM review-overlay channel with a local-developer
+   * channel: print DevTools Workspaces pairing instructions, watch
+   * `mock/src/` for file saves (typically saved by Chrome via Workspaces,
+   * but any editor works), debounce + run tests + auto-commit via the
+   * shared runGarnish core when green.
+   *
+   * The overlay is intentionally disabled in this mode (we don't set
+   * NEXT_PUBLIC_SLOWCOOK_REVIEW). PM uses DevTools instead.
+   */
+  garnish: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -58,6 +71,7 @@ function parseArgs(argv: string[]): Args {
     pollSeconds: 15,
     skipInstall: false,
     branchOverride: null,
+    garnish: false,
   };
   // Positional first arg is story id (consumer convenience).
   if (argv.length > 0 && argv[0] && !argv[0].startsWith("-")) {
@@ -73,6 +87,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--poll-seconds" && next) { args.pollSeconds = parseInt(next, 10); i++; }
     else if (a === "--no-poll") { args.pollSeconds = 0; }
     else if (a === "--skip-install") { args.skipInstall = true; }
+    else if (a === "--garnish") { args.garnish = true; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
   if (!args.story) {
@@ -104,6 +119,13 @@ Options:
   --poll-seconds <n>       Auto-pull interval (default 15; 0 disables).
   --no-poll                Disable auto-pull.
   --skip-install           Skip npm install even on lockfile drift.
+  --garnish                (0.19.0-α.16) DevTools Workspaces mode. Disables
+                           the review-overlay; instead prints Chrome
+                           Workspaces pairing instructions + watches
+                           mock/src/ for file saves. Each debounced batch
+                           runs vitest related + auto-commits via garnish
+                           on green (Tweaks-output-of: trailers recorded
+                           for learning signal).
 
 What it does:
   1. git fetch + git checkout the mockup branch
@@ -247,34 +269,58 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   // without prompting the PM for a PAT. Uses `gh auth token` from the
   // local gh CLI; falls back silently when gh isn't installed or the
   // user hasn't logged in (overlay then uses its old PAT-prompt path).
+  //
+  // 0.19.0-α.16 — in --garnish mode the overlay is disabled, so we
+  // skip starting the proxy (saves a port + a couple of stderr lines).
   let proxy: ProxyHandle | null = null;
-  const ghToken = readGhToken();
-  if (ghToken) {
-    try {
-      proxy = await startGhProxy(ghToken);
-      console.log(`  proxy  gh-proxy on ${proxy.url} (no PAT prompt — uses 'gh auth token')`);
-    } catch (e) {
-      console.warn(`  proxy  gh-proxy failed to start (${(e as Error).message}); overlay will fall back to PAT prompt.`);
+  if (!args.garnish) {
+    const ghToken = readGhToken();
+    if (ghToken) {
+      try {
+        proxy = await startGhProxy(ghToken);
+        console.log(`  proxy  gh-proxy on ${proxy.url} (no PAT prompt — uses 'gh auth token')`);
+      } catch (e) {
+        console.warn(`  proxy  gh-proxy failed to start (${(e as Error).message}); overlay will fall back to PAT prompt.`);
+      }
+    } else {
+      console.warn(`  proxy  gh CLI not authenticated ('gh auth token' returned empty). Overlay will prompt for a PAT instead.`);
     }
   } else {
-    console.warn(`  proxy  gh CLI not authenticated ('gh auth token' returned empty). Overlay will prompt for a PAT instead.`);
+    console.log(`  proxy  skipped (--garnish mode; overlay disabled)`);
   }
 
   // Step 4: spawn next dev with env vars.
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    NEXT_PUBLIC_SLOWCOOK_REVIEW: "1",
-    NEXT_PUBLIC_SLOWCOOK_OWNER: detected.owner,
-    NEXT_PUBLIC_SLOWCOOK_REPO: detected.repo,
-    NEXT_PUBLIC_SLOWCOOK_PR_NUMBER: prNumber ? String(prNumber) : "0",
-    NEXT_PUBLIC_SLOWCOOK_STORY_ID: args.story,
-  };
-  if (proxy) env["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] = proxy.url;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (!args.garnish) {
+    env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] = "1";
+    env["NEXT_PUBLIC_SLOWCOOK_OWNER"] = detected.owner;
+    env["NEXT_PUBLIC_SLOWCOOK_REPO"] = detected.repo;
+    env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] = prNumber ? String(prNumber) : "0";
+    env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] = args.story;
+    if (proxy) env["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] = proxy.url;
+  }
 
   console.log(`  npm    run dev (next dev :3100)`);
-  console.log(`         overlay env: REVIEW=1 OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
-  if (!prNumber) {
-    console.warn(`         (no open mockup PR found for branch ${branch}; overlay submits will fail until one exists)`);
+  if (!args.garnish) {
+    console.log(`         overlay env: REVIEW=1 OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
+    if (!prNumber) {
+      console.warn(`         (no open mockup PR found for branch ${branch}; overlay submits will fail until one exists)`);
+    }
+  } else {
+    const srcDir = join(mockDir, "src");
+    console.log(`         (--garnish mode: overlay disabled; DevTools Workspaces pairing instructions below)`);
+    console.log(``);
+    console.log(`  ─── Chrome DevTools Workspaces ─────────────────────────────────────`);
+    console.log(`  Once-only setup (Chrome saves the workspace mapping after this):`);
+    console.log(`    1. Open the mock at  http://localhost:3100`);
+    console.log(`    2. F12 → Sources panel → Filesystem (left sidebar) → "+ Add folder"`);
+    console.log(`    3. Paste this path:  ${srcDir}`);
+    console.log(`    4. Approve the permission dialog Chrome shows`);
+    console.log(``);
+    console.log(`  After that, your DevTools Sources-panel edits save directly to`);
+    console.log(`  the mock app's source files. slowcook watches them + auto-commits.`);
+    console.log(`  ─────────────────────────────────────────────────────────────────────`);
+    console.log(``);
   }
 
   const dev: ChildProcess = spawn("npm", ["run", "dev"], { cwd: mockDir, env, stdio: "inherit" });
@@ -304,12 +350,64 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     }, args.pollSeconds * 1000);
   }
 
+  // Step 5b: --garnish mode — watch mock/src/ for file saves +
+  // auto-commit via the shared runGarnish core. Debounced so a flurry
+  // of saves (Chrome DevTools sometimes saves twice in quick succession;
+  // editors can too) collapses to one commit.
+  let watcher: ReturnType<typeof import("node:fs").watch> | null = null;
+  let watcherDebounceTimer: NodeJS.Timeout | null = null;
+  let garnishInFlight = false;
+  if (args.garnish) {
+    const { watch } = await import("node:fs");
+    const { runGarnish } = await import("../garnish/index.js");
+    const watchTarget = join(mockDir, "src");
+    console.log(`[run-mock] watching ${watchTarget.replace(args.repoRoot + "/", "")} for file saves (debounce 1.5s)`);
+    const onSaveBatch = async () => {
+      if (garnishInFlight) return; // skip overlapping runs
+      garnishInFlight = true;
+      try {
+        console.log(`\n[run-mock] file save detected; running tests + garnishing...`);
+        const result = await runGarnish({
+          repoRoot: args.repoRoot,
+          push: false,
+        });
+        if (result.kind === "no-changes") {
+          console.log(`[run-mock] no committable changes (test files or transient saves).`);
+        } else if (result.kind === "tests-failed") {
+          console.log(`[run-mock] ✗ tests failed; not committing. Leave the file as-is + fix, slowcook will re-test on next save.`);
+          const tail = result.outputTail.split("\n").slice(-12).join("\n");
+          console.log(`  ${tail.replace(/\n/g, "\n  ")}`);
+        } else {
+          console.log(`[run-mock] ✓ garnished ${result.sha.slice(0, 7)} (${result.touchedFiles.length} file(s), ${result.agentRefCount} agent ref(s))`);
+        }
+      } finally {
+        garnishInFlight = false;
+      }
+    };
+    try {
+      watcher = watch(watchTarget, { recursive: true }, (_eventType, filename) => {
+        if (!filename) return;
+        const f = filename.toString();
+        if (f.startsWith("node_modules/")) return;
+        if (f.startsWith(".next/")) return;
+        if (f.startsWith("scenarios/")) return; // vibe's output; tweaking these by hand is unusual
+        if (!/\.(tsx?|css|json)$/.test(f)) return;
+        if (watcherDebounceTimer) clearTimeout(watcherDebounceTimer);
+        watcherDebounceTimer = setTimeout(() => { void onSaveBatch(); }, 1500);
+      });
+    } catch (e) {
+      console.warn(`[run-mock] could not start file watcher (${(e as Error).message}); --garnish mode disabled.`);
+    }
+  }
+
   // Step 6: clean shutdown on Ctrl-C / dev exit. Pop any stash we
   // pushed in step 1 so the user's working tree is restored to its
   // pre-run-mock state — same UX guarantee as `git stash pop` after
   // their own manual stash dance.
   const cleanup = (signal?: string) => {
     if (pollTimer) clearInterval(pollTimer);
+    if (watcher) { try { watcher.close(); } catch { /* ignore */ } }
+    if (watcherDebounceTimer) { clearTimeout(watcherDebounceTimer); watcherDebounceTimer = null; }
     if (proxy) { try { proxy.close(); } catch { /* ignore */ } }
     if (dev && !dev.killed) {
       try { dev.kill(signal as NodeJS.Signals ?? "SIGTERM"); } catch { /* ignore */ }

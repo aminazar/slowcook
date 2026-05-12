@@ -171,31 +171,125 @@ function runTests(repoRoot: string, files: string[], scopeOverride: string | nul
   return { ok, output };
 }
 
+/**
+ * 0.19.0-α.16 — runGarnish, the reusable core. Other commands
+ * (run-mock --garnish, for one) call this in-process on debounced
+ * file-save batches; doing it as a subprocess invocation would
+ * re-pay node startup every time.
+ *
+ * Returns a structured result; never calls process.exit. Caller
+ * decides what to do on each kind.
+ */
+export interface RunGarnishOptions {
+  repoRoot: string;
+  scope?: string | null;
+  message?: string | null;
+  push?: boolean;
+  silent?: boolean;
+}
+
+export type RunGarnishResult =
+  | { kind: "no-changes" }
+  | { kind: "tests-failed"; touchedFiles: string[]; outputTail: string }
+  | {
+      kind: "committed";
+      sha: string;
+      touchedFiles: string[];
+      agentRefCount: number;
+      pushed: boolean;
+    };
+
+export async function runGarnish(opts: RunGarnishOptions): Promise<RunGarnishResult> {
+  const repoRoot = opts.repoRoot;
+  const scope = opts.scope ?? null;
+  const log = opts.silent ? () => undefined : (msg: string) => console.log(msg);
+  const warn = opts.silent ? () => undefined : (msg: string) => console.warn(msg);
+
+  const changed = gitChangedFiles(repoRoot);
+  if (changed.length === 0) {
+    return { kind: "no-changes" };
+  }
+
+  const touchedFiles = changed.map((c) => c.path);
+  const { refs, humanFiles } = resolveUpstreamRefs(repoRoot, touchedFiles);
+
+  if (!opts.silent) {
+    log(`  ${touchedFiles.length} file(s) with uncommitted changes:`);
+    for (const f of touchedFiles) log(`    ${f}`);
+    log(`  upstream: ${refs.length} agent-authored, ${humanFiles.length} human/new`);
+    if (refs.length > 0) {
+      const byAgent: Record<string, number> = {};
+      for (const r of refs) byAgent[r.agent] = (byAgent[r.agent] ?? 0) + 1;
+      const summary = Object.entries(byAgent).map(([a, n]) => `${a}=${n}`).join(", ");
+      log(`    (${summary})`);
+    }
+    log("\n  running tests" + (scope ? ` (--scope ${scope})` : " (vitest related)") + "...");
+  }
+
+  const tests = runTests(repoRoot, touchedFiles, scope);
+  if (!tests.ok) {
+    const tail = tests.output.split("\n").slice(-40).join("\n");
+    return { kind: "tests-failed", touchedFiles, outputTail: tail };
+  }
+  log("  ✓ tests passed.");
+
+  const message = composeCommitMessage({
+    touchedFiles,
+    upstreamRefs: refs,
+    userMessage: opts.message ?? undefined,
+  });
+  const msgFile = join(repoRoot, ".brewing/.garnish-commit-msg.tmp");
+  if (!existsSync(join(repoRoot, ".brewing"))) {
+    execSync(`mkdir -p "${join(repoRoot, ".brewing")}"`);
+  }
+  writeFileSync(msgFile, message, "utf8");
+  for (const f of touchedFiles) {
+    try { execSync(`git -C "${repoRoot}" add -- "${f}"`, { stdio: "ignore" }); }
+    catch { /* deleted file; ignore */ }
+  }
+  try {
+    execSync(`git -C "${repoRoot}" commit -F "${msgFile}"`, {
+      stdio: opts.silent ? "ignore" : "inherit",
+    });
+  } catch (e) {
+    warn(`  garnish commit failed: ${(e as Error).message.slice(0, 200)}`);
+    return { kind: "tests-failed", touchedFiles, outputTail: (e as Error).message };
+  }
+  const sha = execSync(`git -C "${repoRoot}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+  let pushed = false;
+  if (opts.push) {
+    try {
+      execSync(`git -C "${repoRoot}" push`, { stdio: opts.silent ? "ignore" : "inherit" });
+      pushed = true;
+    } catch (e) {
+      warn(`  warn: push failed: ${(e as Error).message.slice(0, 200)}`);
+    }
+  }
+  return { kind: "committed", sha, touchedFiles, agentRefCount: refs.length, pushed };
+}
+
 export async function garnish(argv: string[], _cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
   console.log(`slowcook garnish · cwd: ${args.repoRoot.replace(process.cwd() + "/", ".")}`);
 
-  const changed = gitChangedFiles(args.repoRoot);
-  if (changed.length === 0) {
-    console.log("  no uncommitted changes; nothing to garnish.");
-    return;
-  }
-
-  const touchedFiles = changed.map((c) => c.path);
-  console.log(`  ${touchedFiles.length} file(s) with uncommitted changes:`);
-  for (const f of touchedFiles) console.log(`    ${f}`);
-
-  const { refs, humanFiles } = resolveUpstreamRefs(args.repoRoot, touchedFiles);
-  console.log(`  upstream: ${refs.length} agent-authored, ${humanFiles.length} human/new`);
-  if (refs.length > 0) {
-    const byAgent: Record<string, number> = {};
-    for (const r of refs) byAgent[r.agent] = (byAgent[r.agent] ?? 0) + 1;
-    const summary = Object.entries(byAgent).map(([a, n]) => `${a}=${n}`).join(", ");
-    console.log(`    (${summary})`);
-  }
-
   if (args.dryRun) {
+    const changed = gitChangedFiles(args.repoRoot);
+    if (changed.length === 0) {
+      console.log("  no uncommitted changes; nothing to garnish.");
+      return;
+    }
+    const touchedFiles = changed.map((c) => c.path);
+    const { refs, humanFiles } = resolveUpstreamRefs(args.repoRoot, touchedFiles);
+    console.log(`  ${touchedFiles.length} file(s) with uncommitted changes:`);
+    for (const f of touchedFiles) console.log(`    ${f}`);
+    console.log(`  upstream: ${refs.length} agent-authored, ${humanFiles.length} human/new`);
+    if (refs.length > 0) {
+      const byAgent: Record<string, number> = {};
+      for (const r of refs) byAgent[r.agent] = (byAgent[r.agent] ?? 0) + 1;
+      const summary = Object.entries(byAgent).map(([a, n]) => `${a}=${n}`).join(", ");
+      console.log(`    (${summary})`);
+    }
     console.log("\n  [dry-run] would run tests + commit; skipping.");
     const message = composeCommitMessage({
       touchedFiles,
@@ -207,50 +301,20 @@ export async function garnish(argv: string[], _cliVersion: string): Promise<void
     return;
   }
 
-  console.log("\n  running tests" + (args.scope ? ` (--scope ${args.scope})` : " (vitest related)") + "...");
-  const tests = runTests(args.repoRoot, touchedFiles, args.scope);
-  if (!tests.ok) {
-    console.error("\n  ✗ tests failed. Garnish blocked; working tree unchanged.\n");
-    const tail = tests.output.split("\n").slice(-40).join("\n");
-    console.error(tail);
-    process.exit(1);
-  }
-  console.log("  ✓ tests passed.");
-
-  const message = composeCommitMessage({
-    touchedFiles,
-    upstreamRefs: refs,
-    userMessage: args.message ?? undefined,
+  const result = await runGarnish({
+    repoRoot: args.repoRoot,
+    scope: args.scope,
+    message: args.message,
+    push: args.push,
   });
-  const msgFile = join(args.repoRoot, ".brewing/.garnish-commit-msg.tmp");
-  if (!existsSync(join(args.repoRoot, ".brewing"))) {
-    execSync(`mkdir -p "${join(args.repoRoot, ".brewing")}"`);
+  if (result.kind === "no-changes") {
+    console.log("  no uncommitted changes; nothing to garnish.");
+    return;
   }
-  writeFileSync(msgFile, message, "utf8");
-
-  // Stage every changed file we identified — never `git add -A` (would pick
-  // up stray untracked files in the working tree).
-  for (const f of touchedFiles) {
-    try { execSync(`git -C "${args.repoRoot}" add -- "${f}"`, { stdio: "ignore" }); }
-    catch { /* file may have been deleted; ignore */ }
-  }
-
-  try {
-    execSync(`git -C "${args.repoRoot}" commit -F "${msgFile}"`, { stdio: "inherit" });
-  } catch (e) {
-    console.error(`  garnish commit failed: ${(e as Error).message.slice(0, 200)}`);
+  if (result.kind === "tests-failed") {
+    console.error("\n  ✗ tests failed. Garnish blocked; working tree unchanged.\n");
+    console.error(result.outputTail);
     process.exit(1);
   }
-
-  const sha = execSync(`git -C "${args.repoRoot}" rev-parse HEAD`, { encoding: "utf8" }).trim();
-  console.log(`\n  ✓ garnished: ${sha.slice(0, 7)} (${refs.length} agent ref(s) recorded)`);
-
-  if (args.push) {
-    try {
-      execSync(`git -C "${args.repoRoot}" push`, { stdio: "inherit" });
-      console.log(`  ✓ pushed to origin.`);
-    } catch (e) {
-      console.warn(`  warn: push failed: ${(e as Error).message.slice(0, 200)}`);
-    }
-  }
+  console.log(`\n  ✓ garnished: ${result.sha.slice(0, 7)} (${result.agentRefCount} agent ref(s) recorded)${result.pushed ? " · pushed" : ""}`);
 }
