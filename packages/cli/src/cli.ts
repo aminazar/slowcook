@@ -88,6 +88,7 @@ Commands available in ${VERSION}:
   chef-drift         (0.18.0-α.9 L1) Surgical drift-fixer. Triggered by mock-isolation / recon / brew / navigator halts.
   chef-orchestrate   (0.19.0-α.2 L3) Pipeline orchestrator. Decides redispatch_brew / rebase / escalate / close on a halted PR.
   refactor           (0.19.0-α.7) Rank refactor proposals by benefit/cost. Reads .brewing/refactor/proposals.json.
+  garnish            (0.19.0-α.15) Local commit-gate for human tweaks on agent work. Runs tests, commits with learning-signal trailers.
   catchup            Detect + run pipeline steps that should have triggered but didn't.
   brew               Ratcheted implementation loop: flip red tests to green for one story.
   map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
@@ -239,6 +240,18 @@ async function main(): Promise<void> {
       {
         const { docs } = await import("./commands/docs/index.js");
         await docs(args.slice(1), VERSION);
+        return;
+      }
+    case "garnish":
+      // 0.19.0-α.15 — local commit-gate for human (or other-agent)
+      // tweaks layered on top of an agent's work. Detects uncommitted
+      // changes, runs scoped tests, commits with Tweaks-output-of:
+      // trailers marking each agent-authored file the tweak touched.
+      // A future `slowcook reflect` mines these trailers for learning
+      // signal (eval-set fixtures, prompt-amendment candidates).
+      {
+        const { garnish } = await import("./commands/garnish/index.js");
+        await garnish(args.slice(1), VERSION);
         return;
       }
     case "vibe":
