@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@slowcook-ai/core": "workspace:^",
-    "@anthropic-ai/sdk": "^0.32.1"
+    "@anthropic-ai/sdk": "^0.95.2"
   },
   "publishConfig": {
     "access": "public"
