@@ -6,6 +6,49 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.18 — TypeORM migration scanner + migration gate
+
+Cut 2026-05-13 (late). Two-part fix for the long-standing schema-gap
+class (rewo story-005 / story-006 incident shape, `project_migration_gap_in_pipeline` memory). Ships ahead of the first delgoosh story so the
+brownfield consumer is covered before any pipeline run.
+
+- **α.18 — TypeORM migration scanner (closes #108)**: `scanMigrations`
+  now auto-dispatches per-file: `*.sql` → existing Supabase parser;
+  `*.ts` → new TypeORM parser. The TS parser handles two patterns:
+  raw SQL via `queryRunner.query(\`...\`)` (template-string extraction
+  then existing SQL parsers), and `DatabaseCreateTable(queryRunner,
+  'tbl', [...])` helper calls (delgoosh-monorepo style, with implicit
+  helper-added columns: id, created_at, updated_at, deleted_at).
+  Auto-discovery: if `supabase/migrations/` is absent, tries
+  `packages/postgres/src/migrations`, `src/migrations`, `migrations` in
+  that order. Smoke-tested on delgoosh-monorepo — detects 14 migration
+  files, 61 tables.
+- **α.18 — migration gate in recon (closes #109)**: new
+  `checkMigrationGate(repoRoot, storyId)` invoked from `slowcook recon`.
+  Reads the story spec, extracts `proposals.schema.sql`, and verifies
+  every proposed table / column is covered by some migration file on
+  disk. Emits `structural_gaps[].kind = "missing_migration"` with
+  recommendation text pointing at the right migration path for the
+  consumer's flavour (TypeORM or Supabase). Pure structural — no LLM.
+  Hooks into the existing `escalate` exit-2 path, so brew-auto
+  workflows already gate on it without further wiring.
+
+### Test coverage
+
+`@slowcook-ai/cli` 800/800 passing (was 775). New: 8 history-index
+tests (TypeORM parsing + auto-discovery), 12 migration-gate tests
+(no-op / Supabase / TypeORM / format helpers).
+
+### Why this matters for delgoosh
+
+Delgoosh uses TypeORM migrations at `packages/postgres/src/migrations/*.ts`
+in a helper-driven style. The old scanner only saw Supabase SQL —
+zero migrations would be detected, the gate would silently no-op,
+and the rewo story-005 incident class would have shipped on the
+first delgoosh story. After α.18, the gate fires.
+
+---
+
 ## 0.19.0-alpha.17 — prompt-regression eval gate
 
 Cut 2026-05-13. Closes #19 (partial — shape + one bootstrap fixture
