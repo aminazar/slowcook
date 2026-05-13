@@ -71,7 +71,17 @@ failure_locus:
     migration adds 'bar' (verified: grep returns 0 hits)".>
 
 regression_assertion:
-  - "Given <repro context>, when <action>, then <correct behavior>"
+  # Each line is one Given/When/Then. Be concrete enough that the
+  # next agent (slowcook recipe --regression) can translate it
+  # directly into a failing test without re-deriving the diagnosis.
+  # MANDATORY structural elements per line:
+  #   - the SUBJECT of the test (module / class / function), by path
+  #   - the ARRANGE (input state / mocks / fixtures)
+  #   - the ACT (the call or trigger)
+  #   - the ASSERT (the specific observable behavior)
+  # Prose is allowed for clarity but each item MUST contain those four
+  # so the recipe agent has everything it needs.
+  - "Given <fixture state>, when <subject>.<method>(<args>) runs, then <specific assertion>"
   - "(may be multiple if the bug has compound effects)"
 
 fix_scope:
@@ -116,7 +126,7 @@ failure_locus:
     bar — verified via grep').
 
 regression_assertion:
-  - "Given <repro context>, when <action>, then <correct behavior>."
+  - "Given a \`NotificationsTypeEnum.PATIENT_10_MIN_BEFORE_APPOINTMENT\` notification + user with WHATSAPP preference + phoneNumber set, when \`NotificationActivity.sendNotification({ notificationId })\` runs, then \`whatsappService.sendPatient10MinBeforeAppointmentWhatsapp\` is called once with \`{ notificationId }\` and no \`*Email\` method on whatsappService is called."
 
 fix_scope:
   - "src/path/to/broken.ts"

@@ -812,8 +812,10 @@ export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifac
     { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
     { path: ".github/workflows/slowcook-acceptance.yml", contents: slowcookAcceptanceWorkflow() },
     // 0.13.0-alpha.5 — bug-flow workflows. investigate fires on issues
-    // labeled `bug`; sift fires when a bug-profile PR merges.
+    // labeled `bug`; recipe-regression auto-fires when a bug-profile PR
+    // merges; sift consumes the resulting regression test.
     { path: ".github/workflows/slowcook-investigate.yml", contents: slowcookInvestigateWorkflow() },
+    { path: ".github/workflows/slowcook-recipe-regression.yml", contents: slowcookRecipeRegressionWorkflow() },
     { path: ".github/workflows/slowcook-sift.yml", contents: slowcookSiftWorkflow() },
     { path: ".github/workflows/slowcook-chef.yml", contents: slowcookChefWorkflow() },
     // 0.15.0-α.2 — vibe agent (mockup generator) workflow.
@@ -1159,6 +1161,176 @@ ${RESOLVE_PIN_STEP}
             --max-iterations "\${{ github.event.inputs.max_iterations }}" \\
             --budget-usd "\${{ github.event.inputs.budget_usd }}" \\
             --model "\${{ github.event.inputs.model }}"
+`;
+}
+
+/**
+ * 0.19.0+ (slowcook#37) — slowcook-recipe-regression workflow. The
+ * missing middle of the bug-flow chain. Fires automatically when a PR
+ * labeled `slowcook-bug-profile` merges; reads the just-merged bug-
+ * profile YAML, runs `slowcook recipe --regression --bug <id>` to emit
+ * a failing test under `tests/regression/<bug_id>-*.test.ts`, then
+ * opens a follow-up PR with the test (labeled `slowcook-regression-
+ * test`).
+ *
+ * Why automation: investigate's PR body already promises this chain
+ * ("Merging this PR triggers `slowcook recipe --regression`...") but
+ * pre-0.19 no workflow actually listened. Humans (or agents) could
+ * skip the test-writing step and let sift run against a profile alone.
+ * Per slowcook#37 (chain enforcement), the bug-profile's
+ * `regression_assertion` should be treated as a REQUIRED test gate;
+ * this workflow makes that structural, not advisory.
+ *
+ * Sift's existing entry check (`packages/cli/src/commands/sift/
+ * index.ts:142` refuses to start if no test file matches
+ * `tests/regression/<bug_id>-*.test.ts`) is the hard gate that closes
+ * the loop.
+ */
+function slowcookRecipeRegressionWorkflow(): string {
+  return `name: slowcook recipe-regression
+
+# 0.19.0+ (slowcook#37) — auto-fires when a bug-profile PR merges.
+# Emits the failing regression test that sift consumes. Without this
+# workflow, the investigate → recipe-regression → sift chain is
+# advisory; with it, the test-writing step is enforced for every
+# bug-profile that lands on main.
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      bug:
+        description: "Bug id to recipe a regression test for (B-N or just N)"
+        required: true
+        type: string
+
+concurrency:
+  group: slowcook-recipe-regression-\${{ github.event.inputs.bug || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  recipe-regression:
+    # Auto-trigger: only when a slowcook-bug-profile PR actually merged.
+    # workflow_dispatch always runs (manual retry path).
+    if: >-
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged == true &&
+        contains(github.event.pull_request.labels.*.name, 'slowcook-bug-profile')
+      ) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: \${{ github.event.pull_request.merge_commit_sha || github.ref }}
+
+${RESOLVE_PIN_STEP}
+
+      - name: Configure git identity for agent commits
+        run: |
+          git config user.name  "slowcook-recipe[bot]"
+          git config user.email "slowcook-recipe@users.noreply.github.com"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Detect bug id
+        id: bug
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          INPUT_BUG: \${{ github.event.inputs.bug }}
+          PR_NUM: \${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          if [ -n "\${INPUT_BUG:-}" ]; then
+            # Manual dispatch — normalize \`B-N\` or \`N\` to \`B-N\`.
+            BUG="\${INPUT_BUG}"
+            [[ "\$BUG" == B-* ]] || BUG="B-\$BUG"
+            echo "id=\$BUG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Auto path: derive from the merged PR's branch name
+          # (slowcook/bug-profile/B-N — set by \`slowcook investigate\`).
+          BRANCH=$(gh pr view "$PR_NUM" --repo "\${{ github.repository }}" --json headRefName -q .headRefName)
+          BUG=$(echo "$BRANCH" | sed -nE 's|^slowcook/bug-profile/(B-[a-zA-Z0-9_-]+)$|\\1|p')
+          if [ -z "$BUG" ]; then
+            echo "Could not derive bug id from branch '$BRANCH'. Skipping recipe-regression."
+            exit 0
+          fi
+          echo "id=$BUG" >> "$GITHUB_OUTPUT"
+
+      - name: Skip-if-test-already-on-main
+        if: steps.bug.outputs.id != ''
+        id: existing
+        env:
+          BUG_ID: \${{ steps.bug.outputs.id }}
+        run: |
+          set -eu
+          # Recipe-regression writes to tests/regression/<bug_id>-*.test.ts.
+          # If a matching file already exists, the previous run already
+          # produced the test or a human authored one — skip this run.
+          if compgen -G "tests/regression/\${BUG_ID}-*.test.ts" > /dev/null 2>&1; then
+            echo "Regression test for \${BUG_ID} already exists; skipping recipe-regression."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Recipe (regression)
+        if: steps.bug.outputs.id != '' && steps.existing.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          SLOWCOOK_DEBUG: "1"
+        run: |
+          set -eu
+          npx --yes "$SLOWCOOK_CLI" recipe --regression --bug "\${{ steps.bug.outputs.id }}"
+
+      - name: Push regression test + open PR
+        if: steps.bug.outputs.id != '' && steps.existing.outputs.skip != 'true'
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          BUG_ID: \${{ steps.bug.outputs.id }}
+        run: |
+          set -eu
+          # Nothing emitted? Recipe-regression failed silently — fail
+          # the step so the operator sees it.
+          if ! compgen -G "tests/regression/\${BUG_ID}-*.test.ts" > /dev/null 2>&1; then
+            echo "::error::Recipe emitted no test file at tests/regression/\${BUG_ID}-*.test.ts"
+            exit 1
+          fi
+
+          BRANCH="slowcook/regression-test/\${BUG_ID}"
+          git checkout -b "$BRANCH"
+          git add tests/regression/
+          git commit -m "test(regression): failing test for \${BUG_ID} (auto-emitted by slowcook recipe)"
+          git push --force-with-lease origin "$BRANCH"
+
+          # Open PR (or update if branch already had one). Labels:
+          # slowcook-regression-test to differentiate from spec/mockup/brew
+          # PRs in dashboards; bug for routing to the bug-flow queue.
+          if gh pr view "$BRANCH" --repo "\${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Existing PR for \$BRANCH found; updated with force-push."
+          else
+            gh pr create \\
+              --repo "\${{ github.repository }}" \\
+              --head "$BRANCH" \\
+              --title "regression test: \${BUG_ID} (slowcook recipe --regression)" \\
+              --body "Auto-emitted failing regression test for \\\`\${BUG_ID}\\\`. The test is red against current code; sift will ratchet it to green.
+
+Merge this PR to admit the test to main. \\\`slowcook sift --bug \${BUG_ID}\\\` will then run against the captured assertion.
+
+Bug profile: .brewing/bug-profiles/\${BUG_ID}.yaml" \\
+              --label "slowcook-regression-test,bug"
+          fi
 `;
 }
 

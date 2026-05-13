@@ -96,6 +96,7 @@ describe("buildPlan — fresh project", () => {
     expect(paths).toContain(".github/workflows/slowcook.yml");
     expect(paths).toContain(".github/workflows/slowcook-spec-merged.yml");
     expect(paths).toContain(".github/workflows/slowcook-investigate.yml");
+    expect(paths).toContain(".github/workflows/slowcook-recipe-regression.yml");
     expect(paths).toContain(".github/workflows/slowcook-sift.yml");
     expect(paths).toContain(".github/workflows/slowcook-chef.yml");
     expect(paths).toContain("CODEOWNERS");
