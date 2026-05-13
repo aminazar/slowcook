@@ -1,4 +1,8 @@
-import { emitSchemaDiagram, emitTokensCatalog } from "../map/index.js";
+import {
+  emitSchemaDiagram,
+  emitTokensCatalog,
+  emitEntitiesDiagram,
+} from "../map/index.js";
 
 /**
  * 0.13.5+ — focused brownfield extraction command. A thin wrapper over
@@ -22,6 +26,7 @@ interface ExtractArgs {
   repoRoot: string;
   schema: boolean;
   tokens: boolean;
+  entities: boolean;
 }
 
 function parseArgs(argv: string[]): ExtractArgs {
@@ -29,6 +34,7 @@ function parseArgs(argv: string[]): ExtractArgs {
     repoRoot: process.cwd(),
     schema: false,
     tokens: false,
+    entities: false,
   };
   let any = false;
   for (let i = 0; i < argv.length; i++) {
@@ -43,6 +49,9 @@ function parseArgs(argv: string[]): ExtractArgs {
     } else if (a === "--tokens") {
       args.tokens = true;
       any = true;
+    } else if (a === "--entities") {
+      args.entities = true;
+      any = true;
     } else if (a === "--help" || a === "-h") {
       printHelp();
       process.exit(0);
@@ -56,6 +65,7 @@ function parseArgs(argv: string[]): ExtractArgs {
   if (!any) {
     args.schema = true;
     args.tokens = true;
+    args.entities = true;
   }
   return args;
 }
@@ -83,6 +93,13 @@ Targets:
               Design-token catalog from :root + @theme blocks in
               **/*.css (skipping node_modules / .next / build dirs).
               Skipped silently when no .css files / no tokens are found.
+  --entities  .brewing/diagrams/entities.md (0.19.0+ / slowcook#36)
+              Mermaid ERD + per-entity table from TypeORM
+              **/*.entity.ts files containing @Entity decorators.
+              Skipped silently when no entity files are found (e.g.
+              Prisma / Drizzle / Supabase consumers). Tracked in git
+              by default; the init gitignore template carves out an
+              exception for this file.
 
 This command does NOT run the ts-morph code-map scan; for that,
 use \`slowcook map generate\`.
@@ -111,6 +128,17 @@ export async function extract(argv: string[], _cliVersion: string): Promise<void
       );
     } else {
       console.log(`Skipped tokens extract: ${r.skippedReason}`);
+    }
+  }
+
+  if (args.entities) {
+    const r = emitEntitiesDiagram(args.repoRoot);
+    if (r.written) {
+      console.log(
+        `Wrote .brewing/diagrams/entities.md (${r.entityCount} entities, ${r.relationCount} relations, ${r.fileCount} *.entity.ts file(s) scanned).`
+      );
+    } else {
+      console.log(`Skipped entities extract: ${r.skippedReason}`);
     }
   }
 }

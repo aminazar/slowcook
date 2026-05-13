@@ -11,8 +11,43 @@ import {
 import type { CodeMap } from "./scan.js";
 import { ddlToMermaidErd } from "../refine/mermaid.js";
 import { emitTokensCatalog } from "./emit-tokens.js";
+import { buildEntitiesArtifact } from "./emit-typeorm.js";
 
 export { emitTokensCatalog } from "./emit-tokens.js";
+export { buildEntitiesArtifact } from "./emit-typeorm.js";
+
+/**
+ * 0.19.0+ (slowcook#36) — TypeORM entity-graph emitter. Mirrors
+ * `emitSchemaDiagram`'s shape for the (different) Supabase-migration
+ * source. Skipped silently when no `*.entity.ts` files with `@Entity(`
+ * decorators are found — not every consumer uses TypeORM.
+ *
+ * Output: `.brewing/diagrams/entities.md` (Mermaid ERD + per-entity
+ * summary + agent-facing conventions header). Tracked in git by
+ * default per the updated init gitignore template (slowcook#38).
+ */
+export function emitEntitiesDiagram(repoRoot: string): {
+  written: boolean;
+  entityCount?: number;
+  relationCount?: number;
+  fileCount?: number;
+  skippedReason?: string;
+} {
+  const r = buildEntitiesArtifact(repoRoot);
+  if (!r.written || !r.body) {
+    return { written: false, skippedReason: r.skippedReason };
+  }
+  const outDir = join(repoRoot, ".brewing/diagrams");
+  mkdirSync(outDir, { recursive: true });
+  const outPath = join(outDir, "entities.md");
+  writeFileSync(outPath, r.body, "utf8");
+  return {
+    written: true,
+    entityCount: r.entityCount,
+    relationCount: r.relationCount,
+    fileCount: r.fileCount,
+  };
+}
 
 interface MapArgs {
   subcommand: "generate" | "check";
