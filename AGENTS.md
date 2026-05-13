@@ -130,6 +130,7 @@ All commands accept `--help` for full flag listings. One-line summaries:
 | `slowcook refactor` | Read `.brewing/refactor/proposals.json`, rank by benefit/cost | $0 |
 | `slowcook garnish` | Local commit-gate for human tweaks on agent work — runs scoped tests, commits with `Tweaks-output-of:` trailers (learning signal for the upstream agent) | $0 |
 | `slowcook run-mock <story> --garnish` | DevTools Workspaces flow — boots mock locally, disables overlay, prints Chrome pairing instructions, auto-watches saves + auto-commits via garnish on green | $0 (per-commit; LLM only if test infra needs one) |
+| `slowcook eval --all` | Prompt-regression gate: replay each frozen fixture's prompt builder + assert substring contracts. Wired in `eval-gate.yml` on prompt PRs. See `CONTRIBUTING.md` for fixture format. | $0 / seconds |
 | `slowcook docs <topic>` | Print bundled doc (`reporting`, `agents`, `read-only`) | $0 |
 | `slowcook help` | List all commands | $0 |
 

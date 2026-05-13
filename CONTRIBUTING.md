@@ -85,6 +85,63 @@ When a fix ships in `cli@0.19.0-alpha.X`:
   audience (e.g., a cli stdout banner). Code comments stay plain.
 - Small commits, frequent pushes. Long-lived branches drift.
 
+## Prompt-regression fixtures (eval gate)
+
+PRs that touch `packages/llm-anthropic/src/prompts/**` run through
+the eval gate (`.github/workflows/eval-gate.yml`). The gate replays
+each fixture's prompt builder + asserts substring contracts —
+catches the regression class where a prompt edit silently drops
+critical context.
+
+Fixture format: `packages/cli/eval/fixtures/<id>/fixture.json`
+
+```json
+{
+  "id": "kebab-case-slug",
+  "agent": "chef-orchestrate",
+  "description": "What this fixture asserts and why.",
+  "captured_from": {
+    "pr": 153,
+    "date": "2026-05-07",
+    "context": "Short note on the real-world halt this models."
+  },
+  "input": { /* the exact args passed to build<Agent>Prompt */ },
+  "expected_prompt_includes": [
+    "story-153",
+    "Chef-drift ledger"
+  ],
+  "expected_prompt_excludes": [
+    "TODO",
+    "FIXME"
+  ]
+}
+```
+
+Supported agents (the `agent` field): `chef`, `chef-orchestrate`,
+`investigate`, `navigator`, `plate`, `sift`, `vibe`. See
+`packages/cli/src/commands/eval/index.ts` for the builder map.
+
+Running locally:
+
+```bash
+slowcook eval --list
+slowcook eval --all
+slowcook eval --fixture chef-orchestrate-close-on-incomplete-halt
+```
+
+Add a fixture when:
+
+- A real consumer halt would have been caught by a prompt-shape
+  assertion (e.g., the chef-drift path-alias miss, the typed-entity
+  falsification).
+- A prompt PR refactors context — capture the pre-refactor includes
+  as a regression baseline before merging.
+
+Author the fixture's `input` blob from the matching agent's
+TypeScript args interface (`packages/llm-anthropic/src/prompts/*.ts`).
+Run `slowcook eval --fixture <id>` locally; iterate the asserts until
+they capture the contract you care about.
+
 ## Workflows + CI
 
 - Self-hosted runners need `gh` CLI. Slowcook's chef-drift workflow
