@@ -58,6 +58,36 @@ describe("detectStack", () => {
       language: "typescript",
       hasVitest: false,
       hasPlaywright: false,
+      packageManager: "npm", // default when neither field nor lockfile present (slowcook#25)
+    });
+  });
+
+  it("detects pnpm from package.json#packageManager (slowcook#25)", () => {
+    expect(detectStack({ packageManager: "pnpm@9.15.0" })).toMatchObject({
+      packageManager: "pnpm",
+    });
+  });
+
+  it("detects yarn from package.json#packageManager", () => {
+    expect(detectStack({ packageManager: "yarn@4.0.0" })).toMatchObject({
+      packageManager: "yarn",
+    });
+  });
+
+  it("detects pnpm from pnpm-lock.yaml when packageManager field absent", () => {
+    const reader = mkReader({ "pnpm-lock.yaml": "lockfileVersion: 9" });
+    expect(detectStack({}, reader)).toMatchObject({ packageManager: "pnpm" });
+  });
+
+  it("detects yarn from yarn.lock when packageManager field absent", () => {
+    const reader = mkReader({ "yarn.lock": "# yarn lockfile v1" });
+    expect(detectStack({}, reader)).toMatchObject({ packageManager: "yarn" });
+  });
+
+  it("prefers packageManager field over lockfile presence", () => {
+    const reader = mkReader({ "package-lock.json": "{}" });
+    expect(detectStack({ packageManager: "pnpm@9.0.0" }, reader)).toMatchObject({
+      packageManager: "pnpm",
     });
   });
 });

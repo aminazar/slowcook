@@ -32,12 +32,25 @@ export interface PackageJson {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   scripts?: Record<string, string>;
+  /** Corepack-standard PM declaration: `"pnpm@9.15.0"`, `"yarn@4.0.0"`, etc. */
+  packageManager?: string;
 }
+
+export type PackageManager = "npm" | "pnpm" | "yarn";
 
 export interface DetectedStack {
   language: "typescript";
   hasVitest: boolean;
   hasPlaywright: boolean;
+  /**
+   * Consumer's package manager. Drives the workflow templates' install
+   * step (`npm ci` vs `pnpm install --frozen-lockfile` vs `yarn install
+   * --immutable`) and test invocation prefix. Detected from
+   * `package.json#packageManager` (corepack convention) → lockfile
+   * presence (`pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`) →
+   * defaults to npm.
+   */
+  packageManager: PackageManager;
 }
 
 /** Minimal filesystem reader so planning is pure. */
@@ -84,13 +97,49 @@ const TARGETS = {
   packageJson: "package.json",
 };
 
-export function detectStack(pkg: PackageJson): DetectedStack {
+export function detectStack(
+  pkg: PackageJson,
+  reader?: FileReader
+): DetectedStack {
   const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
   return {
     language: "typescript",
     hasVitest: "vitest" in deps,
     hasPlaywright: "@playwright/test" in deps || "playwright" in deps,
+    packageManager: detectPackageManager(pkg, reader),
   };
+}
+
+/**
+ * Detect the consumer's package manager. Priority order:
+ *
+ *   1. `package.json#packageManager` field (corepack standard;
+ *      authoritative when present, since corepack will use whatever
+ *      this declares)
+ *   2. Lockfile presence (most reliable on existing repos)
+ *   3. Default to npm
+ *
+ * Filed as slowcook#25 — every pnpm consumer hit this on the first
+ * run when init's npm-only templates failed at `npm ci`.
+ */
+export function detectPackageManager(
+  pkg: PackageJson,
+  reader?: FileReader
+): PackageManager {
+  // 1. packageManager field — corepack source of truth
+  if (pkg.packageManager) {
+    if (pkg.packageManager.startsWith("pnpm@")) return "pnpm";
+    if (pkg.packageManager.startsWith("yarn@")) return "yarn";
+    if (pkg.packageManager.startsWith("npm@")) return "npm";
+  }
+  // 2. lockfile detection
+  if (reader) {
+    if (reader.exists("pnpm-lock.yaml")) return "pnpm";
+    if (reader.exists("yarn.lock")) return "yarn";
+    if (reader.exists("package-lock.json")) return "npm";
+  }
+  // 3. default
+  return "npm";
 }
 
 export class InitError extends Error {
@@ -113,7 +162,7 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
     throw new InitError(`package.json is not valid JSON: ${(e as Error).message}`);
   }
 
-  const detected = detectStack(pkg);
+  const detected = detectStack(pkg, reader);
   const warnings: string[] = [];
   const actions: FileAction[] = [];
   const cliVersion = options.cliVersion ?? CLI_VERSION_FOR_TEMPLATES;
@@ -187,7 +236,10 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
   // 5. CI workflows are provided by the forge adapter. Today only GitHub
   // is wired; future forges (GitLab, Gitea) supply their own via a
   // similar static export. See packages/forge-github/src/templates.ts.
-  for (const artifact of getGitHubCiArtifacts({ cliVersion })) {
+  for (const artifact of getGitHubCiArtifacts({
+    cliVersion,
+    packageManager: detected.packageManager,
+  })) {
     addSimpleFile(actions, reader, options.force, artifact.path, artifact.contents);
   }
 

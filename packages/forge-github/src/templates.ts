@@ -31,7 +31,63 @@ const RESOLVE_PIN_STEP = `      - name: Resolve slowcook CLI pin
         # editing that one file; every workflow picks it up at run time.
         run: echo "SLOWCOOK_CLI=@slowcook-ai/cli@$(cat .brewing/slowcook-cli-version | tr -d '[:space:]')" >> $GITHUB_ENV`;
 
-function slowcookWorkflow(): string {
+/**
+ * Consumer package manager. Filed as slowcook#25 — templates default
+ * to \`npm ci\` which fails on pnpm-only repos. \`getGitHubCiArtifacts\`
+ * threads the detected pm through to each workflow template.
+ */
+export type PackageManager = "npm" | "pnpm" | "yarn";
+
+/**
+ * Returns the install-consumer-deps step block for a workflow,
+ * pm-appropriate. Includes a corepack-enable step for pnpm/yarn since
+ * GitHub-hosted runners have corepack but it's opt-in.
+ *
+ * Output is the literal YAML — caller composes it into the workflow
+ * jobs.<id>.steps[] array via string interpolation.
+ */
+function installStep(pm: PackageManager, indent: string = "      "): string {
+  const i = indent;
+  switch (pm) {
+    case "pnpm":
+      return `${i}- name: Enable pnpm
+${i}  run: corepack enable
+
+${i}- name: Install consumer deps
+${i}  run: pnpm install --frozen-lockfile`;
+    case "yarn":
+      return `${i}- name: Enable yarn
+${i}  run: corepack enable
+
+${i}- name: Install consumer deps
+${i}  run: yarn install --immutable`;
+    case "npm":
+    default:
+      return `${i}- name: Install consumer deps
+${i}  run: npm ci`;
+  }
+}
+
+/**
+ * Test invocation command for the workflow's "Run tests" step. Returns
+ * just the command (not the full step) so callers can compose it into
+ * step bodies. For pnpm, prefers \`exec\` over the package's own
+ * \`test\` script so vitest etc. are resolved consistently from the
+ * monorepo root.
+ */
+function testCommand(pm: PackageManager): string {
+  switch (pm) {
+    case "pnpm":
+      return "pnpm exec vitest run --passWithNoTests";
+    case "yarn":
+      return "yarn test";
+    case "npm":
+    default:
+      return "npm test";
+  }
+}
+
+function slowcookWorkflow(pm: PackageManager): string {
   return `name: slowcook
 
 on:
@@ -56,18 +112,8 @@ ${RESOLVE_PIN_STEP}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # setup-node's \`cache: npm\` used to be set here but was removed
-      # in 0.7.18-era (see rewo CI incident 2026-04-23): it captured
-      # \`~/.npm/_npx\` along with the npm cache, and the _npx paths
-      # restore with relative \`../../..\` prefixes that tar can't mkdir,
-      # spamming ~55k log lines per run with zero speedup for the
-      # \`npx --yes\` pattern this workflow uses.
 
-      - name: Install consumer deps
-        # \`manifest verify\` shells out to the consumer's own test runner
-        # (e.g. \`npx vitest list\`) which loads the project's test config.
-        # Installing node_modules ensures that config can resolve its imports.
-        run: npm ci
+${installStep(pm)}
 
       - name: Guard — frozen paths
         env:
@@ -108,7 +154,7 @@ ${RESOLVE_PIN_STEP}
         # should \`describe.skipIf\` those so \`npm test\` stays default-fast
         # in CI.
         if: "!contains(github.event.pull_request.labels.*.name, 'slowcook-tests')"
-        run: npm test
+        run: ${testCommand(pm)}
 `;
 }
 
@@ -353,7 +399,10 @@ ${RESOLVE_PIN_STEP}
 `;
 }
 
-function slowcookBrewAutoWorkflow(): string {
+// brew-auto doesn't currently install consumer deps directly (the
+// brew agent does that internally per run). Param kept to thread the
+// detected PM through if a future install step lands here.
+function slowcookBrewAutoWorkflow(_pm: PackageManager): string {
   return `name: slowcook brew — auto on tests + mockup merged
 
 # 0.16.0-alpha.10 — gated dispatcher.
@@ -506,7 +555,19 @@ jobs:
 `;
 }
 
-function slowcookAcceptanceWorkflow(): string {
+function slowcookAcceptanceWorkflow(pm: PackageManager): string {
+  const installInline =
+    pm === "pnpm"
+      ? "corepack enable && pnpm install --frozen-lockfile"
+      : pm === "yarn"
+        ? "corepack enable && yarn install --immutable"
+        : "npm ci";
+  const playwrightInstall =
+    pm === "pnpm"
+      ? "pnpm exec playwright install chromium --with-deps"
+      : pm === "yarn"
+        ? "yarn exec playwright install chromium --with-deps"
+        : "npx playwright install chromium --with-deps";
   return `name: slowcook acceptance (tier-2)
 
 # Runs Playwright acceptance tests against a real sandbox. Fires on
@@ -569,11 +630,11 @@ ${RESOLVE_PIN_STEP}
 
       - name: Install consumer deps
         if: steps.creds.outputs.has_creds == 'true'
-        run: npm ci
+        run: ${installInline}
 
       - name: Install Playwright browsers
         if: steps.creds.outputs.has_creds == 'true'
-        run: npx playwright install chromium --with-deps
+        run: ${playwrightInstall}
 
       - name: Write .env.acceptance from secrets
         if: steps.creds.outputs.has_creds == 'true'
@@ -800,26 +861,31 @@ jobs:
 `;
 }
 
-export function getGitHubCiArtifacts(_params: { cliVersion: string }): CiArtifact[] {
+export function getGitHubCiArtifacts(params: {
+  cliVersion: string;
+  /** Consumer package manager (slowcook#25). Defaults to npm. */
+  packageManager?: PackageManager;
+}): CiArtifact[] {
+  const pm: PackageManager = params.packageManager ?? "npm";
   return [
-    { path: ".github/workflows/slowcook.yml", contents: slowcookWorkflow() },
+    { path: ".github/workflows/slowcook.yml", contents: slowcookWorkflow(pm) },
     { path: ".github/workflows/slowcook-refine.yml", contents: slowcookRefineWorkflow() },
     { path: ".github/workflows/slowcook-spec-merged.yml", contents: slowcookSpecMergedWorkflow() },
     { path: ".github/workflows/slowcook-tests-merged.yml", contents: slowcookTestsMergedWorkflow() },
     { path: ".github/workflows/slowcook-mockup-approved.yml", contents: slowcookMockupApprovedWorkflow() },
     { path: ".github/workflows/slowcook-brew-merged.yml", contents: slowcookBrewMergedWorkflow() },
     { path: ".github/workflows/slowcook-testgen.yml", contents: slowcookTestgenWorkflow() },
-    { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow() },
-    { path: ".github/workflows/slowcook-acceptance.yml", contents: slowcookAcceptanceWorkflow() },
+    { path: ".github/workflows/slowcook-brew-auto.yml", contents: slowcookBrewAutoWorkflow(pm) },
+    { path: ".github/workflows/slowcook-acceptance.yml", contents: slowcookAcceptanceWorkflow(pm) },
     // 0.13.0-alpha.5 — bug-flow workflows. investigate fires on issues
     // labeled `bug`; recipe-regression auto-fires when a bug-profile PR
     // merges; sift consumes the resulting regression test.
     { path: ".github/workflows/slowcook-investigate.yml", contents: slowcookInvestigateWorkflow() },
     { path: ".github/workflows/slowcook-recipe-regression.yml", contents: slowcookRecipeRegressionWorkflow() },
-    { path: ".github/workflows/slowcook-sift.yml", contents: slowcookSiftWorkflow() },
+    { path: ".github/workflows/slowcook-sift.yml", contents: slowcookSiftWorkflow(pm) },
     { path: ".github/workflows/slowcook-chef.yml", contents: slowcookChefWorkflow() },
     // 0.15.0-α.2 — vibe agent (mockup generator) workflow.
-    { path: ".github/workflows/slowcook-vibe.yml", contents: slowcookVibeWorkflow() },
+    { path: ".github/workflows/slowcook-vibe.yml", contents: slowcookVibeWorkflow(pm) },
     // 0.15.0-α.3 — plate agent (mockup amendment) workflow.
     { path: ".github/workflows/slowcook-plate.yml", contents: slowcookPlateWorkflow() },
     // 0.16.0-α.5 — SSH preview deploy + teardown for the mock app.
@@ -1086,7 +1152,7 @@ ${RESOLVE_PIN_STEP}
  * alpha.5c alongside chef. Requires the bug profile + regression test
  * to already be on main.
  */
-function slowcookSiftWorkflow(): string {
+function slowcookSiftWorkflow(pm: PackageManager): string {
   return `name: slowcook sift
 
 # 0.13.0-alpha.5b — bug-flow analogue of slowcook-brew. Runs the sift
@@ -1146,8 +1212,7 @@ ${RESOLVE_PIN_STEP}
         with:
           node-version: 20
 
-      - name: Install consumer deps
-        run: npm ci
+${installStep(pm)}
 
       - name: Sift
         env:
@@ -1428,7 +1493,13 @@ ${RESOLVE_PIN_STEP}
  *
  * Also exposes workflow_dispatch for manual retry.
  */
-function slowcookVibeWorkflow(): string {
+function slowcookVibeWorkflow(pm: PackageManager): string {
+  const installInline =
+    pm === "pnpm"
+      ? "corepack enable && pnpm install --frozen-lockfile --silent || true"
+      : pm === "yarn"
+        ? "corepack enable && yarn install --immutable --silent || true"
+        : "npm ci --silent || true";
   return `name: slowcook vibe
 
 # 0.15.0-alpha.2 — design-first mockup generator. Fires on spec-merged.
@@ -1502,7 +1573,7 @@ ${RESOLVE_PIN_STEP}
         run: |
           set -eu
           if [ -f package.json ]; then
-            npm ci --silent || true
+            ${installInline}
           fi
           npx --yes "$SLOWCOOK_CLI" map generate
 
