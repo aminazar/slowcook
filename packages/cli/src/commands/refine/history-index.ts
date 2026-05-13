@@ -216,22 +216,159 @@ function pathFromRouteFile(routeRel: string, apiDir: string): string {
 }
 
 // ----- Migrations scanner -----
+//
+// Two flavours supported, dispatched per-file:
+//   *.sql → Supabase / Postgres / plain DDL                (existing)
+//   *.ts  → TypeORM `MigrationInterface` migrations        (added 0.19.0-α.18)
+//
+// Auto-discovery: if the configured `dir` doesn't exist, we try a list of
+// known TypeORM conventions (`packages/postgres/src/migrations`, `src/migrations`,
+// `migrations`). This is how slowcook starts seeing brownfield TypeORM repos
+// like delgoosh-monorepo without per-project configuration.
+//
+// EXPORTED for use by the migration gate in `recon` and tests.
 
-function scanMigrations(repoRoot: string, dir: string): MigrationEntry[] {
-  const root = join(repoRoot, dir);
-  if (!existsSync(root)) return [];
+export const TYPEORM_MIGRATION_FALLBACK_DIRS = [
+  "packages/postgres/src/migrations",
+  "src/migrations",
+  "migrations",
+];
+
+/**
+ * The columns `DatabaseCreateTable` (delgoosh's helper) adds implicitly on
+ * EVERY table. Knowing these prevents the migration gate from raising a
+ * false-positive "missing column" verdict when the spec references e.g.
+ * `created_at` and the migration uses the helper.
+ *
+ * Kept conservative: only columns added by the helper at delgoosh-monorepo's
+ * version (id, created_at, updated_at, deleted_at). Future TypeORM helpers
+ * with different defaults need their own entry — or, longer-term, slowcook
+ * should infer this from the helper's source.
+ */
+export const TYPEORM_HELPER_IMPLICIT_COLUMNS = [
+  "id",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+];
+
+export function scanMigrations(repoRoot: string, dir: string): MigrationEntry[] {
+  const dirs = resolveMigrationDirs(repoRoot, dir);
   const out: MigrationEntry[] = [];
-  for (const name of readdirSync(root).sort()) {
-    if (!name.endsWith(".sql")) continue;
-    const body = readFileSync(join(root, name), "utf8");
-    const tables_created = extractCreateTables(body);
-    const columns_added = extractColumnsAdded(body);
-    out.push({ file: name, tables_created, columns_added });
+  for (const d of dirs) {
+    out.push(...scanMigrationsInDir(repoRoot, d));
   }
   return out;
 }
 
-function extractCreateTables(sql: string): string[] {
+function resolveMigrationDirs(repoRoot: string, configured: string): string[] {
+  if (existsSync(join(repoRoot, configured))) return [configured];
+  return TYPEORM_MIGRATION_FALLBACK_DIRS.filter((d) =>
+    existsSync(join(repoRoot, d))
+  );
+}
+
+function scanMigrationsInDir(repoRoot: string, dir: string): MigrationEntry[] {
+  const root = join(repoRoot, dir);
+  if (!existsSync(root)) return [];
+  const out: MigrationEntry[] = [];
+  for (const name of readdirSync(root).sort()) {
+    const full = join(root, name);
+    if (!statSync(full).isFile()) continue;
+    if (name.endsWith(".sql")) {
+      const body = readFileSync(full, "utf8");
+      out.push({
+        file: name,
+        tables_created: extractCreateTables(body),
+        columns_added: extractColumnsAdded(body),
+      });
+    } else if (name.endsWith(".ts")) {
+      out.push(parseTypeOrmMigration(name, readFileSync(full, "utf8")));
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse a single TypeORM migration TS file into the same MigrationEntry shape
+ * the SQL parser produces. Sees two patterns:
+ *
+ *   1. `await queryRunner.query(\`CREATE TABLE x ...\`)` — extract the SQL
+ *      template body and run it through the existing SQL parsers.
+ *   2. `await DatabaseCreateTable(queryRunner, 'tbl', [{name:'a'},{name:'b'}])`
+ *      — extract `tbl` + each column's name + the implicit-columns helpers
+ *      add (id, created_at, updated_at, deleted_at).
+ *
+ * Pattern 2 is delgoosh-monorepo-specific; pattern 1 covers raw SQL writers.
+ * EXPORTED for unit testing.
+ */
+export function parseTypeOrmMigration(name: string, body: string): MigrationEntry {
+  const sqlParts = extractTypeOrmSqlTemplates(body);
+  const helperTables = extractDatabaseCreateTableCalls(body);
+
+  const tablesFromSql = sqlParts.flatMap(extractCreateTables);
+  const tablesFromHelper = helperTables.map((t) => t.name);
+  const tables_created = [...new Set([...tablesFromSql, ...tablesFromHelper])];
+
+  const sqlColumnMaps = sqlParts.map(extractColumnsAdded);
+  const helperColumnMap: Record<string, string[]> = {};
+  for (const t of helperTables) {
+    helperColumnMap[t.name] = [...t.columns, ...TYPEORM_HELPER_IMPLICIT_COLUMNS];
+  }
+  const columns_added = mergeColumnMaps([helperColumnMap, ...sqlColumnMaps]);
+
+  return { file: name, tables_created, columns_added };
+}
+
+function extractTypeOrmSqlTemplates(body: string): string[] {
+  // queryRunner.query(`...SQL...`) — backtick template-string body, possibly
+  // multiline. Caller passes everything between the backticks downstream to
+  // the SQL extractors (which already handle CREATE TABLE, ALTER TABLE ADD COLUMN).
+  const re = /queryRunner\.query\(\s*`([\s\S]*?)`/g;
+  const parts: string[] = [];
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    if (m[1]) parts.push(m[1]);
+  }
+  return parts;
+}
+
+function extractDatabaseCreateTableCalls(
+  body: string
+): Array<{ name: string; columns: string[] }> {
+  // DatabaseCreateTable(queryRunner, 'tbl', [ { name: 'col', ... }, ... ])
+  // The columns array is matched with a non-greedy [ ... ] body; balanced-bracket
+  // parsing isn't required because each call's array is the innermost literal.
+  const re =
+    /DatabaseCreateTable\(\s*queryRunner\s*,\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]\s*,\s*\[([\s\S]*?)\]\s*\)/g;
+  const out: Array<{ name: string; columns: string[] }> = [];
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    if (!m[1] || m[2] === undefined) continue;
+    const colRe = /name:\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g;
+    const columns: string[] = [];
+    let cm;
+    while ((cm = colRe.exec(m[2])) !== null) {
+      if (cm[1]) columns.push(cm[1]);
+    }
+    out.push({ name: m[1].toLowerCase(), columns });
+  }
+  return out;
+}
+
+function mergeColumnMaps(
+  maps: Record<string, string[]>[]
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const map of maps) {
+    for (const [t, cols] of Object.entries(map)) {
+      out[t] = [...new Set([...(out[t] ?? []), ...cols])];
+    }
+  }
+  return out;
+}
+
+export function extractCreateTables(sql: string): string[] {
   const re = /create\s+table\s+(?:if\s+not\s+exists\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/gi;
   const tables: string[] = [];
   let m;
@@ -241,7 +378,7 @@ function extractCreateTables(sql: string): string[] {
   return [...new Set(tables)];
 }
 
-function extractColumnsAdded(sql: string): Record<string, string[]> {
+export function extractColumnsAdded(sql: string): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   // create table X ( col1 type, col2 type, ... )
   const createRe = /create\s+table\s+(?:if\s+not\s+exists\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^;]+?)\)/gis;

@@ -116,7 +116,7 @@ All commands accept `--help` for full flag listings. One-line summaries:
 | `slowcook plate` | Apply `/plate <instruction>` PR-comment amendments to a mockup PR | ~$0.30–1.50 |
 | `slowcook recipe` | (= `testgen`) emit tier-1 + tier-2 acceptance tests | ~$1–2 |
 | `slowcook port` | Deterministic copy `mock/src/*` → `src/*`, rewrite mock-runtime imports | $0 / seconds |
-| `slowcook recon` | Pre-brew structural backstop (renames + testid gaps + history conflicts) | $0 / seconds |
+| `slowcook recon` | Pre-brew structural backstop (renames + testid gaps + history conflicts + **migration gate** — 0.19.0-α.18). If spec proposes a table/column with no migration covering it, escalates with `missing_migration` gap. Auto-discovers Supabase `*.sql` or TypeORM `*.ts` migrations. | $0 / seconds |
 | `slowcook recon --reuse-scan` | Story-agnostic: flag near-duplicate components/APIs | $0 / seconds |
 | `slowcook recon --stub-scan` | Find `@slowcook-stub` markers older than `--stub-max-age-days` | $0 / seconds |
 | `slowcook brew [--with-navigator]` | Ratcheted implementation loop. `--with-navigator` adds pair-brew (~10–20% cost surcharge) | ~$0.50–3 |

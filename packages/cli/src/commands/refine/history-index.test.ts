@@ -2,7 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHistoryIndex } from "./history-index.js";
+import {
+  buildHistoryIndex,
+  scanMigrations,
+  parseTypeOrmMigration,
+} from "./history-index.js";
 
 let repo: string;
 
@@ -112,6 +116,142 @@ describe("buildHistoryIndex", () => {
       expect(idx.migrations).toEqual([]);
     } finally {
       rmSync(empty, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("parseTypeOrmMigration — raw SQL via queryRunner.query", () => {
+  it("extracts CREATE TABLE from a template-string SQL body", () => {
+    const body = `
+      import { MigrationInterface, QueryRunner } from 'typeorm';
+      export class X1700 implements MigrationInterface {
+        async up(qr: QueryRunner) {
+          await queryRunner.query(\`
+            CREATE TABLE notifications (
+              id uuid PRIMARY KEY,
+              user_id uuid NOT NULL,
+              kind text NOT NULL,
+              seen_at timestamptz
+            );
+          \`);
+        }
+      }
+    `;
+    const entry = parseTypeOrmMigration("1700-notifications.ts", body);
+    expect(entry.tables_created).toContain("notifications");
+    expect(entry.columns_added.notifications).toEqual(
+      expect.arrayContaining(["id", "user_id", "kind", "seen_at"])
+    );
+  });
+
+  it("captures ALTER TABLE ADD COLUMN", () => {
+    const body = `
+      await queryRunner.query(\`ALTER TABLE patients ADD COLUMN consent_version text\`);
+    `;
+    const entry = parseTypeOrmMigration("alter.ts", body);
+    expect(entry.columns_added.patients).toContain("consent_version");
+  });
+});
+
+describe("parseTypeOrmMigration — DatabaseCreateTable helper", () => {
+  it("extracts table + explicit columns + implicit helper-added columns", () => {
+    const body = `
+      import { DatabaseCreateTable } from './utils';
+      await DatabaseCreateTable(queryRunner, 'patient_intakes', [
+        { name: 'patient_id', type: 'uuid', isNullable: false },
+        { name: 'consent_version', type: 'varchar', length: '50' },
+        { name: 'submitted_at', type: 'timestamptz' },
+      ]);
+    `;
+    const entry = parseTypeOrmMigration("intake.ts", body);
+    expect(entry.tables_created).toContain("patient_intakes");
+    const cols = entry.columns_added.patient_intakes;
+    // explicit
+    expect(cols).toEqual(
+      expect.arrayContaining(["patient_id", "consent_version", "submitted_at"])
+    );
+    // implicit helper columns
+    expect(cols).toEqual(
+      expect.arrayContaining(["id", "created_at", "updated_at", "deleted_at"])
+    );
+  });
+
+  it("handles multiple DatabaseCreateTable calls in one migration", () => {
+    const body = `
+      await DatabaseCreateTable(queryRunner, 'one', [{ name: 'a', type: 'text' }]);
+      await DatabaseCreateTable(queryRunner, 'two', [{ name: 'b', type: 'int' }]);
+    `;
+    const entry = parseTypeOrmMigration("multi.ts", body);
+    expect(entry.tables_created).toEqual(expect.arrayContaining(["one", "two"]));
+    expect(entry.columns_added.one).toContain("a");
+    expect(entry.columns_added.two).toContain("b");
+  });
+
+  it("combines helper + raw SQL within the same migration", () => {
+    const body = `
+      await DatabaseCreateTable(queryRunner, 'parent', [{ name: 'label', type: 'text' }]);
+      await queryRunner.query(\`CREATE TABLE child (id uuid PRIMARY KEY, parent_id uuid)\`);
+      await queryRunner.query(\`ALTER TABLE parent ADD COLUMN extra text\`);
+    `;
+    const entry = parseTypeOrmMigration("hybrid.ts", body);
+    expect(entry.tables_created).toEqual(expect.arrayContaining(["parent", "child"]));
+    expect(entry.columns_added.parent).toEqual(
+      expect.arrayContaining(["label", "extra", "id", "created_at"])
+    );
+    expect(entry.columns_added.child).toContain("parent_id");
+  });
+});
+
+describe("scanMigrations — auto-discovery + mixed formats", () => {
+  it("falls back to packages/postgres/src/migrations when supabase/migrations is absent", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-typeorm-"));
+    try {
+      mkdirSync(join(root, "packages/postgres/src/migrations"), { recursive: true });
+      writeFileSync(
+        join(root, "packages/postgres/src/migrations/1700-x.ts"),
+        `await queryRunner.query(\`CREATE TABLE x (id uuid PRIMARY KEY)\`);`,
+        "utf8"
+      );
+      const migrations = scanMigrations(root, "supabase/migrations");
+      expect(migrations).toHaveLength(1);
+      expect(migrations[0]!.tables_created).toContain("x");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers the configured directory when it exists (Supabase still wins)", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mixed-"));
+    try {
+      // BOTH dirs exist. Configured `supabase/migrations` should be preferred —
+      // a hybrid project shouldn't double-count.
+      mkdirSync(join(root, "supabase/migrations"), { recursive: true });
+      writeFileSync(
+        join(root, "supabase/migrations/01_supabase.sql"),
+        `create table supabase_only (id uuid primary key);`,
+        "utf8"
+      );
+      mkdirSync(join(root, "packages/postgres/src/migrations"), { recursive: true });
+      writeFileSync(
+        join(root, "packages/postgres/src/migrations/02_typeorm.ts"),
+        `await queryRunner.query(\`CREATE TABLE typeorm_only (id uuid)\`);`,
+        "utf8"
+      );
+      const migrations = scanMigrations(root, "supabase/migrations");
+      const tables = migrations.flatMap((m) => m.tables_created);
+      expect(tables).toContain("supabase_only");
+      expect(tables).not.toContain("typeorm_only");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns empty when neither configured nor fallback dirs exist", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-none-"));
+    try {
+      expect(scanMigrations(root, "supabase/migrations")).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
