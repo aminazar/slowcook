@@ -126,7 +126,7 @@ failure_locus:
     bar — verified via grep').
 
 regression_assertion:
-  - "Given a `NotificationsTypeEnum.PATIENT_10_MIN_BEFORE_APPOINTMENT` notification + user with WHATSAPP preference + phoneNumber set, when `NotificationActivity.sendNotification({ notificationId })` runs, then `whatsappService.sendPatient10MinBeforeAppointmentWhatsapp` is called once with `{ notificationId }` and no `*Email` method on whatsappService is called."
+  - "Given a \`NotificationsTypeEnum.PATIENT_10_MIN_BEFORE_APPOINTMENT\` notification + user with WHATSAPP preference + phoneNumber set, when \`NotificationActivity.sendNotification({ notificationId })\` runs, then \`whatsappService.sendPatient10MinBeforeAppointmentWhatsapp\` is called once with \`{ notificationId }\` and no \`*Email\` method on whatsappService is called."
 
 fix_scope:
   - "src/path/to/broken.ts"
