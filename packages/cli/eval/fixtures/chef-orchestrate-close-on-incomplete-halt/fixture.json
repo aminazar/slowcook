@@ -1,0 +1,117 @@
+{
+  "id": "chef-orchestrate-close-on-incomplete-halt",
+  "agent": "chef-orchestrate",
+  "description": "When chef-drift has escalated and brew has halted on still-broken state, the orchestrate prompt must include enough context for the model to verdict CLOSE: prior chef-drift moves, navigator history (if present), the full spec, all related PRs, and the runner output.",
+  "captured_from": {
+    "pr": 153,
+    "date": "2026-05-07",
+    "context": "First L3 chef-orchestrate validation; verdict CLOSE; $0.012; PM-actionable comment citing #154+#155."
+  },
+  "input": {
+    "storyId": "153",
+    "prNumber": 153,
+    "prState": {
+      "headRef": "feat/story-153",
+      "baseRef": "main",
+      "state": "OPEN",
+      "mergeStateStatus": "BEHIND",
+      "title": "story-153: anonymous chat threading",
+      "failingChecks": ["Run tests", "tier-2 acceptance"]
+    },
+    "chefDriftLedger": {
+      "story_id": "153",
+      "moves": [
+        {
+          "n": 1,
+          "trigger_kind": "test-fail",
+          "decision": "edit",
+          "post_state": "still-broken",
+          "validation_result": "failed",
+          "timestamp": "2026-05-05T10:14:00Z"
+        },
+        {
+          "n": 2,
+          "trigger_kind": "test-fail",
+          "decision": "edit",
+          "post_state": "still-broken",
+          "validation_result": "failed",
+          "timestamp": "2026-05-05T10:32:00Z"
+        },
+        {
+          "n": 3,
+          "trigger_kind": "test-fail",
+          "decision": "escalate",
+          "post_state": "escalated",
+          "validation_result": null,
+          "timestamp": "2026-05-05T10:48:00Z"
+        }
+      ],
+      "cumulative_cost_usd": 0.4
+    },
+    "navigatorHistory": null,
+    "spec": {
+      "path": ".brewing/specs/story-153.yaml",
+      "yaml": "id: story-153\ntitle: Anonymous chat threading\ninvariants:\n  - Anonymous users get a stable browser-scoped chat thread.\n  - Posting a message without auth requires a browserId.\nscenarios:\n  - Given an anonymous visitor when they post a chat message then their browser id is recorded.\n"
+    },
+    "storyOpenPrs": [
+      {
+        "kind": "spec",
+        "number": 150,
+        "branch": "spec/story-153",
+        "state": "MERGED",
+        "title": "spec: story-153"
+      },
+      {
+        "kind": "tests",
+        "number": 151,
+        "branch": "tests/story-153",
+        "state": "MERGED",
+        "title": "tests: story-153"
+      },
+      {
+        "kind": "brew",
+        "number": 153,
+        "branch": "feat/story-153",
+        "state": "OPEN",
+        "title": "story-153: anonymous chat threading"
+      },
+      {
+        "kind": "brew",
+        "number": 154,
+        "branch": "feat/story-153-retry",
+        "state": "CLOSED",
+        "title": "story-153: anonymous chat threading (retry 1)"
+      },
+      {
+        "kind": "brew",
+        "number": 155,
+        "branch": "feat/story-153-retry-2",
+        "state": "CLOSED",
+        "title": "story-153: anonymous chat threading (retry 2)"
+      }
+    ],
+    "recentRunnerOutput": "FAIL  src/services/chat.test/anonymous-chat.test.ts\n  AnonymousChatService\n    × posts a message with browserId only (122 ms)\n      ValidationError: browserId is required when userId is null\n        at chat.service.ts:42:11\n\nTests:       1 failed, 17 passed, 18 total\nExit code:   1"
+  },
+  "expected_prompt_includes": [
+    "Chef-orchestrate decision request",
+    "story-153",
+    "PR #153",
+    "PR state",
+    "Chef-drift ledger",
+    "cumulative_cost_usd",
+    "escalated",
+    "story-153.yaml",
+    "All open PRs for this story",
+    "Recent runner output",
+    "browserId is required",
+    "still-broken"
+  ],
+  "expected_prompt_excludes": [
+    "Navigator history",
+    "TODO",
+    "FIXME",
+    "XXX",
+    "{{",
+    "}}"
+  ]
+}

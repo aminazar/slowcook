@@ -1,0 +1,42 @@
+name: Eval gate (prompt PRs)
+
+# slowcook#19 — runs `slowcook eval --all` on PRs that touch agent
+# prompts under `packages/llm-anthropic/src/prompts/**`. A prompt that
+# subtly drops critical context is exactly the regression class the
+# 749 cli unit tests don't catch (they cover harness shape, not the
+# agents' contracts). The eval gate replays each frozen fixture's
+# prompt builder + asserts substring contracts.
+
+on:
+  pull_request:
+    paths:
+      - "packages/llm-anthropic/src/prompts/**"
+      - "packages/cli/eval/fixtures/**"
+      - "packages/cli/src/commands/eval/**"
+      - ".github/workflows/eval-gate.yml"
+
+concurrency:
+  group: eval-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run prompt-regression eval
+        run: pnpm --filter @slowcook-ai/cli exec slowcook eval --all

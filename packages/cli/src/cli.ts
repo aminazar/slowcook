@@ -28,6 +28,7 @@ import { recon } from "./commands/recon/index.js";
 import { runMock } from "./commands/run-mock/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
+import { evalCmd } from "./commands/eval/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -70,6 +71,7 @@ Usage:
   slowcook run-mock <story-id> [--no-poll] [--poll-seconds <n>] [--branch <ref>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
+  slowcook eval (--all | --fixture <id> | --list) [--fixtures-dir <path>]
   slowcook version
   slowcook help
 
@@ -300,6 +302,13 @@ async function main(): Promise<void> {
       return;
     case "fixtures":
       await fixtures(args.slice(1));
+      return;
+    case "eval":
+      // 0.19.0-α.17 (closes #19 partially) — prompt-regression gate.
+      // Loads frozen fixtures + replays each agent's prompt builder +
+      // asserts substring contracts. CI workflow guards prompt-PRs
+      // against silent context drops.
+      await evalCmd(args.slice(1));
       return;
     case "version":
     case "--version":
