@@ -17,7 +17,7 @@ describe("extract command", () => {
     logSpy.mockRestore();
   });
 
-  it("with no flag: runs both schema + tokens (default)", async () => {
+  it("with no flag: runs schema + tokens + entities (default)", async () => {
     const repo = mkRepo();
     try {
       mkdirSync(join(repo, "supabase/migrations"), { recursive: true });
@@ -32,11 +32,38 @@ describe("extract command", () => {
         `:root { --c: #fff; }\n`,
         "utf8"
       );
+      mkdirSync(join(repo, "src/entities"), { recursive: true });
+      writeFileSync(
+        join(repo, "src/entities/p.entity.ts"),
+        `import { Entity } from 'typeorm';\n@Entity('p')\nexport class P extends BaseEntity { }\n`,
+        "utf8"
+      );
 
       await extract(["--cwd", repo], "0.0.0-test");
 
       expect(existsSync(join(repo, ".brewing/diagrams/schema.mmd"))).toBe(true);
       expect(existsSync(join(repo, ".brewing/diagrams/tokens.md"))).toBe(true);
+      expect(existsSync(join(repo, ".brewing/diagrams/entities.md"))).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("with --entities only: skips schema + tokens", async () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "src/entities"), { recursive: true });
+      writeFileSync(
+        join(repo, "src/entities/p.entity.ts"),
+        `import { Entity } from 'typeorm';\n@Entity('p')\nexport class P extends BaseEntity { }\n`,
+        "utf8"
+      );
+
+      await extract(["--cwd", repo, "--entities"], "0.0.0-test");
+
+      expect(existsSync(join(repo, ".brewing/diagrams/schema.mmd"))).toBe(false);
+      expect(existsSync(join(repo, ".brewing/diagrams/tokens.md"))).toBe(false);
+      expect(existsSync(join(repo, ".brewing/diagrams/entities.md"))).toBe(true);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
@@ -99,8 +126,10 @@ describe("extract command", () => {
       const logs = logSpy.mock.calls.flat().join("\n");
       expect(logs).toContain("Skipped schema extract");
       expect(logs).toContain("Skipped tokens extract");
+      expect(logs).toContain("Skipped entities extract");
       expect(existsSync(join(repo, ".brewing/diagrams/schema.mmd"))).toBe(false);
       expect(existsSync(join(repo, ".brewing/diagrams/tokens.md"))).toBe(false);
+      expect(existsSync(join(repo, ".brewing/diagrams/entities.md"))).toBe(false);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
