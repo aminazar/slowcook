@@ -1,0 +1,16 @@
+{
+  "story": "018",
+  "generated_at": "2026-05-04T05:26:08.538Z",
+  "generator": "slowcook-recon@0.17.6",
+  "status": "clean",
+  "renames": [],
+  "testid_gaps": [],
+  "structural_gaps": [],
+  "history_index_components": 0,
+  "warnings": [
+    "No test files found for story-018 under tests/integration/",
+    "brownfield-rename-safety check is not yet implemented in 0.17.6 (recorded by simulation; defer to 0.17.7)",
+    "shape-emit: no mock files discovered for story-018 (no scenarios reference it; no test imports point at mock/src)"
+  ],
+  "shape_file": null
+}
