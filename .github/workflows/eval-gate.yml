@@ -39,4 +39,4 @@ jobs:
         run: pnpm build
 
       - name: Run prompt-regression eval
-        run: pnpm --filter @slowcook-ai/cli exec slowcook eval --all
+        run: node packages/cli/dist/cli.js eval --all
