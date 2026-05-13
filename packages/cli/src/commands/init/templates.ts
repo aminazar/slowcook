@@ -351,10 +351,18 @@ export function gitignoreSection(): string {
 .brewing/code-map.json
 .brewing/code-map.md
 .brewing/code-map.target.md
-# 0.13.5+ — brownfield extracts (schema.mmd, tokens.md). Same
-# rationale: regenerated each refine/investigate workflow run via
-# \`slowcook extract\`. Live as derived state, not in source control.
-.brewing/diagrams/
+# 0.13.5+ — brownfield extracts under .brewing/diagrams/. Ephemeral
+# files (schema.mmd, tokens.md) are regenerated each refine/investigate
+# workflow run via \`slowcook extract\` and SHOULD NOT be committed.
+# Hand-curated artifacts (entities.md, architecture.md, etc.) are
+# source-of-truth and SHOULD be tracked — \`!\` exceptions below
+# whitelist them. The \`/*\` form (vs trailing slash) is required for
+# the !-overrides to take effect.
+.brewing/diagrams/*
+!.brewing/diagrams/entities.md
+!.brewing/diagrams/architecture.md
+!.brewing/diagrams/sequence-*.md
+!.brewing/diagrams/.gitkeep
 ${SLOWCOOK_GITIGNORE_MARKER_END}
 `;
 }
