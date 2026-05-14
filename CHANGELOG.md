@@ -6,6 +6,43 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.19 — refine PM-facing question rules
+
+Cut 2026-05-14. Codifies four hard rules for refine's clarifying-question
+rounds, validated against the first organic refine run on delgoosh#606
+where the absence of these rules produced 5 questions all violating
+≥1 rule.
+
+- **α.19 — refine prompt overhaul** (`llm-anthropic` 0.16.0-α.3):
+  the `REFINEMENT_ANALYST_SYSTEM` prompt now enforces:
+  1. **Decide-first** — technical questions answerable by reading
+     the codebase MUST be decided by the agent. It can mention
+     alternatives + trade-offs but always picks one and explains
+     why. Only ask when there is genuine PM-only judgment.
+  2. **Never ask about tests** — refine NEVER asks about test
+     scenarios, test scope, or what cases to cover. Testgen's job.
+  3. **No internal pipeline leakage** — PM-facing text MUST NOT
+     name slowcook internal agents/stages (refine, recipe, plate,
+     vibe, brew, port, sift, chef, navigator, tier-1, tier-2).
+     The PM thinks about their product, not the pipeline.
+  4. **Question shape**: ≤3 questions/round (was 5), each = one-line
+     imperative ≤15 words + labeled options (a/b/c) ≤10 words each
+     + optional rationale below. Includes a bad-vs-good example
+     drawn verbatim from the delgoosh#606 violations.
+- **Second eval fixture** (`refine-pm-facing-question-rules`):
+  asserts the prompt contains the four-rule language + the
+  bad/good example, so future prompt edits that strip these rules
+  fail the eval gate. cli 800/800 tests + eval gate 2/2 fixtures
+  green.
+
+### Test coverage
+
+`@slowcook-ai/cli` 800/800 passing. New: refine added to the eval
+BUILDERS map; second bootstrap fixture closes part of
+[#19 follow-ups](https://github.com/aminazar/slowcook/issues/47).
+
+---
+
 ## 0.19.0-alpha.18 — TypeORM migration scanner + migration gate
 
 Cut 2026-05-13 (late). Two-part fix for the long-standing schema-gap
