@@ -26,6 +26,7 @@
 
 import { execSync } from "node:child_process";
 import { loadDevEnvConfig, type DevEnvConfig } from "./config.js";
+import { devEnvInit } from "./init.js";
 
 interface ParsedArgs {
   subcommand: string;
@@ -64,6 +65,12 @@ function printHelp(): void {
 slowcook dev-env — manage the long-lived dev/preview environment
 
 Subcommands:
+  init [--apps-dir <path>] [--force]
+      Scaffold .brewing/dev-env.yaml from detected apps in apps/*.
+      Infers per-app mode from package.json deps (Next → dev,
+      NestJS → nest-watch, else → start). Assigns ports starting at
+      3000. ssh_target left as REPLACE_ME — hand-edit.
+
   push --story <id> [--branch <name>]
       Force-push the current branch (or --branch) to the dev env's
       source_branch (default: dev). Agents invoke this to preview a
@@ -96,6 +103,12 @@ export async function devEnv(argv: string[]): Promise<void> {
     args.subcommand === "-h"
   ) {
     printHelp();
+    return;
+  }
+
+  // init runs BEFORE config exists — it's the bootstrap step.
+  if (args.subcommand === "init") {
+    await devEnvInit(argv.slice(1));
     return;
   }
 
