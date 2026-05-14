@@ -29,6 +29,7 @@ import { runMock } from "./commands/run-mock/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 import { evalCmd } from "./commands/eval/index.js";
+import { devEnv } from "./commands/dev-env/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -72,6 +73,7 @@ Usage:
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook eval (--all | --fixture <id> | --list) [--fixtures-dir <path>]
+  slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]
   slowcook version
   slowcook help
 
@@ -309,6 +311,12 @@ async function main(): Promise<void> {
       // asserts substring contracts. CI workflow guards prompt-PRs
       // against silent context drops.
       await evalCmd(args.slice(1));
+      return;
+    case "dev-env":
+      // 0.19.0-α.21 (dev-env Phase 2) — long-lived preview env on
+      // a shared branch. push/switch implemented; up/sync/reset stub
+      // print canonical shell-outs for now.
+      await devEnv(args.slice(1));
       return;
     case "version":
     case "--version":
