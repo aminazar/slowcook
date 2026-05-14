@@ -1,0 +1,36 @@
+{
+  "id": "refine-pm-facing-question-rules",
+  "agent": "refine",
+  "description": "The refine system prompt MUST enforce four PM-facing question rules: decide-first (don't ask questions answerable from code), never ask about tests, no internal-pipeline-agent leakage in user text, and one-line + labeled-options question shape. Validated on delgoosh#606 (2026-05-14) where the absence of these rules produced 5 questions all violating ≥1 rule.",
+  "captured_from": {
+    "pr": 606,
+    "date": "2026-05-14",
+    "context": "First refine round on delgoosh#606 (patient tickets balance widget). All 5 questions violated 1+ of the 4 rules: technical questions answerable from code, test-writing questions, leaked agent names (recipe, plate, Tier 1), and 5-line questions burying the actual choice. Feedback codified in feedback_refine_pm_facing_question_rules.md memory."
+  },
+  "input": {
+    "checklist": "- actors\n- preconditions\n- invariants\n- acceptance_scenarios\n- non_goals",
+    "projectContext": "Existing entities: tickets (status enum AVAILABLE/RESERVED/CONSUMED), patients. Existing routes: GET /api/patients/me. Existing components: PatientDashboard."
+  },
+  "expected_prompt_includes": [
+    "Default to deciding, not asking",
+    "Can the codebase answer it",
+    "DECIDE",
+    "Is it about how a test should be written",
+    "internal pipeline concept",
+    "tier-1",
+    "tier-2",
+    "LABELED OPTIONS",
+    "≤15 words",
+    "(a)",
+    "(b)",
+    "≤3 questions per round",
+    "NEVER name a slowcook internal agent",
+    "Example of bad vs good question shape"
+  ],
+  "expected_prompt_excludes": [
+    "TODO",
+    "FIXME",
+    "{{",
+    "}}"
+  ]
+}

@@ -32,6 +32,7 @@ import {
   buildPlateAmendmentPrompt,
   buildSiftTurnPrompt,
   buildVibeUserPrompt,
+  REFINEMENT_ANALYST_SYSTEM,
 } from "@slowcook-ai/llm-anthropic";
 
 export interface Fixture {
@@ -83,6 +84,13 @@ const BUILDERS: Record<string, (args: unknown) => string> = {
   },
   sift: (args) => buildSiftTurnPrompt(args as Parameters<typeof buildSiftTurnPrompt>[0]),
   vibe: (args) => buildVibeUserPrompt(args as Parameters<typeof buildVibeUserPrompt>[0]),
+  refine: (args) => {
+    // REFINEMENT_ANALYST_SYSTEM is the system prompt — the surface
+    // where the PM-facing question-shape + decide-first rules live.
+    // Eval fixtures assert on the system prompt's contents.
+    const a = args as { checklist?: string; projectContext?: string };
+    return REFINEMENT_ANALYST_SYSTEM(a.checklist ?? "", a.projectContext ?? "");
+  },
 };
 
 interface EvalArgs {
