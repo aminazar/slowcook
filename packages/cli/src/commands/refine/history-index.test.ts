@@ -339,19 +339,33 @@ describe("scanMockSurface — 0.19.0-α.23 mock-aware refine context", () => {
     }
   });
 
-  it("truncates excerpts over 1500 chars", () => {
+  it("truncates excerpts over the 8000-char budget", () => {
     const root = mkdtempSync(join(tmpdir(), "slowcook-mock-big-"));
     try {
       mkdirSync(join(root, "mock/src/app/big"), { recursive: true });
-      const huge = "// padding\n".repeat(500);
+      const huge = "// padding\n".repeat(1500); // ~16KB, well over budget
       writeFileSync(
         join(root, "mock/src/app/big/page.tsx"),
         `export default function Big() {\n${huge}\n  return null;\n}`,
         "utf8"
       );
       const out = scanMockSurface(root, "mock/src");
-      expect(out[0]!.excerpt.length).toBeLessThan(1700);
+      expect(out[0]!.excerpt.length).toBeLessThan(8200);
       expect(out[0]!.excerpt).toContain("truncated");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT truncate a typical real-world login mock (~6.4KB)", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-realistic-"));
+    try {
+      mkdirSync(join(root, "mock/src/app/login"), { recursive: true });
+      // Approximates delgoosh's 6411-char login mock
+      const realisticBody = "x".repeat(6400);
+      writeFileSync(join(root, "mock/src/app/login/page.tsx"), realisticBody, "utf8");
+      const out = scanMockSurface(root, "mock/src");
+      expect(out[0]!.excerpt).not.toContain("truncated");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

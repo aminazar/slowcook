@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/llm-anthropic",
-  "version": "0.16.0-alpha.6",
+  "version": "0.16.0-alpha.7",
   "description": "Anthropic (Claude) LlmClient adapter for slowcook — implements the core LlmClient interface, provider-specific pricing, and Anthropic-tuned system prompts + tool defs for refine / testgen / brew / sift / investigate agents",
   "license": "MIT",
   "author": "aminazar",
