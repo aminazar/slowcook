@@ -125,6 +125,7 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
       api_routes?: Array<{ method: string; path: string; file: string }>;
       migrations?: Array<{ file: string; tables_created: string[]; columns_added: Record<string, string[]> }>;
       test_helpers?: Array<{ name: string; file: string; purpose: string }>;
+      mock_surface?: Array<{ file: string; route: string | null; name: string; excerpt: string }>;
     };
     const lines: string[] = [];
     lines.push("## Code history index (auto-generated; treat as authoritative)\n");
@@ -161,6 +162,27 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
       }
       lines.push("");
       lines.push("Column-level detail is in `.brewing/history-index.json`.");
+      lines.push("");
+    }
+
+    // 0.19.0-α.23 — mock surface is the consumer's hand-authored
+    // design source-of-truth. When the PM says "match the mock" or
+    // gestures at an existing flow, refine reads the actual mock JSX
+    // here instead of asking the PM for paths.
+    if (idx.mock_surface && idx.mock_surface.length > 0) {
+      lines.push("### Mock surface (design source-of-truth)");
+      lines.push(
+        "These are the consumer's hand-authored mock pages/components. When the PM says \"match the mock\" or references an existing flow without citing a file, treat these as the canonical design. Mirror layout, role toggles, copy, and behavior in your spec; only deviate when the PM explicitly asks."
+      );
+      lines.push("");
+      for (const m of idx.mock_surface) {
+        const routeLabel = m.route ? `route \`${m.route}\`` : "component";
+        lines.push(`<details><summary><strong>${m.name}</strong> — ${routeLabel} (\`${m.file}\`)</summary>\n`);
+        lines.push("```tsx");
+        lines.push(m.excerpt);
+        lines.push("```");
+        lines.push("</details>\n");
+      }
       lines.push("");
     }
 

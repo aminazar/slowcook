@@ -6,6 +6,7 @@ import {
   buildHistoryIndex,
   scanMigrations,
   parseTypeOrmMigration,
+  scanMockSurface,
 } from "./history-index.js";
 
 let repo: string;
@@ -250,6 +251,124 @@ describe("scanMigrations — auto-discovery + mixed formats", () => {
     const root = mkdtempSync(join(tmpdir(), "slowcook-none-"));
     try {
       expect(scanMigrations(root, "supabase/migrations")).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("scanMockSurface — 0.19.0-α.23 mock-aware refine context", () => {
+  it("returns empty when mock/src is absent", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-no-mock-"));
+    try {
+      expect(scanMockSurface(root, "mock/src")).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("captures a page.tsx with inferred route + name + excerpt", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-page-"));
+    try {
+      mkdirSync(join(root, "mock/src/app/login"), { recursive: true });
+      writeFileSync(
+        join(root, "mock/src/app/login/page.tsx"),
+        `export default function LoginPage() {
+  return <form>email + password</form>;
+}`,
+        "utf8"
+      );
+      const out = scanMockSurface(root, "mock/src");
+      expect(out).toHaveLength(1);
+      expect(out[0]!.route).toBe("/login");
+      expect(out[0]!.name).toBe("LoginPage");
+      expect(out[0]!.excerpt).toContain("email + password");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("strips parenthesised layout-group segments from the route", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-group-"));
+    try {
+      mkdirSync(join(root, "mock/src/app/(patient)/dashboard"), { recursive: true });
+      writeFileSync(
+        join(root, "mock/src/app/(patient)/dashboard/page.tsx"),
+        `export default function Dashboard() { return <div />; }`,
+        "utf8"
+      );
+      const out = scanMockSurface(root, "mock/src");
+      // (patient) is a layout group — should NOT appear in the URL
+      expect(out[0]!.route).toBe("/dashboard");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("collapses the root page to / not /page.tsx", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-root-"));
+    try {
+      mkdirSync(join(root, "mock/src/app"), { recursive: true });
+      writeFileSync(
+        join(root, "mock/src/app/page.tsx"),
+        `export default function Root() { return <div/>; }`,
+        "utf8"
+      );
+      const out = scanMockSurface(root, "mock/src");
+      expect(out[0]!.route).toBe("/");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("captures non-page components with route=null", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-comp-"));
+    try {
+      mkdirSync(join(root, "mock/src/components"), { recursive: true });
+      writeFileSync(
+        join(root, "mock/src/components/TicketCard.tsx"),
+        `export function TicketCard() { return null; }`,
+        "utf8"
+      );
+      const out = scanMockSurface(root, "mock/src");
+      expect(out).toHaveLength(1);
+      expect(out[0]!.route).toBeNull();
+      expect(out[0]!.name).toBe("TicketCard");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("truncates excerpts over 1500 chars", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-big-"));
+    try {
+      mkdirSync(join(root, "mock/src/app/big"), { recursive: true });
+      const huge = "// padding\n".repeat(500);
+      writeFileSync(
+        join(root, "mock/src/app/big/page.tsx"),
+        `export default function Big() {\n${huge}\n  return null;\n}`,
+        "utf8"
+      );
+      const out = scanMockSurface(root, "mock/src");
+      expect(out[0]!.excerpt.length).toBeLessThan(1700);
+      expect(out[0]!.excerpt).toContain("truncated");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("is exposed via buildHistoryIndex's mock_surface field", () => {
+    const root = mkdtempSync(join(tmpdir(), "slowcook-mock-build-"));
+    try {
+      mkdirSync(join(root, "mock/src/app/login"), { recursive: true });
+      writeFileSync(
+        join(root, "mock/src/app/login/page.tsx"),
+        `export default function L(){return <div/>;}`,
+        "utf8"
+      );
+      const idx = buildHistoryIndex({ repoRoot: root });
+      expect(idx.mock_surface).toHaveLength(1);
+      expect(idx.mock_surface[0]!.route).toBe("/login");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
