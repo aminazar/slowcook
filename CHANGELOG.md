@@ -6,6 +6,44 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.20 — refine questions-first layout + visible cost footer
+
+Cut 2026-05-14. Two more PM-facing comment rules surfaced from
+delgoosh#606 round 2 observations:
+
+- **α.20 — questions-first layout, decisions collapsed below**
+  (`llm-anthropic` 0.16.0-α.4): refine's comment now leads with
+  questions. Decisions move to a `<details><summary>Decisions I've
+  already made on your behalf</summary>` block UNDER the questions.
+  The PM opens the comment to find what THEY need to act on, not to
+  audit a wall of decisions first. Trace + audit material stays
+  available but folded.
+
+- **α.20 — visible cost footer on every refine comment**: every
+  question-round comment now appends a human-readable footer:
+
+  > 💰 **This step:** $0.35 · **Story total:** $0.42 (2 agent calls so far)
+
+  Plain text, not HTML-comment, so the PM sees it. "Story total"
+  accumulates by reading prior bot comments + summing the existing
+  `<!-- slowcook:cost -->` markers (already emitted across the
+  pipeline; this just surfaces them). Cost transparency at every
+  step is now contract, not just trace.
+
+  New helper `formatCostFooter(thisRunUsd, priorMarkers)` in
+  `@slowcook-ai/llm-anthropic` (re-exported from package index).
+  Wired into refine's question-round emit site; other emit sites
+  (overlap-blocked, contradiction-blocked, resubmit-noop, etc.) and
+  other agents (testgen, plate, brew, chef) follow in subsequent
+  PRs.
+
+- **Eval fixture extended**: the `refine-pm-facing-question-rules`
+  fixture now also asserts the prompt contains the `<details>` /
+  `<summary>` layout language. cli 800/800 tests + eval gate 2/2
+  fixtures green.
+
+---
+
 ## 0.19.0-alpha.19 — refine PM-facing question rules
 
 Cut 2026-05-14. Codifies four hard rules for refine's clarifying-question
