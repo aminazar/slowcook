@@ -513,7 +513,12 @@ function scanTestFiles(repoRoot: string, dir: string): TestFileEntry[] {
 // a bounded excerpt, so a PM issue saying "match the mock" produces
 // a spec mirroring the mock without the PM citing paths.
 
-const MOCK_EXCERPT_LIMIT = 1500;
+// Bumped 1500 → 8000 in α.26 — the 1500 ceiling cut off real-world
+// mocks at ~50 lines. delgoosh's mock/src/app/login/page.tsx is
+// 6411 chars (171 lines) — 6000 still truncated; 8000 fits comfortably
+// and covers up to ~260-line mocks. Larger consumers may need a
+// per-file override; cross that bridge when a real mock exceeds 8KB.
+const MOCK_EXCERPT_LIMIT = 8000;
 
 export function scanMockSurface(repoRoot: string, mockRoot: string): MockEntry[] {
   const root = join(repoRoot, mockRoot);
