@@ -3,6 +3,27 @@ import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
 import { formatCostFooter, parseCostMarkers } from "@slowcook-ai/llm-anthropic";
+
+/**
+ * Strip the brand header, cost footer, and HTML cost marker out of a
+ * model-emitted markdown body. The calling code adds those around the
+ * output; if the model copies them from prior-turn context, we'd
+ * post duplicates. Cheap regex; safe to no-op when patterns absent.
+ *
+ * Visible for tests.
+ */
+export function stripModelEmittedDuplicates(body: string): string {
+  return body
+    // Brand header (with or without trailing whitespace)
+    .replace(/^###\s*slowcook\s*·\s*refinement\s*agent\s*🍲\s*\n+/g, "")
+    // Cost footer (one or many lines of the <sub>💰...</sub> shape,
+    // optionally preceded by a `---` separator)
+    .replace(/\n*---\s*\n+<sub>\s*💰[^<]*<\/sub>/g, "")
+    // HTML cost marker
+    .replace(/\n*<!--\s*slowcook:cost\s[^>]*-->/g, "")
+    .replace(/\n{3,}$/g, "\n\n")
+    .trimEnd();
+}
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
 import { writeMockFixtures } from "./mock-fixtures.js";
 import { validateAndRepairSpec } from "./spec-validate.js";
@@ -271,9 +292,15 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     } catch {
       /* best effort — fall back to no footer if list fails */
     }
+    // Defense-in-depth: the prompt tells the model not to emit cost
+    // footers / markers / brand header (those are auto-appended). But
+    // if the model copies the pattern from prior-turn context anyway,
+    // strip it so the final comment doesn't carry duplicates. Cheap
+    // string ops; safe to no-op when patterns are absent.
+    const cleanMarkdown = stripModelEmittedDuplicates(parsed.markdown);
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      BRAND_HEADER + parsed.markdown + footer + "\n\n" + refineCostMarker
+      BRAND_HEADER + cleanMarkdown + footer + "\n\n" + refineCostMarker
     );
     return { kind: "questions-posted", commentId: comment.id };
   }
