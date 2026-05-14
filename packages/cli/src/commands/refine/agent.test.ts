@@ -64,16 +64,24 @@ Please answer inline.`;
     expect(out.kind).toBe("spec");
   });
 
-  it("throws a clear error when YAML-shaped output fails schema", () => {
-    const bad = `
+  it("defaults missing required-array fields instead of throwing (α.27 change)", () => {
+    // Was a throw-on-missing test pre-α.27. Now the missing arrays
+    // (preconditions, invariants, non_goals) default to [] so the
+    // PM doesn't lose work to a silent crash.
+    const yaml = `---
 title: missing required fields
 actors:
   - name: x
 acceptance_scenarios:
   - scenario-one
 `;
-    // missing preconditions, invariants, non_goals
-    expect(() => parseAgentOutput(bad, CTX)).toThrow(/validation|required/);
+    const out = parseAgentOutput(yaml, CTX);
+    expect(out.kind).toBe("spec");
+    if (out.kind === "spec") {
+      expect(out.spec.preconditions).toEqual([]);
+      expect(out.spec.invariants).toEqual([]);
+      expect(out.spec.non_goals).toEqual([]);
+    }
   });
 
   it("supersedes field is taken from the provided context, not the agent's output", () => {
@@ -90,6 +98,40 @@ acceptance_scenarios:
 
   it("empty output triggers an explicit error (not silent questions)", () => {
     expect(() => parseAgentOutput("", CTX)).toThrow(/empty/);
+  });
+
+  it("defaults missing non_goals to [] instead of crashing (delgoosh#635 round 6 fix)", () => {
+    const yamlWithoutNonGoals = `---
+title: Test story
+actors:
+  - name: user
+preconditions:
+  - X
+invariants:
+  - Y
+acceptance_scenarios:
+  - Z
+`;
+    const out = parseAgentOutput(yamlWithoutNonGoals, CTX);
+    expect(out.kind).toBe("spec");
+    if (out.kind === "spec") {
+      expect(out.spec.non_goals).toEqual([]);
+    }
+  });
+
+  it("defaults ALL required-array fields when the LLM forgets multiple", () => {
+    const yamlMinimal = `---
+title: Bare-minimum spec
+`;
+    const out = parseAgentOutput(yamlMinimal, CTX);
+    expect(out.kind).toBe("spec");
+    if (out.kind === "spec") {
+      expect(out.spec.actors).toEqual([]);
+      expect(out.spec.preconditions).toEqual([]);
+      expect(out.spec.invariants).toEqual([]);
+      expect(out.spec.acceptance_scenarios).toEqual([]);
+      expect(out.spec.non_goals).toEqual([]);
+    }
   });
 });
 

@@ -578,6 +578,32 @@ function normalizeEmittedSpec(doc: unknown): unknown {
   stringifyArrayEntries("preconditions");
   stringifyArrayEntries("invariants");
   stringifyArrayEntries("non_goals");
+
+  // 0.19.0-α.27 — default missing required-array fields to []. Without
+  // this guard the LLM forgetting a single field (e.g. `non_goals`)
+  // crashes refine + posts NOTHING to the PM. Empty array is the
+  // semantically safe interpretation ("no non-goals listed") and lets
+  // the spec land; the dev sees a warning if any defaulting fires.
+  // Observed crash: delgoosh#635 round 6.
+  const requiredArrays = [
+    "actors",
+    "preconditions",
+    "invariants",
+    "acceptance_scenarios",
+    "non_goals",
+  ];
+  const defaultedFields: string[] = [];
+  for (const key of requiredArrays) {
+    if (out[key] === undefined || out[key] === null) {
+      out[key] = [];
+      defaultedFields.push(key);
+    }
+  }
+  if (defaultedFields.length > 0) {
+    console.warn(
+      `[refine] LLM emit was missing required-array field(s); defaulted to []: ${defaultedFields.join(", ")}. Spec will still emit.`
+    );
+  }
   return out;
 }
 
