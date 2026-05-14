@@ -4,6 +4,7 @@ export {
   costUsdForUsage,
   costMarker,
   parseCostMarkers,
+  formatCostFooter,
   type ParsedCostMarker,
 } from "./pricing.js";
 

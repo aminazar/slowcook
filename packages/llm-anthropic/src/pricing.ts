@@ -114,3 +114,37 @@ export function parseCostMarkers(body: string): ParsedCostMarker[] {
   }
   return out;
 }
+
+/**
+ * Render a human-readable cost footer to append to a PM-facing comment.
+ *
+ * Format:
+ *   ---
+ *   <sub>💰 **This step:** $0.35 · **Story total:** $0.42 (2 agent calls so far)</sub>
+ *
+ * The footer is part of slowcook's contract that agent cost is visible
+ * to the PM at every comment, not just embedded in invisible HTML
+ * markers. A PM building a feature should see "this round cost me X
+ * cents; the whole story so far is Y dollars" in real time.
+ *
+ * `thisRunUsd`: the cost of the call that produced this comment.
+ * `priorMarkers`: parsed cost markers from prior bot comments on the
+ *   same issue/PR (use `parseCostMarkers` over a concatenated body).
+ *   Empty array for the first comment in a story.
+ *
+ * The visible footer renders the story-total INCLUDING `thisRunUsd`,
+ * so the math always reads true even on round 1.
+ */
+export function formatCostFooter(
+  thisRunUsd: number,
+  priorMarkers: ParsedCostMarker[]
+): string {
+  const priorSum = priorMarkers.reduce((acc, m) => acc + m.usd, 0);
+  const total = priorSum + thisRunUsd;
+  const totalCalls = priorMarkers.length + 1;
+  return (
+    `\n\n---\n` +
+    `<sub>💰 **This step:** $${thisRunUsd.toFixed(2)} · ` +
+    `**Story total:** $${total.toFixed(2)} (${totalCalls} agent call${totalCalls === 1 ? "" : "s"} so far)</sub>`
+  );
+}

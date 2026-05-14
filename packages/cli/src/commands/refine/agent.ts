@@ -2,6 +2,7 @@ import YAML from "yaml";
 import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
+import { formatCostFooter, parseCostMarkers } from "@slowcook-ai/llm-anthropic";
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
 import { writeMockFixtures } from "./mock-fixtures.js";
 import { validateAndRepairSpec } from "./spec-validate.js";
@@ -255,9 +256,24 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   });
 
   if (parsed.kind === "questions") {
+    // Compute visible cost footer: this run's cost + accumulated prior
+    // bot-emitted costs on the same issue. Footer renders as plain
+    // markdown the PM can see; the HTML cost marker remains for machine
+    // parsing. Best-effort — never block the comment on a list-comments
+    // failure.
+    let footer = "";
+    try {
+      const priorComments = await ctx.forge.listIssueComments(ctx.issueNumber);
+      const priorMarkers = priorComments.flatMap((c) =>
+        parseCostMarkers(c.body)
+      );
+      footer = formatCostFooter(roundCostUsd, priorMarkers);
+    } catch {
+      /* best effort — fall back to no footer if list fails */
+    }
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      BRAND_HEADER + parsed.markdown + "\n\n" + refineCostMarker
+      BRAND_HEADER + parsed.markdown + footer + "\n\n" + refineCostMarker
     );
     return { kind: "questions-posted", commentId: comment.id };
   }
