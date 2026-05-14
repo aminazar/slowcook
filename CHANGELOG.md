@@ -6,6 +6,93 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.0-alpha.18 — TypeORM migration scanner + migration gate
+
+Cut 2026-05-13 (late). Two-part fix for the long-standing schema-gap
+class (rewo story-005 / story-006 incident shape, `project_migration_gap_in_pipeline` memory). Ships ahead of the first delgoosh story so the
+brownfield consumer is covered before any pipeline run.
+
+- **α.18 — TypeORM migration scanner (closes #108)**: `scanMigrations`
+  now auto-dispatches per-file: `*.sql` → existing Supabase parser;
+  `*.ts` → new TypeORM parser. The TS parser handles two patterns:
+  raw SQL via `queryRunner.query(\`...\`)` (template-string extraction
+  then existing SQL parsers), and `DatabaseCreateTable(queryRunner,
+  'tbl', [...])` helper calls (delgoosh-monorepo style, with implicit
+  helper-added columns: id, created_at, updated_at, deleted_at).
+  Auto-discovery: if `supabase/migrations/` is absent, tries
+  `packages/postgres/src/migrations`, `src/migrations`, `migrations` in
+  that order. Smoke-tested on delgoosh-monorepo — detects 14 migration
+  files, 61 tables.
+- **α.18 — migration gate in recon (closes #109)**: new
+  `checkMigrationGate(repoRoot, storyId)` invoked from `slowcook recon`.
+  Reads the story spec, extracts `proposals.schema.sql`, and verifies
+  every proposed table / column is covered by some migration file on
+  disk. Emits `structural_gaps[].kind = "missing_migration"` with
+  recommendation text pointing at the right migration path for the
+  consumer's flavour (TypeORM or Supabase). Pure structural — no LLM.
+  Hooks into the existing `escalate` exit-2 path, so brew-auto
+  workflows already gate on it without further wiring.
+
+### Test coverage
+
+`@slowcook-ai/cli` 800/800 passing (was 775). New: 8 history-index
+tests (TypeORM parsing + auto-discovery), 12 migration-gate tests
+(no-op / Supabase / TypeORM / format helpers).
+
+### Why this matters for delgoosh
+
+Delgoosh uses TypeORM migrations at `packages/postgres/src/migrations/*.ts`
+in a helper-driven style. The old scanner only saw Supabase SQL —
+zero migrations would be detected, the gate would silently no-op,
+and the rewo story-005 incident class would have shipped on the
+first delgoosh story. After α.18, the gate fires.
+
+---
+
+## 0.19.0-alpha.17 — prompt-regression eval gate
+
+Cut 2026-05-13. Closes #19 (partial — shape + one bootstrap fixture
+land; the remaining 4 rewo-history fixtures filed as follow-ups).
+
+- **α.17 — `slowcook eval` cli command + CI gate (#19)**: new command
+  that loads frozen fixtures from `packages/cli/eval/fixtures/<id>/fixture.json`,
+  calls the relevant `build*Prompt(args)` function from
+  `@slowcook-ai/llm-anthropic`, and asserts the resulting prompt
+  string contains all `expected_prompt_includes` substrings and none
+  of the `expected_prompt_excludes` substrings. New workflow
+  `.github/workflows/eval-gate.yml` runs `slowcook eval --all` on
+  every PR that touches `packages/llm-anthropic/src/prompts/**`.
+  Catches the regression class the 749 cli unit tests don't:
+  silent context drops in prompt PRs.
+- **Bootstrap fixture**: `chef-orchestrate-close-on-incomplete-halt`
+  models the rewo PR #153 L3 chef-orchestrate halt — asserts the
+  prompt includes the chef-drift ledger, all related PRs, runner
+  output, and the spec body, and excludes placeholder leaks (`TODO`,
+  `{{`, etc.). Live verification: `slowcook eval --all` passes
+  against current `buildChefOrchestratePrompt`.
+- **Docs**: CONTRIBUTING.md gets a "Prompt-regression fixtures"
+  section documenting the fixture format + when to add one.
+  AGENTS.md quick-reference row added.
+
+### Test coverage
+
+`@slowcook-ai/cli` 775/775 passing (was 769). New: 11 eval-command
+tests covering listing, validation, run-fixture pass / fail / error
+shapes.
+
+### Follow-up fixtures (filed as separate issues)
+
+Each fixture below captures a real regression class from rewo history
++ proves the eval gate would have caught it. Splitting per-fixture
+keeps each PR small + the assertion-design discussion focused.
+
+- chef converge-on-clean-brew (story end-to-end success)
+- brew styling-gap shape (zero-className output class)
+- recon stub-scan escalation context
+- vibe brownfield-DISCOVERY awareness
+
+---
+
 ## 0.19.0-alpha.12 → α.14 — visibility, traceability, OSS process
 
 Cut 2026-05-07 (afternoon round 2). Five-task stretch closing the

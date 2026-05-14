@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, relative } from "node:path";
 import { buildHistoryIndex, type HistoryIndex } from "../refine/history-index.js";
 import { extractShape, synthesiseShapeTestFile, findMockFilesForStory } from "./shape-preserve.js";
+import { checkMigrationGate, formatMigrationGap } from "./migration-gate.js";
 import { isReadOnlyMode } from "../../lib/read-only.js";
 
 interface ReconArgs {
@@ -82,7 +83,12 @@ interface TestidGap {
 }
 
 interface StructuralGap {
-  kind: "missing_component" | "missing_route" | "prop_shape_mismatch" | "story_history_conflict";
+  kind:
+    | "missing_component"
+    | "missing_route"
+    | "prop_shape_mismatch"
+    | "story_history_conflict"
+    | "missing_migration";
   test: string;
   detail: string;
   recommendation: string;
@@ -305,6 +311,35 @@ export async function recon(argv: string[], cliVersion: string): Promise<void> {
     }
   } catch (e) {
     result.warnings.push(`shape-emit failed: ${(e as Error).message.slice(0, 200)}`);
+  }
+
+  // 0.19.0-α.18 — migration gate. Reads the story's spec, extracts
+  // `proposals.schema.sql`, and verifies that every proposed table /
+  // column is covered by some migration file on disk. Story-005 / 006
+  // rewo incident class. No LLM call; pure structural.
+  try {
+    const mg = checkMigrationGate(args.repoRoot, args.story);
+    if (mg.spec_proposes_schema) {
+      console.log(
+        `  migration-gate: spec proposes schema · ${mg.migrations_scanned} migration file(s) scanned · ${mg.gaps.length} gap(s)`
+      );
+    }
+    for (const gap of mg.gaps) {
+      const { detail, recommendation } = formatMigrationGap(gap);
+      result.structural_gaps.push({
+        kind: "missing_migration",
+        test: gap.source,
+        detail,
+        recommendation,
+      });
+    }
+    for (const note of mg.notes) {
+      result.warnings.push(`migration-gate: ${note}`);
+    }
+  } catch (e) {
+    result.warnings.push(
+      `migration-gate threw: ${(e as Error).message.slice(0, 200)}`
+    );
   }
 
   // Decide status
