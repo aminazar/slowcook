@@ -68,6 +68,31 @@ export interface TestFileEntry {
   test_names: string[];
 }
 
+/**
+ * A mock page or component, captured so refine can answer
+ * "match the mock" without making the PM cite paths.
+ *
+ * 0.19.0-α.23 — added because real PM issues describe user pain
+ * ("registration should look like the mock"), and the indexer
+ * previously only saw production `src/`. Refine then either
+ * hallucinated a design or had to ask. Surfacing mock files in
+ * context closes the loop: PM says "as mock" → refine reads the
+ * actual mock excerpt → spec mirrors it.
+ *
+ * The excerpt is bounded to the first ~1.5KB so refine's prompt
+ * doesn't blow up on a 5KB mock file.
+ */
+export interface MockEntry {
+  /** repo-relative path. */
+  file: string;
+  /** Route inferred from app/router-shape file location, or null for components. */
+  route: string | null;
+  /** Component or page name (best-effort extraction, falls back to file basename). */
+  name: string;
+  /** First ~1500 chars of the file (after trimming whitespace) so refine sees the actual JSX/markup. */
+  excerpt: string;
+}
+
 export interface HistoryIndex {
   generated_at: string;
   generator: "slowcook-refine-history-index@0.17.0";
@@ -76,6 +101,8 @@ export interface HistoryIndex {
   migrations: MigrationEntry[];
   test_helpers: TestHelperEntry[];
   test_files: TestFileEntry[];
+  /** 0.19.0-α.23 — mock surface (design source-of-truth). */
+  mock_surface: MockEntry[];
 }
 
 interface BuildOptions {
@@ -87,6 +114,8 @@ interface BuildOptions {
     migrations?: string;
     tests?: string;
     helpers?: string;
+    /** Default: `mock/src` (matches slowcook init scaffold). */
+    mockRoot?: string;
   };
 }
 
@@ -98,6 +127,7 @@ export function buildHistoryIndex(opts: BuildOptions): HistoryIndex {
     migrations: opts.scanPaths?.migrations ?? "supabase/migrations",
     tests: opts.scanPaths?.tests ?? "tests",
     helpers: opts.scanPaths?.helpers ?? "tests/helpers",
+    mockRoot: opts.scanPaths?.mockRoot ?? "mock/src",
   };
 
   const components = scanComponents(repoRoot, paths.components);
@@ -105,6 +135,7 @@ export function buildHistoryIndex(opts: BuildOptions): HistoryIndex {
   const migrations = scanMigrations(repoRoot, paths.migrations);
   const test_helpers = scanTestHelpers(repoRoot, paths.helpers);
   const test_files = scanTestFiles(repoRoot, paths.tests);
+  const mock_surface = scanMockSurface(repoRoot, paths.mockRoot);
 
   // Reverse-index test → component coverage (which components each test
   // imports → annotate components.tests_covering).
@@ -124,6 +155,7 @@ export function buildHistoryIndex(opts: BuildOptions): HistoryIndex {
     api_routes,
     migrations,
     test_helpers,
+    mock_surface,
     test_files,
   };
 }
@@ -472,6 +504,61 @@ function scanTestFiles(repoRoot: string, dir: string): TestFileEntry[] {
     out.push({ file: rel, imports, test_names });
   }
   return out;
+}
+
+// ----- Mock surface scanner (0.19.0-α.23) -----
+//
+// The mock dir is the consumer's hand-authored design source-of-truth.
+// Refine reads each file's route (inferred from app-router shape) +
+// a bounded excerpt, so a PM issue saying "match the mock" produces
+// a spec mirroring the mock without the PM citing paths.
+
+const MOCK_EXCERPT_LIMIT = 1500;
+
+export function scanMockSurface(repoRoot: string, mockRoot: string): MockEntry[] {
+  const root = join(repoRoot, mockRoot);
+  if (!existsSync(root)) return [];
+  const out: MockEntry[] = [];
+  for (const file of walkFiles(root, /\.(tsx|ts)$/)) {
+    const rel = relative(repoRoot, file).replace(/\\/g, "/");
+    // Skip non-page TS files (utilities, types) — focus on UI surface.
+    if (!rel.endsWith(".tsx") && !rel.endsWith("page.ts")) continue;
+    const body = readFileSync(file, "utf8");
+    const route = inferMockRoute(rel, mockRoot);
+    const name = extractComponentName(body, rel) ?? routeOrFileFallback(rel, route);
+    const excerpt = trimExcerpt(body, MOCK_EXCERPT_LIMIT);
+    out.push({ file: rel, route, name, excerpt });
+  }
+  return out;
+}
+
+function inferMockRoute(rel: string, mockRoot: string): string | null {
+  // Next.js app-router shape: <mockRoot>/app/<...segments>/page.tsx → /<segments>
+  // Parenthesised segments are layout groups, stripped from the URL.
+  const appPrefix = `${mockRoot}/app/`;
+  if (!rel.startsWith(appPrefix)) return null;
+  if (!rel.endsWith("/page.tsx") && !rel.endsWith("/page.ts")) return null;
+  // `/?` makes the leading slash optional so the root page
+  // (`mock/src/app/page.tsx`) collapses to "" → final route "/" instead
+  // of the buggy "/page.tsx".
+  const segments = rel
+    .slice(appPrefix.length)
+    .replace(/\/?page\.(tsx|ts)$/, "")
+    .split("/")
+    .filter((s) => s.length > 0 && !(s.startsWith("(") && s.endsWith(")")));
+  return "/" + segments.join("/");
+}
+
+function routeOrFileFallback(rel: string, route: string | null): string {
+  if (route) return route;
+  const base = rel.split("/").pop() ?? rel;
+  return base.replace(/\.(tsx|ts)$/, "");
+}
+
+function trimExcerpt(body: string, limit: number): string {
+  const trimmed = body.trim();
+  if (trimmed.length <= limit) return trimmed;
+  return trimmed.slice(0, limit) + "\n/* ...truncated... */";
 }
 
 // ----- File walker -----
