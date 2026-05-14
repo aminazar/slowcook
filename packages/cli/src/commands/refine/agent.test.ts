@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAgentOutput } from "./agent.js";
+import { parseAgentOutput, stripModelEmittedDuplicates } from "./agent.js";
 
 const CTX = {
   storyId: "042",
@@ -90,5 +90,37 @@ acceptance_scenarios:
 
   it("empty output triggers an explicit error (not silent questions)", () => {
     expect(() => parseAgentOutput("", CTX)).toThrow(/empty/);
+  });
+});
+
+describe("stripModelEmittedDuplicates — defense in depth for cost-footer/brand-header copying", () => {
+  it("strips the brand header at the top of model output", () => {
+    const body = "### slowcook · refinement agent 🍲\n\nLocked in: foo bar.\n";
+    expect(stripModelEmittedDuplicates(body)).toBe("Locked in: foo bar.");
+  });
+
+  it("strips a cost footer the model copied from prior context", () => {
+    const body =
+      "Locked in: foo.\n\n---\n<sub>💰 **This step:** $0.97 · **Story total:** $0.97 (1 agent call so far)</sub>";
+    expect(stripModelEmittedDuplicates(body)).toBe("Locked in: foo.");
+  });
+
+  it("strips an HTML cost marker the model copied", () => {
+    const body =
+      "Locked in: foo.\n\n<!-- slowcook:cost agent=refine usd=0.9670 tokens_in=4084 -->";
+    expect(stripModelEmittedDuplicates(body)).toBe("Locked in: foo.");
+  });
+
+  it("strips all three (brand header + footer + marker) when model copies the full prior turn", () => {
+    const body =
+      "### slowcook · refinement agent 🍲\n\nNew round content here.\n\n" +
+      "---\n<sub>💰 **This step:** $0.50 · **Story total:** $1.00 (2 agent calls so far)</sub>\n\n" +
+      "<!-- slowcook:cost agent=refine usd=0.5000 -->";
+    expect(stripModelEmittedDuplicates(body)).toBe("New round content here.");
+  });
+
+  it("no-op on clean model output", () => {
+    const body = "Real refine output with no copied patterns. Bullets:\n- one\n- two";
+    expect(stripModelEmittedDuplicates(body)).toBe(body);
   });
 });
