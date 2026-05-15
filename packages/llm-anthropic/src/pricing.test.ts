@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { costMarker, parseCostMarkers, costUsdForUsage } from "./pricing.js";
+import {
+  costMarker,
+  parseCostMarkers,
+  costUsdForUsage,
+  formatRateLimitHint,
+} from "./pricing.js";
 
 describe("costMarker", () => {
   it("renders the required fields", () => {
@@ -134,5 +139,45 @@ describe("costUsdForUsage", () => {
       cacheCreateTokens: 0,
     });
     expect(cost).toBeCloseTo(3);
+  });
+});
+
+describe("[α.31 / sc#69] formatRateLimitHint", () => {
+  it("returns empty string when rateLimits is undefined", () => {
+    expect(formatRateLimitHint(undefined)).toBe("");
+  });
+
+  it("returns empty string when remaining is comfortably above thresholds", () => {
+    expect(
+      formatRateLimitHint({ tokensRemaining: 40000, requestsRemaining: 45 })
+    ).toBe("");
+  });
+
+  it("renders a hint when tokensRemaining is at/below 5000", () => {
+    const hint = formatRateLimitHint({ tokensRemaining: 3200 });
+    expect(hint).toContain("rate limit tight");
+    expect(hint).toContain("3,200 tokens");
+  });
+
+  it("renders a hint when requestsRemaining is at/below 5", () => {
+    const hint = formatRateLimitHint({ requestsRemaining: 2 });
+    expect(hint).toContain("2 req");
+  });
+
+  it("combines token + request hints when BOTH are tight", () => {
+    const hint = formatRateLimitHint({
+      tokensRemaining: 1000,
+      requestsRemaining: 3,
+    });
+    expect(hint).toContain("1,000 tokens");
+    expect(hint).toContain("3 req");
+  });
+
+  it("appends reset time when tokensResetAt is present", () => {
+    const hint = formatRateLimitHint({
+      tokensRemaining: 1000,
+      tokensResetAt: "2026-05-15T18:32:00Z",
+    });
+    expect(hint).toMatch(/until \d{2}:\d{2} UTC/);
   });
 });

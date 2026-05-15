@@ -5,7 +5,9 @@ export {
   costMarker,
   parseCostMarkers,
   formatCostFooter,
+  formatRateLimitHint,
   type ParsedCostMarker,
+  type RateLimitsForHint,
 } from "./pricing.js";
 
 // 0.9.0 — Anthropic-tuned prompts (system strings, tool defs,
