@@ -1,0 +1,43 @@
+{
+  "id": "refine-brownfield-answer-rules",
+  "agent": "refine-brownfield-answer",
+  "description": "The BROWNFIELD_ANSWER_SYSTEM prompt (Pass B, α.36) MUST enforce six rules so the reflexive pass calibrates correctly: (1) verbatim question copy, (2) conservative ambiguous=unanswered, (3) concrete source citations, (4) JSON-only output, (5) style/PM-judgement always unanswered, (6) empty-input graceful path. Validated against delgoosh#635 baseline (2026-05-15) where static analysis predicted 2/7 questions answered from brownfield (29% PM-friction reduction).",
+  "captured_from": {
+    "pr": 80,
+    "date": "2026-05-15",
+    "context": "Pass B prompt shipped in cli α.36 + llm-anthropic α.11. Eval fixture filed at PR merge to prevent silent prompt drift: if a future edit weakens the verbatim-copy rule, the conservative rule, the concrete-citation requirement, or the JSON-output discipline, this gate fails before merge."
+  },
+  "input": {},
+  "expected_prompt_includes": [
+    "Pass B",
+    "reflexive",
+    "brownfield-aware refinement assistant",
+    "ALREADY in the context",
+    "answered",
+    "unanswered",
+    "audit-trail",
+    "Copy questions VERBATIM",
+    "(a)/(b)/(c) options",
+    "Be conservative",
+    "If the context doesn't FULLY answer",
+    "Cite concretely",
+    "source",
+    "entities-digest",
+    "Style/taste/PM-judgement",
+    "ALWAYS unanswered",
+    "SINGLE JSON object",
+    "no prose",
+    "Don't invent answers",
+    "Order preserved",
+    "Greenfield-ish input",
+    "Empty input",
+    "ZERO questions",
+    "Quality bar"
+  ],
+  "expected_prompt_excludes": [
+    "best guess",
+    "If unsure, answer anyway",
+    "feel free to reformulate",
+    "summarize the question"
+  ]
+}

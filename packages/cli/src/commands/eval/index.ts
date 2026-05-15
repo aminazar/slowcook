@@ -33,6 +33,7 @@ import {
   buildSiftTurnPrompt,
   buildVibeUserPrompt,
   REFINEMENT_ANALYST_SYSTEM,
+  BROWNFIELD_ANSWER_SYSTEM,
 } from "@slowcook-ai/llm-anthropic";
 
 export interface Fixture {
@@ -90,6 +91,13 @@ const BUILDERS: Record<string, (args: unknown) => string> = {
     // Eval fixtures assert on the system prompt's contents.
     const a = args as { checklist?: string; projectContext?: string };
     return REFINEMENT_ANALYST_SYSTEM(a.checklist ?? "", a.projectContext ?? "");
+  },
+  "refine-brownfield-answer": () => {
+    // 0.19.0-α.36 — Pass B reflexive brownfield-answer prompt. Static,
+    // no inputs woven in; the prompt is consumed as-is. Eval fixtures
+    // assert on its required-rules surface (verbatim copy, source
+    // citation, conservative-ambiguous, JSON output, etc.).
+    return BROWNFIELD_ANSWER_SYSTEM;
   },
 };
 
