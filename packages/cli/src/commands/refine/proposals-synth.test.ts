@@ -510,6 +510,93 @@ describe("synthesizeProposalsFromSpec", () => {
   });
 });
 
+describe("[α.30 / sc#63] deriveSchema emits ALTER TABLE for new columns on existing tables", () => {
+  function mkRepo(): string {
+    return mkdtempSync(join(tmpdir(), "slowcook-sc63-"));
+  }
+
+  function writeMigration(repo: string, name: string, body: string): void {
+    mkdirSync(join(repo, "supabase/migrations"), { recursive: true });
+    require("node:fs").writeFileSync(join(repo, "supabase/migrations", name), body, "utf8");
+  }
+
+  it("emits ALTER TABLE when invariant references <existing_table>.<new_column>", () => {
+    const repo = mkRepo();
+    try {
+      writeMigration(repo, "001_users.sql", "create table users (id uuid primary key, email text);");
+      const spec: Spec = {
+        ...base,
+        invariants: [
+          "users.registration_completed_at IS NULL means the user has verified email but not finished registration.",
+        ],
+      };
+      const out = synthesizeProposalsFromSpec(spec, { repoRoot: repo });
+      expect(out.schema?.sql).toContain("ALTER TABLE users ADD COLUMN registration_completed_at");
+      expect(out.schema?.sql).toContain("timestamptz NULL"); // suffix-inferred
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT emit ALTER when the column already exists in migrations", () => {
+    const repo = mkRepo();
+    try {
+      writeMigration(
+        repo,
+        "001_users.sql",
+        "create table users (id uuid primary key, email text, registration_completed_at timestamptz);",
+      );
+      const spec: Spec = {
+        ...base,
+        invariants: ["users.registration_completed_at IS NULL means incomplete."],
+      };
+      const out = synthesizeProposalsFromSpec(spec, { repoRoot: repo });
+      // No proposals.schema emitted because everything referenced exists
+      expect(out.schema).toBeUndefined();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT emit ALTER when the table itself is new (CREATE TABLE handles it)", () => {
+    const repo = mkRepo();
+    try {
+      // No migrations at all → existingColumns is null → ALTER path skipped
+      const spec: Spec = {
+        ...base,
+        invariants: ["new_thing.foo_at IS NULL"],
+      };
+      const out = synthesizeProposalsFromSpec(spec, { repoRoot: repo });
+      // No migrations → ALTER path is skipped (existingColumns is null).
+      // If schema proposal emits at all (from CREATE TABLE flow), it
+      // should NOT contain an ALTER for new_thing.
+      const sql = out.schema?.sql ?? "";
+      expect(sql).not.toContain("ALTER TABLE new_thing");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("combines CREATE TABLE + ALTER TABLE in one schema proposal when spec implies both", () => {
+    const repo = mkRepo();
+    try {
+      writeMigration(repo, "001_users.sql", "create table users (id uuid primary key);");
+      const spec: Spec = {
+        ...base,
+        invariants: [
+          "`notifications`(id, user_id, kind, seen_at) — new table for inbox messages.",
+          "users.last_notification_at IS NULL when the user has no notifications.",
+        ],
+      };
+      const out = synthesizeProposalsFromSpec(spec, { repoRoot: repo });
+      expect(out.schema?.sql).toMatch(/create\s+table\s+notifications/i);
+      expect(out.schema?.sql).toContain("ALTER TABLE users ADD COLUMN last_notification_at");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("[α.29 / sc#64] detectAppShape + multi-app route mapping", () => {
   function mkRepo(): string {
     return mkdtempSync(join(tmpdir(), "slowcook-app-shape-"));
