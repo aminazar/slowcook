@@ -135,7 +135,7 @@ describe("initMock", () => {
   it("dry-run: writes nothing", async () => {
     const repo = mkRepo();
     try {
-      await initMock(["--cwd", repo, "--dry-run"], "0.1.0");
+      await initMock(["--cwd", repo, "--shape", "nextjs", "--dry-run"], "0.1.0");
       expect(existsSync(join(repo, "mock"))).toBe(false);
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -145,7 +145,7 @@ describe("initMock", () => {
   it("writes the full skeleton on first run", async () => {
     const repo = mkRepo();
     try {
-      await initMock(["--cwd", repo], "0.1.0");
+      await initMock(["--cwd", repo, "--shape", "nextjs"], "0.1.0");
       expect(existsSync(join(repo, "mock/package.json"))).toBe(true);
       expect(existsSync(join(repo, "mock/Dockerfile"))).toBe(true);
       expect(existsSync(join(repo, "mock/tsconfig.json"))).toBe(true);
@@ -166,7 +166,7 @@ describe("initMock", () => {
   it("re-run preserves existing files (skip without --force)", async () => {
     const repo = mkRepo();
     try {
-      await initMock(["--cwd", repo], "0.1.0");
+      await initMock(["--cwd", repo, "--shape", "nextjs"], "0.1.0");
       // Hand-edit one of the files to simulate consumer customization.
       writeFileSync(
         join(repo, "mock/src/app/page.tsx"),
@@ -174,7 +174,7 @@ describe("initMock", () => {
         "utf8"
       );
       // Re-run init.
-      await initMock(["--cwd", repo], "0.1.0");
+      await initMock(["--cwd", repo, "--shape", "nextjs"], "0.1.0");
       // Customization preserved.
       expect(readFileSync(join(repo, "mock/src/app/page.tsx"), "utf8")).toContain("CONSUMER-EDITED");
     } finally {
@@ -185,9 +185,9 @@ describe("initMock", () => {
   it("--force overwrites existing files", async () => {
     const repo = mkRepo();
     try {
-      await initMock(["--cwd", repo], "0.1.0");
+      await initMock(["--cwd", repo, "--shape", "nextjs"], "0.1.0");
       writeFileSync(join(repo, "mock/src/app/page.tsx"), "// CONSUMER\n", "utf8");
-      await initMock(["--cwd", repo, "--force"], "0.1.0");
+      await initMock(["--cwd", repo, "--shape", "nextjs", "--force"], "0.1.0");
       const after = readFileSync(join(repo, "mock/src/app/page.tsx"), "utf8");
       expect(after).not.toContain("CONSUMER");
       expect(after).toContain("ScenarioPicker");
