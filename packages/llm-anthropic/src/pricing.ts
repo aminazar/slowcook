@@ -148,3 +148,48 @@ export function formatCostFooter(
     `**Story total:** $${total.toFixed(2)} (${totalCalls} agent call${totalCalls === 1 ? "" : "s"} so far)</sub>`
   );
 }
+
+/**
+ * 0.19.0-α.31 (sc#69) — mid-flight rate-limit hint. Render a fuel-low
+ * signal in the cost footer when the provider's `*-remaining` headers
+ * are below threshold. Distinct visual from the budget-low warning
+ * (sc#66) — this one is about ephemeral burst pacing, not money.
+ *
+ * Thresholds:
+ *   - tokensRemaining ≤ 5_000  → tight (typical per-minute pool is 40K–80K)
+ *   - requestsRemaining ≤ 5    → tight
+ * Returns empty string when neither field is present or both are
+ * above threshold — so footers stay clean during normal operation.
+ */
+export interface RateLimitsForHint {
+  tokensRemaining?: number;
+  requestsRemaining?: number;
+  tokensResetAt?: string;
+  requestsResetAt?: string;
+}
+
+export function formatRateLimitHint(rl: RateLimitsForHint | undefined): string {
+  if (!rl) return "";
+  const tightTokens = rl.tokensRemaining !== undefined && rl.tokensRemaining <= 5000;
+  const tightRequests = rl.requestsRemaining !== undefined && rl.requestsRemaining <= 5;
+  if (!tightTokens && !tightRequests) return "";
+  const parts: string[] = [];
+  if (tightTokens) parts.push(`${rl.tokensRemaining!.toLocaleString()} tokens`);
+  if (tightRequests) parts.push(`${rl.requestsRemaining} req`);
+  let resetAt = rl.tokensResetAt ?? rl.requestsResetAt;
+  let resetText = "";
+  if (resetAt) {
+    // ISO-8601 → "HH:MM UTC" if parseable.
+    try {
+      const d = new Date(resetAt);
+      if (!isNaN(d.getTime())) {
+        const hh = d.getUTCHours().toString().padStart(2, "0");
+        const mm = d.getUTCMinutes().toString().padStart(2, "0");
+        resetText = ` until ${hh}:${mm} UTC`;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return ` · ⚠️ rate limit tight: ${parts.join(" / ")} left${resetText}`;
+}

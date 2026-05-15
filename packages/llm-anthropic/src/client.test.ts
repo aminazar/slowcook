@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { LlmCreditExhaustedError } from "@slowcook-ai/core";
 
-const messagesCreate = vi.fn();
+// 0.19.0-α.31 added `.withResponse()` on the SDK's APIPromise return type.
+// The mock returns an object that mimics that shape: it has `.withResponse()`
+// which returns a Promise. For error cases, `.withResponse()` returns a
+// rejected promise so the catch block in client.ts runs.
+const withResponseImpl = vi.fn();
 
 vi.mock("@anthropic-ai/sdk", () => ({
   default: class FakeAnthropic {
-    public readonly messages = { create: messagesCreate };
+    public readonly messages = {
+      create: () => ({ withResponse: withResponseImpl }),
+    };
     constructor(_args: { apiKey: string }) {}
   },
 }));
@@ -14,12 +20,12 @@ const { AnthropicClient } = await import("./client.js");
 
 describe("AnthropicClient credit-exhausted detection (sc#68)", () => {
   beforeEach(() => {
-    messagesCreate.mockReset();
+    withResponseImpl.mockReset();
   });
 
   it("re-throws as LlmCreditExhaustedError when SDK returns status 402", async () => {
     const apiErr = Object.assign(new Error("Payment Required"), { status: 402 });
-    messagesCreate.mockRejectedValueOnce(apiErr);
+    withResponseImpl.mockRejectedValueOnce(apiErr);
     const client = new AnthropicClient("k");
     await expect(
       client.complete({
@@ -32,7 +38,7 @@ describe("AnthropicClient credit-exhausted detection (sc#68)", () => {
 
   it("re-throws as LlmCreditExhaustedError on insufficient_quota body message", async () => {
     const apiErr = Object.assign(new Error("400 insufficient_quota: top up to continue"), { status: 400 });
-    messagesCreate.mockRejectedValueOnce(apiErr);
+    withResponseImpl.mockRejectedValueOnce(apiErr);
     const client = new AnthropicClient("k");
     await expect(
       client.complete({
@@ -45,7 +51,7 @@ describe("AnthropicClient credit-exhausted detection (sc#68)", () => {
 
   it("passes through unrelated errors unchanged", async () => {
     const apiErr = Object.assign(new Error("Internal Server Error"), { status: 500 });
-    messagesCreate.mockRejectedValueOnce(apiErr);
+    withResponseImpl.mockRejectedValueOnce(apiErr);
     const client = new AnthropicClient("k");
     await expect(
       client.complete({
@@ -58,7 +64,7 @@ describe("AnthropicClient credit-exhausted detection (sc#68)", () => {
 
   it("sets provider, status, topUpUrl on the typed error", async () => {
     const apiErr = Object.assign(new Error("payment required"), { status: 402 });
-    messagesCreate.mockRejectedValueOnce(apiErr);
+    withResponseImpl.mockRejectedValueOnce(apiErr);
     const client = new AnthropicClient("k");
     try {
       await client.complete({

@@ -2,7 +2,11 @@ import YAML from "yaml";
 import { z } from "zod";
 import type { LlmClient, LlmMessage } from "./llm.js";
 import { costMarker } from "./llm.js";
-import { formatCostFooter, parseCostMarkers } from "@slowcook-ai/llm-anthropic";
+import {
+  formatCostFooter,
+  formatRateLimitHint,
+  parseCostMarkers,
+} from "@slowcook-ai/llm-anthropic";
 
 /**
  * Strip the brand header, cost footer, and HTML cost marker out of a
@@ -290,6 +294,10 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
         parseCostMarkers(c.body)
       );
       footer = formatCostFooter(roundCostUsd, priorMarkers);
+      // 0.19.0-α.31 (sc#69) — append rate-limit hint when the
+      // provider says remaining is tight. Empty string when below
+      // threshold or no rate-limit headers exposed.
+      footer += formatRateLimitHint(agentResponse.rateLimits);
     } catch {
       /* best effort — fall back to no footer if list fails */
     }
