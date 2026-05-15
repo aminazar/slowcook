@@ -1,6 +1,28 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { LlmClient, LlmRequest, LlmResponse, LlmUsage } from "@slowcook-ai/core";
+import { LlmCreditExhaustedError } from "@slowcook-ai/core";
 import { costUsdForUsage } from "./pricing.js";
+
+const ANTHROPIC_BILLING_URL = "https://console.anthropic.com/settings/billing";
+
+/**
+ * 0.19.0-α.32 (sc#68) — duck-type 402 detection. Anthropic SDK's APIError
+ * exposes `.status`; we don't import the class because the SDK has
+ * historically moved its error-class exports between versions. Loose
+ * shape check stays compatible across SDK upgrades.
+ */
+function isAnthropicCreditExhausted(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { status?: number; message?: string };
+  if (e.status === 402) return true;
+  // Some Anthropic responses use 400 with a body code "insufficient_quota"
+  // when the platform tier rolls billing into the rate-limit response.
+  // Keep the message-substring check tight to avoid false positives.
+  return (
+    typeof e.message === "string" &&
+    /insufficient.*quota|credit.*exhausted|payment.*required/i.test(e.message)
+  );
+}
 
 /**
  * Anthropic (Claude) adapter implementing the `LlmClient` contract from
@@ -42,11 +64,27 @@ export class AnthropicClient implements LlmClient {
         content: m.content as never,
       })),
     };
-    const response = await this.client.messages.create(
-      args.temperature !== undefined
-        ? { ...base, temperature: args.temperature }
-        : base
-    );
+    let response: Awaited<ReturnType<typeof this.client.messages.create>>;
+    try {
+      response = await this.client.messages.create(
+        args.temperature !== undefined
+          ? { ...base, temperature: args.temperature }
+          : base
+      );
+    } catch (err) {
+      if (isAnthropicCreditExhausted(err)) {
+        // Re-throw as typed error so agents can catch + post a PM-friendly
+        // out-of-credit comment + add the gate label.
+        const e = err as { status?: number; message?: string };
+        throw new LlmCreditExhaustedError({
+          provider: "anthropic",
+          status: e.status ?? 402,
+          topUpUrl: ANTHROPIC_BILLING_URL,
+          message: e.message,
+        });
+      }
+      throw err;
+    }
 
     const first = response.content[0];
     if (!first || first.type !== "text") {
