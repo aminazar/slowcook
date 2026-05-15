@@ -146,6 +146,23 @@ export function planMockFiles(args: MockInitArgs): FileToWrite[] {
 }
 
 export async function initMock(argv: string[], cliVersion: string): Promise<void> {
+  // 0.19.0+ (sc#82) — `--shape vite` scaffolds a Vite/React SPA mock
+  // instead of the legacy Next.js mock. Vite shape is the new default
+  // for greenfield consumers; Next.js shape stays for backwards
+  // compatibility with consumers already on it.
+  const shapeIdx = argv.findIndex((a) => a === "--shape");
+  const shape = shapeIdx >= 0 ? argv[shapeIdx + 1] : "vite";
+  if (shape !== "vite" && shape !== "nextjs") {
+    console.error(`--shape must be 'vite' or 'nextjs', got: ${shape ?? "(missing)"}`);
+    process.exit(2);
+  }
+  if (shape === "vite") {
+    const { initMockVite } = await import("./mock-vite.js");
+    // Strip the --shape flag + value from argv before delegating.
+    const rest = argv.filter((_, i) => i !== shapeIdx && i !== shapeIdx + 1);
+    return initMockVite(rest, cliVersion);
+  }
+
   const runtimeVersion = mockRuntimeVersionFor(cliVersion);
   const args = parseMockInitArgs(argv, runtimeVersion);
   const files = planMockFiles(args);
@@ -394,10 +411,10 @@ export function ensureMockInTsconfigExclude(tsconfigPath: string): boolean {
  * cadence. Until 0.16 final cuts we hardcode the latest known version
  * here. After 0.16 the cli's package.json could carry a peer-pin field.
  */
-function mockRuntimeVersionFor(_cliVersion: string): string {
-  // Pin to ^0.1.0 — what's actually on npm. ^ picks up 0.1.x patches
-  // when they publish; bumping past 0.2 needs an intentional cli release.
-  return "^0.1.0";
+export function mockRuntimeVersionFor(_cliVersion: string): string {
+  // Pin to ^0.3.0 — what's actually on npm. ^ picks up 0.3.x patches
+  // when they publish; bumping major needs an intentional cli release.
+  return "^0.3.0";
 }
 
 // ---------------- templates ----------------
