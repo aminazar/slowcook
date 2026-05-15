@@ -161,6 +161,16 @@ const SpecSchema = z.object({
     )
     .optional(),
   proposals: SpecProposalsSchema.optional(),
+  /**
+   * 0.19.0-α.34 (sc#67) — canonical story cost. Aggregated from the
+   * `specs/story-<id>.cost.jsonl` sidecar by `applyCostToSpec`. Optional
+   * because older specs predate this and the sidecar is the
+   * source-of-truth — the spec field is a glance-readable mirror.
+   */
+  cost: z.object({
+    total_usd: z.number(),
+    last_updated: z.string(),
+  }).optional(),
 });
 
 export function readIndex(repoRoot: string): SpecIndex {

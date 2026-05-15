@@ -166,6 +166,16 @@ export interface Spec {
    * schema proposals to unlock allowed-paths for migrations.
    */
   proposals?: SpecProposals;
+
+  /**
+   * 0.19.0-α.34 (sc#67) — canonical story cost. Aggregated from the
+   * `specs/story-<id>.cost.jsonl` sidecar by `applyCostToSpec`. Glance-
+   * readable mirror; sidecar is the source-of-truth.
+   */
+  cost?: {
+    total_usd: number;
+    last_updated: string;
+  };
 }
 
 export interface SpecIndexEntry {
