@@ -1,5 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { LlmClient, LlmRequest, LlmResponse, LlmUsage } from "@slowcook-ai/core";
+import type {
+  LlmClient,
+  LlmRequest,
+  LlmResponse,
+  LlmUsage,
+  LlmRateLimits,
+} from "@slowcook-ai/core";
 import { LlmCreditExhaustedError } from "@slowcook-ai/core";
 import { costUsdForUsage } from "./pricing.js";
 
@@ -22,6 +28,39 @@ function isAnthropicCreditExhausted(err: unknown): boolean {
     typeof e.message === "string" &&
     /insufficient.*quota|credit.*exhausted|payment.*required/i.test(e.message)
   );
+}
+
+/**
+ * 0.19.0-α.31 (sc#69) — extract Anthropic rate-limit headers from a
+ * Response. Headers documented at
+ * https://docs.anthropic.com/en/api/rate-limits. Returns undefined
+ * fields when headers are absent (older SDK / non-standard fixture).
+ */
+/**
+ * Header bag from any fetch-like response. Both node-fetch and undici-types
+ * implement `.get(name) → string | null`; we duck-type rather than pin to
+ * either flavor (the Anthropic SDK has used different bundles over its
+ * release history; staying loose here avoids TS type-collision flakes).
+ */
+interface HeaderBag {
+  get(name: string): string | null;
+}
+
+function extractRateLimits(
+  headers: HeaderBag | undefined
+): LlmRateLimits | undefined {
+  if (!headers || typeof headers.get !== "function") return undefined;
+  const t = headers.get("anthropic-ratelimit-tokens-remaining");
+  const r = headers.get("anthropic-ratelimit-requests-remaining");
+  const tReset = headers.get("anthropic-ratelimit-tokens-reset");
+  const rReset = headers.get("anthropic-ratelimit-requests-reset");
+  if (t === null && r === null && tReset === null && rReset === null) return undefined;
+  const out: LlmRateLimits = {};
+  if (t !== null) out.tokensRemaining = parseInt(t, 10);
+  if (r !== null) out.requestsRemaining = parseInt(r, 10);
+  if (tReset !== null) out.tokensResetAt = tReset;
+  if (rReset !== null) out.requestsResetAt = rReset;
+  return out;
 }
 
 /**
@@ -64,17 +103,22 @@ export class AnthropicClient implements LlmClient {
         content: m.content as never,
       })),
     };
-    let response: Awaited<ReturnType<typeof this.client.messages.create>>;
+    // 0.19.0-α.31 (sc#69) — use withResponse() so we can read the raw
+    // Response object and pull `anthropic-ratelimit-*` headers.
+    // 0.19.0-α.32 (sc#68) — wrap in try/catch so a 402 from the SDK is
+    // re-thrown as the typed `LlmCreditExhaustedError`; other errors
+    // pass through unchanged.
+    let result: Awaited<ReturnType<ReturnType<typeof this.client.messages.create>["withResponse"]>>;
     try {
-      response = await this.client.messages.create(
-        args.temperature !== undefined
-          ? { ...base, temperature: args.temperature }
-          : base
-      );
+      result = await this.client.messages
+        .create(
+          args.temperature !== undefined
+            ? { ...base, temperature: args.temperature }
+            : base
+        )
+        .withResponse();
     } catch (err) {
       if (isAnthropicCreditExhausted(err)) {
-        // Re-throw as typed error so agents can catch + post a PM-friendly
-        // out-of-credit comment + add the gate label.
         const e = err as { status?: number; message?: string };
         throw new LlmCreditExhaustedError({
           provider: "anthropic",
@@ -85,6 +129,11 @@ export class AnthropicClient implements LlmClient {
       }
       throw err;
     }
+    // We never pass `stream: true`, so `.data` is always a Message, but
+    // the SDK's create() return type is a union with Stream<…>. Narrow
+    // explicitly so the rest of this function keeps the simpler types.
+    const response = result.data as Anthropic.Messages.Message;
+    const rateLimits = extractRateLimits(result.response.headers);
 
     const first = response.content[0];
     if (!first || first.type !== "text") {
@@ -114,6 +163,7 @@ export class AnthropicClient implements LlmClient {
       usage,
       costUsd: costUsdForUsage(args.model, usage),
       model: args.model,
+      rateLimits,
     };
   }
 }
