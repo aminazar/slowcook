@@ -25,12 +25,37 @@ import { readCostTotal } from "../cost-store.js";
 
 const BudgetConfigSchema = z.object({
   schema_version: z.literal(1),
-  monthly_budget_usd: z.number().positive(),
+  monthly_budget_usd: z.number().positive().optional(),
   /** 1-31. The day of the calendar month the budget resets. */
   monthly_start_day: z.number().int().min(1).max(31).default(1),
   /** Optional per-story ceiling (informational). */
   story_budget_usd: z.number().positive().optional(),
-});
+  /**
+   * 0.19.0-α.35 — anthropic credit deposit tracking. Unlike
+   * `monthly_budget_usd` (which resets each period), this models a
+   * non-recurring credit deposit (e.g. you topped up $25). The gauge
+   * subtracts ALL-TIME spend from this number, so once the sidecar
+   * shows $24 of usage you're down to $1 remaining.
+   *
+   * Set via: slowcook budget set --credit 25
+   *
+   * Re-set whenever you top up: slowcook budget set --credit 50
+   * (the all-time spend baseline is captured at the time of set, so
+   * re-setting resets the gauge to "full" for the new deposit).
+   */
+  credit_balance_usd: z.number().positive().optional(),
+  /**
+   * ISO timestamp captured when `credit_balance_usd` was set / last
+   * topped up. The gauge sums sidecar entries with `at >=` this value;
+   * spend before this is presumed already paid for by an earlier
+   * deposit. Written by `slowcook budget set --credit`; consumers
+   * shouldn't author this by hand.
+   */
+  credit_baseline_at: z.string().optional(),
+}).refine(
+  (data) => data.monthly_budget_usd !== undefined || data.credit_balance_usd !== undefined,
+  { message: "must set monthly_budget_usd or credit_balance_usd (or both)" }
+);
 
 export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
 
@@ -70,17 +95,17 @@ export function currentPeriodStart(
 
 /**
  * Sum cost entries across ALL story sidecars in `specs/` whose entry
- * `at` falls inside the current monthly period. Story IDs are derived
- * from filenames (`story-<id>.cost.jsonl`).
+ * `at` is >= `since`. Story IDs are derived from filenames
+ * (`story-<id>.cost.jsonl`). Used by both:
+ *   - monthly_budget_usd gauge (since = period start)
+ *   - credit_balance_usd gauge (since = credit_baseline_at)
  */
-export function aggregateMonthSpend(
+export function aggregateSpendSince(
   repoRoot: string,
-  config: BudgetConfig,
-  now: Date = new Date()
+  since: Date
 ): { usd: number; entryCount: number; storyCount: number } {
   const specsDir = join(repoRoot, "specs");
   if (!existsSync(specsDir)) return { usd: 0, entryCount: 0, storyCount: 0 };
-  const periodStart = currentPeriodStart(config, now);
   let usd = 0;
   let entryCount = 0;
   let storyCount = 0;
@@ -92,7 +117,7 @@ export function aggregateMonthSpend(
     let storyTouched = false;
     for (const e of entries) {
       const at = Date.parse(e.at);
-      if (Number.isFinite(at) && at >= periodStart.getTime()) {
+      if (Number.isFinite(at) && at >= since.getTime()) {
         usd += e.usd;
         entryCount++;
         storyTouched = true;
@@ -101,6 +126,18 @@ export function aggregateMonthSpend(
     if (storyTouched) storyCount++;
   }
   return { usd, entryCount, storyCount };
+}
+
+/**
+ * Back-compat wrapper for the period-based aggregation.
+ */
+export function aggregateMonthSpend(
+  repoRoot: string,
+  config: BudgetConfig,
+  now: Date = new Date()
+): { usd: number; entryCount: number; storyCount: number } {
+  const periodStart = currentPeriodStart(config, now);
+  return aggregateSpendSince(repoRoot, periodStart);
 }
 
 export interface FuelGaugeArgs {
@@ -152,8 +189,46 @@ export function formatFuelGauge(args: FuelGaugeArgs): string {
 }
 
 /**
- * Convenience: read config + aggregate spend + format gauge in one call.
- * Returns empty string when no budget.yaml exists (gauge disabled).
+ * Render the credit-balance gauge (sc#66 0.19.0-α.35). Reports remaining
+ * USD on a one-shot Anthropic deposit (no auto-recharge). Spends counted
+ * since `baselineAt`; remaining = `deposit - spent`.
+ */
+export function formatCreditGauge(args: {
+  depositUsd: number;
+  spentUsd: number;
+  baselineAt: string;
+  gifUrl?: string;
+}): string {
+  const remaining = Math.max(0, args.depositUsd - args.spentUsd);
+  const ratio = args.depositUsd <= 0 ? 0 : args.spentUsd / args.depositUsd;
+  const pctSpent = Math.round(ratio * 100);
+  const pctLeft = Math.max(0, 100 - pctSpent);
+  let status: BudgetStatus = "ok";
+  if (ratio >= 0.95) status = "halt";
+  else if (ratio >= 0.8) status = "warn";
+
+  const lines: string[] = [];
+  lines.push(
+    `\n\n🪙 **Anthropic credit:** $${remaining.toFixed(2)} of $${args.depositUsd.toFixed(2)} remaining (${pctLeft}%) — spent $${args.spentUsd.toFixed(2)} since ${args.baselineAt.slice(0, 10)}`
+  );
+  if (status === "warn") {
+    lines.push(
+      `⚠️ approaching empty — top up at https://console.anthropic.com/settings/billing before pipeline runs halt with 402.`
+    );
+    lines.push(`![fuel low](${args.gifUrl ?? FUEL_GIF})`);
+  } else if (status === "halt") {
+    lines.push(
+      `🛑 credit nearly exhausted — pipeline will halt on 402 imminently. Top up at https://console.anthropic.com/settings/billing.`
+    );
+    lines.push(`![fuel empty](${args.gifUrl ?? FUEL_GIF})`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * Convenience: read config + aggregate spend + format gauge(s) in one
+ * call. Returns empty string when no budget.yaml exists (gauge disabled).
+ * Renders BOTH gauges when both fields are set in the config.
  * Best-effort: a parse failure or aggregation error logs to console.warn
  * and returns "" rather than blocking the agent's comment.
  */
@@ -166,11 +241,24 @@ export function fuelGaugeFromRepo(repoRoot: string, now: Date = new Date()): str
     return "";
   }
   if (!config) return "";
+  let out = "";
   try {
-    const { usd } = aggregateMonthSpend(repoRoot, config, now);
-    return formatFuelGauge({ currentUsd: usd, budgetUsd: config.monthly_budget_usd });
+    if (config.monthly_budget_usd !== undefined) {
+      const { usd } = aggregateMonthSpend(repoRoot, config, now);
+      out += formatFuelGauge({ currentUsd: usd, budgetUsd: config.monthly_budget_usd });
+    }
+    if (config.credit_balance_usd !== undefined && config.credit_baseline_at) {
+      const baseline = new Date(config.credit_baseline_at);
+      const { usd } = aggregateSpendSince(repoRoot, baseline);
+      out += formatCreditGauge({
+        depositUsd: config.credit_balance_usd,
+        spentUsd: usd,
+        baselineAt: config.credit_baseline_at,
+      });
+    }
   } catch (e) {
     console.warn(`[fuel-gauge] aggregation failed: ${(e as Error).message}`);
     return "";
   }
+  return out;
 }
