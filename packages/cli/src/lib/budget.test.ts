@@ -6,8 +6,10 @@ import {
   loadBudgetConfig,
   currentPeriodStart,
   aggregateMonthSpend,
+  aggregateSpendSince,
   classifyBudgetStatus,
   formatFuelGauge,
+  formatCreditGauge,
   fuelGaugeFromRepo,
 } from "./budget.js";
 import { appendCostEntry } from "../cost-store.js";
@@ -42,6 +44,19 @@ describe("budget config (sc#66)", () => {
     });
   });
 
+  it("parses a credit-only config", () => {
+    writeBudget(
+      repo,
+      "schema_version: 1\ncredit_balance_usd: 25\ncredit_baseline_at: 2026-05-15T00:00:00Z\n"
+    );
+    expect(loadBudgetConfig(repo)).toEqual({
+      schema_version: 1,
+      monthly_start_day: 1,
+      credit_balance_usd: 25,
+      credit_baseline_at: "2026-05-15T00:00:00Z",
+    });
+  });
+
   it("defaults monthly_start_day to 1 when omitted", () => {
     writeBudget(repo, "schema_version: 1\nmonthly_budget_usd: 25\n");
     expect(loadBudgetConfig(repo)?.monthly_start_day).toBe(1);
@@ -54,6 +69,11 @@ describe("budget config (sc#66)", () => {
 
   it("rejects negative budgets", () => {
     writeBudget(repo, "schema_version: 1\nmonthly_budget_usd: -1\n");
+    expect(() => loadBudgetConfig(repo)).toThrow();
+  });
+
+  it("rejects config with neither monthly nor credit set", () => {
+    writeBudget(repo, "schema_version: 1\nmonthly_start_day: 1\n");
     expect(() => loadBudgetConfig(repo)).toThrow();
   });
 });
@@ -177,5 +197,90 @@ describe("fuelGaugeFromRepo (end-to-end)", () => {
     const md = fuelGaugeFromRepo(repo, new Date("2026-05-15T12:00:00Z"));
     expect(md).toContain("$42.00 of $50.00");
     expect(md).toContain("⚠️");
+  });
+
+  it("renders the credit gauge when credit_balance set", () => {
+    writeBudget(
+      repo,
+      "schema_version: 1\ncredit_balance_usd: 25\ncredit_baseline_at: 2026-05-01T00:00:00Z\n"
+    );
+    appendCostEntry(repo, "001", { agent: "refine", usd: 21, at: "2026-05-10T00:00:00Z" });
+    const md = fuelGaugeFromRepo(repo, new Date("2026-05-15T12:00:00Z"));
+    expect(md).toContain("🪙");
+    expect(md).toContain("$4.00 of $25.00 remaining");
+    expect(md).toContain("⚠️");
+  });
+
+  it("renders both gauges when both fields set", () => {
+    writeBudget(
+      repo,
+      "schema_version: 1\nmonthly_budget_usd: 50\ncredit_balance_usd: 25\ncredit_baseline_at: 2026-05-01T00:00:00Z\n"
+    );
+    appendCostEntry(repo, "001", { agent: "refine", usd: 5, at: "2026-05-10T00:00:00Z" });
+    const md = fuelGaugeFromRepo(repo, new Date("2026-05-15T12:00:00Z"));
+    expect(md).toContain("⛽");
+    expect(md).toContain("🪙");
+  });
+});
+
+describe("formatCreditGauge", () => {
+  it("renders ok status (no warning)", () => {
+    const md = formatCreditGauge({
+      depositUsd: 25,
+      spentUsd: 5,
+      baselineAt: "2026-05-01T00:00:00Z",
+    });
+    expect(md).toContain("$20.00 of $25.00 remaining");
+    expect(md).toContain("(80%)");
+    expect(md).not.toContain("⚠️");
+    expect(md).not.toContain("🛑");
+  });
+
+  it("renders warn at 80% with fuel gif", () => {
+    const md = formatCreditGauge({
+      depositUsd: 25,
+      spentUsd: 20,
+      baselineAt: "2026-05-01T00:00:00Z",
+    });
+    expect(md).toContain("$5.00 of $25.00 remaining");
+    expect(md).toContain("⚠️");
+    expect(md).toContain("approaching empty");
+    expect(md).toContain("console.anthropic.com");
+  });
+
+  it("renders halt at 95%", () => {
+    const md = formatCreditGauge({
+      depositUsd: 25,
+      spentUsd: 24,
+      baselineAt: "2026-05-01T00:00:00Z",
+    });
+    expect(md).toContain("🛑");
+    expect(md).toContain("402");
+  });
+
+  it("clamps remaining to 0 when overspent", () => {
+    const md = formatCreditGauge({
+      depositUsd: 25,
+      spentUsd: 30,
+      baselineAt: "2026-05-01T00:00:00Z",
+    });
+    expect(md).toContain("$0.00 of $25.00 remaining");
+  });
+});
+
+describe("aggregateSpendSince", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "agg-since-")) ;
+    mkdirSync(join(repo, "specs"), { recursive: true });
+  });
+
+  it("sums entries from arbitrary baseline (not period-bound)", () => {
+    appendCostEntry(repo, "001", { agent: "refine", usd: 5, at: "2026-04-01T00:00:00Z" });
+    appendCostEntry(repo, "001", { agent: "refine", usd: 3, at: "2026-05-10T00:00:00Z" });
+    appendCostEntry(repo, "002", { agent: "vibe", usd: 7, at: "2026-05-12T00:00:00Z" });
+    const out = aggregateSpendSince(repo, new Date("2026-05-01T00:00:00Z"));
+    expect(out.usd).toBeCloseTo(10, 4);
+    expect(out.storyCount).toBe(2);
   });
 });

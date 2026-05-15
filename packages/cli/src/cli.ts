@@ -30,6 +30,7 @@ import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
+import { budget } from "./commands/budget/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -74,6 +75,7 @@ Usage:
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
   slowcook eval (--all | --fixture <id> | --list) [--fixtures-dir <path>]
   slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]
+  slowcook budget [show|set|rm] [--monthly <usd>] [--start-day <1-31>] [--story <usd>] [--cwd <path>]
   slowcook version
   slowcook help
 
@@ -105,6 +107,7 @@ Commands available in ${VERSION}:
   recon              (0.17.6+) Pre-brew structural divergence check. Compares story tests against mock + src/, surfaces missing components / testid gaps / brownfield rename hazards. Runs in slowcook-brew-auto.yml before brew dispatch.
   run-mock           (0.16-α.17) One-command mock launch + auto-pull. \`run-mock <story>\`: checkout mockup branch, npm install in mock/, run next dev with overlay env vars, poll origin every 15s + git pull --ff-only on plate amendments.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
+  budget             (0.19.0-α.35) Manage the project monthly budget for the fuel gauge. \`budget set --monthly 50\` writes .brewing/budget.yaml; no args shows config + month-to-date spend.
 
 Coming in later versions:
   review, dashboard
@@ -317,6 +320,12 @@ async function main(): Promise<void> {
       // a shared branch. push/switch implemented; up/sync/reset stub
       // print canonical shell-outs for now.
       await devEnv(args.slice(1));
+      return;
+    case "budget":
+      // 0.19.0-α.35 (sc#66 follow-up) — manage .brewing/budget.yaml.
+      // No args = show current config + month-to-date spend. `set
+      // --monthly N` writes; `rm` deletes (disables the fuel gauge).
+      await budget(args.slice(1));
       return;
     case "version":
     case "--version":
