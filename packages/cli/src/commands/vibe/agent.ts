@@ -47,6 +47,13 @@ export interface VibeContext {
   projectContext: string;
   /** Optional similar-pages-in-codebase free-form hint. */
   similarPagesHint?: string;
+  /**
+   * Mock shape — read from `.brewing/mock.yaml` (sc#82). Defaults to
+   * `nextjs` for backwards-compat with consumers that predate sc#82.
+   * Branches path conventions, scenario imports, and navigation
+   * primitives in the system prompt.
+   */
+  mockShape?: "vite" | "nextjs";
 }
 
 export type VibeResult =
@@ -87,7 +94,7 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
   const r1 = await anthropic.messages.create({
     model: ctx.model,
     max_tokens: MAX_TOKENS,
-    system: VIBE_SYSTEM(ctx.projectContext),
+    system: VIBE_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
     messages,
   });
   spendUsd += costUsd(r1, ctx.model);
@@ -109,7 +116,7 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
     const r2 = await anthropic.messages.create({
       model: ctx.model,
       max_tokens: MAX_TOKENS,
-      system: VIBE_SYSTEM(ctx.projectContext),
+      system: VIBE_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
       messages,
     });
     spendUsd += costUsd(r2, ctx.model);
