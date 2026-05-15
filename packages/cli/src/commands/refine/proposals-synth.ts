@@ -1,5 +1,32 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { Spec, SpecProposals } from "@slowcook-ai/core";
+import { scanMigrations } from "./history-index.js";
+
+/**
+ * 0.19.0-α.30 (sc#63) — load the consumer's existing column-set by
+ * scanning migration files. Returns Map<table, Set<column>> indexed
+ * by lower-case names. Used by deriveSchema to distinguish columns
+ * that already exist (skip) from those that need an ALTER TABLE.
+ *
+ * Returns null if no migrations found (greenfield / first slowcook
+ * story); deriveSchema falls back to its existing CREATE TABLE flow.
+ */
+export function loadExistingColumns(
+  repoRoot: string
+): Map<string, Set<string>> | null {
+  const migrations = scanMigrations(repoRoot, "supabase/migrations");
+  if (migrations.length === 0) return null;
+  const out = new Map<string, Set<string>>();
+  for (const m of migrations) {
+    for (const [tbl, cols] of Object.entries(m.columns_added)) {
+      const key = tbl.toLowerCase();
+      if (!out.has(key)) out.set(key, new Set());
+      const set = out.get(key)!;
+      for (const c of cols) set.add(c.toLowerCase());
+    }
+  }
+  return out.size > 0 ? out : null;
+}
 
 /**
  * Deterministic post-processor that derives proposals from the spec
@@ -55,7 +82,8 @@ export function synthesizeProposalsFromSpec(
   }
 
   if (!existing.schema) {
-    const schema = deriveSchema(spec);
+    const existingColumns = opts.repoRoot ? loadExistingColumns(opts.repoRoot) : null;
+    const schema = deriveSchema(spec, existingColumns);
     if (schema) synthesized.schema = schema;
   }
 
@@ -551,7 +579,10 @@ function deriveAuth(spec: Spec): SpecProposals["auth"] | null {
  * common case (single new table with conventional columns) shippable
  * without a re-refine round.
  */
-function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
+function deriveSchema(
+  spec: Spec,
+  existingColumns: Map<string, Set<string>> | null = null
+): SpecProposals["schema"] | null {
   const invariants = spec.invariants ?? [];
   const apiContract = (spec.api_contract ?? []) as Array<{
     method?: string;
@@ -559,6 +590,47 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
     request_schema?: unknown;
     responses?: Record<string, unknown>;
   }>;
+
+  // 0.19.0-α.30 (sc#63) — detect `<existing_table>.<new_column>` references
+  // and emit ALTER TABLE proposals. Only fires when `existingColumns` is
+  // available (consumer has migrations). Pattern: `users.registration_completed_at`
+  // in invariants/api_contract that doesn't exist in the migration index
+  // → emit `ALTER TABLE users ADD COLUMN registration_completed_at TYPE`.
+  //
+  // Real instance: delgoosh#635 round 6 lost a complete spec to recon
+  // migration-gate halt because refine emitted no schema proposal despite
+  // invariants saying `users.registration_completed_at IS NULL means ...`.
+  const alterTableEntries: Array<{ table: string; column: string }> = [];
+  if (existingColumns) {
+    const proseSources = [
+      ...invariants.map((i) => (typeof i === "string" ? i : "")),
+      ...apiContract.flatMap((e) => {
+        const reqStr = typeof e.request_schema === "string" ? e.request_schema : "";
+        const respStr = Object.values(e.responses ?? {})
+          .filter((v): v is string => typeof v === "string")
+          .join("\n");
+        return [reqStr, respStr];
+      }),
+    ];
+    const dotRefRe = /\b([a-z][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b/g;
+    const seen = new Set<string>();
+    for (const text of proseSources) {
+      let m: RegExpExecArray | null;
+      const re = new RegExp(dotRefRe.source, "g");
+      while ((m = re.exec(text)) !== null) {
+        const tbl = m[1]!.toLowerCase();
+        const col = m[2]!.toLowerCase();
+        // SQL keyword false positives
+        if (/^(?:is|in|on|by|as|or|and|not|true|false|null|now|max|min|count|sum)$/i.test(col)) continue;
+        if (!existingColumns.has(tbl)) continue; // table doesn't exist → handled by CREATE TABLE flow
+        if (existingColumns.get(tbl)!.has(col)) continue; // already exists
+        const key = `${tbl}.${col}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        alterTableEntries.push({ table: tbl, column: col });
+      }
+    }
+  }
 
   const hints: string[] = [];
   const tableMentions = new Map<string, Set<string>>();
@@ -704,7 +776,9 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
     }
   }
 
-  if (tableMentions.size === 0 && hints.length === 0) return null;
+  // 0.19.0-α.30 (sc#63) — alter-table-only specs are valid emits too.
+  // Don't bail when CREATE TABLE has nothing but we DO have ALTERs.
+  if (tableMentions.size === 0 && hints.length === 0 && alterTableEntries.length === 0) return null;
 
   // Determine which mentioned tables are NEW vs existing — use the
   // brownfield ERD if available so we don't redundantly emit CREATE
@@ -715,31 +789,70 @@ function deriveSchema(spec: Spec): SpecProposals["schema"] | null {
     ([t]) => !existingEntities.has(t.toLowerCase())
   );
 
-  let sql: string;
-  if (newTables.length === 0) {
-    // All mentioned tables already exist — likely an ALTER. Fall through
-    // to the legacy TODO (we don't yet synthesise ALTER statements).
-    sql =
-      "-- TODO: structured ALTER not emitted by refine. Invariants referencing schema:\n" +
-      hints.map((h) => `-- * ${h.replace(/\n/g, " ")}`).join("\n") +
-      "\n-- Regenerate the spec or hand-author the migration.\n";
-  } else {
-    sql = newTables
-      .map(([table, cols]) => renderCreateTable(table, cols, apiColumns, existingEntities))
-      .join("\n\n");
-  }
+  // 0.19.0-α.30 (sc#63) — render ALTER TABLE statements for new columns
+  // detected on existing tables. Type inference uses the same suffix
+  // convention as renderCreateTable: _id → uuid, _at → timestamptz NULL,
+  // _count → integer, default → text NULL.
+  const alterStatements = alterTableEntries.map(({ table, column }) => {
+    const type = inferColumnType(column);
+    return `ALTER TABLE ${table} ADD COLUMN ${column} ${type};`;
+  });
 
-  const rationale =
-    newTables.length > 0
-      ? `Synthesised CREATE TABLE for ${newTables.length} new table(s) detected in invariants — column types inferred by suffix convention (_id → uuid, _at → timestamptz). Foreign keys validated against existing entities in .brewing/diagrams/schema.mmd. Review + edit before merging.`
-      : "The spec's invariants imply altered tables or constraints but structured DDL was not emitted in proposals. The SQL below is a placeholder — regenerate the spec or hand-author the migration to replace it.";
+  const sqlParts: string[] = [];
+  if (newTables.length > 0) {
+    sqlParts.push(
+      newTables
+        .map(([table, cols]) => renderCreateTable(table, cols, apiColumns, existingEntities))
+        .join("\n\n"),
+    );
+  } else if (hints.length > 0 && alterStatements.length === 0) {
+    // Schema hints but no structured tables AND no alters — fall back to TODO.
+    sqlParts.push(
+      "-- TODO: structured DDL not emitted by refine. Invariants referencing schema:\n" +
+        hints.map((h) => `-- * ${h.replace(/\n/g, " ")}`).join("\n") +
+        "\n-- Regenerate the spec or hand-author the migration.\n",
+    );
+  }
+  if (alterStatements.length > 0) {
+    sqlParts.push(
+      "-- α.30: ALTER TABLE statements derived from invariants referencing\n" +
+        "-- <existing_table>.<new_column> patterns not in the brownfield migration index.\n" +
+        alterStatements.join("\n"),
+    );
+  }
+  const sql = sqlParts.join("\n\n");
+
+  const rationaleParts: string[] = [];
+  if (newTables.length > 0) {
+    rationaleParts.push(
+      `Synthesised CREATE TABLE for ${newTables.length} new table(s) — column types inferred by suffix convention; foreign keys validated against existing entities.`,
+    );
+  }
+  if (alterStatements.length > 0) {
+    rationaleParts.push(
+      `Synthesised ${alterStatements.length} ALTER TABLE statement(s) for column(s) referenced in invariants that don't exist in the migration index (sc#63).`,
+    );
+  }
+  if (rationaleParts.length === 0) {
+    rationaleParts.push(
+      "The spec's invariants imply altered tables or constraints but structured DDL was not emitted. The SQL below is a placeholder — regenerate the spec or hand-author the migration.",
+    );
+  }
 
   return {
     status: "pending",
     proposed_by: "spec-body-synth",
-    rationale,
+    rationale: rationaleParts.join(" ") + " Review + edit before merging.",
     sql,
   };
+}
+
+function inferColumnType(column: string): string {
+  if (column === "id" || column.endsWith("_id")) return "uuid NOT NULL";
+  if (column.endsWith("_at")) return "timestamptz NULL";
+  if (column.endsWith("_count") || column === "count") return "integer NOT NULL DEFAULT 0";
+  if (column.endsWith("_version")) return "text NULL";
+  return "text NULL";
 }
 
 function readExistingEntities(_spec: Spec): Set<string> {
