@@ -408,10 +408,36 @@ import { it } from "vitest";
     );
   });
 
-  it("throws when <test_file> block is missing", () => {
+  it("throws when <test_file> block is missing AND mode requires it (no fallback available)", () => {
     expect(() => parseTestgenBundle("no tags here", "042")).toThrow(
       /missing a <test_file>/
     );
+  });
+
+  it("[sc#65] graceful-degrade: full mode missing <ui_test_file> → emit handler-only when test_file IS present", () => {
+    const raw = `
+<test_file>import { POST } from "@/app/api/foo/route";</test_file>
+<stub path="src/app/api/foo/route.ts">export async function POST() { return new Response(); }</stub>
+`;
+    const b = parseTestgenBundle(raw, "042", "full");
+    expect(b.testContent).toContain("POST");
+    expect(b.uiTestContent).toBe("");
+  });
+
+  it("[sc#65] graceful-degrade: full mode missing <test_file> → emit ui-only when ui_test_file IS present", () => {
+    const pragmaComment = "// @" + "vitest-environment jsdom";
+    const raw = `
+<ui_test_file>${pragmaComment}
+import { it } from "vitest";</ui_test_file>
+`;
+    const b = parseTestgenBundle(raw, "042", "full");
+    expect(b.uiTestContent).toContain("vitest");
+    expect(b.testContent).toBe("");
+  });
+
+  it("[sc#65] still throws when BOTH blocks missing in full mode", () => {
+    expect(() => parseTestgenBundle("<page_link><page>x</page></page_link>", "042", "full"))
+      .toThrow(/missing a <test_file>/);
   });
 
   it("parses a full bundle with UI test + UI stub (mode: full)", () => {
@@ -453,15 +479,19 @@ import { renderWithProviders } from "@tests/helpers/render";</ui_test_file>
     expect(b.uiTestContent).toContain("renderWithProviders");
   });
 
-  it("requires BOTH handler and UI in full mode", () => {
+  it("[changed in α.28 / sc#65] full mode degrades gracefully when one block missing", () => {
+    // Was throw-on-missing pre-α.28. Now degrades to whichever bundle IS
+    // present + warns so the dev sees the LLM's miss. Only throws when
+    // BOTH blocks are absent (covered by the dedicated test above).
     const handlerOnly = `<test_file>handler</test_file>`;
-    expect(() => parseTestgenBundle(handlerOnly, "042", "full")).toThrow(
-      /missing a <ui_test_file>/
-    );
+    const fromHandler = parseTestgenBundle(handlerOnly, "042", "full");
+    expect(fromHandler.testContent).toContain("handler");
+    expect(fromHandler.uiTestContent).toBe("");
+
     const uiOnly = `<ui_test_file>ui</ui_test_file>`;
-    expect(() => parseTestgenBundle(uiOnly, "042", "full")).toThrow(
-      /missing a <test_file>/
-    );
+    const fromUi = parseTestgenBundle(uiOnly, "042", "full");
+    expect(fromUi.uiTestContent).toContain("ui");
+    expect(fromUi.testContent).toBe("");
   });
 
   it("ignores empty <stub>, <helper>, or <ui_stub> blocks", () => {
