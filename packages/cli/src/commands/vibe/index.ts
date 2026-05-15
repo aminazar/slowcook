@@ -318,8 +318,14 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
 
   const projectContext = buildProjectContext(args.repoRoot);
 
+  // 0.19.0+ (sc#82) — read mock-shape config so the system prompt
+  // routes path conventions / nav primitives / imports correctly.
+  // Defaults to nextjs (legacy) for consumers without `.brewing/mock.yaml`.
+  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
+  const mockShapeConfig = loadMockShapeConfig(args.repoRoot);
+
   console.log(
-    `slowcook vibe · story-${args.specId} on ${args.repoRoot} (model: ${args.model}${args.dryRun ? ", dry-run" : ""})`
+    `slowcook vibe · story-${args.specId} on ${args.repoRoot} (model: ${args.model}, shape: ${mockShapeConfig.shape}${args.dryRun ? ", dry-run" : ""})`
   );
 
   const ctx: VibeContext = {
@@ -330,6 +336,7 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
     cliVersion,
     specYaml,
     projectContext,
+    mockShape: mockShapeConfig.shape,
   };
 
   const result = await runVibe(ctx);

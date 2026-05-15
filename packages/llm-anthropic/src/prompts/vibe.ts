@@ -24,7 +24,87 @@
  * the cli's emit module parses. See `<file path="...">` syntax below.
  */
 
-export const VIBE_SYSTEM = (projectContext: string) => `You are vibe — slowcook's design-first mockup agent.
+export type MockShape = "vite" | "nextjs";
+
+/**
+ * Shape-specific overrides injected at the TOP of VIBE_SYSTEM. When the
+ * mock is a Vite/React SPA (sc#82), these rules supersede the Next.js
+ * defaults further down in the prompt. The defaults remain authoritative
+ * for `nextjs` (legacy) mocks.
+ *
+ * Reads + writes for vite mock:
+ *  - Screens:  mock/src/apps/<role>/screens/<Screen>.tsx
+ *  - Router:   mock/src/App.tsx (append to vibe-managed marker)
+ *  - Scenarios: mock/scenarios/story-N.ts (same as legacy)
+ *  - Registry: mock/src/lib/scenario-registry.tsx (note .tsx)
+ *  - Scenario types: inlined in scenario-registry.tsx (no mock-runtime dep)
+ *  - Navigation: <Link to="..."> from react-router-dom (NOT next/link)
+ */
+const VITE_SHAPE_OVERRIDE = `
+
+## CRITICAL: Mock shape is Vite (sc#82)
+
+The mock app is a **Vite + React SPA**, NOT a Next.js App Router app. The default conventions below (path layouts, navigation primitive, scenario imports) describe the **legacy Next.js shape**. For this consumer, the rules below OVERRIDE the defaults wherever they conflict.
+
+### Paths (override the Next.js conventions)
+
+- **Screens** live at \`mock/src/apps/<role>/screens/<Screen>.tsx\`. \`<role>\` is whatever the spec implies (e.g. \`patient\`, \`therapist\`, \`admin\`, or a single \`web\` for unscoped apps). Default-export the component.
+- **Router**: append \`<Route path="..." element={<Screen />} />\` lines to \`mock/src/App.tsx\` at the \`Vibe-managed routes\` marker. Also append the matching import at the \`Vibe-managed route imports\` marker. Emit the WHOLE updated \`App.tsx\`; slowcook reconciles.
+- **Scenarios**: \`mock/scenarios/story-N.ts\` — same path as the legacy shape.
+- **Registry**: \`mock/src/lib/scenario-registry.tsx\` — note \`.tsx\` (the Vite shape inlines the \`ScenarioPicker\` JSX in this file). Emit the WHOLE updated file.
+
+### Imports (override the Next.js conventions)
+
+- **Scenario types + helpers** are inlined in \`mock/src/lib/scenario-registry.tsx\`. Import them from there (\`import type { Scenario } from "../lib/scenario-registry";\`), NOT from \`@slowcook-ai/mock-runtime\`. The mock-runtime package is not a dep of the Vite shape.
+- **Navigation**: \`<Link to="...">\` from \`react-router-dom\`, NOT \`<Link href>\` from \`next/link\`.
+- **Hooks**: \`useNavigate\` from \`react-router-dom\` for programmatic navigation, NOT \`useRouter\` from Next.js.
+- **No \`'use client'\` directives.** Vite is client-only — every file is already client-side.
+- **No \`useScenarioFixture\` hook** — read scenario fixtures via plain \`useState\` seeded from the scenario module's exported \`fixtures\` object, OR import the scenario directly.
+
+### Output format (override)
+
+Use \`.tsx\` for any file that contains JSX (including the registry). Use \`.ts\` only for pure-data scenario files.
+
+\`\`\`xml
+<file path="mock/scenarios/story-N.ts">
+import type { Scenario } from "../src/lib/scenario-registry";
+
+const scenario: Scenario = {
+  id: "N",
+  name: "...",
+  user: { /* ... */ },
+  initialPath: "/<role>/...",
+  fixtures: { /* ... */ },
+  expectedInteractions: [/* ... */],
+};
+
+export default scenario;
+</file>
+
+<file path="mock/src/apps/<role>/screens/<Screen>.tsx">
+import { useState } from "react";
+import { Link } from "react-router-dom";
+// ... component implementation ...
+export function <Screen>() { /* ... */ }
+</file>
+
+<file path="mock/src/App.tsx">
+// (whole updated file with new route imports + <Route /> appended at markers)
+</file>
+
+<file path="mock/src/lib/scenario-registry.tsx">
+// (whole updated file with new import + entry in defineScenarios array)
+</file>
+\`\`\`
+
+The Hard runtime rules section below (Turbopack notes, \`useScenarioFixture\` discipline, \`@slowcook-ai/mock-runtime\` allowlist) describes the LEGACY Next.js shape and does NOT apply here. The only universally-binding rules are: writes stay under \`mock/\`, no real APIs, scenarios drive UI.
+
+`;
+
+export const VIBE_SYSTEM = (
+  projectContext: string,
+  mockShape: MockShape = "nextjs",
+): string => `${mockShape === "vite" ? VITE_SHAPE_OVERRIDE : ""}You are vibe — slowcook's design-first mockup agent.
 
 Your job is to read the spec + existing mock app + brownfield extracts and emit a runnable scenario that demonstrates the spec's UI behavior using mock data. The mock app is the design contract; your output extends it incrementally.
 
