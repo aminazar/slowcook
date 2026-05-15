@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
+import { LlmCreditExhaustedError } from "@slowcook-ai/core";
 import { AnthropicClient } from "./llm.js";
 import {
   runRefinement,
@@ -265,7 +266,36 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
       console.warn(`  (history-index emit failed; refine will run without it: ${(e as Error).message})`);
     }
 
-    const outcome = await runRefinement(ctx);
+    let outcome;
+    try {
+      outcome = await runRefinement(ctx);
+    } catch (err) {
+      // 0.19.0-α.32 (sc#68) — reactive funds-warning layer. When the LLM
+      // adapter signals account credit is exhausted, post a PM-facing
+      // out-of-credit comment + add the `slowcook-out-of-credit` repo
+      // label so subsequent agent workflows can skip cleanly. Re-throw
+      // any other error unchanged.
+      if (err instanceof LlmCreditExhaustedError) {
+        const body =
+          `### slowcook · refinement agent 🍲\n\n` +
+          `🛑 **Out of ${err.provider} credit.** The most recent LLM call returned ` +
+          `status ${err.status}. The pipeline cannot continue until the account is topped up.\n\n` +
+          `![fuel empty](https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExMTVveDJ4bmNuY3dsa2hrNnVweTd6MWhpbXIxc3pvajhsN3Q5b21vdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8CMmJ6F8hTxqX7Ts5k/giphy.gif)\n\n` +
+          `**Next steps:**\n` +
+          `1. Top up at ${err.topUpUrl}\n` +
+          `2. Remove the \`slowcook-out-of-credit\` label from this repo to resume.\n` +
+          `3. Re-trigger this agent (remove + re-add the \`needs-refinement\` label).\n`;
+        try {
+          await ctx.forge.createIssueComment(ctx.issueNumber, body);
+          await ctx.forge.addIssueLabels(ctx.issueNumber, ["slowcook-out-of-credit"]);
+        } catch {
+          /* best effort — error already happened; don't double-fail */
+        }
+        console.error(`slowcook refine: ${err.message}`);
+        process.exit(2);
+      }
+      throw err;
+    }
     switch (outcome.kind) {
       case "questions-posted":
         console.log(`Posted clarifying questions (comment ${outcome.commentId}). Awaiting PM reply.`);
