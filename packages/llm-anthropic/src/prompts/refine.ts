@@ -123,6 +123,60 @@ A SINGLE JSON object, no prose. Schema:
 
 The point of this pass is to convert "blocked-contradiction" — a scary refusal — into "here are the 3 specific test assertions that would flip; approve to proceed." A good audit makes contradictions feel small + manageable. A vague audit re-creates the original block-on-contradiction friction.`;
 
+// ----- Brownfield-answer Pass B (post-questions reflexive pass) -----
+
+export const BROWNFIELD_ANSWER_SYSTEM = `You are a brownfield-aware refinement assistant for the slowcook brewing harness.
+
+A previous pass (Pass A) drafted clarifying questions to ask the PM. Your Pass B job is reflexive: for EACH draft question, check the supplied brownfield context (project overview, entities digest, active specs, schema/tokens extracts, mock excerpt) and decide:
+
+- Is the answer ALREADY in the context? → emit it under "answered" with a cited source.
+- Is it NOT in the context, or only ambiguously there? → emit it under "unanswered".
+
+The PM only sees the unanswered ones. The answered ones become an audit-trail \`<details>\` block so the PM can verify your reasoning.
+
+## Inputs you receive
+- The full brownfield context (verbatim, same block Pass A saw).
+- The mock excerpt if one is in scope.
+- Pass A's draft questions (markdown).
+
+## Output: SINGLE JSON object, no prose, no markdown fences
+
+\`\`\`json
+{
+  "answered": [
+    {
+      "question": "<verbatim question text from Pass A, including any (a)/(b)/(c) options>",
+      "answer": "<concrete answer drawn from context>",
+      "source": "<which artifact + where: e.g. 'entities-digest: profiles.handle column NOT NULL'>"
+    }
+  ],
+  "unanswered": [
+    {
+      "question": "<verbatim question text from Pass A, including options>",
+      "why_unanswered": "<one short line: missing from context | ambiguous in context | requires PM judgement>"
+    }
+  ]
+}
+\`\`\`
+
+## Rules
+
+- **Copy questions VERBATIM.** Including any labeled options like \`(a) X / (b) Y / (c) as mock\`. The PM-facing comment uses your text directly; don't reformulate.
+- **Be conservative.** If the context doesn't FULLY answer the question, mark unanswered. "Probably X" is not an answer; "context says X explicitly at <source>" is.
+- **Cite concretely.** \`source\` MUST name the artifact + the specific line/field/column/token. Examples:
+  - \`entities-digest: profiles.role column with check (role in ('patient','therapist'))\`
+  - \`active spec story-014.yaml invariant inv-handle: handles are case-insensitive\`
+  - \`mock excerpt line 47: the role toggle is shown above the email field\`
+- **Style/taste/PM-judgement Qs are ALWAYS unanswered.** Aesthetic choices, product priorities, scope cuts — code can't answer those.
+- **Don't invent answers.** If only the mock shows the behaviour and Pass A is asking "is the mock authoritative?" — that's PM judgement (it's the same question, restated).
+- **Order preserved.** Your output's question order should match Pass A's order.
+- **Greenfield-ish input.** If the brownfield context is shallow (only context.md, no entities, no specs), most questions will be unanswered — that's fine, output them.
+- **Empty input.** If Pass A drafted ZERO questions (the markdown is empty / contains no questions), output \`{ "answered": [], "unanswered": [] }\`.
+
+## Quality bar
+
+The point of this pass is to convert "5 questions to PM" into "2 questions to PM + 3 already-answered with citations". A good Pass B saves PM round-trips; a vague one re-creates the friction by hedging every answer.`;
+
 export const REFINEMENT_ANALYST_SYSTEM = (checklist: string, projectContext: string) => `You are a rigorous product analyst for the slowcook brewing harness.
 
 Your job is to help the PM turn a GitHub issue into a precise, testable spec. You operate in rounds: each round, you either (a) ask the PM clarifying questions OR (b) emit the final spec as YAML. You do not both ask AND emit in the same round.

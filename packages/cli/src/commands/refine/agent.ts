@@ -69,6 +69,11 @@ import {
 import { applySupersede } from "@slowcook-ai/core";
 import { enrichBodyWithImages } from "./images.js";
 import { auditSideEffects, sideEffectsCommentBody } from "./side-effects-audit.js";
+import {
+  answerQuestionsFromBrownfield,
+  composePassBComment,
+  hasBrownfield,
+} from "./brownfield-answer.js";
 import { appendCostEntry, applyCostToSpec, costSidecarPath } from "../../cost-store.js";
 import { fuelGaugeFromRepo } from "../../lib/budget.js";
 
@@ -272,18 +277,43 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     repoRoot: ctx.repoRoot,
   });
 
-  const refineCostMarker = costMarker({
-    agent: "refine",
-    usd: roundCostUsd,
-    tokensIn: totalTokensIn,
-    tokensOut: totalTokensOut,
-    cacheRead: totalCacheRead,
-    cacheCreate: totalCacheCreate,
-    model: ctx.refineModel,
-    round: parsed.kind === "questions" ? "questions" : "spec",
-  });
-
   if (parsed.kind === "questions") {
+    // 0.19.0-α.36 — Pass B: reflexive brownfield-answer pass. Filters
+    // Pass A's draft questions against the same brownfield context, so
+    // questions the codebase already answers don't reach the PM. Skipped
+    // entirely on greenfield projects (no entities / no specs / no
+    // context.md). Cost added to roundCostUsd.
+    //
+    // Best-effort: a JSON parse failure or LLM error falls back to
+    // posting Pass A's original markdown unchanged — never blocks the
+    // round on this layer.
+    let questionsBody = parsed.markdown;
+    if (hasBrownfield(ctx.repoRoot)) {
+      try {
+        const passB = await answerQuestionsFromBrownfield(
+          {
+            draftQuestionsMarkdown: parsed.markdown,
+            projectContext,
+          },
+          { llm: ctx.llm, model: ctx.refineModel }
+        );
+        roundCostUsd += passB.costUsd;
+        totalTokensIn += passB.usage.inputTokens;
+        totalTokensOut += passB.usage.outputTokens;
+        totalCacheRead += passB.usage.cacheReadTokens;
+        totalCacheCreate += passB.usage.cacheCreateTokens;
+        questionsBody = composePassBComment(passB, parsed.markdown);
+        if (passB.answered.length > 0) {
+          console.log(
+            `[refine] Pass B answered ${passB.answered.length}/${passB.answered.length + passB.unanswered.length} questions from brownfield`
+          );
+        }
+      } catch (e) {
+        console.warn(
+          `[refine] Pass B (brownfield-answer) failed, posting Pass A questions unchanged: ${(e as Error).message}`
+        );
+      }
+    }
     // Compute visible cost footer: this run's cost + accumulated prior
     // bot-emitted costs on the same issue. Footer renders as plain
     // markdown the PM can see; the HTML cost marker remains for machine
@@ -310,8 +340,26 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     // footers / markers / brand header (those are auto-appended). But
     // if the model copies the pattern from prior-turn context anyway,
     // strip it so the final comment doesn't carry duplicates. Cheap
-    // string ops; safe to no-op when patterns are absent.
-    const cleanMarkdown = stripModelEmittedDuplicates(parsed.markdown);
+    // string ops; safe to no-op when patterns are absent. When Pass B
+    // ran, `questionsBody` is its composed output (already free of
+    // model-emitted boilerplate); when it didn't, fall through to
+    // strip on the raw markdown.
+    const cleanMarkdown =
+      questionsBody !== parsed.markdown
+        ? questionsBody
+        : stripModelEmittedDuplicates(parsed.markdown);
+    // Cost marker is computed AFTER Pass B so it reflects the round's
+    // total spend including the Pass B call.
+    const refineCostMarker = costMarker({
+      agent: "refine",
+      usd: roundCostUsd,
+      tokensIn: totalTokensIn,
+      tokensOut: totalTokensOut,
+      cacheRead: totalCacheRead,
+      cacheCreate: totalCacheCreate,
+      model: ctx.refineModel,
+      round: "questions",
+    });
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
       BRAND_HEADER + cleanMarkdown + footer + "\n\n" + refineCostMarker
@@ -422,6 +470,16 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
       // spec-submitted comment too. Empty string when budget.yaml is
       // absent (opt-in).
       const gauge = fuelGaugeFromRepo(ctx.repoRoot, ctx.now);
+      const refineCostMarker = costMarker({
+        agent: "refine",
+        usd: roundCostUsd,
+        tokensIn: totalTokensIn,
+        tokensOut: totalTokensOut,
+        cacheRead: totalCacheRead,
+        cacheCreate: totalCacheCreate,
+        model: ctx.refineModel,
+        round: "spec",
+      });
       await ctx.forge.createIssueComment(
         ctx.issueNumber,
         `### slowcook · spec submitted\n\n` +
