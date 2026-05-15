@@ -57,4 +57,20 @@ export interface LlmResponse {
    * itself — the adapter contract preserves this boundary. */
   costUsd: number;
   model: string;
+  /** 0.19.0-α.31 (sc#69) — provider-side rate-limit signal captured from
+   * response headers. Optional; adapters that don't expose headers leave
+   * it undefined. CLI renders a "rate limit tight" hint in cost footers
+   * when remaining drops below a threshold. */
+  rateLimits?: LlmRateLimits;
+}
+
+export interface LlmRateLimits {
+  /** Tokens remaining in the current per-minute / per-day window. */
+  tokensRemaining?: number;
+  /** Requests remaining in the current per-minute window. */
+  requestsRemaining?: number;
+  /** ISO-8601 UTC when the tokens-remaining window resets. */
+  tokensResetAt?: string;
+  /** ISO-8601 UTC when the requests-remaining window resets. */
+  requestsResetAt?: string;
 }
