@@ -69,6 +69,8 @@ import {
 import { applySupersede } from "@slowcook-ai/core";
 import { enrichBodyWithImages } from "./images.js";
 import { auditSideEffects, sideEffectsCommentBody } from "./side-effects-audit.js";
+import { appendCostEntry, applyCostToSpec, costSidecarPath } from "../../cost-store.js";
+import { fuelGaugeFromRepo } from "../../lib/budget.js";
 
 export const LABEL_CHANGE_OF_MIND = "change-of-mind";
 export const LABEL_BLOCKED_CONTRADICTION = "blocked-contradiction";
@@ -298,6 +300,9 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
       // provider says remaining is tight. Empty string when below
       // threshold or no rate-limit headers exposed.
       footer += formatRateLimitHint(agentResponse.rateLimits);
+      // 0.19.0-α.34 (sc#66) — project-level fuel gauge. Empty
+      // string when no .brewing/budget.yaml exists (opt-in).
+      footer += fuelGaugeFromRepo(ctx.repoRoot, ctx.now);
     } catch {
       /* best effort — fall back to no footer if list fails */
     }
@@ -329,6 +334,27 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   }
   const specPath = writeSpec(ctx.repoRoot, spec);
 
+  // 0.19.0-α.34 (sc#67) — canonical cost storage. Record this refine
+  // round to the sidecar, then update spec.cost.total_usd. Sidecar is
+  // append-only JSONL; spec yaml is rewritten with the new total.
+  // Best-effort: never fail the spec emit on a cost-storage hiccup.
+  try {
+    appendCostEntry(ctx.repoRoot, spec.story_id, {
+      agent: "refine",
+      usd: roundCostUsd,
+      model: ctx.refineModel,
+      round: "spec",
+      at: ctx.now.toISOString(),
+      tokens_in: totalTokensIn,
+      tokens_out: totalTokensOut,
+      cache_read: totalCacheRead,
+      cache_create: totalCacheCreate,
+    });
+    applyCostToSpec(ctx.repoRoot, spec.story_id, ctx.now.toISOString());
+  } catch (e) {
+    console.warn(`[refine] cost-store update failed: ${(e as Error).message}`);
+  }
+
   const index = readIndex(ctx.repoRoot);
   const updatedIndex = applySupersede(
     index,
@@ -353,6 +379,15 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   await ctx.forge.git.stage(`specs/_index.yaml`);
   for (const f of mockResult.written) {
     await ctx.forge.git.stage(f);
+  }
+  // 0.19.0-α.34 (sc#67) — stage the cost sidecar so it ships with
+  // the spec PR. Best-effort: skip silently if it doesn't exist
+  // (e.g., cost-store write failed above).
+  try {
+    const sidecar = costSidecarPath(ctx.repoRoot, spec.story_id);
+    await ctx.forge.git.stage(sidecar);
+  } catch {
+    /* best effort */
   }
   await ctx.forge.git.commit(
     `slowcook: spec story-${spec.story_id} — ${spec.title}\n\nRefined from #${ctx.issueNumber}.`
@@ -383,11 +418,16 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     // Post a cost-carrying comment so the pipeline-total aggregator can
     // see refine's spend alongside testgen's + brew's at the end. Best-effort.
     try {
+      // 0.19.0-α.34 (sc#66) — append the fuel gauge to the
+      // spec-submitted comment too. Empty string when budget.yaml is
+      // absent (opt-in).
+      const gauge = fuelGaugeFromRepo(ctx.repoRoot, ctx.now);
       await ctx.forge.createIssueComment(
         ctx.issueNumber,
         `### slowcook · spec submitted\n\n` +
           `Spec \`story-${spec.story_id}\` opened at [PR #${pr.number}](${pr.url}). Merge to trigger \`slowcook-testgen\`.\n\n` +
-          refineCostMarker
+          refineCostMarker +
+          gauge
       );
     } catch {
       /* best effort */
