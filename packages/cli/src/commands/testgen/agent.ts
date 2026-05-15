@@ -770,23 +770,51 @@ export function parseTestgenBundle(
   const uiRequired = mode !== "handler-only";
 
   const testMatch = body.match(/<test_file>([\s\S]*?)<\/test_file>/);
-  if (handlerRequired && (!testMatch || !testMatch[1])) {
-    throw new Error(
-      `testgen: LLM output for story-${storyId} missing a <test_file> block (mode=${mode}). ` +
-        `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
-    );
-  }
-  const testContent = testMatch && testMatch[1] ? stripInnerFence(testMatch[1]) : "";
-
   const uiTestMatch = body.match(/<ui_test_file>([\s\S]*?)<\/ui_test_file>/);
-  if (uiRequired && (!uiTestMatch || !uiTestMatch[1])) {
-    throw new Error(
-      `testgen: LLM output for story-${storyId} missing a <ui_test_file> block (mode=${mode}). ` +
-        `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
-    );
+
+  // 0.19.0-α.28 (closes sc#65) — graceful degradation mirroring refine α.27.
+  // Before: missing required block → throw → workflow exits 2 → PM sees
+  // nothing despite the LLM having emitted 40KB+ of real content in the
+  // OTHER block. After: if the OTHER block IS present, emit just that
+  // bundle + log a warning so the dev sees the LLM's miss + can re-run
+  // for the remaining block via `gh workflow run slowcook-testgen.yml`.
+  // ONLY when BOTH blocks are missing in a required mode do we still
+  // throw — at that point the LLM truly produced nothing usable.
+  const handlerPresent = !!(testMatch && testMatch[1]);
+  const uiPresent = !!(uiTestMatch && uiTestMatch[1]);
+  const degraded: string[] = [];
+
+  if (handlerRequired && !handlerPresent) {
+    if (mode === "full" && uiPresent) {
+      degraded.push("handler tests");
+      console.warn(
+        `[testgen] LLM emit for story-${storyId} missing <test_file> block; UI tests present. ` +
+          `Degrading to ui-only output for this round. Re-run testgen to fill in handler tests.`
+      );
+    } else {
+      throw new Error(
+        `testgen: LLM output for story-${storyId} missing a <test_file> block (mode=${mode}). ` +
+          `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
+      );
+    }
   }
-  const uiTestContent =
-    uiTestMatch && uiTestMatch[1] ? stripInnerFence(uiTestMatch[1]) : "";
+  const testContent = handlerPresent ? stripInnerFence(testMatch![1]!) : "";
+
+  if (uiRequired && !uiPresent) {
+    if (mode === "full" && handlerPresent) {
+      degraded.push("UI tests");
+      console.warn(
+        `[testgen] LLM emit for story-${storyId} missing <ui_test_file> block; handler tests present. ` +
+          `Degrading to handler-only output for this round. Re-run testgen to fill in UI tests.`
+      );
+    } else {
+      throw new Error(
+        `testgen: LLM output for story-${storyId} missing a <ui_test_file> block (mode=${mode}). ` +
+          `Got ${body.length} chars starting with: ${body.slice(0, 120)}...`
+      );
+    }
+  }
+  const uiTestContent = uiPresent ? stripInnerFence(uiTestMatch![1]!) : "";
 
   const stubs: Array<{ path: string; contents: string }> = [];
   const stubRe = /<stub\s+path="([^"]+)">([\s\S]*?)<\/stub>/g;
