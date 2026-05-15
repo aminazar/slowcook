@@ -263,6 +263,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     createdAt: ctx.now.toISOString(),
     cliVersion: ctx.cliVersion,
     supersedes,
+    repoRoot: ctx.repoRoot,
   });
 
   const refineCostMarker = costMarker({
@@ -488,6 +489,9 @@ interface ParseContext {
   createdAt: string;
   cliVersion: string;
   supersedes: string[];
+  /** 0.19.0-α.29 — passed through so synthesizeProposalsFromSpec can detect
+   *  multi-app vs single-app shape and emit correct route file paths. */
+  repoRoot?: string;
 }
 
 export type AgentOutput =
@@ -678,7 +682,9 @@ export function parseAgentOutput(
     // stories. Synthesis fills in categories the LLM left empty
     // using signal from the traditional fields. LLM-emitted
     // proposals ALWAYS win — synth never overrides, only fills gaps.
-    const synthesized = synthesizeProposalsFromSpec(spec);
+    const synthesized = synthesizeProposalsFromSpec(spec, {
+      repoRoot: ctx.repoRoot,
+    });
     if (Object.keys(synthesized).length > 0) {
       spec.proposals = synthesized;
     }

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { synthesizeProposalsFromSpec, detectAppShape } from "./proposals-synth.js";
 import type { Spec } from "@slowcook-ai/core";
 
 const base: Spec = {
@@ -38,21 +41,38 @@ describe("synthesizeProposalsFromSpec", () => {
     expect(out.schema?.proposed_by).toBe("refine-agent");
   });
 
-  it("synthesises routes from non-/api/ api_contract paths", () => {
+  it("[α.29 / sc#62] api_contract paths are NOT auto-promoted to routes", () => {
+    // Pre-α.29 the synth pulled non-/api/ api_contract entries into routes
+    // as page-like paths. That mis-fired on real consumers (delgoosh) whose
+    // API endpoints live under /auth/*, /patients/me/*, etc. — not under
+    // /api/ — and got mis-scaffolded as Next pages. New contract: routes
+    // come from prose mentions only (ui_behavior, scenarios, invariants).
     const spec: Spec = {
       ...base,
       api_contract: [
         { method: "GET", path: "/api/bookmarks" } as unknown as never,
         { method: "GET", path: "/me/bookmarks" } as unknown as never,
       ],
+      // No prose mentions of either path → no routes synthesised.
     };
     const out = synthesizeProposalsFromSpec(spec);
-    expect(out.routes?.paths).toContainEqual({
-      path: "/me/bookmarks",
-      file: "src/app/(main)/me/bookmarks/page.tsx",
-    });
-    expect(out.routes?.paths.find((r) => r.path === "/api/bookmarks")).toBeUndefined();
-    expect(out.routes?.proposed_by).toBe("spec-body-synth");
+    expect(out.routes).toBeUndefined();
+  });
+
+  it("[α.29 / sc#62] api_contract paths are EXCLUDED even when prose mentions them too", () => {
+    const spec: Spec = {
+      ...base,
+      api_contract: [
+        { method: "POST", path: "/auth/otp/request" } as unknown as never,
+      ],
+      ui_behavior: {
+        desktop_light: "User hits /auth/otp/request endpoint. The /login page renders the form.",
+      },
+    };
+    const out = synthesizeProposalsFromSpec(spec);
+    // /login (real page) IS in routes; /auth/otp/request (api_contract entry) is NOT
+    expect(out.routes?.paths.map((r) => r.path)).toContain("/login");
+    expect(out.routes?.paths.map((r) => r.path)).not.toContain("/auth/otp/request");
   });
 
   it("extracts path references from ui_behavior prose", () => {
@@ -487,5 +507,95 @@ describe("synthesizeProposalsFromSpec", () => {
     const out = synthesizeProposalsFromSpec(spec);
     expect(out.auth?.proposed_by).toBe("refine-agent");
     expect(out.auth?.requirements).toEqual(["explicit from LLM"]);
+  });
+});
+
+describe("[α.29 / sc#64] detectAppShape + multi-app route mapping", () => {
+  function mkRepo(): string {
+    return mkdtempSync(join(tmpdir(), "slowcook-app-shape-"));
+  }
+
+  it("returns single-grouped when src/app/(main)/ exists", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "src/app/(main)"), { recursive: true });
+      expect(detectAppShape(repo).kind).toBe("single-grouped");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns single-flat when only src/app/ exists (no group)", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "src/app"), { recursive: true });
+      expect(detectAppShape(repo).kind).toBe("single-flat");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns multi-app when 2+ apps/*/src/app exist", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "apps/patient/src/app"), { recursive: true });
+      mkdirSync(join(repo, "apps/therapist/src/app"), { recursive: true });
+      mkdirSync(join(repo, "apps/admin/src/app"), { recursive: true });
+      const shape = detectAppShape(repo);
+      expect(shape.kind).toBe("multi-app");
+      if (shape.kind === "multi-app") {
+        expect(shape.apps.sort()).toEqual(["admin", "patient", "therapist"]);
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT return multi-app when only one app exists (falls back to single-flat)", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "apps/loner/src/app"), { recursive: true });
+      // Multi-app needs 2+ apps; with one, no src/app/(main), → single-flat.
+      expect(detectAppShape(repo).kind).toBe("single-flat");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("multi-app mode: /patient/dashboard maps to apps/patient/src/app/dashboard/page.tsx", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "apps/patient/src/app"), { recursive: true });
+      mkdirSync(join(repo, "apps/therapist/src/app"), { recursive: true });
+      const spec: Spec = {
+        ...base,
+        ui_behavior: {
+          desktop_light: "Patient app at /patient/dashboard shows ticket count.",
+        },
+      };
+      const out = synthesizeProposalsFromSpec(spec, { repoRoot: repo });
+      const entry = out.routes?.paths.find((r) => r.path === "/patient/dashboard");
+      expect(entry?.file).toBe("apps/patient/src/app/dashboard/page.tsx");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("multi-app mode: route with no matching app prefix routes to FIRST app", () => {
+    const repo = mkRepo();
+    try {
+      mkdirSync(join(repo, "apps/admin/src/app"), { recursive: true });
+      mkdirSync(join(repo, "apps/patient/src/app"), { recursive: true });
+      const spec: Spec = {
+        ...base,
+        ui_behavior: { desktop_light: "Generic /settings page somewhere." },
+      };
+      const out = synthesizeProposalsFromSpec(spec, { repoRoot: repo });
+      const entry = out.routes?.paths.find((r) => r.path === "/settings");
+      // apps sorted alphabetically; first is 'admin'
+      expect(entry?.file).toBe("apps/admin/src/app/settings/page.tsx");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

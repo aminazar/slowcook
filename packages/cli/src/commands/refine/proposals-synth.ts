@@ -34,12 +34,18 @@ import type { Spec, SpecProposals } from "@slowcook-ai/core";
  * hard-signal backstop: when the LLM doesn't elevate to a structured
  * block, the synth derives one from prose + brownfield extracts.
  */
-export function synthesizeProposalsFromSpec(spec: Spec): SpecProposals {
+export function synthesizeProposalsFromSpec(
+  spec: Spec,
+  opts: { repoRoot?: string } = {}
+): SpecProposals {
   const existing = spec.proposals ?? {};
   const synthesized: SpecProposals = { ...existing };
+  const appShape = opts.repoRoot
+    ? detectAppShape(opts.repoRoot)
+    : { kind: "single-grouped" as const, prefix: "src/app/(main)" };
 
   if (!existing.routes) {
-    const routes = deriveRoutes(spec);
+    const routes = deriveRoutes(spec, appShape);
     if (routes) synthesized.routes = routes;
   }
 
@@ -281,13 +287,22 @@ function readExistingTokens(): Set<string> {
   return set;
 }
 
-function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
+function deriveRoutes(spec: Spec, appShape: AppShape): SpecProposals["routes"] | null {
   const paths = new Set<string>();
 
-  // 1. Page-like paths from api_contract entries that don't start with /api/
+  // 0.19.0-α.29 (sc#62) — STOP auto-adding api_contract paths to routes.
+  // api_contract is the API surface; routes is the PAGE surface. Earlier
+  // code did `if (!startsWith("/api/")) paths.add(p)` — but real consumers
+  // (delgoosh) have API endpoints under `/auth/*`, `/patients/me/*`, etc.
+  // that don't start with `/api/`. Those leaked into routes → brew would
+  // mis-scaffold page files for endpoint paths.
+  //
+  // Build a set of api_contract paths so we can EXCLUDE them from
+  // page-route extraction below (in case prose also mentions them).
+  const apiPaths = new Set<string>();
   for (const entry of spec.api_contract ?? []) {
     const p = (entry as { path?: string }).path;
-    if (typeof p === "string" && !p.startsWith("/api/")) paths.add(p);
+    if (typeof p === "string") apiPaths.add(p);
   }
 
   // 2. Path mentions in ALL prose fields, not just ui_behavior. Specs use
@@ -321,11 +336,13 @@ function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
     const raw = m[1]!;
     if (raw.startsWith("/api/")) continue;
     if (raw.includes(".")) continue;
+    if (apiPaths.has(raw)) continue; // sc#62: skip API endpoints
     // Normalise <name> + :name → [name] so downstream file-path derivation
     // sees a Next.js-shaped route regardless of which form the spec used.
     const normalised = raw
       .replace(/<([a-z_][a-z0-9_]*)>/gi, "[$1]")
       .replace(/:([a-z_][a-z0-9_]*)/gi, "[$1]");
+    if (apiPaths.has(normalised)) continue; // sc#62: normalised api endpoints too
     paths.add(normalised);
   }
 
@@ -371,7 +388,7 @@ function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
 
   const entries = coalesced.sort().map((path) => ({
     path,
-    file: pathToPageFile(path),
+    file: pathToPageFile(path, appShape),
   }));
 
   return {
@@ -388,11 +405,85 @@ function deriveRoutes(spec: Spec): SpecProposals["routes"] | null {
  * Uses the `(main)` route group by default (authenticated app pages).
  * Consumer can edit post-emit if their layout differs.
  */
-function pathToPageFile(path: string): string {
+/**
+ * 0.19.0-α.29 (sc#64) — app-shape detection for multi-app monorepos.
+ *
+ *  - `single-flat`     — `src/app/<path>/page.tsx` (no route group)
+ *  - `single-grouped`  — `src/app/(main)/<path>/page.tsx` (rewo convention)
+ *  - `multi-app`       — `apps/<app>/src/app/<path>/page.tsx` (delgoosh)
+ *
+ * Detection walks the consumer's filesystem:
+ *  - If `apps/<name>/src/app/` exists for two or more apps → multi-app.
+ *  - Else if `src/app/(main)/` exists → single-grouped.
+ *  - Else default to single-flat.
+ *
+ * When no repoRoot is provided (older callers / tests that pass spec
+ * only), defaults to `single-grouped` for backward compat with rewo.
+ *
+ * In multi-app mode, route → app assignment heuristic:
+ *  - Path's first segment matches an app name → that app owns it
+ *    (e.g., /patient/dashboard → apps/patient/src/app/dashboard/page.tsx,
+ *    the /patient prefix gets STRIPPED since it's already in the app dir)
+ *  - Path matches no app → first app gets it (caller can edit)
+ */
+export type AppShape =
+  | { kind: "single-flat"; prefix: string }
+  | { kind: "single-grouped"; prefix: string }
+  | { kind: "multi-app"; apps: string[] };
+
+export function detectAppShape(repoRoot: string): AppShape {
+  // Multi-app detection: walk apps/* for sub-dirs that have a src/app/
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("node:fs") as typeof import("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("node:path") as typeof import("node:path");
+    const appsDir = path.join(repoRoot, "apps");
+    if (fs.existsSync(appsDir)) {
+      const apps = fs
+        .readdirSync(appsDir)
+        .filter((name) => {
+          const appDir = path.join(appsDir, name);
+          if (!fs.statSync(appDir).isDirectory()) return false;
+          return fs.existsSync(path.join(appDir, "src", "app"));
+        })
+        .sort();
+      if (apps.length >= 2) {
+        return { kind: "multi-app", apps };
+      }
+    }
+    // Single-grouped: src/app/(main)/
+    if (fs.existsSync(path.join(repoRoot, "src", "app", "(main)"))) {
+      return { kind: "single-grouped", prefix: "src/app/(main)" };
+    }
+    // Single-flat fallback
+    return { kind: "single-flat", prefix: "src/app" };
+  } catch {
+    return { kind: "single-grouped", prefix: "src/app/(main)" };
+  }
+}
+
+function pathToPageFile(path: string, shape: AppShape): string {
   const segments = path.split("/").filter(Boolean);
-  if (segments.length === 0) return "src/app/(main)/page.tsx";
-  const inside = segments.map((s) => s).join("/");
-  return `src/app/(main)/${inside}/page.tsx`;
+  if (shape.kind === "multi-app") {
+    // First segment matches an app name → strip it and route into that app.
+    const firstSeg = segments[0];
+    if (firstSeg && shape.apps.includes(firstSeg)) {
+      const inside = segments.slice(1).join("/");
+      const tail = inside ? `${inside}/page.tsx` : "page.tsx";
+      return `apps/${firstSeg}/src/app/${tail}`;
+    }
+    // Otherwise default to the first app (consumer edits post-emit).
+    const ownerApp = shape.apps[0] ?? "app";
+    const inside = segments.join("/");
+    return inside
+      ? `apps/${ownerApp}/src/app/${inside}/page.tsx`
+      : `apps/${ownerApp}/src/app/page.tsx`;
+  }
+  // Single-flat / single-grouped both use the prefix verbatim.
+  const prefix = shape.prefix;
+  if (segments.length === 0) return `${prefix}/page.tsx`;
+  return `${prefix}/${segments.join("/")}/page.tsx`;
 }
 
 function deriveAuth(spec: Spec): SpecProposals["auth"] | null {
