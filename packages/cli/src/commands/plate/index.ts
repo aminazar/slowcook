@@ -490,6 +490,12 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     return;
   }
 
+  // 0.19.0+ (sc#82) — read mock-shape config so plate's prompt routes
+  // navigation primitives + scenario imports correctly. Defaults to
+  // nextjs (legacy) for consumers without `.brewing/mock.yaml`.
+  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
+  const mockShape = loadMockShapeConfig(args.repoRoot).shape;
+
   const ctx: PlateContext = {
     repoRoot: args.repoRoot,
     anthropicApiKey,
@@ -501,6 +507,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     specYaml,
     currentFiles,
     feedback,
+    mockShape,
   };
 
   console.log(`Running plate (model: ${args.model})...`);

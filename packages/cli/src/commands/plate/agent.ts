@@ -43,6 +43,13 @@ export interface PlateContext {
   currentFiles: Array<{ path: string; contents: string }>;
   /** PM feedback to act on. */
   feedback: PlateFeedback;
+  /**
+   * Mock shape — read from `.brewing/mock.yaml` (sc#82). Defaults to
+   * `nextjs` for backwards-compat with consumers that predate sc#82.
+   * Branches navigation primitives + scenario imports in the system
+   * prompt.
+   */
+  mockShape?: "vite" | "nextjs";
 }
 
 export type PlateResult =
@@ -84,7 +91,7 @@ export async function runPlate(ctx: PlateContext): Promise<PlateResult> {
   const response = await anthropic.messages.create({
     model: ctx.model,
     max_tokens: MAX_TOKENS,
-    system: PLATE_AMENDMENT_SYSTEM(ctx.projectContext),
+    system: PLATE_AMENDMENT_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
     messages: [{ role: "user", content: userBlocks }],
   });
 

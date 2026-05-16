@@ -300,7 +300,13 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     if (proxy) env["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] = proxy.url;
   }
 
-  console.log(`  npm    run dev (next dev :3100)`);
+  // 0.19.0+ (sc#82) — detect mock shape so the log message is honest.
+  // `npm run dev` works for both shapes (Next.js: `next dev`; Vite:
+  // `vite`) — only the cosmetic label here needs branching.
+  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
+  const mockShape = loadMockShapeConfig(args.repoRoot).shape;
+  const devLabel = mockShape === "vite" ? "vite :3100" : "next dev :3100";
+  console.log(`  npm    run dev (${devLabel})`);
   if (!args.garnish) {
     console.log(`         overlay env: REVIEW=1 OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
     if (!prNumber) {
