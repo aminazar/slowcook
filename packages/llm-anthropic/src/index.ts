@@ -27,6 +27,7 @@ export {
   type SiftTurnPromptArgs,
 } from "./prompts/sift.js";
 export { TESTGEN_SYSTEM } from "./prompts/testgen.js";
+export { BRAND_SYSTEM } from "./prompts/brand.js";
 export {
   BREW_SYSTEM,
   BREW_TOOLS,
