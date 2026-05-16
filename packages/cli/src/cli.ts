@@ -31,6 +31,7 @@ import { fixtures } from "./commands/fixtures/index.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
 import { budget } from "./commands/budget/index.js";
+import { brand } from "./commands/brand/index.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -76,6 +77,7 @@ Usage:
   slowcook eval (--all | --fixture <id> | --list) [--fixtures-dir <path>]
   slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]
   slowcook budget [show|set|rm] [--monthly <usd>] [--start-day <1-31>] [--story <usd>] [--cwd <path>]
+  slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]
   slowcook version
   slowcook help
 
@@ -108,6 +110,7 @@ Commands available in ${VERSION}:
   run-mock           (0.16-α.17) One-command mock launch + auto-pull. \`run-mock <story>\`: checkout mockup branch, npm install in mock/, run next dev with overlay env vars, poll origin every 15s + git pull --ff-only on plate amendments.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
   budget             (0.19.0-α.35) Manage the project monthly budget for the fuel gauge. \`budget set --monthly 50\` writes .brewing/budget.yaml; no args shows config + month-to-date spend.
+  brand              (0.19.0-α.40, sc#82 Phase 4) Design-system foundation agent. Reads a brand brief (\`.brewing/brand.yaml\` or \`--brief\`) and emits mock/src/design-system/{tokens.ts, css.ts}. Runs once per project; \`--refresh\` overwrites.
 
 Coming in later versions:
   review, dashboard
@@ -326,6 +329,14 @@ async function main(): Promise<void> {
       // No args = show current config + month-to-date spend. `set
       // --monthly N` writes; `rm` deletes (disables the fuel gauge).
       await budget(args.slice(1));
+      return;
+    case "brand":
+      // 0.19.0-α.40 (sc#82 Phase 4) — design-system foundation agent.
+      // Runs once per consumer (or on --refresh) to populate
+      // mock/src/design-system/{tokens.ts, css.ts} from a brand brief.
+      // Vibe/plate/brew inherit these tokens; no more shadcn-default
+      // drift when the consumer has a real brand.
+      await brand(args.slice(1), VERSION);
       return;
     case "version":
     case "--version":
