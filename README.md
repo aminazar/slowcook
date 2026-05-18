@@ -17,13 +17,13 @@
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.16` (alpha) | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: + chef L2 finisher + chef L3 orchestrator + chef stack auto-chain + pair-brew prod hook + `--with-navigator` flag + navigator-emitted tests + recon shape v2 + `recon --reuse-scan` (with auto-template skip + `--exclude`) + `recon --stub-scan` (stale-stub detector) + uniform `slowcook:cost` markers across chef stack + `SLOWCOOK_READ_ONLY` env var + `slowcook docs <topic>` cmd + `slowcook garnish` (local commit-gate for human tweaks on agent work) + `run-mock --garnish` (DevTools Workspaces flow with auto-commit) + `slowcook refactor` + init mock pnpm-workspace |
-| `@slowcook-ai/llm-anthropic` | `0.15.0` | chef + navigator structured prompts; refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit |
-| `@slowcook-ai/forge-github` | `0.11.7` | vibe template `regenerate` dispatch input (deletes existing mockup branch + closes PR before re-vibing); brew-auto plate-only mode |
-| `@slowcook-ai/stack-ts` | `0.9.8` | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
+| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.41` (alpha, npm) · `α.42` on main | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: prior 0.19 line PLUS funds-warning track (`slowcook budget` + credit-balance gauge + canonical cost storage + project fuel gauge + 402 Payment Required catcher + ratelimit-header surfacing) PLUS refine Pass B brownfield-answer PLUS the sc#82 shape-aware track (Vite mock template + shape-aware vibe/plate/recon + slowcook brand agent + consolidated logo) |
+| `@slowcook-ai/llm-anthropic` | `0.15.0` · `0.16.0-alpha.15` (alpha) | chef + navigator structured prompts; refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit; refine PM-facing question rules; questions-first comment layout + visible cost footer; refine Pass B brownfield-answer; shape-aware vibe/plate/recon prompts; brand agent |
+| `@slowcook-ai/forge-github` | `0.12.0` · `0.12.1` (alpha) | vibe template `regenerate` dispatch input; brew-auto plate-only mode; chef-drift artifact upload |
+| `@slowcook-ai/stack-ts` | `0.9.8` · `0.9.9-alpha.0` (alpha) | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
 | `@slowcook-ai/review-overlay` | `0.5.5` | overlay v3 + composer anchored to clicked element + reads `NEXT_PUBLIC_SLOWCOOK_GH_PROXY` to skip PAT prompt |
-| `@slowcook-ai/core` | `0.13.0` | unchanged |
-| `@slowcook-ai/mock-runtime` | `0.3.3` | unchanged |
+| `@slowcook-ai/core` | `0.13.1` · `0.14.0` on main | sc#82 shape-aware types |
+| `@slowcook-ai/mock-runtime` | `0.3.3` · `0.3.4` on main | sc#82 logo consolidation |
 
 **Highlights of the 0.17 → 0.18 arc:**
 
@@ -51,6 +51,13 @@
 - **Recon `--stub-scan`** (cli `0.19.0-α.11`, #84): walks `src/` for `@slowcook-stub` markers, ages each via `git log --diff-filter=A`, classifies fresh/stale/unknown against `--stub-max-age-days` (default 14). Optional `--stub-escalate` posts PM-actionable comments on the source issue. Different signal class from reuse-scan (incomplete work, not refactor).
 - **Chef stack auto-loop** (rewo-side workflow, #83): chef-drift exit-1 in `--pr` finisher mode auto-dispatches chef-orchestrate. Closes the manual-dispatch gap.
 - **`slowcook init mock` auto-wires pnpm workspace** (cli `0.19.0-α.3`): detects pnpm consumers + appends `mock` to `pnpm-workspace.yaml` (or creates it). Eliminates duplicate-`node_modules` trap. Honors npm/yarn consumers with a recommendation rather than auto-migrating.
+- **Refine PM-facing question rules + visible cost footer** (cli `0.19.0-α.19`/`α.20`, llm-anthropic `0.16.0-α.3`/`α.4`): four hard rules (decide-first, never ask about tests, no internal stage names, ≤3 one-line questions with labeled options) enforced by prompt + eval fixture. Refine comments lead with questions, decisions collapsed in `<details>`, every comment ends with a plain-text cost footer (`💰 This step: $X · Story total: $Y`).
+- **`slowcook dev-env` command** (cli `0.19.0-α.21`/`α.22`): scaffolds `.brewing/dev-env.yaml` so brew can be told "this repo uses pnpm + Vitest 4 + Node 22" instead of guessing.
+- **Refine sees mock/src/ as design source-of-truth** (cli `0.19.0-α.23`–`α.26`): mock-fidelity bias + `technical-shrug-decide` rule + mock excerpt bumped 1500 → 8000 chars. Refine no longer asks PM questions the mock has already answered.
+- **Funds-warning track** (cli `0.19.0-α.28`–`α.34`, llm-anthropic `0.16.0-α.7`–`α.10`, sc#62–#69): testgen graceful-degrade, multi-app proposals.routes filter, proposals.schema auto-emits ALTER TABLE, anthropic-ratelimit-* headers in cost footer, reactive 402 Payment Required catcher (labels PR + posts fuel-empty GIF + exits 2), canonical cost storage at `specs/story-N.cost.jsonl`, project fuel gauge appended to refine output. Three layers of out-of-credit protection: proactive gauge → mid-flight hint → reactive label+exit.
+- **`slowcook budget` subcommand + credit-balance gauge** (cli `0.19.0-α.35`, sc#79): reads the canonical cost store + Anthropic credit balance to print a per-project / per-story fuel gauge on demand.
+- **Refine Pass B brownfield-answer** (cli `0.19.0-α.36`, llm-anthropic `0.16.0-α.11`, sc#80): second LLM pass that re-grounds the spec against `history-index.json` before testgen sees it. Eval fixture `refine-brownfield-answer-rules` + delgoosh#635 baseline (sc#81) locks the contract.
+- **sc#82 shape-aware track** (cli `0.19.0-α.37`–`α.42`, llm-anthropic `0.16.0-α.12`–`α.14`, core `0.14.0`, mock-runtime `0.3.4`): Phase 1 — Vite mock template + shape-aware config (sc#83); Phase 2 — vibe shape-aware (sc#84); Phase 3a — run-mock + plate + recon shape-aware (sc#85); Phase 4 — slowcook brand agent; follow-up — consolidate slowcook logo. Every agent that consumes the mock is now aware of its design-token vocabulary so brand drift surfaces as a recon warning rather than a brew failure.
 
 **OSS incident-response infrastructure (cli α.12-α.14, this round):**
 
@@ -105,20 +112,21 @@ The story flow has been the production path since 0.7.x. The bug flow shipped 20
 - **0.13.0 (cut 2026-04-25, tag `0.13.0`)** — `recipe` alias for `testgen`; full `investigate` + `sift` + `chef` agents; `recipe --regression` with both deterministic stub + LLM-backed real-test modes; PR opening + auto-trigger workflows. Pipeline now has parallel story-flow + bug-flow; chef watches both.
 - **0.13.2–0.13.5 — brownfield extraction foundation for 0.14.** `map --emit-schema` (Supabase migrations → Mermaid erDiagram), `map --emit-tokens` (CSS `:root` + `@theme` → token catalog with light/dark/Tailwind-v4 split), `slowcook extract` focused command, refine reads both as project-awareness context, refine + investigate workflow templates auto-run extraction before each agent invocation. Validated on rewo: 10 entities + 21+21+10 tokens parsed in 315ms.
 
-**Latest published versions:**
+**Latest published versions (verified 2026-05-18 via `npm view <pkg> dist-tags`):**
 
 | Package | `latest` (stable) | `alpha` (pre-release) |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.13.x` line — published, but install with care; the 0.16 alpha may be ahead of `latest` for active features | `0.16.0-alpha.1` — `npm i @slowcook-ai/cli@alpha` |
-| `@slowcook-ai/core` | `0.13.0` | — |
-| `@slowcook-ai/llm-anthropic` | `0.11.x` | `0.12.0` (in-repo for α.4) |
-| `@slowcook-ai/mock-runtime` | `0.1.0` (NEW — 0.16 only) | — |
-| `@slowcook-ai/forge-github` | `0.10.x` | — |
-| `@slowcook-ai/stack-ts` | `0.9.3` | — |
+| `@slowcook-ai/cli` | `0.18.0` | `0.19.0-alpha.41` |
+| `@slowcook-ai/core` | `0.13.1` | — (`0.14.0` on main, unpublished) |
+| `@slowcook-ai/llm-anthropic` | `0.15.0` | `0.16.0-alpha.15` |
+| `@slowcook-ai/forge-github` | `0.12.0` | `0.12.1` |
+| `@slowcook-ai/stack-ts` | `0.9.8` | `0.9.9-alpha.0` |
+| `@slowcook-ai/review-overlay` | `0.5.5` | — |
+| `@slowcook-ai/mock-runtime` | `0.3.3` | — (`0.3.4` on main, unpublished) |
 | `@slowcook-ai/recorder` | `0.9.1` | — |
 | `@slowcook-ai/gates` | `0.10.0` | — |
 
-> **`latest` now points at `0.18.0` (cut 2026-05-05).** New consumers can `npm i @slowcook-ai/cli` and get the current architecture (chef α.9 L1 + pair-brew sim + entity-first foundation). The prior 0.13.x stable line is retired. Future incremental work (chef α.10 finisher, recon shape-emit v2, etc.) continues on the `alpha` dist-tag — run `npm i @slowcook-ai/cli@alpha` to opt into bleeding-edge. Pin exact versions in `.brewing/slowcook-cli-version` for reproducibility.
+> **`latest` is `0.18.0`** (cut 2026-05-05) — stable architecture for new consumers (`npm i @slowcook-ai/cli`). The `alpha` dist-tag is the live development line — currently `0.19.0-alpha.41` with the funds-warning track + refine Pass B brownfield-answer + sc#82 shape-aware track. Opt in with `npm i @slowcook-ai/cli@alpha`. Pin exact versions in `.brewing/slowcook-cli-version` for reproducibility.
 
 **Active plan**: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md) — canonical architecture reference for the singular-mock-app + element-anchored-review pipeline. Detailed initial design is in [`docs/DESIGN.md`](./docs/DESIGN.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (**abandoned** mid-cut — the data-layer-seam approach mixed mock data into `src/`, which broke separation; lessons informed 0.16) → [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped) → [`docs/plans/0.13-bug-flow-and-chef.md`](./docs/plans/0.13-bug-flow-and-chef.md). The 0.7→0.11 roadmap (closed) is at [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
 
