@@ -70,6 +70,12 @@ import { applySupersede } from "@slowcook-ai/core";
 import { enrichBodyWithImages } from "./images.js";
 import { auditSideEffects, sideEffectsCommentBody } from "./side-effects-audit.js";
 import {
+  assessMultifurcation,
+  digestActiveSpecs,
+  multifurcationCommentBody,
+  hasExistingMultifurcationComment,
+} from "./multifurcate.js";
+import {
   answerQuestionsFromBrownfield,
   composePassBComment,
   hasBrownfield,
@@ -83,6 +89,13 @@ export const LABEL_BLOCKED_OVERLAP = "blocked-overlap";
 export const LABEL_SPEC_SUBMITTED = "spec-submitted";
 export const LABEL_SPEC_READY = "spec-ready";
 export const LABEL_NEEDS_REFINEMENT = "needs-refinement";
+/**
+ * cli α.44 — applied to an issue when refine has posted a multifurcation
+ * proposal. While present, future refine runs skip the multifurcation
+ * step (the PM is still deciding whether to file the split). PM removes
+ * the label after acting on the proposal.
+ */
+export const LABEL_MULTIFURCATION_PROPOSED = "slowcook-multifurcation-proposed";
 
 /**
  * Branded header prepended to every clarifying-question comment so reviewers
@@ -118,6 +131,7 @@ export type RefineOutcome =
   | { kind: "follow-up-noted"; related_ids: string[] }
   | { kind: "contradiction-blocked"; conflicting_ids: string[] }
   | { kind: "change-of-mind-accepted"; supersedes: string[] }
+  | { kind: "multifurcation-proposed"; commentId: number; subIssueCount: number }
   | { kind: "noop"; reason: string };
 
 /** Schema for the <sentinel> block the agent uses when it emits a spec. */
@@ -133,8 +147,80 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     return { kind: "noop", reason: `issue is not labeled ${LABEL_NEEDS_REFINEMENT}` };
   }
 
-  // Step 1: relationship analysis
-  const existingSpecs = listActiveSpecs(ctx.repoRoot);
+  // Step 0: multifurcation check (cli α.44).
+  //
+  // Cheap LLM pass that detects "this issue is actually many stories"
+  // BEFORE refine wastes a heavy-reasoning call producing a fuzzy
+  // mega-spec. Sits ahead of relationship analysis because if we're
+  // going to ask the PM to split, that conversation precedes any
+  // overlap/contradiction reasoning against existing specs (the
+  // existing specs we'd compare against are per-sub-issue, not per-
+  // parent).
+  //
+  // Skipped when:
+  //   - the issue already carries `slowcook-multifurcation-proposed`
+  //     (refine has already posted a proposal; PM is deciding)
+  //   - a multifurcation comment marker is already in the thread
+  //     (defense-in-depth against label drift)
+  //
+  // The model can fall back to "one" silently if the verdict is
+  // unparseable — that's safer than blocking refine on a parser bug.
+  // cli α.45 — hoist listActiveSpecs above multifurcation so the model
+  // can annotate overlapping sub-issues with their `existing_spec_id`
+  // instead of silently omitting them. Same call is reused for the
+  // relationship-analysis step below.
+  const activeSpecs = listActiveSpecs(ctx.repoRoot);
+
+  if (!issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
+    const existingComments = await ctx.forge.listIssueComments(ctx.issueNumber);
+    if (!hasExistingMultifurcationComment(existingComments)) {
+      try {
+        const mf = await assessMultifurcation(
+          {
+            issueTitle: issue.title,
+            issueBody: issue.body,
+            activeSpecs: digestActiveSpecs(activeSpecs),
+          },
+          { llm: ctx.llm, model: ctx.relationshipModel }
+        );
+        if (mf.verdict.kind === "many") {
+          const marker = costMarker({
+            agent: "refine",
+            usd: mf.costUsd,
+            tokensIn: mf.usage.inputTokens,
+            tokensOut: mf.usage.outputTokens,
+            cacheRead: mf.usage.cacheReadTokens,
+            cacheCreate: mf.usage.cacheCreateTokens,
+            model: ctx.relationshipModel,
+            round: "multifurcation",
+          });
+          const body =
+            multifurcationCommentBody(
+              { rationale: mf.verdict.rationale, sub_issues: mf.verdict.sub_issues },
+              { issueTitle: issue.title }
+            ) +
+            "\n\n" +
+            marker;
+          const comment = await ctx.forge.createIssueComment(ctx.issueNumber, body);
+          await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_MULTIFURCATION_PROPOSED]);
+          return {
+            kind: "multifurcation-proposed",
+            commentId: comment.id,
+            subIssueCount: mf.verdict.sub_issues.length,
+          };
+        }
+      } catch (e) {
+        // Multifurcation is an optimization; if the LLM call fails we
+        // still want refine to proceed. Log only.
+        console.warn(
+          `  (multifurcation check failed; proceeding with single-spec refine: ${(e as Error).message.slice(0, 200)})`
+        );
+      }
+    }
+  }
+
+  // Step 1: relationship analysis (reuses `activeSpecs` from above)
+  const existingSpecs = activeSpecs;
   const relationshipResult = await analyzeRelationship(
     { issueTitle: issue.title, issueBody: issue.body, activeSpecs: existingSpecs },
     { llm: ctx.llm, model: ctx.relationshipModel }

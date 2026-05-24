@@ -10,7 +10,8 @@ import {
   type RefineContext,
   type ResubmitContext,
 } from "./agent.js";
-import { buildHistoryIndex } from "./history-index.js";
+import { buildHistoryIndex, type HistoryIndex } from "./history-index.js";
+import { computeGitAttention } from "./git-attention.js";
 
 interface RefineArgs {
   /** Issue-driven refine (the original 0.5+ path). Required unless --pr is set. */
@@ -203,17 +204,9 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
 
       // 0.17.0 — refresh history-index for the resubmit path too;
       // brownfield context may have changed since the last refine.
-      try {
-        const idx = buildHistoryIndex({ repoRoot: args.repoRoot });
-        const indexPath = join(args.repoRoot, ".brewing/history-index.json");
-        mkdirSync(dirname(indexPath), { recursive: true });
-        writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf8");
-        console.log(
-          `  history-index: ${idx.components.length} components · ${idx.api_routes.length} api routes · ${idx.migrations.length} migrations`
-        );
-      } catch (e) {
-        console.warn(`  (history-index emit failed: ${(e as Error).message})`);
-      }
+      // 0.19.0-α.43 — also enrich with git-history attention (renames,
+      // co-changes, recent PRs, PR+spec corpus).
+      emitHistoryIndex(args.repoRoot);
 
       const outcome = await runResubmitRefinement(ctx);
       switch (outcome.kind) {
@@ -254,17 +247,8 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
     // 0.17.0 — emit history-index.json for downstream agents (vibe,
     // testgen, brew, recon) to consume. Pure mechanical scan; no LLM.
     // The agent will read this in its prompt to be brownfield-aware.
-    try {
-      const idx = buildHistoryIndex({ repoRoot: args.repoRoot });
-      const indexPath = join(args.repoRoot, ".brewing/history-index.json");
-      mkdirSync(dirname(indexPath), { recursive: true });
-      writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf8");
-      console.log(
-        `  history-index: ${idx.components.length} components · ${idx.api_routes.length} api routes · ${idx.migrations.length} migrations · ${idx.test_helpers.length} test helpers · ${idx.test_files.length} test files`
-      );
-    } catch (e) {
-      console.warn(`  (history-index emit failed; refine will run without it: ${(e as Error).message})`);
-    }
+    // 0.19.0-α.43 — also enrich with git-history attention layer.
+    emitHistoryIndex(args.repoRoot);
 
     let outcome;
     try {
@@ -319,6 +303,11 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
           `Change-of-mind accepted; will supersede ${outcome.supersedes.join(", ")}.`
         );
         break;
+      case "multifurcation-proposed":
+        console.log(
+          `Multifurcation proposal posted (comment ${outcome.commentId}): ${outcome.subIssueCount} sub-issues. Awaiting PM split decision.`
+        );
+        break;
       case "noop":
         console.log(`Noop: ${outcome.reason}.`);
         break;
@@ -329,5 +318,75 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
       console.error(e);
     }
     process.exit(2);
+  }
+}
+
+/**
+ * 0.19.0-α.43 — single source for emitting `.brewing/history-index.json`
+ * with both the filesystem scan AND the git-history attention layer.
+ *
+ * Failure-class handling:
+ *   - filesystem scan fails → log + skip the whole emit (the refine agent
+ *     can run without it, just with degraded brownfield awareness).
+ *   - git enrichment fails → emit the index without `git_attention`; the
+ *     warnings already log inside computeGitAttention.
+ *
+ * Both refine paths (issue + resubmit) call this; one site of truth.
+ */
+function emitHistoryIndex(repoRoot: string): void {
+  let idx: HistoryIndex;
+  try {
+    idx = buildHistoryIndex({ repoRoot });
+  } catch (e) {
+    console.warn(`  (history-index emit failed; refine will run without it: ${(e as Error).message})`);
+    return;
+  }
+
+  // 0.19.0-α.43 — collect tracked files from every entry that has a file
+  // path. Refine's git-attention is keyed by these. Excludes mock surface
+  // by design — mock files are design artifacts, not the brownfield
+  // history we want to attend to.
+  const trackedFiles = [
+    ...idx.components.map((c) => c.file),
+    ...idx.api_routes.map((r) => r.file),
+    ...idx.test_helpers.map((h) => h.file),
+    ...idx.test_files.map((t) => t.file),
+  ];
+  // Migrations are listed by basename in the index; reconstruct the
+  // most-likely full path (we don't know which migration dir was used,
+  // so include them via supabase/migrations/ which is the default scan
+  // path). The git-attention layer will silently drop ones that aren't
+  // tracked by git.
+  for (const m of idx.migrations) {
+    trackedFiles.push(`supabase/migrations/${m.file}`);
+  }
+
+  try {
+    idx.git_attention = computeGitAttention({
+      repoRoot,
+      trackedFiles: Array.from(new Set(trackedFiles)),
+    });
+    if (idx.git_attention.warnings.length > 0) {
+      for (const w of idx.git_attention.warnings) {
+        console.warn(`  (git-attention: ${w})`);
+      }
+    }
+  } catch (e) {
+    console.warn(`  (git-attention enrichment failed; emitting index without it: ${(e as Error).message})`);
+  }
+
+  try {
+    const indexPath = join(repoRoot, ".brewing/history-index.json");
+    mkdirSync(dirname(indexPath), { recursive: true });
+    writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf8");
+    const ga = idx.git_attention;
+    const gaLine = ga
+      ? ` · git-attention: ${Object.keys(ga.rename_chains).length} renames · ${Object.keys(ga.co_changes).length} co-change buckets · ${Object.keys(ga.recent_prs_by_file).length} files with PRs · corpus ${ga.pr_spec_corpus.length}`
+      : "";
+    console.log(
+      `  history-index: ${idx.components.length} components · ${idx.api_routes.length} api routes · ${idx.migrations.length} migrations · ${idx.test_helpers.length} test helpers · ${idx.test_files.length} test files${gaLine}`
+    );
+  } catch (e) {
+    console.warn(`  (history-index write failed: ${(e as Error).message})`);
   }
 }
