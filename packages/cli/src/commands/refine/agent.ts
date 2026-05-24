@@ -71,6 +71,7 @@ import { enrichBodyWithImages } from "./images.js";
 import { auditSideEffects, sideEffectsCommentBody } from "./side-effects-audit.js";
 import {
   assessMultifurcation,
+  digestActiveSpecs,
   multifurcationCommentBody,
   hasExistingMultifurcationComment,
 } from "./multifurcate.js";
@@ -164,12 +165,22 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   //
   // The model can fall back to "one" silently if the verdict is
   // unparseable — that's safer than blocking refine on a parser bug.
+  // cli α.45 — hoist listActiveSpecs above multifurcation so the model
+  // can annotate overlapping sub-issues with their `existing_spec_id`
+  // instead of silently omitting them. Same call is reused for the
+  // relationship-analysis step below.
+  const activeSpecs = listActiveSpecs(ctx.repoRoot);
+
   if (!issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
     const existingComments = await ctx.forge.listIssueComments(ctx.issueNumber);
     if (!hasExistingMultifurcationComment(existingComments)) {
       try {
         const mf = await assessMultifurcation(
-          { issueTitle: issue.title, issueBody: issue.body },
+          {
+            issueTitle: issue.title,
+            issueBody: issue.body,
+            activeSpecs: digestActiveSpecs(activeSpecs),
+          },
           { llm: ctx.llm, model: ctx.relationshipModel }
         );
         if (mf.verdict.kind === "many") {
@@ -208,8 +219,8 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     }
   }
 
-  // Step 1: relationship analysis
-  const existingSpecs = listActiveSpecs(ctx.repoRoot);
+  // Step 1: relationship analysis (reuses `activeSpecs` from above)
+  const existingSpecs = activeSpecs;
   const relationshipResult = await analyzeRelationship(
     { issueTitle: issue.title, issueBody: issue.body, activeSpecs: existingSpecs },
     { llm: ctx.llm, model: ctx.relationshipModel }
