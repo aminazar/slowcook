@@ -240,13 +240,20 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
   }
 
   // Git: branch, stage, commit, push
+  //
+  // Stage only what was actually written to disk. The graceful-degrade
+  // path (sc#65) can produce records where testPath/uiTestPath stays
+  // truthy but fileContents/uiFileContents is empty because the LLM
+  // omitted that block — the write guards on lines ~212 / ~223 skip
+  // those, and stage must mirror or git-add fails with pathspec-not-
+  // found (caught in delgoosh dogfood 2026-05-24 / run 26372101538).
   await ctx.forge.git.createBranch(ctx.branchName);
   for (const g of generated) {
-    if (g.testPath) await ctx.forge.git.stage(g.testPath);
+    if (g.testPath && g.fileContents) await ctx.forge.git.stage(g.testPath);
     await ctx.forge.git.stage(join(MANIFESTS_DIR, `story-${g.spec.story_id}.json`));
     for (const stub of g.stubs) await ctx.forge.git.stage(stub.path);
     for (const helper of g.helpers) await ctx.forge.git.stage(helper.path);
-    if (g.uiTestPath) await ctx.forge.git.stage(g.uiTestPath);
+    if (g.uiTestPath && g.uiFileContents) await ctx.forge.git.stage(g.uiTestPath);
     for (const stub of g.uiStubs) await ctx.forge.git.stage(stub.path);
     for (const extra of g.extraTestFiles) await ctx.forge.git.stage(extra.path);
   }
