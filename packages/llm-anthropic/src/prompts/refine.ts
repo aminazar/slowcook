@@ -55,6 +55,7 @@ PM voice, not engineer voice. The PM will read this in a comment and decide whet
 3. **3-10 sub-issues**. If you'd need more, group them under fewer parents. If you have fewer than 3, this is probably ONE story after all — say "one" instead.
 4. **Dependencies** — note when one sub-issue MUST land before another can be tested. Optional; only include if real.
 5. **Ordering** — list the sub-issues in the order a PM would naturally tackle them (foundations first, polish last). Same order the PM would file them.
+6. **Overlap with active specs — INCLUDE, ANNOTATE, DON'T OMIT.** The user message may list active specs ("Active specs in this repo"). If a sub-issue's scope is ALREADY covered by one of those specs, set its \`existing_spec_id\` field to that story id (digits only, e.g. \`"002"\`) and STILL list the sub-issue. The PM needs to see the parent issue's full scope; the annotation tells them "this slice is already on the ratchet — fold it in or skip." Silently dropping overlapping slices hides scope from the PM and is a hard failure. When in doubt about overlap, lean toward annotating — the PM can untag if it's wrong, but they can't un-omit something they never saw.
 
 ## Output format
 
@@ -74,12 +75,13 @@ MANY stories:
     {
       "title": "<PM-style title, ≤ 80 chars>",
       "summary": "<1-3 sentences in PM voice; no technical terms>",
-      "depends_on": ["<title of another sub-issue>"]
+      "depends_on": ["<title of another sub-issue>"],
+      "existing_spec_id": "<digit-only story id of an active spec this overlaps with; omit if not applicable>"
     }
   ]
 }
 
-The "depends_on" key is optional per sub-issue; omit if there are no real dependencies.
+The "depends_on" and "existing_spec_id" keys are both optional per sub-issue; omit when not applicable. Do NOT use "existing_spec_id" speculatively — only when the active-specs list in the user message names a spec whose scope genuinely covers the sub-issue.
 
 ## What to ignore
 

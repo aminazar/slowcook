@@ -22,14 +22,36 @@
  * PM's call — the comment template makes editing easy.
  */
 
-import type { LlmClient } from "@slowcook-ai/core";
+import type { LlmClient, Spec } from "@slowcook-ai/core";
 import { MULTIFURCATION_SYSTEM } from "@slowcook-ai/llm-anthropic";
+
+/**
+ * One existing spec the model needs to be aware of when proposing a
+ * split, so it can mark sub-issues that overlap with active scope
+ * INSTEAD of silently omitting them. The PM needs to see the full
+ * picture, not a hidden side-channel.
+ *
+ * Built from `listActiveSpecs(repoRoot)` — a single line of Spec.
+ */
+export interface ActiveSpecDigest {
+  story_id: string;
+  title: string;
+  summary: string;
+}
 
 export interface MultifurcationSubIssue {
   title: string;
   summary: string;
   /** Optional — titles of OTHER sub-issues this one depends on landing first. */
   depends_on?: string[];
+  /**
+   * cli α.45 — set when the proposed sub-issue's scope is already covered
+   * by an active spec. The PM still sees the sub-issue (so the parent
+   * issue's full scope is visible), but the comment renders an "Already
+   * covered by story-NNN" annotation and the PM can fold it into the
+   * existing story rather than opening a duplicate.
+   */
+  existing_spec_id?: string;
 }
 
 export type MultifurcationVerdict =
@@ -39,6 +61,16 @@ export type MultifurcationVerdict =
 export interface MultifurcationInputs {
   issueTitle: string;
   issueBody: string;
+  /**
+   * cli α.45 — list of currently active specs in this repo. The
+   * multifurcation prompt uses them to annotate sub-issues that
+   * overlap with existing scope (story_id is the PM-visible
+   * reference; title + summary give the model enough context to
+   * decide whether overlap is real).
+   *
+   * Empty array is fine — model just won't tag anything.
+   */
+  activeSpecs?: ActiveSpecDigest[];
 }
 
 export interface MultifurcationResult {
@@ -56,8 +88,7 @@ export async function assessMultifurcation(
   inputs: MultifurcationInputs,
   opts: { llm: LlmClient; model: string }
 ): Promise<MultifurcationResult> {
-  const userMessage = `## Issue under review\n\n### Title\n${inputs.issueTitle}\n\n### Body\n${inputs.issueBody || "(empty body)"}\n\nReturn the JSON verdict per the system prompt.`;
-
+  const userMessage = buildMultifurcationUserMessage(inputs);
   const response = await opts.llm.complete({
     system: MULTIFURCATION_SYSTEM,
     cacheSystem: false,
@@ -71,6 +102,52 @@ export async function assessMultifurcation(
     costUsd: response.costUsd,
     usage: response.usage,
   };
+}
+
+/**
+ * Compose the user-side message. Exported for tests so the snapshot can
+ * assert active-specs context lands where the model expects it.
+ */
+export function buildMultifurcationUserMessage(inputs: MultifurcationInputs): string {
+  const sections: string[] = [];
+  sections.push("## Issue under review");
+  sections.push(`### Title\n${inputs.issueTitle}`);
+  sections.push(`### Body\n${inputs.issueBody || "(empty body)"}`);
+
+  const specs = inputs.activeSpecs ?? [];
+  if (specs.length > 0) {
+    sections.push("## Active specs in this repo");
+    sections.push(
+      "If any proposed sub-issue's scope is ALREADY covered by one of these, " +
+        "set `existing_spec_id` to that story_id in the sub-issue object. " +
+        "Still include the sub-issue in the proposal — the PM needs the full picture, " +
+        "the annotation tells them this slice is already on the ratchet. " +
+        "Do NOT silently omit overlapping sub-issues."
+    );
+    for (const s of specs) {
+      const summary = s.summary && s.summary.length > 0 ? ` — ${s.summary}` : "";
+      sections.push(`- **story-${s.story_id}** "${s.title}"${summary}`);
+    }
+  }
+
+  sections.push("Return the JSON verdict per the system prompt.");
+  return sections.join("\n\n");
+}
+
+/**
+ * Compact a Spec list down to the digest shape the multifurcation
+ * prompt consumes. Summary is the first ~150 chars of the first
+ * acceptance scenario (the most spec-like prose); falls back to a
+ * non_goal or empty string.
+ */
+export function digestActiveSpecs(specs: Spec[]): ActiveSpecDigest[] {
+  return specs.map((s) => {
+    const firstScenario = s.acceptance_scenarios[0] ?? "";
+    const firstInvariant = s.invariants[0] ?? "";
+    const raw = firstScenario || firstInvariant || s.non_goals[0] || "";
+    const summary = raw.replace(/\s+/g, " ").trim().slice(0, 150);
+    return { story_id: s.story_id, title: s.title, summary };
+  });
 }
 
 /**
@@ -121,6 +198,16 @@ export function parseMultifurcationJson(text: string): MultifurcationVerdict {
         .map((d) => d.trim());
       const item: MultifurcationSubIssue = { title, summary };
       if (depends_on.length > 0) item.depends_on = depends_on;
+      // cli α.45 — overlap annotation. Accept variants the model may
+      // emit (existing_spec_id, story_id, covered_by_story) and
+      // normalize to plain digit-suffix form ("002" not "story-002").
+      const rawId =
+        (typeof e.existing_spec_id === "string" && e.existing_spec_id) ||
+        (typeof e.covered_by_story === "string" && e.covered_by_story) ||
+        (typeof e.story_id === "string" && e.story_id) ||
+        "";
+      const normalised = rawId.trim().replace(/^story-/i, "");
+      if (normalised.length > 0) item.existing_spec_id = normalised;
       sub_issues.push(item);
     }
     // Guardrail: if the model said "many" but failed to produce ≥2 valid
@@ -189,11 +276,17 @@ export function multifurcationCommentBody(
     `This issue looks like **more than one story** to me. Before I produce a spec, please confirm the split below — refine ships one PR per story, and a single mega-spec usually misses the things that matter at each user-facing slice.`
   );
   lines.push("");
-  lines.push(`#### Proposed sub-issues (${proposal.sub_issues.length})`);
+  const overlapCount = proposal.sub_issues.filter((s) => s.existing_spec_id).length;
+  lines.push(
+    `#### Proposed sub-issues (${proposal.sub_issues.length}${overlapCount > 0 ? `, ${overlapCount} overlap existing specs` : ""})`
+  );
   lines.push("");
   for (let i = 0; i < proposal.sub_issues.length; i++) {
     const s = proposal.sub_issues[i]!;
-    lines.push(`**${i + 1}. ${escapeMd(s.title)}**`);
+    const overlapBadge = s.existing_spec_id
+      ? ` _(already covered by story-${escapeMd(s.existing_spec_id)})_`
+      : "";
+    lines.push(`**${i + 1}. ${escapeMd(s.title)}**${overlapBadge}`);
     lines.push("");
     lines.push(escapeMd(s.summary));
     if (s.depends_on && s.depends_on.length > 0) {
@@ -211,10 +304,10 @@ export function multifurcationCommentBody(
   lines.push("#### What to do");
   lines.push("");
   lines.push(
-    "- 👍 **Looks right** → file each sub-issue, then close this one (or remove `needs-refinement` from it). Each sub-issue runs through refine independently."
+    "- 👍 **Looks right** → file each sub-issue that DOESN'T have an _already covered by_ tag. For tagged ones, decide per row whether to fold them into the existing story (comment on that story) or skip. Then close this one or remove `needs-refinement` from it."
   );
   lines.push(
-    "- ✏️ **Needs tweaking** → reply with the edited list (edit titles, drop or add entries). Remove the `slowcook-multifurcation-proposed` label and I'll re-propose."
+    "- ✏️ **Needs tweaking** → reply with the edited list (edit titles, drop or add entries, change overlap calls). Remove the `slowcook-multifurcation-proposed` label and I'll re-propose."
   );
   lines.push(
     "- 👎 **Keep as one** → reply \"keep as one\" and remove both labels (`slowcook-multifurcation-proposed` and `needs-refinement`, then re-add `needs-refinement`). I'll proceed with a single spec."
