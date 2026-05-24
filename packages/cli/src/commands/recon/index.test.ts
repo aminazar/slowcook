@@ -100,6 +100,87 @@ describe("resolveImport (regression: rewo issue #149 false-positive 'clean')", (
   });
 });
 
+describe("resolveImport — relative imports (α.48 regression: delgoosh#656)", () => {
+  // Recon used to return null for any non-`@/` import → relative
+  // imports like `import { x } from "../helpers/mocks"` were always
+  // flagged missing_component, halting brew-auto even when the file
+  // was on disk. Burned 3 brew-auto attempts on delgoosh story-003
+  // before the bug was caught.
+  it("resolves '../helpers/mocks' to tests/helpers/mocks/index.ts (directory + index)", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-rel-"));
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      mkdirSync(join(r, "tests/helpers/mocks"), { recursive: true });
+      writeFileSync(join(r, "tests/helpers/mocks/index.ts"), "export const resetMocks = () => {};", "utf8");
+      const got = resolveImport(r, "../helpers/mocks", "tests/integration/story-003.test.ts");
+      expect(got).toBe("tests/helpers/mocks/index.ts");
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves './foo' to a sibling .ts file with extension", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-rel-"));
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      writeFileSync(join(r, "tests/integration/sib.ts"), "export {};", "utf8");
+      const got = resolveImport(r, "./sib", "tests/integration/story.test.ts");
+      expect(got).toBe("tests/integration/sib.ts");
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves './foo' to .tsx when both options exist (prefers .ts)", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-rel-"));
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      writeFileSync(join(r, "tests/integration/foo.ts"), "export {};", "utf8");
+      writeFileSync(join(r, "tests/integration/foo.tsx"), "export {};", "utf8");
+      const got = resolveImport(r, "./foo", "tests/integration/story.test.ts");
+      expect(got).toBe("tests/integration/foo.ts");
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null for a relative import to a non-existent file", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-rel-"));
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      const got = resolveImport(r, "./does-not-exist", "tests/integration/story.test.ts");
+      expect(got).toBeNull();
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null for a relative import when sourceFileRel is omitted (back-compat)", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-rel-"));
+    try {
+      mkdirSync(join(r, "tests/helpers"), { recursive: true });
+      writeFileSync(join(r, "tests/helpers/mocks.ts"), "export {};", "utf8");
+      // No third arg → relative resolution can't anchor → null.
+      expect(resolveImport(r, "../helpers/mocks")).toBeNull();
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("does not return a directory match — only files", () => {
+    const r = mkdtempSync(join(tmpdir(), "slowcook-recon-rel-"));
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      mkdirSync(join(r, "tests/helpers/mocks"), { recursive: true });
+      // Directory exists but no index file inside → don't claim resolved.
+      const got = resolveImport(r, "../helpers/mocks", "tests/integration/story.test.ts");
+      expect(got).toBeNull();
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("srcPathToAliasImport (#75 v2 helper)", () => {
   it("converts src/<rel>.tsx to @/<rel>", async () => {
     const { srcPathToAliasImport } = await import("./shape-preserve.js");

@@ -236,7 +236,7 @@ export async function recon(argv: string[], cliVersion: string): Promise<void> {
 
     // Check 1: every test import → file exists somewhere reachable
     for (const imp of imports) {
-      const resolved = resolveImport(args.repoRoot, imp);
+      const resolved = resolveImport(args.repoRoot, imp, testRel);
       if (!resolved) {
         // Not in src/ or mock/ — it's a missing component
         // Search history-index for a near-match by name
@@ -415,7 +415,23 @@ export function extractTestids(body: string): string[] {
   return [...new Set(out)];
 }
 
-export function resolveImport(repoRoot: string, imp: string): string | null {
+export function resolveImport(
+  repoRoot: string,
+  imp: string,
+  /**
+   * Repo-relative path of the file that emits this import. Required for
+   * relative imports (./ or ../) so they can be resolved against the
+   * source file's directory. `@/` imports ignore this argument.
+   *
+   * Optional + nullable for back-compat with callers that only ever
+   * pass `@/`-style imports. cli α.48: any caller passing a `.`-prefixed
+   * import MUST supply this — without it relative resolution returns
+   * null and recon falsely flags missing_component (delgoosh#656 dogfood
+   * 2026-05-24 / runs 26372728345 + 26373548396 burned 3 brew-auto
+   * attempts on this exact gap before α.48).
+   */
+  sourceFileRel?: string,
+): string | null {
   // The `@/*` alias in the consumer's top-level tsconfig points at `./src/*`
   // ONLY — `mock/src/*` lives behind the mock's separate tsconfig. Resolving
   // `@/foo` against `mock/src/foo` here gives a false-positive "clean" gate:
@@ -433,7 +449,35 @@ export function resolveImport(repoRoot: string, imp: string): string | null {
     for (const c of candidates) {
       if (existsSync(join(repoRoot, c))) return c;
     }
+    return null;
   }
+
+  // cli α.48 — relative imports. `extractImports` already filters to
+  // `@/` + `./...` so any other shape (e.g. bare module specifiers) is
+  // not reachable here, but we defend with the leading-dot guard anyway.
+  if (imp.startsWith(".") && sourceFileRel) {
+    const sourceDir = dirname(sourceFileRel);
+    const baseRel = join(sourceDir, imp).replace(/\\/g, "/");
+    const candidates = [
+      baseRel,
+      `${baseRel}.ts`,
+      `${baseRel}.tsx`,
+      `${baseRel}/index.ts`,
+      `${baseRel}/index.tsx`,
+    ];
+    for (const c of candidates) {
+      if (existsSync(join(repoRoot, c))) {
+        // Don't return a directory as "resolved" — only files.
+        try {
+          if (statSync(join(repoRoot, c)).isFile()) return c;
+        } catch {
+          continue;
+        }
+      }
+    }
+    return null;
+  }
+
   return null;
 }
 
