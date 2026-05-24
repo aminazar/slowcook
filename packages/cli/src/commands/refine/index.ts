@@ -303,6 +303,11 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
           `Change-of-mind accepted; will supersede ${outcome.supersedes.join(", ")}.`
         );
         break;
+      case "multifurcation-proposed":
+        console.log(
+          `Multifurcation proposal posted (comment ${outcome.commentId}): ${outcome.subIssueCount} sub-issues. Awaiting PM split decision.`
+        );
+        break;
       case "noop":
         console.log(`Noop: ${outcome.reason}.`);
         break;
