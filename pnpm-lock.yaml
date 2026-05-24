@@ -53,8 +53,16 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
-  packages/core: {}
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/forge-github:
     dependencies:
@@ -64,6 +72,10 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/gates:
     dependencies:
@@ -79,6 +91,10 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/mock-runtime:
     dependencies:
@@ -86,6 +102,9 @@ importers:
         specifier: workspace:^
         version: link:../core
     devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -99,10 +118,17 @@ importers:
         specifier: ^19.2.6
         version: 19.2.6(react@19.2.6)
 
-  packages/recorder: {}
+  packages/recorder:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/review-overlay:
     devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -121,6 +147,10 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
 packages:
 

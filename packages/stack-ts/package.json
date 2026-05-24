@@ -41,6 +41,9 @@
   "dependencies": {
     "@slowcook-ai/core": "workspace:^"
   },
+  "devDependencies": {
+    "@types/node": "^25.9.0"
+  },
   "publishConfig": {
     "access": "public"
   }
