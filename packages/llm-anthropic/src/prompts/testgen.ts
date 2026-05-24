@@ -260,6 +260,19 @@ export type { MockFooConfig, MockFooClient, MockFooUser } from "./foo.js";
 
 If the barrel already exists (listed in project context), emit a \`<helper>\` block that REPLACES it with the union of existing + new exports.
 
+### Import-closure rule (α.49 — hard signal)
+
+Every relative import in your emitted test files must resolve to either:
+- A \`<helper>\` block you emit in this same response, OR
+- A \`<stub>\` block you emit in this same response, OR
+- A file the project context lists as already existing on disk.
+
+If you import \`{ resetMocks } from "../helpers/mocks"\` but don't emit a \`<helper path="tests/helpers/mocks/index.ts">\` block, testgen will halt the run with an import-closure violation. The fix is one of:
+1. Emit the helper block alongside the test.
+2. Skip the helper entirely and inline what you needed — \`vi.clearAllMocks()\` doesn't justify a helper file. Don't import \`resetMocks\` if all it would do is call \`vi.clearAllMocks()\`.
+
+The validator is mechanical (zero LLM cost). Trust it: if it complains, the gap is real.
+
 ## UI test-file shape (when spec has \`ui_behavior\`)
 
 File path: \`tests/integration/story-<id>-ui.test.tsx\` (note the \`.tsx\` extension).

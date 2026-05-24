@@ -120,6 +120,43 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
       }
     }
 
+    // α.49 — import-closure validator. Catches the class of bug where
+    // the LLM imports a helper/stub from a relative path but doesn't
+    // emit it (and it isn't already on disk). Without this, recon
+    // escalates two stages later + burns a brew-auto dispatch cycle
+    // on the same gap (delgoosh story-003, 3 burned attempts).
+    const emittedHelperPaths = bundle.helpers.map((h) => h.path);
+    const emittedStubPaths = bundle.stubs.map((s) => s.path);
+    const handlerImportViolations =
+      mode !== "ui-only" && bundle.testContent
+        ? validateImportClosure({
+            repoRoot: ctx.repoRoot,
+            testFilePath: testPath,
+            testContent: bundle.testContent,
+            emittedHelperPaths,
+            emittedStubPaths,
+          })
+        : [];
+    const uiImportViolations =
+      mode !== "handler-only" && bundle.uiTestContent
+        ? validateImportClosure({
+            repoRoot: ctx.repoRoot,
+            testFilePath: uiTestPath,
+            testContent: bundle.uiTestContent,
+            emittedHelperPaths,
+            emittedStubPaths: [...emittedStubPaths, ...bundle.uiStubs.map((s) => s.path)],
+          })
+        : [];
+    const importViolations = [...handlerImportViolations, ...uiImportViolations];
+    if (importViolations.length > 0) {
+      throw new Error(
+        `testgen output for story-${spec.story_id} has ${importViolations.length} unresolved relative import(s):\n` +
+          formatImportClosureViolations(importViolations) +
+          `\n\nThe LLM emitted test files importing helpers/stubs it didn't write and that don't exist on disk. ` +
+          `Re-run testgen with a tighter prompt, or hand-emit the missing helper(s) and re-trigger.`
+      );
+    }
+
     // De-dupe stubs + helpers: skip anything whose target file exists and
     // isn't a @slowcook-stub (for stubs) or isn't empty (for helpers). This
     // lets testgen re-run safely without clobbering in-progress impls.
@@ -1490,6 +1527,87 @@ export function lintTierOneTest(filePath: string, source: string): TierOneViolat
     }
   }
   return violations;
+}
+
+// ----- α.49: import-closure validator -----
+//
+// Caught dogfooding delgoosh#656 / story-003 (real bot output). The LLM
+// emitted `import { resetMocks } from "../helpers/mocks"` in the test
+// file but did NOT emit a corresponding <helper path=...> block. The
+// helper didn't exist on disk either. Recon caught it at the next
+// stage (after we shipped α.48), but that's two re-runs late — the
+// failure is detectable at testgen-emit time with zero LLM cost.
+//
+// Rule: every relative import in an emitted test file must resolve to
+// either a helper emitted in THIS turn's bundle OR a file already on
+// disk. Otherwise testgen halts loudly + the maintainer can re-run with
+// a tighter prompt instead of burning a recon-escalate-fix cycle.
+
+export interface ImportClosureViolation {
+  test: string;
+  importPath: string;
+  reason: "missing" | "directory-without-index";
+}
+
+export function validateImportClosure(args: {
+  repoRoot: string;
+  testFilePath: string;          // repo-rel path the test file will be written at
+  testContent: string;            // raw test file source
+  emittedHelperPaths: string[];   // repo-rel paths of helpers emitted this turn
+  emittedStubPaths?: string[];    // repo-rel paths of stubs emitted this turn
+}): ImportClosureViolation[] {
+  const { repoRoot, testFilePath, testContent } = args;
+  const emitted = new Set<string>([
+    ...args.emittedHelperPaths,
+    ...(args.emittedStubPaths ?? []),
+  ]);
+  const violations: ImportClosureViolation[] = [];
+
+  const testDir = dirname(testFilePath);
+  const importRe = /import[^"']*from\s+["'](\.[^"']+)["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = importRe.exec(testContent)) !== null) {
+    const imp = m[1];
+    if (!imp) continue;
+    const baseRel = join(testDir, imp).replace(/\\/g, "/");
+    const candidates = [
+      baseRel,
+      `${baseRel}.ts`,
+      `${baseRel}.tsx`,
+      `${baseRel}/index.ts`,
+      `${baseRel}/index.tsx`,
+    ];
+    const resolved = candidates.find((c) => {
+      if (emitted.has(c)) return true;
+      const abs = join(repoRoot, c);
+      try { return statSync(abs).isFile(); } catch { return false; }
+    });
+    if (!resolved) {
+      // Distinguish "the import points at a directory that exists but
+      // has no index file" from outright missing — the prompt advice
+      // differs (one wants a `<helper>` block emitting the index, the
+      // other wants either an emit OR a switch to inlining).
+      let dirExists = false;
+      try { dirExists = statSync(join(repoRoot, baseRel)).isDirectory(); } catch { /* ignore */ }
+      violations.push({
+        test: testFilePath,
+        importPath: imp,
+        reason: dirExists ? "directory-without-index" : "missing",
+      });
+    }
+  }
+  return violations;
+}
+
+export function formatImportClosureViolations(violations: ImportClosureViolation[]): string {
+  return violations
+    .map((v) => {
+      const hint = v.reason === "directory-without-index"
+        ? `directory \`${v.importPath}\` exists but has no index.ts — emit a \`<helper path="…/index.ts">\` block, OR inline the helper's contents.`
+        : `no helper, stub, or on-disk file at \`${v.importPath}\` — emit a \`<helper>\` / \`<stub>\` block for it, OR inline (e.g. \`vi.clearAllMocks()\` doesn't need a helper).`;
+      return `  - ${v.test} imports "${v.importPath}" — ${hint}`;
+    })
+    .join("\n");
 }
 
 /**
