@@ -4,6 +4,10 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
+    // TS 6 stopped auto-loading node_modules/@types/* under NodeNext
+    // module resolution unless `types` is set explicitly. All workspace
+    // packages depend on @types/node (declared per-package).
+    "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,

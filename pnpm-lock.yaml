@@ -12,8 +12,8 @@ importers:
         specifier: ^25.9.0
         version: 25.9.0
       typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
+        specifier: ^6.0.3
+        version: 6.0.3
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@25.9.0)(jsdom@29.1.1)
@@ -53,8 +53,16 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
-  packages/core: {}
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/forge-github:
     dependencies:
@@ -64,6 +72,10 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/gates:
     dependencies:
@@ -79,6 +91,10 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/mock-runtime:
     dependencies:
@@ -86,6 +102,9 @@ importers:
         specifier: workspace:^
         version: link:../core
     devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -99,10 +118,17 @@ importers:
         specifier: ^19.2.6
         version: 19.2.6(react@19.2.6)
 
-  packages/recorder: {}
+  packages/recorder:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
   packages/review-overlay:
     devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -121,6 +147,10 @@ importers:
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.0
+        version: 25.9.0
 
 packages:
 
@@ -1108,8 +1138,8 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -2055,7 +2085,7 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  typescript@5.9.3: {}
+  typescript@6.0.3: {}
 
   undici-types@7.24.6: {}
 
