@@ -34,6 +34,7 @@ import {
   buildVibeUserPrompt,
   REFINEMENT_ANALYST_SYSTEM,
   BROWNFIELD_ANSWER_SYSTEM,
+  MULTIFURCATION_SYSTEM,
 } from "@slowcook-ai/llm-anthropic";
 
 export interface Fixture {
@@ -98,6 +99,13 @@ const BUILDERS: Record<string, (args: unknown) => string> = {
     // assert on its required-rules surface (verbatim copy, source
     // citation, conservative-ambiguous, JSON output, etc.).
     return BROWNFIELD_ANSWER_SYSTEM;
+  },
+  multifurcation: () => {
+    // 0.19.0-α.44–α.46 — multifurcation pre-step. Static system prompt.
+    // Eval fixtures assert on the granularity-floor rule (3-6 scenario
+    // anchor + Actor+Verb+Object no-conjunctions check + recursion-
+    // aware "lean toward one when input has `Split from #N` footer").
+    return MULTIFURCATION_SYSTEM;
   },
 };
 

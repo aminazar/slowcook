@@ -1,0 +1,29 @@
+{
+  "id": "refine-multifurcation-granularity-floor",
+  "agent": "multifurcation",
+  "description": "The multifurcation system prompt MUST anchor 'one story' on the 3-6 acceptance-scenario floor and require an Actor+Verb+Object no-conjunctions title check before proposing any sub-issue. Without this anchor (α.44/α.45) the prompt over-split bounded inputs into per-field/per-axis sub-tasks. The prompt also MUST handle recursion: when the input body has a `Split from #N (slowcook multifurcation)` footer the model should lean toward 'one' unless the body still has 2+ distinct user outcomes meeting the floor.",
+  "captured_from": {
+    "pr": 640,
+    "date": "2026-05-24",
+    "context": "Dogfooded against delgoosh#640 → 7 sub-issues filed → 6 of 7 got re-multifurcated. PM-led review (docs/dogfood/2026-05-24-multifurcation-recursion.md) showed the depth-2 splits were correct given the epic-scale parent — but the prompt had no defined granularity floor, so a depth-3 attempt on a story-sized input like 'Patient can edit their name' would have continued to invent sub-tasks. α.46 codifies the floor + recursion-aware calibration."
+  },
+  "input": {},
+  "expected_prompt_includes": [
+    "granularity floor",
+    "3-6 acceptance scenarios",
+    "Actor + Verb + Object",
+    "NO conjunctions",
+    "Patient can edit their name",
+    "TASK",
+    "fold it back into its sibling",
+    "STOP",
+    "When the input was itself a multifurcation output",
+    "Split from",
+    "lean toward",
+    "existing_spec_id"
+  ],
+  "expected_prompt_excludes": [
+    "3-10 sub-issues",
+    "If you have fewer than 3, this is probably ONE story"
+  ]
+}
