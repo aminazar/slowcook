@@ -45,6 +45,9 @@ export {
   SIDE_EFFECTS_AUDIT_SYSTEM,
   BROWNFIELD_ANSWER_SYSTEM,
   AMENDMENT_SYSTEM,
+  // cli α.44 — multifurcation pass that detects "this issue is actually
+  // many stories" before refine wastes a heavy-reasoning call.
+  MULTIFURCATION_SYSTEM,
 } from "./prompts/refine.js";
 // 0.10.0 — vibe agent (0.15 plate-pipeline α.1) — design-first mockup
 // generator. Reads spec + brownfield extracts + code-map; emits a
