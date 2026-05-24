@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/mock-runtime",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Runtime for slowcook's per-consumer UI mock app — Scenario types, registry, React hooks, ScenarioPicker UI. Imported by the mock/ scaffolding `slowcook init mock` writes. The mock is the design contract: vibe + plate evolve it; brew copies its components into production with real-data wiring.",
   "license": "MIT",
   "author": "aminazar",

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { SLOWCOOK_LOGO_SVG } from "@slowcook-ai/core";
 import { useScenarioRegistry } from "./registry-context.js";
 
 /**
@@ -446,24 +447,21 @@ function Brand() {
           border: "1px solid rgba(255,107,107,0.25)",
         }}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M8 3 Q9 4 8 5.5 Q7 7 8 8.5 M12 2 Q13 3.5 12 5 Q11 6.5 12 8 M16 3 Q17 4 16 5.5 Q15 7 16 8.5"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            strokeLinecap="round"
-            fill="none"
-            opacity="0.85"
-          />
-          <rect x="4" y="9.5" width="16" height="2.2" rx="1.1" fill="currentColor" />
-          <rect x="11" y="8.4" width="2" height="1.4" rx="0.4" fill="currentColor" />
-          <path
-            d="M5 12.2 H19 V18.5 a2.5 2.5 0 0 1 -2.5 2.5 H7.5 a2.5 2.5 0 0 1 -2.5 -2.5 Z"
-            fill="currentColor"
-          />
-          <rect x="2" y="13.5" width="2.5" height="3" rx="0.6" fill="currentColor" />
-          <rect x="19.5" y="13.5" width="2.5" height="3" rx="0.6" fill="currentColor" />
-        </svg>
+        {/* sc#82 follow-up — single source-of-truth: SLOWCOOK_LOGO_SVG from
+            @slowcook-ai/core. Edit the canonical file at
+            packages/core/assets/slowcook-logo.svg, not here. The wrapper
+            is 22×22; the SVG's own viewBox handles the aspect-fit. */}
+        <span
+          aria-hidden="true"
+          style={{
+            width: 22,
+            height: 22,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          dangerouslySetInnerHTML={{ __html: SLOWCOOK_LOGO_SVG }}
+        />
       </span>
       <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
         <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.01em" }}>slowcook</span>

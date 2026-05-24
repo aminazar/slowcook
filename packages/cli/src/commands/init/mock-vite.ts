@@ -38,6 +38,7 @@
 
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { SLOWCOOK_LOGO_SVG } from "@slowcook-ai/core";
 
 export interface MockViteInitArgs {
   cwd: string;
@@ -77,6 +78,7 @@ export function planMockViteFiles(args: MockViteInitArgs): FileToWrite[] {
     { path: "mock/index.html", contents: INDEX_HTML, skipIfExists: true },
     { path: "mock/.gitignore", contents: GITIGNORE, skipIfExists: true },
     { path: "mock/README.md", contents: README, skipIfExists: true },
+    { path: "mock/public/slowcook-logo.svg", contents: SLOWCOOK_LOGO_SVG, skipIfExists: false },
     { path: "mock/src/main.tsx", contents: MAIN_TSX, skipIfExists: true },
     { path: "mock/src/App.tsx", contents: APP_TSX, skipIfExists: true },
     { path: "mock/src/design-system/tokens.ts", contents: TOKENS_TS, skipIfExists: true },
