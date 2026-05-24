@@ -116,14 +116,28 @@ ${RESOLVE_PIN_STEP}
 ${installStep(pm)}
 
       - name: Guard — frozen paths
+        # Always RUN (so the report shows what was touched) — only HARD-
+        # FAIL on brew PRs. Non-brew PRs fall back to advisory mode by
+        # default; the explicit \`override-freeze\` label still flips
+        # advisory on for an emergency brew PR. Rationale: brew's own
+        # internal frozen-paths check is the authoritative gate during
+        # iteration. The CI guard's job is to catch a bad brew output
+        # before merge — that's brew-PR-scoped by definition. Human PRs
+        # legitimately edit test infra (e.g. adding jsdom, tweaking
+        # vitest.config) and shouldn't be blocked by the same enforcement.
+        # (cli α.50 default; was hard-fail-always pre-α.50.)
         env:
-          HAS_OVERRIDE: \${{ contains(github.event.pull_request.labels.*.name, 'override-freeze') }}
+          HAS_OVERRIDE: \${{ contains(github.event.pull_request.labels.*.name, 'override-freeze') || !startsWith(github.head_ref, 'slowcook/brew/') }}
         run: |
           set -eu
           ARGS="--base origin/\${{ github.base_ref }} --head HEAD"
           if [ "$HAS_OVERRIDE" = "true" ]; then
             ARGS="$ARGS --override"
-            echo "::notice::'override-freeze' label present — guard runs in advisory mode."
+            if [ "\${{ contains(github.event.pull_request.labels.*.name, 'override-freeze') }}" = "true" ]; then
+              echo "::notice::'override-freeze' label present — guard runs in advisory mode."
+            else
+              echo "::notice::Non-brew PR — guard runs in advisory mode. Brew PRs hard-fail on violations; this PR will surface violations as warnings only."
+            fi
           fi
           npx --yes "$SLOWCOOK_CLI" guard $ARGS
 
