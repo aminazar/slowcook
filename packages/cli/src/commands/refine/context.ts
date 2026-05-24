@@ -126,6 +126,12 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
       migrations?: Array<{ file: string; tables_created: string[]; columns_added: Record<string, string[]> }>;
       test_helpers?: Array<{ name: string; file: string; purpose: string }>;
       mock_surface?: Array<{ file: string; route: string | null; name: string; excerpt: string }>;
+      git_attention?: {
+        rename_chains?: Record<string, string[]>;
+        co_changes?: Record<string, Array<{ file: string; strength: number }>>;
+        recent_prs_by_file?: Record<string, Array<{ number: number; title: string; merged_at: string | null }>>;
+        pr_spec_corpus?: Array<{ source: "pr" | "spec"; id: string; title: string; tokens: string[] }>;
+      };
     };
     const lines: string[] = [];
     lines.push("## Code history index (auto-generated; treat as authoritative)\n");
@@ -193,6 +199,70 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
         lines.push(`- \`${h.name}\` from \`${h.file}\`${purpose}`);
       }
       lines.push("");
+    }
+
+    // 0.19.0-α.43 — git-history attention layer. Surface the four
+    // signals (renames, co-changes, recent PRs per file, PR+spec
+    // corpus) so refine grounds new specs in actual project history,
+    // not just snapshot structure. Cap each list aggressively so the
+    // digest stays prompt-sized; full data is in the json on disk.
+    const ga = idx.git_attention;
+    if (ga) {
+      const renameEntries = Object.entries(ga.rename_chains ?? {});
+      const coChangeEntries = Object.entries(ga.co_changes ?? {});
+      const prEntries = Object.entries(ga.recent_prs_by_file ?? {});
+      const corpus = ga.pr_spec_corpus ?? [];
+      const anyContent =
+        renameEntries.length > 0 ||
+        coChangeEntries.length > 0 ||
+        prEntries.length > 0 ||
+        corpus.length > 0;
+
+      if (anyContent) {
+        lines.push("### Git-history attention (renames, couplings, recent PRs, corpus)");
+        lines.push(
+          "Brownfield repos are sequential. These four signals come from `git log` + `gh pr list` and tell refine which surface area carries prior intent — DON'T propose a rename or new file when the history shows the existing name is what reviewers and the PM use."
+        );
+        lines.push("");
+
+        if (renameEntries.length > 0) {
+          lines.push("**Files that were renamed** (use the CURRENT path; older names are just for grep continuity):");
+          for (const [current, previous] of renameEntries.slice(0, 20)) {
+            lines.push(`- \`${current}\` ← was \`${previous.join("\`, \`")}\``);
+          }
+          lines.push("");
+        }
+
+        if (coChangeEntries.length > 0) {
+          lines.push("**Change-coupling** (files that historically change together — if your spec touches one, expect to touch the others):");
+          for (const [file, partners] of coChangeEntries.slice(0, 15)) {
+            const partnerStr = partners
+              .map((p) => `\`${p.file}\` (${Math.round(p.strength * 100)}%)`)
+              .join(", ");
+            lines.push(`- \`${file}\` → ${partnerStr}`);
+          }
+          lines.push("");
+        }
+
+        if (prEntries.length > 0) {
+          lines.push("**Recent PRs per file** (intent-shaped Keys: PR titles describe WHY, not WHAT — read these before proposing changes near the listed files):");
+          for (const [file, prs] of prEntries.slice(0, 15)) {
+            const prStr = prs
+              .slice(0, 3)
+              .map((p) => `#${p.number} ${p.title}${p.merged_at ? "" : " (open)"}`)
+              .join(" · ");
+            lines.push(`- \`${file}\` — ${prStr}`);
+          }
+          lines.push("");
+        }
+
+        if (corpus.length > 0) {
+          lines.push(
+            `**Searchable PR + spec corpus** (${corpus.length} entries in \`pr_spec_corpus\` on disk). Each entry has tokens for cheap keyword retrieval — when the PM's issue mentions a concept, find the corpus entries whose tokens overlap before assuming the concept is new.`
+          );
+          lines.push("");
+        }
+      }
     }
 
     lines.push("### Brownfield-conflict Q&A discipline");
