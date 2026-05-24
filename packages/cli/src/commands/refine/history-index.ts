@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import type { GitAttentionData } from "./git-attention.js";
 
 export interface ComponentEntry {
   /** PascalCase component name (the default-export or first named export). */
@@ -103,6 +104,12 @@ export interface HistoryIndex {
   test_files: TestFileEntry[];
   /** 0.19.0-α.23 — mock surface (design source-of-truth). */
   mock_surface: MockEntry[];
+  /**
+   * 0.19.0-α.43 — git-history attention layer. Set when enrichment ran
+   * (refine emits with it on by default; pure-filesystem callers / tests
+   * may leave it undefined). See git-attention.ts for the four sub-signals.
+   */
+  git_attention?: GitAttentionData;
 }
 
 interface BuildOptions {
