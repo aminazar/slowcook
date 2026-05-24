@@ -6,6 +6,8 @@ import {
   extractTestIdsFromFile,
   buildProjectContext,
   lintTierOneTest,
+  validateImportClosure,
+  formatImportClosureViolations,
   parseTestgenBundle,
   extractDdlColumnsFromInvariants,
   extractDdlColumnsFromSpec,
@@ -817,5 +819,141 @@ describe("buildPageLinkTestContent", () => {
     // deferred). Keep this assertion so a future "drop the skip" change
     // is caught here and the limitation is explicit.
     expect(r.contents).toContain('after.startsWith("${")');
+  });
+});
+
+describe("validateImportClosure (α.49 — delgoosh#656 regression)", () => {
+  function mkRepo(): string {
+    return mkdtempSync(join(tmpdir(), "slowcook-importclosure-"));
+  }
+
+  it("returns no violations when every relative import resolves on disk", () => {
+    const r = mkRepo();
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      mkdirSync(join(r, "tests/helpers/mocks"), { recursive: true });
+      writeFileSync(join(r, "tests/helpers/mocks/index.ts"), "export const resetMocks = () => {};", "utf8");
+      const src = `import { resetMocks } from "../helpers/mocks";\n`;
+      const v = validateImportClosure({
+        repoRoot: r,
+        testFilePath: "tests/integration/story-3.test.ts",
+        testContent: src,
+        emittedHelperPaths: [],
+      });
+      expect(v).toEqual([]);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("returns no violations when the import resolves to a helper emitted in this turn", () => {
+    const r = mkRepo();
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      // No file on disk — but emit the helper this turn.
+      const src = `import { mockFetch } from "../helpers/mocks/fetch";\n`;
+      const v = validateImportClosure({
+        repoRoot: r,
+        testFilePath: "tests/integration/story-3.test.ts",
+        testContent: src,
+        emittedHelperPaths: ["tests/helpers/mocks/fetch.ts"],
+      });
+      expect(v).toEqual([]);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("flags missing helper that is neither emitted nor on disk (the delgoosh#656 case)", () => {
+    const r = mkRepo();
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      const src = `import { resetMocks } from "../helpers/mocks";\n`;
+      const v = validateImportClosure({
+        repoRoot: r,
+        testFilePath: "tests/integration/story-3.test.ts",
+        testContent: src,
+        emittedHelperPaths: [],
+      });
+      expect(v).toHaveLength(1);
+      expect(v[0]).toEqual({
+        test: "tests/integration/story-3.test.ts",
+        importPath: "../helpers/mocks",
+        reason: "missing",
+      });
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("distinguishes 'directory exists but no index' from outright missing", () => {
+    const r = mkRepo();
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      mkdirSync(join(r, "tests/helpers/mocks"), { recursive: true });
+      // Directory exists but no index.ts inside.
+      const src = `import { resetMocks } from "../helpers/mocks";\n`;
+      const v = validateImportClosure({
+        repoRoot: r,
+        testFilePath: "tests/integration/story-3.test.ts",
+        testContent: src,
+        emittedHelperPaths: [],
+      });
+      expect(v).toHaveLength(1);
+      expect(v[0]!.reason).toBe("directory-without-index");
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores non-relative imports (@/, bare modules)", () => {
+    const r = mkRepo();
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      const src = `
+        import { vi } from "vitest";
+        import { Foo } from "@/components/Foo";
+        import { bar } from "@tests/helpers/bar";
+      `;
+      const v = validateImportClosure({
+        repoRoot: r,
+        testFilePath: "tests/integration/story-3.test.ts",
+        testContent: src,
+        emittedHelperPaths: [],
+      });
+      expect(v).toEqual([]);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it("formatImportClosureViolations gives PM-readable bullets with hints", () => {
+    const formatted = formatImportClosureViolations([
+      { test: "tests/integration/story-3.test.ts", importPath: "../helpers/mocks", reason: "missing" },
+      { test: "tests/integration/story-3.test.ts", importPath: "../helpers/db", reason: "directory-without-index" },
+    ]);
+    expect(formatted).toContain("../helpers/mocks");
+    expect(formatted).toContain("vi.clearAllMocks");
+    expect(formatted).toContain("../helpers/db");
+    expect(formatted).toContain("directory");
+    expect(formatted).toContain("emit a `<helper");
+  });
+
+  it("a stub emitted this turn also counts as resolved", () => {
+    const r = mkRepo();
+    try {
+      mkdirSync(join(r, "tests/integration"), { recursive: true });
+      const src = `import { handler } from "../../src/app/api/foo/route";\n`;
+      const v = validateImportClosure({
+        repoRoot: r,
+        testFilePath: "tests/integration/story-3.test.ts",
+        testContent: src,
+        emittedHelperPaths: [],
+        emittedStubPaths: ["src/app/api/foo/route.ts"],
+      });
+      expect(v).toEqual([]);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
   });
 });
