@@ -16,12 +16,12 @@ describe("PLATE_AMENDMENT_SYSTEM shape branching (sc#82)", () => {
     expect(out).toContain("No `'use client'`");
   });
 
-  it("Vite override warns the model that legacy Hard Rules below don't apply", () => {
+  it("Vite override warns the model that preceding nextjs Hard Rules below don't apply", () => {
     const out = PLATE_AMENDMENT_SYSTEM("(ctx)", "vite");
     expect(out).toContain("describe the LEGACY shape and do NOT apply here");
   });
 
-  it("nextjs shape leaves the legacy conventions visible", () => {
+  it("nextjs shape leaves the Hard Rules visible", () => {
     const out = PLATE_AMENDMENT_SYSTEM("(ctx)", "nextjs");
     expect(out).toContain("@slowcook-ai/mock-runtime");
   });

@@ -91,7 +91,7 @@ export interface BrewContext {
   /**
    * 0.15.0-α.4 — execution mode.
    *
-   * `legacy`: today's behavior. Brew has wide allowed_paths and writes
+   * `freehand`: wide-scope. Brew has wide allowed_paths and writes
    *   implementation from empty stubs. Used for backend-only stories
    *   and any story where the plate track was skipped.
    *
@@ -103,7 +103,7 @@ export interface BrewContext {
    *   MOCKUP_DESIGN_CONFLICT when a test cannot be satisfied without
    *   editing a frozen UI file.
    */
-  mode?: "legacy" | "plate";
+  mode?: "freehand" | "plate";
   /**
    * 0.19.0-alpha.4 — pair-brew navigator hook (production wiring of
    * the validated pair-sim experiment). Fires AFTER the iteration's

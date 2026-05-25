@@ -21,17 +21,32 @@ interface BrewArgs {
   wallClockMs: number;
   model: string;
   baseBranch: string;
-  /** "auto" detects from spec + mockup-PR state. "plate" or "legacy" force the mode. */
-  mode: "auto" | "plate" | "legacy";
   /**
-   * 0.19.0-alpha.9 — opt into pair-brew. When set, brew constructs a
-   * default Anthropic-backed NavigatorHook and injects it into ctx.
-   * Each iteration's would-be checkpoint passes through the navigator
-   * for review; on `block` verdict the iter reverts + concerns fold
-   * into next iter's prompt. Adds ~$0.01-0.05 per iter on top of
-   * driver spend.
+   * "auto" detects from spec + mockup-PR state. "plate" or "freehand"
+   * force the mode.
+   *
+   * cli α.52 — renamed `legacy` → `freehand`. The old name signalled
+   * "deprecated" on a tool that's only a few months old, which was
+   * misleading: freehand is a first-class mode for stories that need
+   * wide-scope edits (UI + data + migrations in one brew). The rename
+   * has no back-compat alias — `--mode legacy` now errors with a
+   * pointer to `--mode freehand`.
    */
-  withNavigator: boolean;
+  mode: "auto" | "plate" | "freehand";
+  /**
+   * 0.19.0-alpha.9 — pair-brew NavigatorHook injection.
+   *
+   * `undefined` = use the mode-aware default (true when resolved mode
+   * is `freehand`, false when `plate`). The user can force either way
+   * via `--with-navigator` / `--without-navigator`.
+   *
+   * cli α.52: freehand defaults navigator ON because wide-scope edits
+   * across UI + data carry more drift risk; the navigator's job is to
+   * catch shape-gaming + cross-story regressions before they checkpoint.
+   * plate keeps it opt-in — plate's hardcoded allowed_paths is itself
+   * a guardrail.
+   */
+  withNavigator: boolean | undefined;
   navigatorModel: string;
 }
 
@@ -45,7 +60,7 @@ function parseArgs(argv: string[]): BrewArgs {
     model: "claude-sonnet-4-6",
     baseBranch: "main",
     mode: "auto",
-    withNavigator: false,
+    withNavigator: undefined,
     navigatorModel: "claude-sonnet-4-5-20250929",
   };
   for (let i = 0; i < argv.length; i++) {
@@ -61,14 +76,24 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--model" && next) { args.model = next; i++; }
     else if (arg === "--base" && next) { args.baseBranch = next; i++; }
     else if (arg === "--mode" && next) {
-      if (next !== "auto" && next !== "plate" && next !== "legacy") {
-        console.error(`--mode must be one of: auto, plate, legacy. Got: ${next}`);
+      if (next === "legacy") {
+        // cli α.52 — hard error, no silent alias. The old name was
+        // misleading on a young tool. Point operators at the new name.
+        console.error(
+          `--mode legacy was renamed to --mode freehand in cli α.52. ` +
+            `Re-dispatch with --mode freehand.`
+        );
         process.exit(64);
       }
-      args.mode = next as "auto" | "plate" | "legacy";
+      if (next !== "auto" && next !== "plate" && next !== "freehand") {
+        console.error(`--mode must be one of: auto, plate, freehand. Got: ${next}`);
+        process.exit(64);
+      }
+      args.mode = next as "auto" | "plate" | "freehand";
       i++;
     }
     else if (arg === "--with-navigator") { args.withNavigator = true; }
+    else if (arg === "--without-navigator") { args.withNavigator = false; }
     else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
@@ -105,11 +130,17 @@ Options:
   --wall-clock-minutes <n>   Wall-clock cap in minutes (default: 60)
   --model <id>               LLM model (default: claude-sonnet-4-6; override with --model claude-opus-4-7 for harder stories)
   --base <branch>            Base branch for PRs (default: main)
-  --with-navigator           (0.19.0-α.9) Run pair-brew — each iteration's would-be checkpoint passes
-                             through a navigator review (design fidelity / responsive / cross-story risk
-                             / etc.). On block, iter reverts + concerns fold into next iter's prompt.
-                             Adds ~$0.01-0.05 per iter on top of driver spend.
-  --navigator-model <id>     (with --with-navigator) Navigator LLM model id. Default: claude-sonnet-4-5-20250929.
+  --with-navigator           Force pair-brew on (overrides mode-aware default).
+  --without-navigator        Force pair-brew off (overrides mode-aware default).
+                             Default behavior (cli α.52): navigator ON when resolved mode is
+                             freehand (wide-scope edits — drift risk justifies the navigator
+                             cost), OFF when plate (plate's hardcoded allowed_paths is itself
+                             a guardrail; navigator opt-in if needed).
+                             Pair-brew: each iteration's would-be checkpoint passes through a
+                             navigator review (design fidelity / responsive / cross-story risk
+                             / etc.). On block, iter reverts + concerns fold into next iter's
+                             prompt. Adds ~$0.01-0.05 per iter on top of driver spend.
+  --navigator-model <id>     Navigator LLM model id. Default: claude-sonnet-4-5-20250929.
   --help, -h                 Show this help
 
 Environment:
@@ -126,28 +157,28 @@ Exit codes:
 /**
  * 0.15.0-α.4 — resolve brew's execution mode.
  *
- * `requested === "plate"` or `"legacy"` → return as-is.
+ * `requested === "plate"` or `"freehand"` → return as-is.
  *
  * `requested === "auto"` → detect from spec + GitHub state:
  *   plate-mode requires BOTH (a) the spec has at least one populated
  *   `proposals.fixtures.by_domain.<domain>` entry (UI surface), AND (b)
  *   a slowcook-mockup PR for this story has been merged on the repo.
- *   If either condition is unmet → legacy.
+ *   If either condition is unmet → freehand.
  *
  * GitHub check uses `gh pr list` to look for closed PRs whose head
  * branch matches `slowcook/mockup/story-<id>`. Cheaper than fetching
  * a single PR by branch name (which 404s instead of returning empty).
  */
 async function resolveBrewMode(args: {
-  requested: "auto" | "plate" | "legacy";
+  requested: "auto" | "plate" | "freehand";
   repoRoot: string;
   storyId: string;
   owner: string;
   repo: string;
   githubToken: string;
-}): Promise<"plate" | "legacy"> {
+}): Promise<"plate" | "freehand"> {
   if (args.requested === "plate") return "plate";
-  if (args.requested === "legacy") return "legacy";
+  if (args.requested === "freehand") return "freehand";
 
   // auto path
   const specPath = join(args.repoRoot, "specs", `story-${args.storyId}.yaml`);
@@ -155,20 +186,20 @@ async function resolveBrewMode(args: {
   try {
     specYaml = require("node:fs").readFileSync(specPath, "utf8") as string;
   } catch {
-    return "legacy";
+    return "freehand";
   }
   // Same hasUiSurface heuristic as the vibe command.
   const proposalsIdx = specYaml.search(/^proposals\s*:\s*$/m);
-  if (proposalsIdx < 0) return "legacy";
+  if (proposalsIdx < 0) return "freehand";
   const tail = specYaml.slice(proposalsIdx);
   const fixturesMatch = tail.match(/^(\s+)fixtures\s*:\s*$/m);
-  if (!fixturesMatch) return "legacy";
+  if (!fixturesMatch) return "freehand";
   const fixturesBlockStart =
     tail.indexOf(fixturesMatch[0]) + fixturesMatch[0].length;
   const byDomainMatch = tail
     .slice(fixturesBlockStart)
     .match(/^(\s+)by_domain\s*:\s*$/m);
-  if (!byDomainMatch) return "legacy";
+  if (!byDomainMatch) return "freehand";
   const byDomainIndentLen = byDomainMatch[1]!.length;
   const after = tail.slice(
     fixturesBlockStart +
@@ -179,7 +210,7 @@ async function resolveBrewMode(args: {
     `^( {${byDomainIndentLen + 1},}|\\t+)([a-z][a-z0-9_-]*)\\s*:\\s*$`,
     "m"
   );
-  if (!entryRe.test(after)) return "legacy";
+  if (!entryRe.test(after)) return "freehand";
 
   // Check for a merged slowcook-mockup PR.
   try {
@@ -196,16 +227,16 @@ async function resolveBrewMode(args: {
     const arr = JSON.parse(out) as Array<{ number: number }>;
     if (arr.length === 0) {
       console.log(
-        `(brew auto-detect: spec has fixtures but no merged slowcook-mockup PR for story-${args.storyId} found → legacy mode)`
+        `(brew auto-detect: spec has fixtures but no merged slowcook-mockup PR for story-${args.storyId} found → freehand mode)`
       );
-      return "legacy";
+      return "freehand";
     }
     return "plate";
   } catch (e) {
     console.warn(
-      `(brew auto-detect: gh pr list failed — ${(e as Error).message}; defaulting to legacy)`
+      `(brew auto-detect: gh pr list failed — ${(e as Error).message}; defaulting to freehand)`
     );
-    return "legacy";
+    return "freehand";
   }
 }
 
@@ -252,8 +283,8 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
 
   // 0.15.0-α.4 — mode resolution. `auto` checks: does the spec have
   // `proposals.fixtures.by_domain.*` populated AND has a slowcook-mockup
-  // PR for this story merged? If both yes → plate. Otherwise → legacy.
-  // Force-modes (plate / legacy) skip the check.
+  // PR for this story merged? If both yes → plate. Otherwise → freehand.
+  // Force-modes (plate / freehand) skip the check.
   const resolvedMode = await resolveBrewMode({
     requested: args.mode,
     repoRoot: args.repoRoot,
@@ -271,7 +302,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
 
   // Allowed paths. In plate-mode, restrict to data-layer + API + migrations
   // + tests. Frozen-paths guard then physically rejects any UI edit.
-  // In legacy mode, fall through to today's "wide allowed_paths" behavior.
+  // In freehand mode, fall through to today's "wide allowed_paths" behavior.
   const allowedPaths: string[] = resolvedMode === "plate"
     ? [
         "src/lib/data/**",   // brew rewrites .ts stub; .mock.ts protected by extension check
@@ -305,11 +336,18 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   console.log(`  branch: ${branchName}`);
   console.log(`  run log: ${runLogPath}\n`);
 
-  // 0.19.0-α.9 — opt-in pair-brew. When --with-navigator is set,
-  // construct a default Anthropic-backed NavigatorHook + inject it.
-  // The hook fires post-iter, pre-checkpoint (see brew/agent.ts).
+  // Pair-brew NavigatorHook injection.
+  //
+  // cli α.52 — mode-aware default: navigator ON when resolved mode is
+  // `freehand`, OFF when `plate`. Wide-scope freehand edits carry more
+  // drift risk; plate's hardcoded allowed_paths is itself a guardrail.
+  // Explicit `--with-navigator` / `--without-navigator` overrides.
+  const effectiveWithNavigator: boolean =
+    args.withNavigator !== undefined
+      ? args.withNavigator
+      : resolvedMode === "freehand";
   let navigatorHook: BrewContext["navigatorHook"] = undefined;
-  if (args.withNavigator) {
+  if (effectiveWithNavigator) {
     const { createPairNavigatorHook } = await import("./pair-navigator.js");
     const { PRICING_PER_M_TOKENS } = await import("@slowcook-ai/llm-anthropic");
     const navPricing = PRICING_PER_M_TOKENS[args.navigatorModel] ?? { input: 3, output: 15 };
@@ -358,7 +396,13 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
         };
       },
     });
-    console.log(`  --with-navigator: enabled (model=${args.navigatorModel})`);
+    const navReason =
+      args.withNavigator === undefined
+        ? `mode=${resolvedMode} default`
+        : args.withNavigator === true
+          ? "explicit --with-navigator"
+          : "explicit --without-navigator (this branch shouldn't reach here)";
+    console.log(`  navigator: enabled (${navReason}, model=${args.navigatorModel})`);
   }
 
   const ctx: BrewContext = {

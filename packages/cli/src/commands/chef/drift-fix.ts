@@ -777,7 +777,7 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
         source_file_contents: sourceContents,
         enrichment_note:
           "cli-precomputed (chef has no read tools): failing_test_contents shows you each red test verbatim. source_file_contents gives you the full text of every source file imported by those tests. Plan search_replace pairs against source_file_contents — never edit failing_test_contents (tests/ is frozen). If the failure can only be fixed by changing a test, return pm_question instead.\n\n" +
-          "ALSO available straight from the halt JSON (already on trigger.raw): `brew_mode` (legacy | plate | auto) and `allowed_paths[]` (the runtime restriction brew enforced). If iteration_diffs show outcome=rejected-overflow, the fix is to widen brew's CLI --mode arg, NOT to edit the spec. `allowed_paths` is not a spec yaml field — see chef prompt §1.6.",
+          "ALSO available straight from the halt JSON (already on trigger.raw): `brew_mode` (freehand | plate | auto) and `allowed_paths[]` (the runtime restriction brew enforced). If iteration_diffs show outcome=rejected-overflow, the fix is to widen brew's CLI --mode arg, NOT to edit the spec. `allowed_paths` is not a spec yaml field — see chef prompt §1.6.",
       };
       console.log(`  brew-halt enriched: ${failingFiles.length} failing test file(s), ${Object.keys(sourceContents).length} source file(s) under test`);
     }
