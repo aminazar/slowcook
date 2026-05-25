@@ -65,6 +65,26 @@ If you find no concerns, return \`{"axes": [], "overall": "approve", "rationale"
 
 Don't overuse blocking. Reserve for "this would ship something wrong." If unsure → warn.
 
+## Scope discipline (α.55 — load-bearing)
+
+You will receive a \`target_test_id\` (the specific test this iteration was trying to flip green) and \`story_test_ids\` (all tests in the story). Your concerns MUST be scoped to the target test:
+
+- A concern is **blocking** only when it pertains to satisfying the **target test** AND the driver's diff would fail that target test if landed.
+- A concern about a NON-target test in story_test_ids is at most **warn** — that target is for a future iteration; blocking this iter prevents the driver from ever reaching it.
+- If your only concerns are about non-target tests, return \`overall: "warn"\` or \`overall: "approve"\`, not \`block\`. The brew loop will iterate through other targets; your job is not to enforce them all at once.
+
+Example failure mode this rule prevents (delgoosh#656 run 26399359890): target test asserted "page file imports PatientChatPage from @/components/patient/chat/PatientChatPage". Driver wrote exactly that. Navigator blocked because "page passes empty threads array, breaks thread-list test" — but thread-list was a DIFFERENT target. 10 iterations blocked, 0 progress, $1.17 burned. Correct verdict would have been \`approve\` (target test satisfied) with a \`warn\` axis flagging the threads question for the future iteration that targets it.
+
+## Hallucination discipline (α.55)
+
+You DO NOT have file-existence tools. To assert a file is absent you MUST cite explicit evidence:
+- The file's path is NOT in the \`known_source_files\` list provided in the user message, AND
+- The diff does not create it.
+
+If neither condition holds, do not assert absence. Say "presence not verified by my inputs" if you must mention it at all, and downgrade the severity.
+
+False absence claims cascade — chef trusts navigator's claim, posts a misdiagnosis comment to PM, real bug stays hidden. Same delgoosh#656 run: 3 of 10 navigator concerns asserted \`PatientChatPage.tsx does not exist\`; it had been on main since the testgen merge.
+
 ## What to look at, by axis
 
 ### design_fidelity
@@ -232,14 +252,33 @@ export interface NavigatorPromptArgs {
   mockFiles: Array<{ path: string; content: string }>;
   /** Code-map digest of existing components / helpers / routes that may be relevant. */
   codeMapDigest: string;
-  /** Story's test ids (so navigator can predict pass/fail). */
+  /** Story's full test id list (manifest scope). */
   storyTestIds: string[];
+  /**
+   * α.55 — the test id the current iteration was targeting. Navigator
+   * concerns about OTHER tests in storyTestIds are out-of-scope for
+   * this iteration; downgrade them to warn or skip entirely. Without
+   * this scoping, navigator flags concerns about thread-list tests
+   * while the driver is correctly satisfying the page-integration
+   * test → blocks productive work (delgoosh#656 run 26399359890,
+   * 10/10 iters blocked).
+   */
+  targetTestId?: string;
   /** Spec's api_contract entries (for the api_contract axis). */
   apiContract?: Array<{ method: string; path: string; description?: string }>;
   /** Files used by other stories' tests (cross-story risk). */
   crossStoryFiles?: string[];
   /** Spec yaml text (so navigator can ground api_contract / acceptance claims). */
   specYaml?: string;
+  /**
+   * α.55 — paths of source files known to exist in the repo at the time
+   * of this iteration. Navigator MUST consult this before asserting a
+   * file is absent. Hallucinated absence claims were a major source of
+   * false blocks (delgoosh#656: navigator claimed
+   * `src/components/patient/chat/PatientChatPage.tsx` doesn't exist for
+   * 3 of 10 iters; it had been on main since the testgen merge).
+   */
+  knownSourceFiles?: string[];
   /** Navigator's own verdicts from prior iterations of this story (so it doesn't flip-flop). */
   priorVerdicts?: Array<{ iter: number; overall: NavigatorVerdict["overall"]; axes: Array<Pick<NavigatorAxis, "axis" | "severity" | "summary" | "recommendation">> }>;
 }
@@ -270,9 +309,36 @@ export function buildNavigatorPrompt(args: NavigatorPromptArgs): string {
     sections.push("");
   }
 
+  // α.55 — target test up front so the model anchors concerns to it.
+  if (args.targetTestId) {
+    sections.push("## This iteration's TARGET test\n");
+    sections.push(`\`${args.targetTestId}\``);
+    sections.push("");
+    sections.push(
+      "Your concerns must be scoped to this target. Concerns about other tests in the story manifest are AT MOST `warn` — see Scope discipline in the system prompt."
+    );
+    sections.push("");
+  }
+
   sections.push("## Driver's rationale this iteration\n");
   sections.push(args.driverRationale.trim() || "(none)");
   sections.push("");
+
+  // α.55 — known source files so the model doesn't hallucinate absence.
+  if (args.knownSourceFiles && args.knownSourceFiles.length > 0) {
+    sections.push("## Known source files (presence-verified at iteration start)\n");
+    sections.push(
+      "Each path below exists in the repo right now. Do NOT assert that any of these files are absent. To assert absence of a file NOT in this list, you must also confirm the diff does not create it."
+    );
+    sections.push("");
+    sections.push("```");
+    sections.push(args.knownSourceFiles.slice(0, 200).join("\n"));
+    if (args.knownSourceFiles.length > 200) {
+      sections.push(`# ... (${args.knownSourceFiles.length - 200} more not listed)`);
+    }
+    sections.push("```");
+    sections.push("");
+  }
 
   sections.push("## The iteration's diff\n");
   sections.push("```diff");
