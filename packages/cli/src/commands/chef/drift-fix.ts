@@ -8,9 +8,17 @@
  * ChefVerdict, applies edits surgically, validates, commits, posts an
  * audit comment.
  *
- * Frozen surface (HARD): never edits tests/, vitest.config.*,
- * .brewing/{auto-gen}/. If a fix requires test edits → escalates to PM
- * via a two-option pm_comment (option B = `testgen --regenerate`).
+ * Frozen surface (HARD): tests/integration/, tests/schema/,
+ * tests/acceptance/ (spec-contract assertions) + .brewing/auto-gen/,
+ * .brewing/code-map.*, .brewing/recon-result.json, .brewing/history-
+ * index.json (slowcook-managed artifacts). If a fix requires an
+ * ASSERTION change → escalates to PM via pm_comment (option B =
+ * testgen --regenerate).
+ *
+ * NOT frozen (α.54 — chef owns test infrastructure):
+ * tests/helpers/, vitest.config.*, playwright.config.*, package.json
+ * (devDeps), tsconfig.json, setup files. Chef can fix the runner
+ * machinery freehand.
  *
  * Ledger at .brewing/chef/<story-id>.json tracks moves + cost. Cycle
  * detection + budget cap enforce convergence.
@@ -73,16 +81,56 @@ interface ChefLedger {
   halt_reason: string | null;
 }
 
+/**
+ * Paths chef MAY edit even though they "live under tests/" or look
+ * config-shaped. α.54: chef gains ownership of test INFRASTRUCTURE —
+ * runner config, helpers, setup files — because those are
+ * agent-fixable failures that previously had no owner.
+ *
+ * Principle: tests encode the spec CONTRACT (the assertions that
+ * define what "story-N done" means). Their enforcement MACHINERY
+ * (vitest config, helpers, setup) is not the contract. Distinguishing
+ * by file content/location, not by folder.
+ *
+ * Caught dogfooding delgoosh#656 — chef diagnosed a missing JSX
+ * transform but couldn't fix vitest.config.ts. PM, brew, testgen,
+ * and chef were ALL blocked from owning it. α.54 closes that gap by
+ * giving chef the editing rights.
+ */
+const TEST_INFRA_ESCAPE_PATTERNS = [
+  /^tests\/helpers\//,                  // render, a11y, mock helpers
+  /^tests\/setup\.(ts|tsx|js)$/,        // vitest globalSetup / setupFiles
+  /^vitest\.setup\.(ts|tsx|js)$/,
+];
+
+/**
+ * Paths chef NEVER edits:
+ *   - tests/integration/**, tests/schema/**, tests/acceptance/** —
+ *     spec-contract assertions. If a test is wrong, the right fix is
+ *     testgen --regenerate, not chef rewriting the assertion.
+ *   - .brewing/auto-gen/**, code-map, history-index, recon-result —
+ *     slowcook-managed artifacts other agents derive from.
+ *
+ * vitest.config.*, playwright.config.*, package.json, tsconfig.json
+ * are NOT frozen — they're infra chef can fix.
+ */
 const FROZEN_PATH_PATTERNS = [
-  /^tests\//,
-  /^vitest\.config\.(ts|mjs|js)$/,
+  /^tests\/integration\//,
+  /^tests\/schema\//,
+  /^tests\/acceptance\//,
   /^\.brewing\/code-map\.(json|md|target\.md)$/,
   /^\.brewing\/recon-result\.json$/,
   /^\.brewing\/history-index\.json$/,
   /^\.brewing\/auto-gen\//,
 ];
 
-function isFrozenPath(path: string): boolean {
+export function isFrozenPath(path: string): boolean {
+  // α.54 — explicit escapes win first. A file under tests/helpers/
+  // shouldn't be caught by a generic tests/ rule (and the new
+  // FROZEN_PATH_PATTERNS list above is already specific to assertion
+  // subfolders, but keeping the escape-first check makes the policy
+  // intent visible at the call site for future readers).
+  if (TEST_INFRA_ESCAPE_PATTERNS.some((re) => re.test(path))) return false;
   return FROZEN_PATH_PATTERNS.some((re) => re.test(path));
 }
 
@@ -258,7 +306,7 @@ Options:
                            audit comment on the PR (not the source issue).
 
 Requires: ANTHROPIC_API_KEY in env. Run from consumer repo root.
-Frozen surface: tests/, vitest.config.*, .brewing/{auto-gen}/ — never edited.
+Frozen surface: tests/{integration,schema,acceptance}/ + .brewing/{auto-gen,code-map,history-index,recon-result} — never edited. Test INFRA (tests/helpers/, vitest.config.*, package.json devDeps, setup files) IS chef's to edit (α.54).
 `);
 }
 
