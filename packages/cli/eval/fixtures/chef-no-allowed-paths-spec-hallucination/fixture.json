@@ -1,0 +1,49 @@
+{
+  "id": "chef-no-allowed-paths-spec-hallucination",
+  "agent": "chef",
+  "description": "Chef MUST NOT hallucinate an `allowed_paths` field on the spec yaml. When the brew halt was caused by an iter outcome of rejected-overflow / rejected-frozen-path, chef must recommend re-dispatching brew with `--mode legacy` (the actual mechanism) instead of editing a non-existent spec field. The Spec type in core/src/spec.ts has no `allowed_paths`; suggesting the PM add one produces no-op advice that wastes a re-run.",
+  "captured_from": {
+    "pr": null,
+    "date": "2026-05-25",
+    "context": "Dogfooded chef-on-brew-halt on delgoosh#656 / story-003. Brew halted AGENT_STALLED_NO_EDITS after iter-1 rejected-overflow on a page-route file. chef-drift correctly diagnosed the cause but its PM comment said 'Edit specs/story-003.yaml to add src/app/(main)/** under allowed_paths' — that field doesn't exist; the PM following the advice would change nothing. Real mechanism: dispatch brew with --mode legacy (or maintainer-side: widen plate-mode hardcoded list)."
+  },
+  "input": {
+    "storyId": "003",
+    "trigger": {
+      "kind": "brew_halt_class",
+      "detail": "Brew halted AGENT_STALLED_NO_EDITS after 3 iters; iter 1 rejected-overflow on src/app/(main)/patient/chat/page.tsx.",
+      "raw": {
+        "halt_reason": "AGENT_STALLED_NO_EDITS",
+        "brew_mode": "plate",
+        "allowed_paths": ["src/lib/data/**", "src/app/api/**", "supabase/migrations/**", "tests/**"],
+        "iteration_diffs": [
+          {
+            "iteration": 1,
+            "target_test_id": "story-003-page > page file exists",
+            "outcome": "rejected-overflow",
+            "note": "agent wrote outside allowed_paths: src/app/(main)/patient/chat/page.tsx"
+          }
+        ]
+      }
+    },
+    "storyState": {
+      "issueNumber": 656,
+      "specPath": "specs/story-003.yaml",
+      "specYaml": "story_id: \"003\"\ntitle: Patient chat\n",
+      "openPrs": []
+    },
+    "historyIndex": {},
+    "navigatorHistory": null,
+    "priorChefMoves": []
+  },
+  "expected_prompt_includes": [
+    "allowed_paths violations — DO NOT hallucinate spec fields",
+    "--mode legacy",
+    "does **not** include an `allowed_paths` field",
+    "Suggesting the PM edit a non-existent field",
+    "brew_mode",
+    "rejected-overflow",
+    "Canonical spec yaml fields"
+  ],
+  "expected_prompt_excludes": []
+}
