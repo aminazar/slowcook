@@ -143,8 +143,8 @@ When \`trigger.kind === "brew_halt_class"\`, look for these fields in \`trigger.
 - \`failing_test_names[]\` — the specific \`describe > it\` paths that failed. Helps narrow down which assertion to satisfy.
 - \`failing_test_contents{}\` — \`{testFile: fullText}\` map of every failing test file. Read these first; they are your contract. **You must not edit any file in this map** (\`tests/\` is frozen).
 - \`source_file_contents{}\` — \`{srcFile: fullText}\` of every non-test file imported by the failing tests. These are the files you MAY edit. Plan \`search_replace\` pairs against the literal text in this map — the find string must appear exactly once.
-- \`brew_mode\` — string. Either \`"legacy"\` (no allowed_paths restriction; you can create files anywhere) or \`"plate"\` (brew restricted to a hardcoded set; see below) or \`"auto"\` (resolves to one of the prior two at dispatch).
-- \`allowed_paths\` — array of glob patterns brew enforced at iteration time. EMPTY ARRAY means no restriction (legacy mode). For plate mode the hardcoded list today is \`["src/lib/data/**", "src/app/api/**", "supabase/migrations/**", "tests/**"]\`.
+- \`brew_mode\` — string. Either \`"freehand"\` (no allowed_paths restriction; you can create files anywhere) or \`"plate"\` (brew restricted to a hardcoded set; see below) or \`"auto"\` (resolves to one of the prior two at dispatch).
+- \`allowed_paths\` — array of glob patterns brew enforced at iteration time. EMPTY ARRAY means no restriction (freehand mode). For plate mode the hardcoded list today is \`["src/lib/data/**", "src/app/api/**", "supabase/migrations/**", "tests/**"]\`.
 - \`enrichment_note\` — directive on how to combine the above.
 
 Brew-halt rule of thumb: read each failing test, identify the missing/wrong behavior in \`source_file_contents\`, and propose a minimal \`search_replace\` that adds/changes ONLY what the test asserts. If the only way to make a test pass is to weaken or change the test itself, return \`pm_question\` — do not edit the test.
@@ -153,7 +153,7 @@ Brew-halt rule of thumb: read each failing test, identify the missing/wrong beha
 
 If \`iteration_diffs[].outcome\` includes \`"rejected-overflow"\` OR \`"rejected-frozen-path"\`, the iteration's edit was rejected because brew's runtime guard blocked the path. The mechanism behind that guard is **slowcook's brew CLI \`--mode\` argument**, NOT a field on the spec yaml. To widen brew's allowed_paths:
 
-- **Correct PM advice**: re-dispatch brew with \`--mode legacy\` (allows all paths), OR if the consumer specifically needs UI-and-data brew together, ask slowcook maintainers to widen the plate-mode hardcoded list.
+- **Correct PM advice**: re-dispatch brew with \`--mode freehand\` (allows all paths), OR if the consumer specifically needs UI-and-data brew together, ask slowcook maintainers to widen the plate-mode hardcoded list.
 - **Incorrect PM advice (do not generate)**: "edit \`allowed_paths\` in \`specs/story-XXX.yaml\`". The slowcook spec schema (see \`packages/cli/src/commands/refine/spec-yaml.ts\` for the canonical Spec type) does **not** include an \`allowed_paths\` field. Suggesting the PM edit a non-existent field gives no-op advice and wastes a re-run.
 
 Canonical spec yaml fields (use these names exactly when referencing the spec in PM comments): \`story_id\`, \`title\`, \`status\`, \`actors\`, \`preconditions\`, \`invariants\`, \`api_contract\`, \`ui_behavior\`, \`acceptance_scenarios\`, \`non_goals\`, \`related_specs\`, \`proposals\`, \`supersedes\`, \`superseded_by\`. If a field you want to reference isn't in that list, you are about to hallucinate — pause and rephrase the advice as a CLI / workflow action instead.

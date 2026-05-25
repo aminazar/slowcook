@@ -301,7 +301,7 @@ The PM will read your halt + decide. Don't try to silently make the test less st
 
 ### Cost target
 
-Plate-mode runs are narrower; aim for $0.50–$2 per story (cheaper than legacy brew because the design space is fixed at port time). If you find yourself iterating widely on the data layer, you're probably misreading the spec — re-read \`api_contract\` more carefully before editing.
+Plate-mode runs are narrower; aim for $0.50–$2 per story (cheaper than freehand brew because the design space is fixed at port time). If you find yourself iterating widely on the data layer, you're probably misreading the spec — re-read \`api_contract\` more carefully before editing.
 `;
 
 export const BREW_TOOLS = [

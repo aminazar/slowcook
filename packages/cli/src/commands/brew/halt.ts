@@ -23,13 +23,13 @@ export interface HaltReport {
    * brew/agent.ts from BrewContext.allowedPaths + the dispatched
    * --mode flag. Chef reads this to know whether
    * "rejected-overflow" iteration outcomes are due to `--mode plate`
-   * (hardcoded restrictive paths) vs `--mode legacy` (no
+   * (hardcoded restrictive paths) vs `--mode freehand` (no
    * restriction — would be a code bug if scope-rejected) vs explicit
    * `allowed_paths` config. Without this, chef hallucinates that
    * `allowed_paths` is a spec yaml field (it is not) and gives PM
    * advice that has no effect (delgoosh#656 dogfood 2026-05-25).
    */
-  brew_mode?: "auto" | "plate" | "legacy";
+  brew_mode?: "auto" | "plate" | "freehand";
   /** The `allowedPaths` array brew enforced. Empty array = no restriction. */
   allowed_paths?: string[];
   /** Full per-iteration diffs. Carries every iteration brewing ran, not just the last few,
