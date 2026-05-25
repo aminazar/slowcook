@@ -35,6 +35,7 @@ import {
   REFINEMENT_ANALYST_SYSTEM,
   BROWNFIELD_ANSWER_SYSTEM,
   MULTIFURCATION_SYSTEM,
+  CHEF_SYSTEM,
 } from "@slowcook-ai/llm-anthropic";
 
 export interface Fixture {
@@ -65,7 +66,12 @@ export interface FixtureResult {
  * concatenated text for the substring check.
  */
 const BUILDERS: Record<string, (args: unknown) => string> = {
-  chef: (args) => buildChefPrompt(args as Parameters<typeof buildChefPrompt>[0]),
+  // Chef eval asserts on the FULL prompt (system + user) — most chef
+  // rules (no-allowed-paths-hallucination, search_replace-only, PM
+  // question template, etc.) live in CHEF_SYSTEM. Concatenating with a
+  // separator gives substring matchers a single body to grep.
+  chef: (args) =>
+    CHEF_SYSTEM + "\n\n---\n\n" + buildChefPrompt(args as Parameters<typeof buildChefPrompt>[0]),
   "chef-orchestrate": (args) =>
     buildChefOrchestratePrompt(args as Parameters<typeof buildChefOrchestratePrompt>[0]),
   investigate: (args) =>

@@ -18,6 +18,20 @@ export interface HaltReport {
   budget_usd: number;
   model: string;
   summary_plain_english: string;
+  /**
+   * α.51 — brew mode in effect when the halt fired. Populated by
+   * brew/agent.ts from BrewContext.allowedPaths + the dispatched
+   * --mode flag. Chef reads this to know whether
+   * "rejected-overflow" iteration outcomes are due to `--mode plate`
+   * (hardcoded restrictive paths) vs `--mode legacy` (no
+   * restriction — would be a code bug if scope-rejected) vs explicit
+   * `allowed_paths` config. Without this, chef hallucinates that
+   * `allowed_paths` is a spec yaml field (it is not) and gives PM
+   * advice that has no effect (delgoosh#656 dogfood 2026-05-25).
+   */
+  brew_mode?: "auto" | "plate" | "legacy";
+  /** The `allowedPaths` array brew enforced. Empty array = no restriction. */
+  allowed_paths?: string[];
   /** Full per-iteration diffs. Carries every iteration brewing ran, not just the last few,
    * so post-hoc diagnosis of a stuck loop doesn't lose iters 1..N-3. */
   iteration_diffs?: IterationDiff[];

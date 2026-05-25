@@ -2439,6 +2439,10 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
     budget_usd: ctx.budgetUsd,
     model: ctx.model,
     summary_plain_english: args.summary,
+    // α.51 — surface brew runtime config so chef can give accurate PM
+    // advice instead of hallucinating spec fields.
+    brew_mode: ctx.mode,
+    allowed_paths: ctx.allowedPaths,
     iteration_diffs: iterationDiffs.length > 0 ? iterationDiffs : undefined,
     last_agent_rationale: lastRationale,
     suggested_actions: defaultSuggestedActions(args.reason, {
