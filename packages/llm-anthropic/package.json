@@ -47,7 +47,7 @@
     "@anthropic-ai/sdk": "^0.96.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.0"
+    "@types/node": "^25.9.1"
   },
   "publishConfig": {
     "access": "public"

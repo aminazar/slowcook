@@ -51,8 +51,8 @@
   "devDependencies": {
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "@types/node": "^25.9.0",
-    "@types/react": "^19.0.0",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
     "jsdom": "^29.1.1"
   },
   "publishConfig": {
