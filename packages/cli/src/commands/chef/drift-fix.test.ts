@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseBrewHaltOutput, collectImportedSourceFiles, resolveImportToFile } from "./drift-fix.js";
+import {
+  parseBrewHaltOutput,
+  collectImportedSourceFiles,
+  resolveImportToFile,
+  isFrozenPath,
+} from "./drift-fix.js";
 
 describe("parseBrewHaltOutput", () => {
   it("extracts FAIL <path> entries", () => {
@@ -184,5 +189,57 @@ describe("resolveImportToFile", () => {
   it("falls through to /index.ts when X.{ts,tsx} doesn't exist", () => {
     const r = resolveImportToFile("@/lib", "src/foo.test.ts", "/repo", exists);
     expect(r).toBe("/repo/src/lib/index.ts");
+  });
+});
+
+describe("isFrozenPath (α.54 — chef owns test infrastructure)", () => {
+  // Spec-contract assertions stay frozen — these encode "story done".
+  it.each([
+    "tests/integration/story-003.test.ts",
+    "tests/integration/story-003-ui.test.tsx",
+    "tests/schema/story-003-column-presence.test.ts",
+    "tests/acceptance/story-007.spec.ts",
+  ])("flags assertion path as frozen: %s", (p) => {
+    expect(isFrozenPath(p)).toBe(true);
+  });
+
+  // Slowcook-managed artifacts stay frozen — other agents derive from them.
+  it.each([
+    ".brewing/code-map.json",
+    ".brewing/code-map.md",
+    ".brewing/code-map.target.md",
+    ".brewing/recon-result.json",
+    ".brewing/history-index.json",
+    ".brewing/auto-gen/foo.json",
+  ])("flags slowcook-managed artifact as frozen: %s", (p) => {
+    expect(isFrozenPath(p)).toBe(true);
+  });
+
+  // Test INFRASTRUCTURE is NOT frozen — chef can fix the runner machinery.
+  it.each([
+    "tests/helpers/render.tsx",
+    "tests/helpers/a11y.ts",
+    "tests/helpers/mocks/fetch.ts",
+    "tests/helpers/mocks/index.ts",
+    "tests/setup.ts",
+    "vitest.setup.ts",
+    "vitest.config.ts",
+    "vitest.config.mjs",
+    "playwright.config.ts",
+    "package.json",
+    "tsconfig.json",
+  ])("does NOT flag infra path as frozen: %s", (p) => {
+    expect(isFrozenPath(p)).toBe(false);
+  });
+
+  // Source files — never frozen.
+  it.each([
+    "src/components/patient/chat/PatientChatPage.tsx",
+    "src/lib/data/patient.ts",
+    "src/app/api/patients/me/route.ts",
+    "apps/back/src/modules/appointment/appointment.controller.ts",
+    "supabase/migrations/00042_chat.sql",
+  ])("does NOT flag source path as frozen: %s", (p) => {
+    expect(isFrozenPath(p)).toBe(false);
   });
 });
