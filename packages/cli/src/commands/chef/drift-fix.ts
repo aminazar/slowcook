@@ -819,15 +819,23 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
   });
   console.log(`  chef LLM: ${resp.usage.inputTokens}→${resp.usage.outputTokens} tok · $${resp.costUsd.toFixed(4)}`);
 
+  // α.53 — parse-tolerant: a malformed JSON envelope (e.g. an
+  // unterminated string mid-rationale, observed on delgoosh#656
+  // story-003 chef run 26397941242) used to crash the workflow
+  // with exit 1, losing the entire run. Recover whatever signal we
+  // can (typically the rationale prose up to the truncation point)
+  // and escalate as a pm_question instead. The PM still gets
+  // actionable text; the workflow exits clean.
   let verdict: ChefVerdict;
   try {
     const text = resp.text.trim();
     const fence = text.match(/```json\s*([\s\S]*?)```/);
     verdict = JSON.parse(fence ? fence[1]! : text) as ChefVerdict;
   } catch (e) {
-    console.error(`  ! chef JSON parse failed: ${(e as Error).message}`);
-    console.error(`  raw: ${resp.text.slice(0, 500)}`);
-    process.exit(1);
+    const parseErr = (e as Error).message;
+    console.warn(`  ! chef JSON parse failed: ${parseErr}`);
+    console.warn(`  recovering rationale from raw text + escalating as pm_question`);
+    verdict = recoverChefVerdictFromMalformedJson(resp.text, parseErr, args.storyId, issueNumber);
   }
 
   console.log(`  chef verdict: ${verdict.kind.toUpperCase()}`);
@@ -972,4 +980,119 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
   console.log(`\n  done · post_state=${moveEntry.post_state} · move=${moveN} · cum-cost=$${ledger.cumulative_cost_usd.toFixed(4)}`);
 
   if (verdict.kind === "halt" || moveEntry.post_state === "still-broken") process.exit(1);
+}
+
+/**
+ * α.53 — extract whatever signal we can from a malformed chef JSON.
+ *
+ * The model often returns valid prose (`"rationale": "long sentence about
+ * what's wrong"`) but the JSON envelope breaks if the rationale runs past
+ * Anthropic's max-tokens midstring or contains an unescaped quote.
+ *
+ * Strategy:
+ *   1. Look for ```json fence — strip it.
+ *   2. Try a quick "auto-close unterminated string" repair: count
+ *      unescaped quotes; if odd, append a closing quote + `}` and retry
+ *      JSON.parse.
+ *   3. If still broken, regex-extract the `"rationale"` field value up
+ *      to wherever it terminates (literal quote or end of buffer).
+ *   4. Build a pm_question verdict with the recovered rationale plus a
+ *      bookkeeping note about the parse failure. Empty edits, no
+ *      next-dispatch — the PM is the next step.
+ */
+export function recoverChefVerdictFromMalformedJson(
+  rawText: string,
+  parseError: string,
+  storyId: string,
+  issueNumber: number,
+): ChefVerdict {
+  const text = rawText.trim();
+  const fence = text.match(/```json\s*([\s\S]*?)(?:```|$)/);
+  const body = fence ? fence[1]! : text;
+
+  // Attempt 1: auto-close unterminated string + closing brace.
+  const repaired = autoCloseStringAndBrace(body);
+  if (repaired) {
+    try {
+      const v = JSON.parse(repaired) as Partial<ChefVerdict>;
+      if (typeof v.rationale === "string") {
+        return {
+          rationale:
+            v.rationale +
+            "\n\n_(chef α.53: chef-drift recovered this verdict from a truncated JSON envelope. " +
+            `Original parse error: ${parseError.slice(0, 120)})_`,
+          kind: "pm_question",
+          edits: [],
+          validation: null,
+          next_dispatch: null,
+          pm_comment: {
+            issue_number: issueNumber,
+            body:
+              "**[chef] Reasoning recovered from a truncated JSON envelope.**\n\n" +
+              v.rationale +
+              "\n\n---\n\n_chef α.53: the LLM produced valid reasoning but the JSON envelope was malformed " +
+              "(likely a long rationale exceeded max-tokens midstring). Chef recovered the prose via auto-close repair. " +
+              `Edits/validation/next-dispatch were not parseable. Original parse error: \`${parseError.slice(0, 200)}\`._`,
+          },
+        };
+      }
+    } catch {
+      // fall through to attempt 2
+    }
+  }
+
+  // Attempt 2: regex-extract just the rationale field's value.
+  const rationaleMatch = body.match(/"rationale"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  const rationale = rationaleMatch
+    ? rationaleMatch[1]!.replace(/\\n/g, "\n").replace(/\\"/g, '"')
+    : "(chef returned a malformed JSON envelope and the rationale could not be recovered. See workflow log for raw text.)";
+
+  return {
+    rationale:
+      rationale +
+      `\n\n_(chef α.53: parse error ${parseError.slice(0, 120)} on story-${storyId} — escalating as pm_question with recovered text only)_`,
+    kind: "pm_question",
+    edits: [],
+    validation: null,
+    next_dispatch: null,
+    pm_comment: {
+      issue_number: issueNumber,
+      body:
+        "**[chef] Reasoning recovered from a malformed JSON envelope (partial).**\n\n" +
+        rationale +
+        "\n\n---\n\n_chef α.53: the LLM produced reasoning but the JSON envelope was malformed beyond auto-repair. " +
+        "What you see above is regex-extracted rationale prose; edits, validation, and next-dispatch fields were not " +
+        `recoverable. Original parse error: \`${parseError.slice(0, 200)}\`. Inspect the workflow log for the full raw text._`,
+    },
+  };
+}
+
+/**
+ * Conservative auto-close: if the body's quotes are imbalanced (one
+ * unterminated string), append `"` + a guess at how many braces are
+ * still open. Returns the repaired string or null if nothing salvageable.
+ */
+function autoCloseStringAndBrace(body: string): string | null {
+  // Count unescaped quotes outside strings is structurally hard; the
+  // heuristic here: if quotes count is odd, append a closing quote.
+  let inString = false;
+  let escape = false;
+  let openBraces = 0;
+  for (const ch of body) {
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (ch === "{") openBraces++;
+      else if (ch === "}") openBraces--;
+    }
+  }
+  if (!inString && openBraces === 0) return null; // nothing to repair
+  let repaired = body;
+  if (inString) repaired += '"';
+  while (openBraces > 0) {
+    repaired += "}";
+    openBraces--;
+  }
+  return repaired;
 }
