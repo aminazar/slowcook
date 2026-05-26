@@ -198,11 +198,26 @@ export function collectImportedSourceFiles(testContents: Record<string, string>)
   // (we exclude scoped packages by requiring the next char after "@"
   // to be "/", which rules out "@scope/pkg" forms).
   const importRe = /from\s+["'](\.{1,2}\/[^"']+|@\/[^"']+|~\/[^"']+)["']/g;
+  // α.59 — some tests do not `import` their target; the styling/shape
+  // presence pattern (slowcook 0.7.21+) uses `readFileSync` on a string
+  // literal source path. Also pick up these direct references so chef
+  // sees the file contents instead of guessing.
+  // Matches string literals like "src/foo/bar.tsx", 'src/foo', "mock/x.ts".
+  const literalRe = /["'](?:src|mock)\/[\w./-]+\.(?:ts|tsx|js|jsx)["']/g;
   for (const [testFile, content] of Object.entries(testContents)) {
     const sources = new Set<string>();
     let m: RegExpExecArray | null;
     while ((m = importRe.exec(content)) !== null) {
       sources.add(m[1]!);
+    }
+    while ((m = literalRe.exec(content)) !== null) {
+      // Strip the surrounding quotes; downstream resolver handles
+      // bare-repo-relative paths via the './' branch by anchoring on
+      // testFile's directory, which won't work for cross-directory
+      // paths like "src/components/...". So we mark these as a
+      // separate prefix that the resolver knows is repo-root-relative.
+      const literal = m[0]!.slice(1, -1);
+      sources.add("//" + literal); // sentinel for repo-root-relative
     }
     out[testFile] = [...sources];
   }
@@ -235,6 +250,12 @@ export function resolveImportToFile(
   } else if (importPath.startsWith("./") || importPath.startsWith("../")) {
     baseDir = dirname(join(repoRoot, testFile));
     rest = importPath;
+  } else if (importPath.startsWith("//")) {
+    // α.59 — sentinel for repo-root-relative paths captured by the
+    // literal-path regex (collectImportedSourceFiles). Strip "//" and
+    // anchor at repoRoot.
+    baseDir = repoRoot;
+    rest = importPath.slice(2);
   } else {
     return null;
   }
@@ -915,6 +936,23 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
           if (sourceContents[projRel]) continue;
           const c = readFileSync(candidate, "utf8");
           sourceContents[projRel] = c.length > 6000 ? c.slice(0, 6000) + "\n// ... truncated" : c;
+        }
+      }
+      // α.59 — also load files brew itself touched across all iters.
+      // Even if the failing test doesn't import them, they're the live
+      // story state chef should reason about (e.g., the page.tsx brew
+      // wrote in iter 1 imports the component the styling test asserts
+      // on; chef needs both to make a coherent edit).
+      if (Array.isArray(triggerRaw["iteration_diffs"])) {
+        const diffs = triggerRaw["iteration_diffs"] as Array<{ files_touched?: string[] }>;
+        for (const d of diffs) {
+          for (const f of d?.files_touched ?? []) {
+            if (typeof f !== "string" || sourceContents[f]) continue;
+            const abs = join(args.repoRoot, f);
+            if (!existsSync(abs)) continue;
+            const c = readFileSync(abs, "utf8");
+            sourceContents[f] = c.length > 6000 ? c.slice(0, 6000) + "\n// ... truncated" : c;
+          }
         }
       }
       triggerRaw = {
