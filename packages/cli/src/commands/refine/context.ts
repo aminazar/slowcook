@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
 
@@ -44,6 +44,15 @@ export function buildProjectContext(repoRoot: string): string {
 
   const entitiesDigest = readEntitiesDigest(repoRoot);
   if (entitiesDigest) sections.push("\n" + entitiesDigest);
+
+  // α.61 — NestJS/TypeORM consumers don't use `src/lib/entities/` (that's
+  // the supabase-style structure `slowcook init entities` emits). Without
+  // a backend grounding refine hallucinates routes + field names + enum
+  // values (delgoosh#641 dogfood: invented /api/v1/patients/me/... route
+  // and a 4-state status enum; reality was /appointment/appointment-by-
+  // patient + an 11-state enum). Surface the actual backend shape.
+  const nestjsDigest = readNestJsBackendDigest(repoRoot);
+  if (nestjsDigest) sections.push("\n" + nestjsDigest);
 
   return sections.join("\n");
 }
@@ -372,4 +381,214 @@ function readActiveSpecsSummary(repoRoot: string): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * α.61 — surface a digest of NestJS/TypeORM backend shape so refine
+ * doesn't hallucinate routes, DTO field names, and enum values on
+ * monorepo consumers that use this stack.
+ *
+ * Scans (best-effort, all paths optional):
+ *   - packages/(any)/entities/X.entity.ts for TypeORM entity classes
+ *     (extracts class name + each Column/OneToMany/ManyToOne field)
+ *   - apps/(any)/src/modules/(any)/X.controller.ts for HTTP controllers
+ *     (extracts class + each Get/Post/Put/Delete/Patch handler)
+ *   - packages/enums/src/X.enum.ts for enum values
+ *
+ * Returns null when none of these directories exist (greenfield or
+ * non-NestJS repo) so the function stays a no-op for other stacks.
+ *
+ * Truncation: per-entity column list capped at 20; per-controller
+ * route list capped at 15; enum values capped at 20. The full files
+ * are on disk for testgen / brew if more detail needed.
+ *
+ * NOT a replacement for `readEntitiesDigest` (which targets the
+ * supabase-style structure `slowcook init entities` emits) — both
+ * fire side-by-side; one is null on stacks that aren't its target.
+ */
+export function readNestJsBackendDigest(repoRoot: string): string | null {
+  const lines: string[] = [];
+  const entityFiles = findFilesByGlob(repoRoot, /\/entities\/[^/]+\.entity\.ts$/);
+  const controllerFiles = findFilesByGlob(repoRoot, /\/(modules|controllers)\/[^/]+\/[^/]+\.controller\.ts$/);
+  const enumFiles = existsSync(join(repoRoot, "packages/enums/src"))
+    ? readdirSync(join(repoRoot, "packages/enums/src")).filter((f) => f.endsWith(".enum.ts")).map((f) => `packages/enums/src/${f}`)
+    : [];
+  if (entityFiles.length === 0 && controllerFiles.length === 0 && enumFiles.length === 0) return null;
+
+  lines.push("## Backend shape (NestJS/TypeORM — α.61)");
+  lines.push("");
+  lines.push(
+    "These are the **actual** entity columns, controller routes, and enum values present in the consumer's backend. " +
+    "When the spec references a backend route or field name, it MUST use names from this list — do NOT invent paths " +
+    "like `/api/v1/...` or field aliases like `topic` when the entity column is `title`. If a needed field is absent, " +
+    "explicitly emit a `database_migrations:` section in the spec listing the SQL DDL changes required."
+  );
+  lines.push("");
+
+  if (entityFiles.length > 0) {
+    lines.push("### TypeORM entities");
+    for (const rel of entityFiles.slice(0, 25)) {
+      const body = safeRead(repoRoot, rel);
+      if (!body) continue;
+      const classMatch = body.match(/export class (\w+) extends BaseEntity/) ?? body.match(/export class (\w+)/);
+      if (!classMatch) continue;
+      const className = classMatch[1]!;
+      const cols = extractTypeOrmColumns(body).slice(0, 20);
+      lines.push(`- **${className}** (\`${rel}\`)`);
+      for (const col of cols) lines.push(`  - ${col}`);
+    }
+    if (entityFiles.length > 25) lines.push(`- … ${entityFiles.length - 25} more entity files`);
+    lines.push("");
+  }
+
+  if (controllerFiles.length > 0) {
+    lines.push("### HTTP controllers + routes");
+    for (const rel of controllerFiles.slice(0, 25)) {
+      const body = safeRead(repoRoot, rel);
+      if (!body) continue;
+      const controllerMatch = body.match(/@Controller\(['"]([^'"]*)['"]\)/);
+      const base = controllerMatch ? controllerMatch[1]! : "";
+      const allRoutes = extractNestRoutes(body);
+      const routes = allRoutes.slice(0, 40);
+      if (routes.length === 0) continue;
+      lines.push(`- \`${rel}\` (base: \`/${base}\`)`);
+      for (const r of routes) lines.push(`  - \`${r.method} /${joinPath(base, r.path)}\` → \`${r.handler}\``);
+      if (allRoutes.length > 40) lines.push(`  - … ${allRoutes.length - 40} more routes in this file`);
+    }
+    if (controllerFiles.length > 25) lines.push(`- … ${controllerFiles.length - 25} more controller files`);
+    lines.push("");
+  }
+
+  if (enumFiles.length > 0) {
+    lines.push("### Enums (`packages/enums/src/`)");
+    for (const rel of enumFiles.slice(0, 30)) {
+      const body = safeRead(repoRoot, rel);
+      if (!body) continue;
+      const enumMatch = body.match(/export enum (\w+) \{([\s\S]*?)\}/);
+      if (!enumMatch) continue;
+      const enumName = enumMatch[1]!;
+      const values = (enumMatch[2] ?? "")
+        .split(",")
+        .map((v) => v.trim().split("=")[0]!.trim().replace(/['"\s/*]/g, ""))
+        .filter((v) => v && /^[A-Z_]+$/.test(v))
+        .slice(0, 20);
+      if (values.length === 0) continue;
+      lines.push(`- **${enumName}**: ${values.join(" · ")}`);
+    }
+    if (enumFiles.length > 30) lines.push(`- … ${enumFiles.length - 30} more enum files`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function findFilesByGlob(repoRoot: string, pattern: RegExp): string[] {
+  const out: string[] = [];
+  const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", ".turbo", "coverage"]);
+  const walk = (dir: string, depthRemaining: number) => {
+    if (depthRemaining < 0) return;
+    let entries: string[] = [];
+    try { entries = readdirSync(dir); } catch { return; }
+    for (const name of entries) {
+      if (skipDirs.has(name)) continue;
+      const abs = join(dir, name);
+      let st;
+      try { st = statSync(abs); } catch { continue; }
+      if (st.isDirectory()) walk(abs, depthRemaining - 1);
+      else {
+        const rel = abs.slice(repoRoot.length + 1);
+        if (pattern.test(rel)) out.push(rel);
+      }
+    }
+  };
+  walk(repoRoot, 6); // depth 6 covers most monorepo layouts (packages/X/src/entities/foo.entity.ts)
+  return out;
+}
+
+function safeRead(repoRoot: string, rel: string): string | null {
+  try { return readFileSync(join(repoRoot, rel), "utf8"); } catch { return null; }
+}
+
+function extractTypeOrmColumns(body: string): string[] {
+  // Pull `public foo: Type` lines (the actual field declarations, NOT the
+  // decorator-config object lines that also look like `type: 'uuid'`).
+  // Strategy: regex for ANY line starting with optional whitespace + access
+  // modifier (public|private|readonly) + identifier + `:` + type expression
+  // ending at `;`. Skip plain `key: value` lines (those are decorator config).
+  const lines = body.split("\n");
+  const out: string[] = [];
+  const fieldRe = /^\s*(?:public|private|readonly|protected)\s+(\w+)(\?)?\s*:\s*([^;]+);/;
+  for (const l of lines) {
+    const m = l.match(fieldRe);
+    if (!m) continue;
+    const name = m[1]!;
+    const optional = m[2] ? "?" : "";
+    const type = (m[3] ?? "").trim().replace(/\s+/g, " ");
+    out.push(`${name}${optional}: ${type}`);
+  }
+  return [...new Set(out)];
+}
+
+function extractNestRoutes(body: string): Array<{ method: string; path: string; handler: string }> {
+  // Find each HTTP-verb decorator and walk forward through intervening
+  // decorators (which may span multiple lines, e.g. @ApiOperation({…})
+  // with the body on lines 2..N) until we find the actual method
+  // signature `(public|private|async)? handler(...)`.
+  //
+  // Strategy: from the @Verb line, scan up to 60 lines forward, trying
+  // the handler regex on each. Skip lines that are inside an unclosed
+  // decorator parenthesis. Stop early on next @Get/Post/Put/Delete/Patch
+  // (we missed the handler somehow).
+  const lines = body.split("\n");
+  const out: Array<{ method: string; path: string; handler: string }> = [];
+  const httpVerbRe = /^\s*@(Get|Post|Put|Delete|Patch)\(([^)]*)\)/;
+  const nextHttpVerbRe = /^\s*@(Get|Post|Put|Delete|Patch)\(/;
+  const handlerRe = /^\s*(?:public|private|protected)?\s*(?:async\s+)?(\w+)\s*\(/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = (lines[i] ?? "").match(httpVerbRe);
+    if (!m) continue;
+    const method = m[1]!.toUpperCase();
+    const rawPath = (m[2] ?? "").trim().replace(/^['"`]|['"`]$/g, "");
+    let parenDepth = 0;
+    let handler = "?";
+    for (let j = i + 1; j < Math.min(i + 60, lines.length); j++) {
+      const ln = lines[j] ?? "";
+      // Hard stop: another HTTP verb at the same indent level — we've
+      // passed our handler without finding it; this happens on malformed
+      // controllers.
+      if (parenDepth === 0 && nextHttpVerbRe.test(ln)) break;
+      // Track paren depth so multi-line decorator bodies don't get
+      // accidentally treated as the handler signature.
+      for (const ch of ln) {
+        if (ch === "(") parenDepth++;
+        else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+      }
+      // Skip lines that are starting a new decorator (handler is below)
+      if (/^\s*@\w+/.test(ln)) continue;
+      // Skip blank lines
+      if (/^\s*$/.test(ln)) continue;
+      // Only consider potential handler line when we're not inside an
+      // unclosed decorator paren (parenDepth being 0 at line start means
+      // any prior decorator closed last line).
+      const handlerMatch = ln.match(handlerRe);
+      if (handlerMatch) {
+        const word = handlerMatch[1]!;
+        // Filter out anything starting with an uppercase (likely a type
+        // ref) or one of a known reserved-word set.
+        if (word === "if" || word === "switch" || word === "while" || word === "for" || /^[A-Z]/.test(word)) continue;
+        handler = word;
+        break;
+      }
+    }
+    out.push({ method, path: rawPath, handler });
+  }
+  return out;
+}
+
+function joinPath(base: string, sub: string): string {
+  const b = base.replace(/^\/|\/$/g, "");
+  const s = sub.replace(/^\/|\/$/g, "");
+  if (!b) return s;
+  if (!s) return b;
+  return `${b}/${s}`;
 }
