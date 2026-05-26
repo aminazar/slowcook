@@ -32,6 +32,18 @@ export interface HaltReport {
   brew_mode?: "auto" | "plate" | "freehand";
   /** The `allowedPaths` array brew enforced. Empty array = no restriction. */
   allowed_paths?: string[];
+  /**
+   * α.57 — name of the branch brew committed checkpoints onto + pushed.
+   * Without this, downstream chef-on-brew-halt can't tell which branch
+   * holds the in-progress src/ files; chef checks out main (the
+   * default-branch checkout that chef's workflow performs), then can't
+   * find the files the failing tests import, then HALLUCINATES contents.
+   * Caught 2026-05-26 dogfood: delgoosh#003 chef-drift logged
+   * "brew-halt enriched: 2 failing test file(s), 0 source file(s)" —
+   * source-file resolver couldn't see files that only exist on the
+   * brew branch.
+   */
+  brew_branch?: string;
   /** Full per-iteration diffs. Carries every iteration brewing ran, not just the last few,
    * so post-hoc diagnosis of a stuck loop doesn't lose iters 1..N-3. */
   iteration_diffs?: IterationDiff[];
