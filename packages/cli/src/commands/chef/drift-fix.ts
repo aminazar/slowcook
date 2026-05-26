@@ -684,8 +684,13 @@ function commitChefEdits(repoRoot: string, summary: string, edits: ChefEdit[]): 
     try { execSync(`git -C "${repoRoot}" add ".brewing/chef/"`, { stdio: "ignore" }); }
     catch { /* ledger dir may not exist if first move ran into early error */ }
     // Empty commit guard: if nothing staged, skip.
-    const status = execSync(`git -C "${repoRoot}" status --porcelain --cached`, { encoding: "utf8" }).trim();
-    if (!status) return { sha: null, pushed: false };
+    // α.60 — was `git status --porcelain --cached` which is not a valid
+    // git status invocation (--cached isn't a status flag); execSync
+    // threw, the outer try/catch silently absorbed it, and chef NEVER
+    // actually committed in any drift-fix path. `diff --cached
+    // --name-only` lists staged files; empty output = nothing to commit.
+    const staged = execSync(`git -C "${repoRoot}" diff --cached --name-only`, { encoding: "utf8" }).trim();
+    if (!staged) return { sha: null, pushed: false };
     // Write commit message to file (handle quotes cleanly).
     const msgFile = "/tmp/chef-drift-commit-msg.txt";
     writeFileSync(msgFile, `[chef] ${summary}\n\nCo-Authored-By: slowcook-chef[bot] <slowcook-chef@users.noreply.github.com>\n`, "utf8");
