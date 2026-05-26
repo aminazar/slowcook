@@ -790,8 +790,36 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
   // material it needs to write surgical search_replace pairs.
   if (args.triggerKind === "brew_halt_class") {
     const runnerOutput = (triggerRaw["runner_output"] as string | undefined) ?? args.triggerDetail;
+    // α.56 — when runner_output is absent (typical for AGENT_STALLED /
+    // ITERATION_CAP halts where there's no vitest failure to parse),
+    // derive failing-test files from iteration_diffs[].target_test_id.
+    // Format: "tests/path/file.test.ts > suite > name" — split on " > "
+    // and take part[0] as the test file path. The same enrichment then
+    // loads file contents + imported source files. Without this, chef
+    // hallucinates target file contents (seen 2026-05-26 dogfood:
+    // delgoosh#003 chef invented two different "stub" source bodies).
+    let failingFiles: string[] = [];
+    let failingTestNames: string[] = [];
     if (typeof runnerOutput === "string" && runnerOutput.length > 0) {
-      const { failingFiles, failingTestNames } = parseBrewHaltOutput(runnerOutput);
+      const parsed = parseBrewHaltOutput(runnerOutput);
+      failingFiles = parsed.failingFiles;
+      failingTestNames = parsed.failingTestNames;
+    } else if (Array.isArray(triggerRaw["iteration_diffs"])) {
+      const diffs = triggerRaw["iteration_diffs"] as Array<{ target_test_id?: string }>;
+      const filesSet = new Set<string>();
+      const namesSet = new Set<string>();
+      for (const d of diffs) {
+        const tid = d?.target_test_id;
+        if (typeof tid !== "string" || tid.length === 0) continue;
+        const parts = tid.split(" > ");
+        const file = parts[0]!.trim();
+        if (file) filesSet.add(file);
+        if (parts.length > 1) namesSet.add(parts.slice(1).join(" > "));
+      }
+      failingFiles = Array.from(filesSet);
+      failingTestNames = Array.from(namesSet);
+    }
+    if (failingFiles.length > 0) {
       const failingTestContents: Record<string, string> = {};
       for (const f of failingFiles) {
         const abs = join(args.repoRoot, f);
