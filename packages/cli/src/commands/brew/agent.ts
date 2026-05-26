@@ -2450,6 +2450,9 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
     // advice instead of hallucinating spec fields.
     brew_mode: ctx.mode,
     allowed_paths: ctx.allowedPaths,
+    // α.57 — branch chef-on-brew-halt should checkout to see brew's
+    // in-progress src/ checkpoints. Without this chef sees only main.
+    brew_branch: ctx.branchName,
     iteration_diffs: iterationDiffs.length > 0 ? iterationDiffs : undefined,
     last_agent_rationale: lastRationale,
     suggested_actions: defaultSuggestedActions(args.reason, {
