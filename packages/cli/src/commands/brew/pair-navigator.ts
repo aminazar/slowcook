@@ -97,6 +97,13 @@ export interface PairNavigatorOptions {
     apiContract?: NavigatorPromptArgs["apiContract"];
     crossStoryFiles?: string[];
     specYaml?: string;
+    /**
+     * α.55 — list of source-file paths present in the repo at the
+     * time of this iteration. Navigator uses this to ground absence
+     * claims (must NOT assert a path is absent unless it's missing
+     * from this list AND the diff doesn't create it).
+     */
+    knownSourceFiles?: string[];
     priorVerdicts?: NavigatorPromptArgs["priorVerdicts"];
   } | null>;
 }
@@ -151,9 +158,13 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
         mockFiles: context.mockFiles ?? [],
         codeMapDigest: context.codeMapDigest ?? "",
         storyTestIds: context.storyTestIds ?? [],
+        // α.55 — scope concerns to the current iteration's target.
+        targetTestId: input.targetTestId,
         apiContract: context.apiContract,
         crossStoryFiles: context.crossStoryFiles,
         specYaml: context.specYaml,
+        // α.55 — let navigator presence-check files it might claim absent.
+        knownSourceFiles: context.knownSourceFiles,
         priorVerdicts: context.priorVerdicts,
       };
       const prompt = buildNavigatorPrompt(promptArgs);

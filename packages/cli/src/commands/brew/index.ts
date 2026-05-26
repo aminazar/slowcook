@@ -387,12 +387,34 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
         const specYaml = existsSync(specYamlPath) ? readFileSync(specYamlPath, "utf8") : undefined;
         const apiContract = (spec as unknown as { api_contract?: Array<{ method: string; path: string; description?: string }> })
           .api_contract;
+        // α.55 — give navigator a bounded list of source files that
+        // exist right now so it can presence-check claims about absence
+        // instead of hallucinating. Bounded to src/ + mock/src/ tsx/ts
+        // files to keep the prompt reasonable.
+        const knownSourceFiles: string[] = [];
+        const collectKnown = (dir: string, rel: string): void => {
+          if (!existsSync(dir)) return;
+          for (const name of readdirSync(dir)) {
+            const abs = join(dir, name);
+            const r = rel ? `${rel}/${name}` : name;
+            const st = statSync(abs);
+            if (st.isDirectory()) {
+              if (name === "node_modules" || name.startsWith(".")) continue;
+              collectKnown(abs, r);
+            } else if (/\.(tsx?|jsx?)$/.test(name)) {
+              knownSourceFiles.push(r);
+            }
+          }
+        };
+        collectKnown(join(args.repoRoot, "src"), "src");
+        collectKnown(join(args.repoRoot, "mock/src"), "mock/src");
         return {
           mockFiles,
           codeMapDigest,
           storyTestIds: [],
           apiContract,
           specYaml,
+          knownSourceFiles,
         };
       },
     });

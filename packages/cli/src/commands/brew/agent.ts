@@ -159,6 +159,11 @@ export interface NavigatorHookInput {
   gainedTests: string[];
   /** Repo root, so the hook can read additional context if needed. */
   repoRoot: string;
+  /**
+   * α.55 — the test id the iteration was targeting. Navigator scopes
+   * concerns to this target; non-target concerns are warn-only.
+   */
+  targetTestId?: string;
 }
 
 export interface NavigatorHookVerdict {
@@ -1065,6 +1070,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         rationale: turnResult.rationale,
         gainedTests: gains,
         repoRoot: ctx.repoRoot,
+        // α.55 — scope navigator's concerns to the iteration target.
+        targetTestId: currentTarget ?? undefined,
       });
       const navDecision = decideNavigatorAction(navVerdict);
       spendUsd += navDecision.costUsd;
