@@ -11,9 +11,7 @@
 
 ## Status
 
-**0.19 → 0.20 — repo-knowledge layer + chef-on-brew-halt loop (shipping in alphas).** The 0.17→0.18 brownfield-awareness work matured into a **durable, agent-portable knowledge layer**: every consumer repo now carries `.brewing/repo-knowledge/{auto,curated}/` — a deterministic extraction of code shape (entities, routes, mock types, brand tokens, …) plus git-history-mined organizational memory (commit conventions, co-changes, fix-recipe seeds, ownership). Surfaced to refine + visible to any AI agent (slowcook or not — Claude Code, Cursor, etc.) via an `AGENTS.md` managed block. Empirical: on a NestJS/TypeORM consumer, refine zero-hallucinated backend routes + field names + enum values that the pre-knowledge-layer pipeline had invented. Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
-
-**0.19.0 stable** is cut as of 2026-05-27 — the knowledge-layer arc + chef-on-brew-halt loop + α.51-α.67 hardening shipped together.
+**0.19.0 stable** (cut 2026-05-27) — the knowledge-layer arc + chef-on-brew-halt loop + α.51-α.67 hardening. Every consumer repo now carries `.brewing/repo-knowledge/{auto,curated}/` — a deterministic extraction of code shape (entities, routes, mock types, brand tokens, …) plus git-history-mined organizational memory (commit conventions, co-changes, fix-recipe seeds, ownership). Surfaced to refine + visible to any AI agent (slowcook or not — Claude Code, Cursor, etc.) via an `AGENTS.md` managed block. Empirical: on a NestJS/TypeORM consumer, refine zero-hallucinated backend routes + field names + enum values that the pre-knowledge-layer pipeline had invented. Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
 
 | Package | Version | Brings |
 |---|---|---|
