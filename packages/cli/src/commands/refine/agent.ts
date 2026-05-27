@@ -30,7 +30,7 @@ export function stripModelEmittedDuplicates(body: string): string {
 }
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
 import { writeMockFixtures } from "./mock-fixtures.js";
-import { validateAndRepairSpec } from "./spec-validate.js";
+import { validateAndRepairSpec, validateEntityFieldReferences } from "./spec-validate.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import type {
   ForgeAdapter,
@@ -57,7 +57,7 @@ import {
   SPECS_DIR,
 } from "./spec-yaml.js";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildProjectContext } from "./context.js";
 import {
@@ -458,9 +458,26 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   // 0.14.0-α.6+ — content-level repair before persisting. Catches LLM
   // truncation that Zod missed (e.g. unterminated `var(--tint-in`).
   const validationFindings = validateAndRepairSpec(spec);
+
+  // 0.19.x+ — catch hallucinated entity.field references against the
+  // auto/backend-entities.md catalog. Best-effort: if the digest is
+  // missing (consumer hasn't run refresh-knowledge yet), skip silently.
+  try {
+    const entityCatalogPath = join(
+      ctx.repoRoot,
+      ".brewing/repo-knowledge/auto/backend-entities.md"
+    );
+    if (existsSync(entityCatalogPath)) {
+      const md = readFileSync(entityCatalogPath, "utf8");
+      validationFindings.push(...validateEntityFieldReferences(spec, md));
+    }
+  } catch {
+    // Never fail spec emit on a lint hiccup.
+  }
+
   if (validationFindings.length > 0) {
     console.warn(
-      `[refine] spec post-emit validation: ${validationFindings.length} finding(s) — corrupt token entries pruned:`
+      `[refine] spec post-emit validation: ${validationFindings.length} finding(s):`
     );
     for (const f of validationFindings) {
       console.warn(`  - ${f.path}: ${f.message} (${f.action})`);
