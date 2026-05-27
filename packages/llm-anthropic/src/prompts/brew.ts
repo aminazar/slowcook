@@ -164,6 +164,7 @@ When the target test is a page-link assertion, it reads a Next.js page file and 
 - **Render the component** in the page's JSX (\`<ComponentName .../>\` or \`<ComponentName>...children...</ComponentName>\`).
 - **If the page is a server component fetching data**, pass the fetched data to the component as a prop. Don't convert the page to a client component to avoid the fetch — that breaks the rest of the page.
 - **Existing layout stays** — don't refactor unrelated sections. Wedge the component in alongside what's already there (a new \`<section>\` block is typical).
+- **Slowcook-canonical vs. production app shell.** The page-link test pins the SLOWCOOK-CANONICAL path (typically \`src/app/(main)/<path>/page.tsx\` at the root of the consumer repo). That path is sized for slowcook tests, not for the consumer's real Next.js app. In monorepo consumers, the production app shell often lives at \`apps/<role>/src/app/<path>/page.tsx\` (different route group, sometimes different URL prefix). When refine's route proposal points there: satisfy the page-link test FIRST by editing the slowcook-canonical path (that's what flips the test green), THEN lift the same component to the spec's proposed apps/<role>/ path so the consumer's deployed app actually renders it. Both paths import from the SAME \`src/components/<path>/Component.tsx\` (the component is presentational; data-as-props). Don't duplicate the component itself — duplicate only the thin server-rendered page wrappers.
 
 ## UI component tests (tier-1 UI, target file ends in \`.test.tsx\`)
 
