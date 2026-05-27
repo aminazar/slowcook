@@ -45,16 +45,64 @@ export function buildProjectContext(repoRoot: string): string {
   const entitiesDigest = readEntitiesDigest(repoRoot);
   if (entitiesDigest) sections.push("\n" + entitiesDigest);
 
-  // α.61 — NestJS/TypeORM consumers don't use `src/lib/entities/` (that's
-  // the supabase-style structure `slowcook init entities` emits). Without
-  // a backend grounding refine hallucinates routes + field names + enum
-  // values (delgoosh#641 dogfood: invented /api/v1/patients/me/... route
-  // and a 4-state status enum; reality was /appointment/appointment-by-
-  // patient + an 11-state enum). Surface the actual backend shape.
-  const nestjsDigest = readNestJsBackendDigest(repoRoot);
-  if (nestjsDigest) sections.push("\n" + nestjsDigest);
+  // α.62 — prefer the disk-cached `.brewing/repo-knowledge/auto/*.md`
+  // digests (emitted by `slowcook refresh-knowledge`) over re-scanning
+  // in-process. The on-disk versions are also seen by other agents
+  // (chef, vibe, etc.) so the team shares one reading. Falls back to
+  // the in-memory α.61 scan if the dir doesn't exist (first run on a
+  // repo where refresh-knowledge hasn't run yet).
+  const knowledgeAuto = readKnowledgeAutoBlock(repoRoot);
+  if (knowledgeAuto) {
+    sections.push("\n" + knowledgeAuto);
+  } else {
+    // α.61 fallback — in-memory NestJS scan.
+    const nestjsDigest = readNestJsBackendDigest(repoRoot);
+    if (nestjsDigest) sections.push("\n" + nestjsDigest);
+  }
 
   return sections.join("\n");
+}
+
+/**
+ * α.62 — assemble the `.brewing/repo-knowledge/auto/*.md` digests
+ * into one block. Reads in a stable order so the byte sequence is
+ * deterministic across runs (helps Anthropic prompt cache stay warm).
+ * Returns null if the dir doesn't exist (consumer hasn't run
+ * `slowcook refresh-knowledge` yet).
+ */
+function readKnowledgeAutoBlock(repoRoot: string): string | null {
+  const autoDir = join(repoRoot, ".brewing/repo-knowledge/auto");
+  if (!existsSync(autoDir)) return null;
+  const order = [
+    "config.md",
+    "backend-entities.md",
+    "backend-enums.md",
+    "backend-routes.md",
+    "frontend-types.md",
+    "frontend-contexts.md",
+    "frontend-components.md",
+    "routes-inventory.md",
+    "tokens.md",
+    "migrations.md",
+  ];
+  const parts: string[] = [];
+  parts.push("## Repo knowledge (auto-generated digests, from `.brewing/repo-knowledge/auto/`)\n");
+  parts.push("These are deterministic extractions of the consumer's actual code shape. Agents MUST reference names/paths/values from here verbatim — do not invent routes, field aliases, or enum values not listed.\n");
+  let found = 0;
+  for (const fname of order) {
+    const path = join(autoDir, fname);
+    if (!existsSync(path)) continue;
+    try {
+      const body = readFileSync(path, "utf8")
+        .replace(/^<!--[^>]*-->\n?/gm, ""); // strip metadata header
+      if (body.trim().length === 0) continue;
+      parts.push(body.trim());
+      parts.push("");
+      found++;
+    } catch { /* ignore */ }
+  }
+  if (found === 0) return null;
+  return parts.join("\n");
 }
 
 /**
