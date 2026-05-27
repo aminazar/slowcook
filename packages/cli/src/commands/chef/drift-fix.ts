@@ -41,6 +41,22 @@ import {
   type ChefEdit,
 } from "@slowcook-ai/llm-anthropic";
 import { isReadOnlyMode, logReadOnlyBanner } from "../../lib/read-only.js";
+import { knowledgeAddCore } from "../knowledge-add.js";
+
+/**
+ * α.67 — distil a chef rationale into a one-line curated insight.
+ * The rationale is typically a paragraph explaining what+why+how;
+ * curated/ entries should be a single class-of-problem claim
+ * (≤250 chars). Strategy: take the first sentence, cap, strip
+ * trailing whitespace. The full rationale lives in the ledger for
+ * deep audit.
+ */
+function distilRationaleToClaim(rationale: string): string {
+  const firstSentence = rationale.split(/(?<=[.!?])\s/)[0] ?? rationale;
+  const trimmed = firstSentence.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= 250) return trimmed;
+  return trimmed.slice(0, 247) + "…";
+}
 
 interface Args {
   storyId: string;
@@ -1154,6 +1170,32 @@ export async function chefDrift(argv: string[], cliVersion: string): Promise<voi
       if (commitSha && !prCheckout && args.triggerKind === "brew_halt_class") {
         try { publishChefBrewHaltFix(args.repoRoot, args.storyId, verdict.rationale); }
         catch (e) { console.warn(`  warn: chef brew-halt publish failed: ${(e as Error).message.slice(0, 200)}`); }
+      }
+      // α.67 — close the knowledge-layer loop: chef writes back to
+      // curated/chef-known-fixes.md so the next chef invocation (or
+      // refine reading the curated block) sees this fix as durable
+      // organizational memory. Soft signal — each entry carries
+      // evidence trail (PR + file + last-verified) so staleness is
+      // reviewable, not auto-invalidating. Best-effort.
+      if (commitSha) {
+        try {
+          // Distil the chef rationale into a one-line claim. The
+          // rationale is often a paragraph; we want the WHAT and the
+          // HOW, compactly. Take the first sentence + cap at ~250
+          // chars. The full rationale + the move ledger entry are
+          // already in .brewing/chef/<story>.json for deep audit.
+          const claim = distilRationaleToClaim(verdict.rationale);
+          const evidenceFile = verdict.edits[0]?.file;
+          knowledgeAddCore({
+            repoRoot: args.repoRoot,
+            agent: "chef",
+            topic: "chef-known-fixes",
+            claim,
+            evidenceFile,
+          });
+        } catch (e) {
+          console.warn(`  warn: knowledge-write skipped: ${(e as Error).message.slice(0, 200)}`);
+        }
       }
     }
   }
