@@ -109,6 +109,134 @@ function pruneTokenList(
   return out;
 }
 
+/**
+ * 0.19.x+ — catch hallucinated entity.field references in the spec.
+ *
+ * Refine sometimes invents fields that don't exist on the consumer's
+ * actual entities (e.g. story-005 in delgoosh referenced
+ * `user.timezone.label` but Timezone has only `name`/`offset`/`offsetStr`).
+ * Brew + testgen downstream silently grounded against the wrong field,
+ * leading to a runtime error that took a human to spot.
+ *
+ * This lint parses `.brewing/repo-knowledge/auto/backend-entities.md`,
+ * walks every string-typed field of the spec, and for each
+ * `lowercaseName.fieldName` pair where `lowercaseName` matches a known
+ * entity, checks whether `fieldName` is in that entity's field set.
+ * Misses are flagged as `"flagged"` (kept as-is — the spec text isn't
+ * auto-repairable since we don't know what the author meant).
+ *
+ * Chained references like `user.timezone.label` are decomposed into
+ * pairs (`user.timezone`, `timezone.label`); each pair is checked
+ * independently. Relation traversal works because relation field
+ * values are themselves listed in the entity catalog with the
+ * other-entity name as their type.
+ *
+ * Exported for testing.
+ */
+export function parseEntityCatalog(md: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  let current: string | null = null;
+  let currentFields: Set<string> | null = null;
+  for (const line of md.split(/\r?\n/)) {
+    const headerMatch = line.match(/^##\s+([A-Z]\w+)\b/);
+    if (headerMatch) {
+      if (current && currentFields) out.set(current, currentFields);
+      // Map by LOWERCASED entity name so spec text like `user.firstName`
+      // resolves to the User entity.
+      current = headerMatch[1]!.toLowerCase();
+      currentFields = new Set<string>();
+      continue;
+    }
+    if (!currentFields) continue;
+    const fieldMatch = line.match(/^-\s+(\w+)\??:/);
+    if (fieldMatch) currentFields.add(fieldMatch[1]!);
+  }
+  if (current && currentFields) out.set(current, currentFields);
+  return out;
+}
+
+/**
+ * Walk every string in a value (recursing into arrays/objects).
+ * Yields each string with a dotted path for diagnostic context.
+ */
+function* walkStrings(
+  value: unknown,
+  path = ""
+): Generator<{ path: string; text: string }> {
+  if (typeof value === "string") {
+    yield { path, text: value };
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      yield* walkStrings(value[i], `${path}[${i}]`);
+    }
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      yield* walkStrings(v, path ? `${path}.${k}` : k);
+    }
+  }
+}
+
+export function validateEntityFieldReferences(
+  spec: Spec,
+  entityCatalogMd: string
+): SpecValidationFinding[] {
+  const findings: SpecValidationFinding[] = [];
+  const catalog = parseEntityCatalog(entityCatalogMd);
+  if (catalog.size === 0) return findings; // No catalog → can't lint.
+
+  // Sections worth walking. We deliberately skip free-form metadata
+  // (title, notes, rationale text under proposals) to keep false-
+  // positives low — only fields where field references are LOAD-BEARING.
+  const sections: Array<{ key: keyof Spec; value: unknown }> = [
+    { key: "invariants", value: spec.invariants },
+    { key: "preconditions", value: spec.preconditions },
+    { key: "acceptance_scenarios", value: spec.acceptance_scenarios },
+    { key: "api_contract", value: spec.api_contract },
+    { key: "ui_behavior", value: spec.ui_behavior },
+  ];
+
+  // Per pair, only flag the FIRST occurrence so a single typo
+  // doesn't generate noise across 20 invariants.
+  const seen = new Set<string>();
+
+  for (const section of sections) {
+    if (section.value == null) continue;
+    for (const { path, text } of walkStrings(section.value, String(section.key))) {
+      // Match every dotted chain (>=2 segments) and split into adjacent
+      // pairs. `regex.exec` with /g advances past each full match, so we
+      // can't catch overlapping pairs (`user.timezone` and
+      // `timezone.label` inside `user.timezone.label`) with a single
+      // pair-regex — extract the whole chain and decompose.
+      const chainRe = /\b([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+)\b/g;
+      let m: RegExpExecArray | null;
+      while ((m = chainRe.exec(text)) !== null) {
+        const segments = m[1]!.split(".");
+        for (let i = 0; i < segments.length - 1; i++) {
+          const lhs = segments[i]!.toLowerCase();
+          const rhs = segments[i + 1]!;
+          const fields = catalog.get(lhs);
+          if (!fields) continue; // LHS isn't a known entity — skip.
+          if (fields.has(rhs)) continue; // Field exists.
+          const key = `${lhs}.${rhs}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          findings.push({
+            path,
+            message: `Spec references \`${segments[i]}.${rhs}\` but the ${lhs} entity has no \`${rhs}\` field. Known fields: ${[...fields].sort().join(", ") || "(none)"}.`,
+            action: "flagged",
+          });
+        }
+      }
+    }
+  }
+
+  return findings;
+}
+
 function pruneStringList(
   items: string[],
   pathPrefix: string,
