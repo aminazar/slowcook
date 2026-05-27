@@ -192,8 +192,8 @@ non-negotiable defaults unless the user specifically overrides.
 - **Self-hosted runners need `gh` CLI.** Slowcook's chef-drift workflow
   installs it via the no-sudo binary. If you write a new workflow, add
   the same step.
-- **Chef-drift exit 1 auto-chains to chef-orchestrate** in the rewo
-  reference workflow shape. Mirror this if you wire your own.
+- **Chef-drift exit 1 auto-chains to chef-orchestrate** in the
+  reference consumer-side workflow shape. Mirror this if you wire your own.
 
 ### When something goes wrong
 
