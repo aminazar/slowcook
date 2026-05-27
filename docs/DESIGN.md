@@ -4,7 +4,7 @@
 >
 > slowcook is forge-agnostic and stack-agnostic by design. 0.1 ships a GitHub forge adapter and a TypeScript stack adapter; other forges (GitLab, Gitea) and stacks (Python, Go) are fast-follows. Consumer projects integrate via `npm install @slowcook-ai/cli` plus a small `.brewing/` config.
 >
-> [`reworthy/app`](https://github.com/reworthy/app) is slowcook's first consumer and integration-test project.
+> Slowcook is co-developed against active dogfood consumer repos kept private; most features were motivated by running it against real consumers and fixing what broke.
 >
 > **2026-04-25 — 0.13.0 architectural addition.** A parallel bug-fix flow (`investigate → recipe --regression → sift`) lands alongside the existing story flow (`refine → recipe → brew` — note `testgen` is being renamed to `recipe`). A new `chef` agent watches all slowcook-bot PRs and recovers from failures (rebase / retry-dispatch / escalate). See [`docs/plans/0.13-bug-flow-and-chef.md`](plans/0.13-bug-flow-and-chef.md). The original story-flow design below is unchanged in 0.13.0; bug flow is additive.
 
@@ -78,7 +78,7 @@ It posts numbered clarifying questions as **one issue comment at a time**. Human
 
 ```yaml
 story_id: 42
-title: User can react to a rewo with an emotion
+title: User can react to a post with an emotion
 actors: [authenticated_member]
 preconditions: [...]
 invariants: [...]
@@ -135,8 +135,8 @@ On merge of the tests PR, everything in the **frozen set** becomes write-protect
 
 Enforced by:
 - Pre-push hook on the VPS runner
-- CI check `rewo/frozen-paths-untouched` (blocks PR merge)
-- `CODEOWNERS` requires `@rewo-admin` to modify any frozen path (escape hatch with audit trail)
+- CI check `consumer/frozen-paths-untouched` (blocks PR merge)
+- `CODEOWNERS` requires a project-admin handle to modify any frozen path (escape hatch with audit trail)
 
 ## 5. Phase 3 — The Brewing Harness
 
@@ -546,7 +546,7 @@ Runner needs access to: local Postgres (pg-boss), MinIO (screenshot storage), an
 
 ## 10. Release roadmap
 
-slowcook ships incrementally. Each version is usable on its own; rewo (and any other consumer) adopts them as they land.
+slowcook ships incrementally. Each version is usable on its own; consumers adopt them as they land.
 
 | Version | Scope | New packages | Effort |
 |---|---|---|---|
@@ -563,7 +563,7 @@ slowcook ships incrementally. Each version is usable on its own; rewo (and any o
 | **0.7** | Parallel lanes | (worker growth) | ~1 day |
 | **0.8** | Tier-1 static scan + Tier-2/Tier-3 reviewer + mutation audit + coverage floor | (worker growth) | ~2 days |
 | **0.9** | Gate 1 mechanical (UI asserts) + Gate 2 vision | (stack-ts + worker growth) | ~3 days |
-| **1.0** | HITL dashboard (incl. halt cards + **large-iteration cards + refinement feedback channel** per §7), end-to-end pipeline validated on rewo | `@slowcook-ai/dashboard` | ~5 days |
+| **1.0** | HITL dashboard (incl. halt cards + **large-iteration cards + refinement feedback channel** per §7), end-to-end pipeline validated on a real consumer | `@slowcook-ai/dashboard` | ~5 days |
 
 **Total to 1.0:** ~25 days. First-useful milestone (0.1 → 0.3): ~4 days — consumers can already enforce frozen paths + manifests, and scaffold new projects. Graduality mechanisms land with the first brew release (0.6) so they shape behavior from the first real iteration.
 
