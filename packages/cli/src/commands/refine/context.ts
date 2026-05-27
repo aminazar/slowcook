@@ -60,7 +60,52 @@ export function buildProjectContext(repoRoot: string): string {
     if (nestjsDigest) sections.push("\n" + nestjsDigest);
   }
 
+  // α.63 — also surface the curated/ block (git-history mining +
+  // future agent-written insights). Tracked in git; carries
+  // commit-conventions, co-changes, ownership, fix-recipe seeds,
+  // issue traceability.
+  const knowledgeCurated = readKnowledgeCuratedBlock(repoRoot);
+  if (knowledgeCurated) sections.push("\n" + knowledgeCurated);
+
   return sections.join("\n");
+}
+
+/**
+ * α.63 — assemble the `.brewing/repo-knowledge/curated/*.md` files
+ * into one block. These are mined from git history (and in later
+ * alphas, written-back by chef / vibe / testgen). Tracked in git so
+ * fresh clones get the organizational memory immediately.
+ */
+function readKnowledgeCuratedBlock(repoRoot: string): string | null {
+  const curatedDir = join(repoRoot, ".brewing/repo-knowledge/curated");
+  if (!existsSync(curatedDir)) return null;
+  const order = [
+    "commit-conventions.md",
+    "ownership.md",
+    "co-changes.md",
+    "fix-recipe-seeds.md",
+    "chef-known-fixes.md",      // populated later when chef writes
+    "test-patterns.md",          // populated later when testgen writes
+    "design-conventions.md",     // populated later when vibe writes
+    "issue-traceability.md",
+  ];
+  const parts: string[] = [];
+  parts.push("## Repo knowledge — curated (`.brewing/repo-knowledge/curated/`)\n");
+  parts.push("Durable organizational memory: conventions + coupling + insights either mined from git history (α.63) or appended by agents over time (α.65+). Treat as soft signal — entries carry evidence trails but staleness is for review, not auto-invalidation.\n");
+  let found = 0;
+  for (const fname of order) {
+    const path = join(curatedDir, fname);
+    if (!existsSync(path)) continue;
+    try {
+      const body = readFileSync(path, "utf8");
+      if (body.trim().length === 0) continue;
+      parts.push(body.trim());
+      parts.push("");
+      found++;
+    } catch { /* ignore */ }
+  }
+  if (found === 0) return null;
+  return parts.join("\n");
 }
 
 /**
