@@ -11,21 +11,20 @@
 
 ## Status
 
-**0.17 → 0.18 — brownfield-aware pipeline (shipping in alphas).** The 0.16 mock-app architecture held; 0.17 closes the brownfield gap — every agent (refine, vibe, plate, testgen, brew, recon) now consults a deterministic `.brewing/history-index.json` so they can't silently invent names that collide with existing prod surface. **0.18** opens the door to invariant-level supersedes (the side-effects audit replaces wholesale `change-of-mind`). Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
+**0.19 → 0.20 — repo-knowledge layer + chef-on-brew-halt loop (shipping in alphas).** The 0.17→0.18 brownfield-awareness work matured into a **durable, agent-portable knowledge layer**: every consumer repo now carries `.brewing/repo-knowledge/{auto,curated}/` — a deterministic extraction of code shape (entities, routes, mock types, brand tokens, …) plus git-history-mined organizational memory (commit conventions, co-changes, fix-recipe seeds, ownership). Surfaced to refine + visible to any AI agent (slowcook or not — Claude Code, Cursor, etc.) via an `AGENTS.md` managed block. Empirical: refine on delgoosh#644 zero-hallucinated all backend routes + field names + enum values that the pre-knowledge-layer pipeline had invented. Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
 
-**Latest published (npm):**
+**Latest on `main` (npm `alpha` line):**
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.18.0` (latest) · `0.19.0-alpha.41` (alpha, npm) · `α.42` on main | latest: chef α.9 L1 + pair-brew sim + entity-first foundation. alpha: prior 0.19 line PLUS funds-warning track (`slowcook budget` + credit-balance gauge + canonical cost storage + project fuel gauge + 402 Payment Required catcher + ratelimit-header surfacing) PLUS refine Pass B brownfield-answer PLUS the sc#82 shape-aware track (Vite mock template + shape-aware vibe/plate/recon + slowcook brand agent + consolidated logo) |
-| `@slowcook-ai/llm-anthropic` | `0.15.0` · `0.16.0-alpha.15` (alpha) | chef + navigator structured prompts; refine/vibe/plate/testgen/brew prompts surface entities barrel; testgen blind-to-mock; `data-mock-chrome` chrome marker; side-effects audit; refine PM-facing question rules; questions-first comment layout + visible cost footer; refine Pass B brownfield-answer; shape-aware vibe/plate/recon prompts; brand agent |
-| `@slowcook-ai/forge-github` | `0.12.0` · `0.12.1` (alpha) | vibe template `regenerate` dispatch input; brew-auto plate-only mode; chef-drift artifact upload |
-| `@slowcook-ai/stack-ts` | `0.9.8` · `0.9.9-alpha.0` (alpha) | `playwright-list` reporter accepted; `parsePlaywrightList` degrades to `[]` instead of throwing |
-| `@slowcook-ai/review-overlay` | `0.5.5` | overlay v3 + composer anchored to clicked element + reads `NEXT_PUBLIC_SLOWCOOK_GH_PROXY` to skip PAT prompt |
-| `@slowcook-ai/core` | `0.13.1` · `0.14.0` on main | sc#82 shape-aware types |
-| `@slowcook-ai/mock-runtime` | `0.3.3` · `0.3.4` on main | sc#82 logo consolidation |
+| `@slowcook-ai/cli` | `0.19.0-alpha.65` (main) | knowledge layer: `refresh-knowledge` (auto digests for backend entities/routes/enums + frontend types/components/contexts + Tailwind tokens + config + migrations + route inventory) + `--mine-history` (commit conventions, co-changes, ownership, fix-recipe seeds, issue traceability) + `upsert-agent-docs` (AGENTS.md managed block + README pointer + .gitignore split) — auto-run by `slowcook init`. Full chef-on-brew-halt loop end-to-end validated. |
+| `@slowcook-ai/llm-anthropic` | `0.16.0-alpha.23` (main) | navigator scope + hallucination discipline; chef owns test infrastructure; refine NestJS backend grounding (no more hallucinated `/api/v1/...` routes or invented field aliases). |
 
-**Highlights of the 0.17 → 0.18 arc:**
+**Last published (older — `latest` tag):** `cli@0.18.0`, `llm-anthropic@0.15.0`. Active development on the `alpha` line; pin exact versions in `.brewing/slowcook-cli-version` to avoid surprise breaks.
+
+**Milestone 2026-05-27 — knowledge layer + chef-on-brew-halt loop closed (cli α.51 → α.65):** Eleven alphas shipped over two days. Highlights: chef stops hallucinating spec fields (α.51); brew `legacy` renamed to `freehand` with navigator default-on (α.52); chef-drift parse-tolerant (α.53); chef owns test infrastructure incl. vitest.config + package.json devDeps (α.54); navigator gets scope + hallucination discipline (α.55); chef-on-brew-halt loop fully wired: halt artifact → enrichment from iteration_diffs → checkout brew_branch → push fix as PR (α.56-α.60); refine sees NestJS/TypeORM backend digest (α.61); ten disk-cached repo-knowledge digests + curated git-history-mined files (α.62-α.63); AGENTS.md managed block (α.64); init wires the whole bedrock automatically (α.65). Empirical wins: chef wrote a real PatientChatPage component (not regex padding) on delgoosh#003; refine on delgoosh#644 cited the exact mock file path + brand-token vocabulary + cross-story context — zero hallucinations vs the α.61 baseline that invented routes.
+
+**Highlights of the prior 0.17 → 0.18 arc:**
 
 - **History-aware refine** (cli `0.17.0-α.0`): emits `.brewing/history-index.json` listing existing components + props + tests covering them, API routes, migrations, test helpers. Refine prompts vibe + testgen + brew to read the index; downstream divergence (e.g. PR #147's `MemberReactionsWithPins` vs `MemberReactionsPage`) is structurally hard to reproduce.
 - **`slowcook recon`** (cli `0.17.0-α.1`): pre-brew structural backstop. Catches missing components, testid gaps, brownfield rename hazards. Cli `α.6` extends it: emits `tests/integration/story-N-shape.test.tsx` from mock JSX (skipping `data-mock-chrome="true"` subtrees) so brew can edit any file without silently corrupting design.

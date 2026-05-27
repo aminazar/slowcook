@@ -260,7 +260,7 @@ export type { MockFooConfig, MockFooClient, MockFooUser } from "./foo.js";
 
 If the barrel already exists (listed in project context), emit a \`<helper>\` block that REPLACES it with the union of existing + new exports.
 
-### Import-closure rule (α.49 — hard signal)
+### Import-closure rule (hard signal)
 
 Every relative import in your emitted test files must resolve to either:
 - A \`<helper>\` block you emit in this same response, OR
@@ -291,7 +291,7 @@ import { ProfileEditForm } from "@/components/profile/ProfileEditForm";
 
 Vitest 4 removed \`environmentMatchGlobs\` — the per-file pragma is the only supported jsdom opt-in. Without it, \`render()\` throws "document is not defined."
 
-### 0.16.0-α.4 — recipe is BLIND to the mock app
+### Recipe is BLIND to the mock app
 
 The mock app under \`mock/\` is vibe's territory; recipe must NOT import from it or reference it in test code. Specifically:
 
