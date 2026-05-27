@@ -291,7 +291,10 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
   console.log("UI testing (tier-1, 0.7.5+):");
   console.log(`  • devDependencies (add to package.json, then \`npm install\`):`);
   console.log(`      npm install -D ${depList}`);
-  console.log(`  • vitest.config.ts — add .tsx to the test include pattern:`);
+  console.log(`  • vitest.config.ts — add .tsx to the test include pattern AND`);
+  console.log(`    enable the automatic JSX runtime (testgen-emitted .tsx test`);
+  console.log(`    files never \`import React\`; without automatic runtime they`);
+  console.log(`    all error with \`ReferenceError: React is not defined\`):`);
   console.log(`      test: {`);
   console.log(`        include: [`);
   console.log(`          "src/**/*.test.ts",`);
@@ -300,7 +303,8 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
   console.log(`          "tests/**/*.test.ts",`);
   console.log(`        ],`);
   console.log(`        // … your existing setupFiles stay unchanged`);
-  console.log(`      }`);
+  console.log(`      },`);
+  console.log(`      esbuild: { jsx: "automatic" },   // ← add this`);
   console.log(`  • Each .tsx UI test file must start with a jsdom pragma on line 1:`);
   console.log(`      // @vitest-environment jsdom`);
   console.log(`    Vitest 4 removed \`environmentMatchGlobs\`; the per-file pragma is the`);
