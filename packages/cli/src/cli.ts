@@ -28,6 +28,7 @@ import { recon } from "./commands/recon/index.js";
 import { runMock } from "./commands/run-mock/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
+import { refreshKnowledge } from "./commands/refresh-knowledge.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
 import { budget } from "./commands/budget/index.js";
@@ -134,6 +135,9 @@ async function main(): Promise<void> {
       return;
     case "refine":
       await refine(args.slice(1), VERSION);
+      return;
+    case "refresh-knowledge":
+      await refreshKnowledge(args.slice(1));
       return;
     case "on-spec-merged":
       await onSpecMerged(args.slice(1));
