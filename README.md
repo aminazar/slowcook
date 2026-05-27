@@ -11,7 +11,7 @@
 
 ## Status
 
-**0.19.0 stable** (cut 2026-05-27) — the knowledge-layer arc + chef-on-brew-halt loop + α.51-α.67 hardening. Every consumer repo now carries `.brewing/repo-knowledge/{auto,curated}/` — a deterministic extraction of code shape (entities, routes, mock types, brand tokens, …) plus git-history-mined organizational memory (commit conventions, co-changes, fix-recipe seeds, ownership). Surfaced to refine + visible to any AI agent (slowcook or not — Claude Code, Cursor, etc.) via an `AGENTS.md` managed block. Empirical: on a NestJS/TypeORM consumer, refine zero-hallucinated backend routes + field names + enum values that the pre-knowledge-layer pipeline had invented. Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
+**0.19.0 stable** (cut 2026-05-27) — the knowledge-layer arc + chef-on-brew-halt loop + α.51-α.67 hardening. Every consumer repo now carries `.brewing/repo-knowledge/{auto,curated}/` — a deterministic extraction of code shape (entities, routes, mock types, brand tokens, …) plus git-history-mined organizational memory (commit conventions, co-changes, fix-recipe seeds, ownership). Surfaced to refine + visible to any AI agent (slowcook or not — Claude Code, Cursor, etc.) via an `AGENTS.md` managed block. Empirical: on a NestJS/TypeORM consumer, refine zero-hallucinated backend routes + field names + enum values that the pre-knowledge-layer pipeline had invented.
 
 | Package | Version | Brings |
 |---|---|---|
@@ -238,7 +238,7 @@ See [`packages/cli/README.md`](./packages/cli/README.md) for per-command detail.
 
 ## Roadmap
 
-Active plan: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md). Recent history: [`docs/plans/0.15-plate-brew.md`](./docs/plans/0.15-plate-brew.md) (abandoned mid-cut — replaced by 0.16) and [`docs/plans/0.14-mockup-first-refinement.md`](./docs/plans/0.14-mockup-first-refinement.md) (α.1–α.6 shipped, α.7+ superseded). Closed: [`docs/plans/roadmap-0.7-to-0.11.md`](./docs/plans/roadmap-0.7-to-0.11.md).
+No active plan doc post-0.19.0 — next-cut planning will land as `docs/plans/0.20-*.md` when scoped. Historical plans (shipped or superseded) live in `docs/plans/`; see [`CHANGELOG.md`](./CHANGELOG.md) for the chronological record.
 
 | Version | Brings | Status |
 |---|---|---|
@@ -259,8 +259,11 @@ Active plan: [`docs/plans/0.16-mock-app.md`](./docs/plans/0.16-mock-app.md). Rec
 | 0.14.0-α.1–α.6 | Mockup-first prereqs: data-layer seam (`<domain>.mock.ts` + `@slowcook-stub` marker), `proposals.fixtures.by_domain` schema in `core@0.12.0`, V7 hard-signal synthesizer backstops, spec-emit content validator. Six bugs caught + fixed during V6 end-to-end validation against a consumer. | ✅ shipped (cut 2026-04-26) |
 | 0.14.0-α.7+ | Original plan: refine emits `src/**/page.tsx` directly + preview URL + vision-capable amendment | ⛔ superseded by 0.15 |
 | 0.15 | First take on the `vibe + plate + recipe + brew` parallel-converge pipeline. Started shipping (vibe agent, emit module, data-layer seam in `src/lib/data/<domain>.{mock.ts,ts}`) but mid-cut feedback rejected the approach: mixing mock data into `src/` broke the mock + production filesystem separation. PR #145 closed; lessons folded into 0.16. | ⛔ abandoned mid-cut |
-| **0.16** | **Singular mock app + element-anchored review.** New per-consumer `mock/` Next.js app, totally separate from `src/`, runnable in docker on the consumer's box. Vibe extends the mock incrementally per story (no per-story shadow copies); recipe writes behavior tests blind to the mock; deterministic `slowcook port` copies new mock components into `src/`; `brew --mode plate` reconciles UI with real data + handlers + migrations. Element-anchored review overlay ships as a separate package; plate v2 classifies PM comments and escalates spec-altering ones. Plate breadcrumb + Figma-style anchored pin layer + per-scenario comment stats land in α.13–α.16. **In progress** — α.1–α.16 shipped; awaiting first end-to-end `brew --mode plate` validation on a consumer. | 🚧 cutting 2026-04-26 → ongoing |
-| 0.17 | **Branding & logo distribution.** Lift the inline-SVG slowcook logo out of the React components into `assets/`; raster outputs (favicon / PWA icons / GH social-preview / npm avatar); `<picture>` hero block in every package README; mock app favicon scaffolded by `slowcook init mock`. Plan: [`docs/plans/0.17-branding-logo.md`](./docs/plans/0.17-branding-logo.md). | 📋 planned |
+| 0.16 | Singular mock app + element-anchored review overlay + `slowcook port` + `brew --mode plate` reconciliation | ✅ shipped |
+| 0.17 | Branding + logo distribution + brownfield-pipeline foundations (history-index, recon, mock-as-design-source) | ✅ shipped |
+| 0.18 | Side-effects audit, port mock-runtime rewrites, gh-proxy in `run-mock`, recon false-positive fixes, entity-first foundation, first clean brew on real consumer | ✅ shipped |
+| **0.19** | **Knowledge-layer arc + chef-on-brew-halt loop.** Refine NestJS/TypeORM backend grounding (α.61); ten disk-cached auto digests + git-history mining (α.62-α.63); AGENTS.md managed block discoverable by any agent (α.64); `slowcook init` wires the bedrock (α.65); refine dedup (α.66); `slowcook knowledge add` + chef writes back to curated/ (α.67). Full chef-on-brew-halt recovery loop. Navigator scope + hallucination discipline. Chef owns test infrastructure. | ✅ shipped (cut 2026-05-27) |
+| 0.20 | TBD. Likely candidates: testgen + vibe wiring to curated/, formal `database_migrations:` spec field, brew auto-emits per-story EVALUATING-STORY-N.md, LLM-aided PR summarization at init | 📋 not yet scoped |
 
 The original design ([`docs/DESIGN.md`](./docs/DESIGN.md)) described a standalone `@slowcook-ai/dashboard` package for HITL review; the reconciled roadmap descopes that in favor of GitHub-native surfaces (PR comments + native review UI + drag-drop annotated screenshots).
 
