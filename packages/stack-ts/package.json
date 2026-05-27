@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/stack-ts",
-  "version": "0.9.9-alpha.0",
+  "version": "0.9.9",
   "description": "TypeScript/JavaScript stack adapter for slowcook — test discovery, runners, coverage, mutation",
   "license": "MIT",
   "author": "aminazar",

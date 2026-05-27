@@ -13,14 +13,15 @@
 
 **0.19 → 0.20 — repo-knowledge layer + chef-on-brew-halt loop (shipping in alphas).** The 0.17→0.18 brownfield-awareness work matured into a **durable, agent-portable knowledge layer**: every consumer repo now carries `.brewing/repo-knowledge/{auto,curated}/` — a deterministic extraction of code shape (entities, routes, mock types, brand tokens, …) plus git-history-mined organizational memory (commit conventions, co-changes, fix-recipe seeds, ownership). Surfaced to refine + visible to any AI agent (slowcook or not — Claude Code, Cursor, etc.) via an `AGENTS.md` managed block. Empirical: on a NestJS/TypeORM consumer, refine zero-hallucinated backend routes + field names + enum values that the pre-knowledge-layer pipeline had invented. Canonical references: [`docs/plans/0.17-brownfield-pipeline.md`](./docs/plans/0.17-brownfield-pipeline.md) + [`docs/plans/cleanup-and-roadmap.md`](./docs/plans/cleanup-and-roadmap.md).
 
-**Latest on `main` (npm `alpha` line):**
+**0.19.0 stable** is cut as of 2026-05-27 — the knowledge-layer arc + chef-on-brew-halt loop + α.51-α.67 hardening shipped together.
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.19.0-alpha.65` (main) | knowledge layer: `refresh-knowledge` (auto digests for backend entities/routes/enums + frontend types/components/contexts + Tailwind tokens + config + migrations + route inventory) + `--mine-history` (commit conventions, co-changes, ownership, fix-recipe seeds, issue traceability) + `upsert-agent-docs` (AGENTS.md managed block + README pointer + .gitignore split) — auto-run by `slowcook init`. Full chef-on-brew-halt loop end-to-end validated. |
-| `@slowcook-ai/llm-anthropic` | `0.16.0-alpha.23` (main) | navigator scope + hallucination discipline; chef owns test infrastructure; refine NestJS backend grounding (no more hallucinated `/api/v1/...` routes or invented field aliases). |
+| `@slowcook-ai/cli` | `0.19.0` (latest) | knowledge layer: `refresh-knowledge` (auto digests + git-history mining), `upsert-agent-docs` (AGENTS.md managed block), `knowledge add` CLI; full chef-on-brew-halt loop; refine NestJS backend grounding; navigator scope+hallucination discipline; chef owns test infrastructure |
+| `@slowcook-ai/llm-anthropic` | `0.16.0` (latest) | prompts updated for navigator + chef discipline + refine backend digest; version-stamp leaks stripped from prompt bodies |
+| `@slowcook-ai/stack-ts` | `0.9.9` (latest) | `playwright-list` reporter accepted; degrades to `[]` |
 
-**Last published (older — `latest` tag):** `cli@0.18.0`, `llm-anthropic@0.15.0`. Active development on the `alpha` line; pin exact versions in `.brewing/slowcook-cli-version` to avoid surprise breaks.
+**Adopting:** `npm install @slowcook-ai/cli@0.19.0`. Pin in your `.brewing/slowcook-cli-version`. First-run consumers get the full knowledge-layer bedrock automatically via `slowcook init`.
 
 **Milestone 2026-05-27 — knowledge layer + chef-on-brew-halt loop closed (cli α.51 → α.65):** Eleven alphas shipped over two days. Highlights: chef stops hallucinating spec fields (α.51); brew `legacy` renamed to `freehand` with navigator default-on (α.52); chef-drift parse-tolerant (α.53); chef owns test infrastructure incl. vitest.config + package.json devDeps (α.54); navigator gets scope + hallucination discipline (α.55); chef-on-brew-halt loop fully wired: halt artifact → enrichment from iteration_diffs → checkout brew_branch → push fix as PR (α.56-α.60); refine sees NestJS/TypeORM backend digest (α.61); ten disk-cached repo-knowledge digests + curated git-history-mined files (α.62-α.63); AGENTS.md managed block (α.64); init wires the whole bedrock automatically (α.65). Empirical wins from dogfood consumers: chef wrote a real layout component (not className-padded regex bait); refine cited exact mock file paths + brand-token vocabulary + cross-story context — zero hallucinations vs the α.61 baseline that invented routes.
 
