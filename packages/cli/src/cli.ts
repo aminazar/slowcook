@@ -30,6 +30,7 @@ import { dispatch } from "./commands/dispatch/index.js";
 import { fixtures } from "./commands/fixtures/index.js";
 import { refreshKnowledge } from "./commands/refresh-knowledge.js";
 import { upsertAgentDocs } from "./commands/upsert-agent-docs.js";
+import { knowledgeAdd } from "./commands/knowledge-add.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
 import { budget } from "./commands/budget/index.js";
@@ -143,6 +144,13 @@ async function main(): Promise<void> {
     case "upsert-agent-docs":
       await upsertAgentDocs(args.slice(1));
       return;
+    case "knowledge": {
+      // `slowcook knowledge add <agent> "<claim>" [...]`
+      const sub = args[1];
+      if (sub === "add") { await knowledgeAdd(args.slice(2)); return; }
+      console.error(`unknown knowledge subcommand: ${sub ?? "(none)"}. try \`slowcook knowledge add --help\``);
+      process.exit(64);
+    }
     case "on-spec-merged":
       await onSpecMerged(args.slice(1));
       return;
