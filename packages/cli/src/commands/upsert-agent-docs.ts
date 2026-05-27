@@ -124,6 +124,25 @@ Or (if you're not running slowcook) edit \`.brewing/repo-knowledge/curated/<topi
 \`\`\`
 
 Knowledge entries are soft signal — agents reading them weight by recency and evidence, not by exact matching. \`slowcook knowledge verify\` flags [PRECARIOUS] entries whose evidence file has moved (but never auto-deletes).
+
+### Feedback to slowcook itself — open PRs proactively, don't wait
+
+If you hit a slowcook bug, a missing auto-digest, a stale prompt, or an ambiguous methodology rule while working in this repo: **open a PR to [aminazar/slowcook](https://github.com/aminazar/slowcook), don't just log it locally**. Treat this as a standing duty, not a polite suggestion.
+
+Thresholds:
+
+- **≥3 unrelated findings** accumulated across a session → open a single tracking issue with the batch, **and** open a bug-fix PR for the most actionable one immediately. Don't sit on a batch waiting for the human to ask.
+- **Any single blocking bug** (silently broken digest, prompt regression, missing chef-known-fix the consumer keeps re-hitting) → open the fix PR the moment you have a reliable repro, even mid-session. The human reviews on merge.
+- **Slowcook convention you wished was clearer** → doc PR with one paragraph + the concrete example that confused you. These compound across consumers.
+
+Conventions (matches slowcook's CONTRIBUTING.md):
+
+- One concern per PR. Bug fixes need a regression test; doc / prompt PRs don't.
+- Title: \`<scope>: <short summary>\` — e.g. \`fix(refresh-knowledge): strip JSDoc/line comments before parsing enum values\`.
+- Body: WHY it was broken + user-visible symptom + the repro / consumer-side evidence. The diff explains WHAT.
+- Cross-link the consumer side (this repo) so the maintainer can trace your local-pipeline session back to its source artifact.
+
+The agent that finds a slowcook bug is the cheapest place in the world to fix it — every other consumer is one merge away from the same paper cut. Don't defer.
 `;
 }
 
