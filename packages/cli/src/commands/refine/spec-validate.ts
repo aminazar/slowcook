@@ -237,6 +237,103 @@ export function validateEntityFieldReferences(
   return findings;
 }
 
+/**
+ * 0.19.x+ — check whether the mock files refine listed in
+ * `components_to_reuse` actually render the spec's data fields.
+ *
+ * Refine derives `components_to_reuse` from spec prose mentions of
+ * `src/components/...` paths (proposals-synth.ts:198). It doesn't
+ * verify the mock at that path actually mentions the fields the
+ * spec cares about. A reuse listing of the WRONG mock misleads
+ * brew into lifting unrelated UI.
+ *
+ * Concrete repro (delgoosh story-005):
+ *   spec.invariants reference user.firstName / user.lastName /
+ *   user.email / userLocation.city / userLocation.country / etc.
+ *   refine's components_to_reuse listed mock/src/app/patient/profile/page.tsx
+ *   which actually renders therapy PREFERENCES (topics/approach/gender/belief)
+ *   — none of the spec's fields appear in that mock at all.
+ *
+ * Heuristic: extract the set of unique field names mentioned in the
+ * spec's load-bearing sections (RHS of every dotted reference like
+ * `user.firstName`). For each `components_to_reuse` entry that names
+ * a real path, count how many of those field names appear in the
+ * file body. If overlap is < 25% of the spec's field set AND the
+ * file body is non-trivial (>500 chars — empty mocks aren't false
+ * positives), flag the entry.
+ *
+ * Action is "flagged" — the spec text isn't auto-repairable; the
+ * author needs to either drop the reuse listing or rebuild the
+ * mock at that path. Surfaced in run logs alongside other findings.
+ *
+ * Exported for testing.
+ */
+export function validateComponentReuseShape(
+  spec: Spec,
+  mockReader: (path: string) => string | null
+): SpecValidationFinding[] {
+  const findings: SpecValidationFinding[] = [];
+  const reuse = spec.proposals?.ui_layout?.components_to_reuse;
+  if (!reuse || reuse.length === 0) return findings;
+
+  // Extract every field-name (RHS-and-after of dotted refs) from
+  // load-bearing sections — same chain shape as
+  // validateEntityFieldReferences.
+  const sections: unknown[] = [
+    spec.invariants,
+    spec.preconditions,
+    spec.acceptance_scenarios,
+    spec.api_contract,
+    spec.ui_behavior,
+  ];
+  const specFields = new Set<string>();
+  const chainRe = /\b[a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+\b/g;
+  for (const section of sections) {
+    if (section == null) continue;
+    for (const { text } of walkStrings(section)) {
+      let m: RegExpExecArray | null;
+      while ((m = chainRe.exec(text)) !== null) {
+        const segments = m[0].split(".");
+        for (let i = 1; i < segments.length; i++) {
+          specFields.add(segments[i]!);
+        }
+      }
+    }
+  }
+  if (specFields.size === 0) return findings;
+
+  for (let i = 0; i < reuse.length; i++) {
+    const entry = reuse[i]!;
+    // Skip backtick-name entries (`Component-name (path TBD)`) — no path to read.
+    const pathMatch = entry.match(/^(src\/[^\s(]+|mock\/[^\s(]+|apps\/[^\s(]+)/);
+    if (!pathMatch) continue;
+    const body = mockReader(pathMatch[1]!);
+    if (body == null) {
+      findings.push({
+        path: `proposals.ui_layout.components_to_reuse[${i}]`,
+        message: `Reuse target ${JSON.stringify(pathMatch[1])} does not exist on disk — path is wrong, or the mock hasn't been authored yet.`,
+        action: "flagged",
+      });
+      continue;
+    }
+    if (body.length < 500) continue; // Empty / placeholder mock — not a false positive.
+    let hits = 0;
+    for (const f of specFields) {
+      const re = new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+      if (re.test(body)) hits++;
+    }
+    const ratio = hits / specFields.size;
+    if (ratio < 0.25) {
+      findings.push({
+        path: `proposals.ui_layout.components_to_reuse[${i}]`,
+        message: `Reuse target ${JSON.stringify(pathMatch[1])} mentions only ${hits}/${specFields.size} of the spec's data fields (${Math.round(ratio * 100)}%). The mock likely renders a different surface — verify the listing or update the mock before brew lifts it.`,
+        action: "flagged",
+      });
+    }
+  }
+  return findings;
+}
+
 function pruneStringList(
   items: string[],
   pathPrefix: string,

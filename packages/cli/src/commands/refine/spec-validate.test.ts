@@ -3,6 +3,7 @@ import {
   validateAndRepairSpec,
   validateEntityFieldReferences,
   parseEntityCatalog,
+  validateComponentReuseShape,
 } from "./spec-validate.js";
 import type { Spec } from "@slowcook-ai/core";
 
@@ -238,5 +239,112 @@ describe("validateEntityFieldReferences", () => {
       invariants: ["Reads `user.timezone.label`"],
     });
     expect(validateEntityFieldReferences(spec, "")).toEqual([]);
+  });
+});
+
+/**
+ * Mock-reuse shape check — when refine lists `mock/.../page.tsx` in
+ * `components_to_reuse`, verify the mock actually mentions the
+ * spec's data fields. story-005 in delgoosh listed a mock that
+ * rendered a completely different surface (therapy preferences vs.
+ * the spec's profile fields).
+ */
+describe("validateComponentReuseShape", () => {
+  function specWithReuse(reuse: string[], over: Partial<Spec> = {}): Spec {
+    return baseSpec({
+      invariants: [
+        "Page renders user.firstName, user.lastName, user.email",
+        "Personal info card shows user.phoneNumber and user.bio",
+        "Location card shows userLocation.city, userLocation.country",
+        "Birthdate input enforces user.birthOfDate ranges",
+      ],
+      proposals: {
+        ui_layout: {
+          status: "pending",
+          proposed_by: "refine-agent",
+          components_to_reuse: reuse,
+        },
+      },
+      ...over,
+    });
+  }
+
+  it("flags a mock that renders a different surface (story-005 regression)", () => {
+    // Mock body renders therapy preferences — none of the spec's
+    // profile fields appear.
+    const reader = (p: string) =>
+      p === "mock/src/app/patient/profile/page.tsx"
+        ? `'use client';
+          import { useLang } from '@/design-system/i18n/LanguageContext';
+          // Mock for therapy preferences: topics / approach / gender / belief.
+          const TOPICS = ['anxiety', 'depression', 'relationships'] as const;
+          const APPROACH_OPTS = ['modern', 'classical', 'integrative'] as const;
+          export default function PatientProfilePage() {
+            return <div>{TOPICS.map((t) => <span key={t}>{t}</span>)}</div>;
+          }
+        // pad so length > 500 to skip the empty-mock bail
+        // ${"x ".repeat(300)}
+        `
+        : null;
+    const spec = specWithReuse(["mock/src/app/patient/profile/page.tsx"]);
+    const findings = validateComponentReuseShape(spec, reader);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("mock likely renders a different surface");
+    expect(findings[0]!.action).toBe("flagged");
+  });
+
+  it("does NOT flag a mock that renders most of the spec's fields", () => {
+    const reader = (_p: string) =>
+      `'use client';
+       export default function PatientProfilePage({ user, userLocation }) {
+         return (
+           <main>
+             <div>{user.firstName} {user.lastName}</div>
+             <div>{user.email}</div>
+             <div>{user.phoneNumber}</div>
+             <div>{user.bio}</div>
+             <div>{user.birthOfDate}</div>
+             <div>{userLocation.city}, {userLocation.country}</div>
+           </main>
+         );
+       }
+       // ${"x ".repeat(300)}
+      `;
+    const spec = specWithReuse(["mock/src/app/patient/profile/page.tsx"]);
+    expect(validateComponentReuseShape(spec, reader)).toEqual([]);
+  });
+
+  it("flags a missing-on-disk reuse target with a distinct message", () => {
+    const reader = () => null;
+    const spec = specWithReuse(["mock/src/app/patient/profile/page.tsx"]);
+    const findings = validateComponentReuseShape(spec, reader);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("does not exist on disk");
+  });
+
+  it("skips small/empty mocks (under 500 chars) to avoid scaffolding false-positives", () => {
+    const reader = () => "// TODO\n";
+    const spec = specWithReuse(["mock/src/app/patient/profile/page.tsx"]);
+    expect(validateComponentReuseShape(spec, reader)).toEqual([]);
+  });
+
+  it("skips backtick-name entries (`ComponentName (path TBD …)`) — no path to check", () => {
+    const reader = () => "";
+    const spec = specWithReuse(["`PatientProfilePage` (path TBD — derived from spec prose)"]);
+    expect(validateComponentReuseShape(spec, reader)).toEqual([]);
+  });
+
+  it("returns [] when the spec has no field references", () => {
+    const spec = baseSpec({
+      proposals: {
+        ui_layout: {
+          status: "pending",
+          proposed_by: "refine-agent",
+          components_to_reuse: ["mock/src/app/foo.tsx"],
+        },
+      },
+    });
+    const reader = () => "x".repeat(1000);
+    expect(validateComponentReuseShape(spec, reader)).toEqual([]);
   });
 });
