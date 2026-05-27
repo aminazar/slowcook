@@ -30,7 +30,11 @@ export function stripModelEmittedDuplicates(body: string): string {
 }
 import { synthesizeProposalsFromSpec } from "./proposals-synth.js";
 import { writeMockFixtures } from "./mock-fixtures.js";
-import { validateAndRepairSpec, validateEntityFieldReferences } from "./spec-validate.js";
+import {
+  validateAndRepairSpec,
+  validateEntityFieldReferences,
+  validateComponentReuseShape,
+} from "./spec-validate.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import type {
   ForgeAdapter,
@@ -471,6 +475,24 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
       const md = readFileSync(entityCatalogPath, "utf8");
       validationFindings.push(...validateEntityFieldReferences(spec, md));
     }
+  } catch {
+    // Never fail spec emit on a lint hiccup.
+  }
+
+  // 0.19.x+ — check each `components_to_reuse` entry actually renders
+  // the spec's data fields. Refine sometimes lists semantically wrong
+  // mocks (delgoosh story-005 listed a preferences mock for a profile
+  // spec). Reads each candidate path from disk; flags low-overlap ones.
+  try {
+    validationFindings.push(
+      ...validateComponentReuseShape(spec, (relPath) => {
+        try {
+          return readFileSync(join(ctx.repoRoot, relPath), "utf8");
+        } catch {
+          return null;
+        }
+      })
+    );
   } catch {
     // Never fail spec emit on a lint hiccup.
   }
