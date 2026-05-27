@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseEnumValues } from "./refresh-knowledge";
+import {
+  parseEnumValues,
+  parseTsconfigPaths,
+  parseViteAliases,
+} from "./refresh-knowledge";
 
 /**
  * Regression: `buildBackendEnumsDigest` used to inline the value-
@@ -70,5 +74,80 @@ describe("parseEnumValues — JSDoc + line-comment handling (regression)", () =>
     // documentation of intent (slowcook digests target the
     // SCREAMING_SNAKE convention used in the consumer's enum files).
     expect(parseEnumValues(body)).toEqual([]);
+  });
+});
+
+/**
+ * Aliases digest helpers — extract path aliases from tsconfig.json
+ * and vite/vitest config files. In a monorepo the SAME alias often
+ * resolves differently from different directories (root vitest config
+ * may map `@/` → root `src/`, mock's tsconfig maps `@/` → `mock/src/`,
+ * etc.). The digest stitches those together so agents see the full
+ * picture without reading every config by hand.
+ */
+describe("parseTsconfigPaths", () => {
+  it("extracts the paths map from a clean tsconfig.json", () => {
+    const body = JSON.stringify({
+      compilerOptions: {
+        baseUrl: ".",
+        paths: { "@/*": ["./src/*"], "@tests/*": ["./tests/*"] },
+      },
+    });
+    expect(parseTsconfigPaths(body)).toEqual({
+      "@/*": ["./src/*"],
+      "@tests/*": ["./tests/*"],
+    });
+  });
+
+  it("tolerates JSON-with-comments (// and /* … */) — tsconfig allows them per spec", () => {
+    const body = `{
+  // top-of-file note
+  "compilerOptions": {
+    /* paths block */
+    "paths": { "@/*": ["./src/*"] }
+  }
+}`;
+    expect(parseTsconfigPaths(body)).toEqual({ "@/*": ["./src/*"] });
+  });
+
+  it("returns {} when compilerOptions.paths is absent", () => {
+    expect(parseTsconfigPaths(JSON.stringify({ compilerOptions: {} }))).toEqual(
+      {}
+    );
+  });
+
+  it("returns {} on parse failure (defensive — never throws)", () => {
+    expect(parseTsconfigPaths("not json {")).toEqual({});
+  });
+});
+
+describe("parseViteAliases", () => {
+  it("extracts string-keyed aliases from a resolve.alias literal", () => {
+    const body = `
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@": path.join(root, "src"),
+      "@tests": path.join(root, "tests"),
+    },
+  },
+});
+`;
+    expect(parseViteAliases(body)).toEqual([
+      { alias: "@", targetHint: "path.join(root, \"src\")" },
+      { alias: "@tests", targetHint: "path.join(root, \"tests\")" },
+    ]);
+  });
+
+  it("tolerates single-quoted keys", () => {
+    const body = `resolve: { alias: { '@/foo': resolveFoo() } }`;
+    expect(parseViteAliases(body)).toEqual([
+      { alias: "@/foo", targetHint: "resolveFoo()" },
+    ]);
+  });
+
+  it("returns [] when no alias block is present", () => {
+    const body = `export default defineConfig({ test: { include: ['x'] } });`;
+    expect(parseViteAliases(body)).toEqual([]);
   });
 });

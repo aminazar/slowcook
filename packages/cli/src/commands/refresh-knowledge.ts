@@ -38,6 +38,7 @@
  *     ├── frontend-contexts.md  (mock/src/contexts/*-context.tsx hooks)
  *     ├── tokens.md             (Tailwind brand-token vocabulary)
  *     ├── config.md             (tsconfig paths + workspace + scripts)
+ *     ├── aliases.md            (every tsconfig + vite/vitest path alias)
  *     ├── migrations.md         (migration file timestamps + table names)
  *     └── routes-inventory.md   (filesystem-derived route URLs)
  *
@@ -513,6 +514,189 @@ export function buildConfigDigest(repoRoot: string) {
   });
 }
 
+/**
+ * Parse a tsconfig.json body's `compilerOptions.paths` map.
+ * Strips JSON-with-comments before parsing (tsconfig allows
+ * `//` and `/* … *​/` per spec). Returns `{}` on parse failure.
+ *
+ * Exported for testing.
+ */
+export function parseTsconfigPaths(
+  body: string
+): Record<string, string[]> {
+  try {
+    const json = JSON.parse(
+      body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")
+    ) as { compilerOptions?: { paths?: Record<string, string[]> } };
+    return json.compilerOptions?.paths ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Regex-extract `resolve.alias` keys + (best-effort) target hints from
+ * a vite / vitest config body. The config is TS code and not safely
+ * parseable here; we capture the common literal-object form:
+ *
+ *   resolve: { alias: { "@": path.join(root, "src"), … } }
+ *
+ * Returns `Array<{ alias: string; targetHint: string }>` where
+ * `targetHint` is the raw RHS text (e.g., `path.join(root, "src")`).
+ * Agents reading the digest can interpret the hint contextually.
+ *
+ * Exported for testing.
+ */
+export function parseViteAliases(
+  body: string
+): Array<{ alias: string; targetHint: string }> {
+  // Find the `alias: {` opener, then walk char-by-char to find its
+  // matching close brace (brace-balanced — naive regex can't do this
+  // because the values may themselves contain `{}`).
+  const opener = body.match(/\balias\s*:\s*\{/);
+  if (!opener || opener.index === undefined) return [];
+  let start = opener.index + opener[0].length;
+  let depth = 1;
+  let end = start;
+  let qChar2: string | null = null;
+  while (end < body.length && depth > 0) {
+    const c = body[end]!;
+    if (qChar2) {
+      if (c === qChar2 && body[end - 1] !== "\\") qChar2 = null;
+    } else if (c === '"' || c === "'" || c === "`") {
+      qChar2 = c;
+    } else if (c === "{") depth++;
+    else if (c === "}") depth--;
+    if (depth === 0) break;
+    end++;
+  }
+  const block = body.slice(start, end);
+  const out: Array<{ alias: string; targetHint: string }> = [];
+
+  // Walk character-by-character so the value's parens / quotes don't
+  // confuse a naive regex (e.g., `path.join(root, "src")` contains a
+  // comma but is one value).
+  let i = 0;
+  while (i < block.length) {
+    // Skip whitespace + commas.
+    while (i < block.length && /[\s,]/.test(block[i]!)) i++;
+    if (i >= block.length) break;
+    // Expect a quote for the alias key.
+    const q = block[i];
+    if (q !== '"' && q !== "'") {
+      // Not at a key — advance to next char.
+      i++;
+      continue;
+    }
+    i++; // past opening quote
+    const keyStart = i;
+    while (i < block.length && block[i] !== q) i++;
+    const alias = block.slice(keyStart, i);
+    i++; // past closing quote
+    // Skip to colon.
+    while (i < block.length && /\s/.test(block[i]!)) i++;
+    if (block[i] !== ":") continue;
+    i++; // past colon
+    while (i < block.length && /\s/.test(block[i]!)) i++;
+    // Capture value until top-level comma or newline (paren-aware).
+    const valStart = i;
+    let depth = 0;
+    let qChar: string | null = null;
+    while (i < block.length) {
+      const c = block[i]!;
+      if (qChar) {
+        if (c === qChar && block[i - 1] !== "\\") qChar = null;
+        i++;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        qChar = c;
+        i++;
+        continue;
+      }
+      if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") depth--;
+      else if (depth === 0 && (c === "," || c === "\n")) break;
+      i++;
+    }
+    const targetHint = block.slice(valStart, i).trim();
+    if (alias && targetHint) out.push({ alias, targetHint });
+  }
+  return out;
+}
+
+/**
+ * Walks the workspace for tsconfig + vite/vitest configs and emits a
+ * single `aliases.md` listing every `@whatever`-style alias and what
+ * it resolves to in EACH context.
+ *
+ * Motivation: in a monorepo the same alias (e.g. `@/`) often means
+ * different things in different directories — root vitest config may
+ * map `@/` to root `src/`, mock workspace's tsconfig may map `@/` to
+ * `mock/src/`, and each Next.js app's tsconfig maps `@/` to its own
+ * `apps/<role>/src/`. Without a digest, agents see `@/foo/bar` in a
+ * file and can't tell which root it resolves against — they read the
+ * config file by hand on every cold start. (Surfaced in
+ * delgoosh/monorepo as a brew-vs-testgen path divergence.)
+ */
+export function buildAliasesDigest(repoRoot: string) {
+  // Walk for tsconfigs (at root + per-workspace).
+  const tsconfigs = findFilesByGlob(repoRoot, /(?:^|\/)tsconfig\.json$/, {
+    maxDepth: 5,
+  });
+  // Walk for vite + vitest configs (TS/JS/MJS).
+  const viteConfigs = findFilesByGlob(
+    repoRoot,
+    /(?:^|\/)vite(?:st)?\.config\.(?:ts|js|mjs)$/,
+    { maxDepth: 5 }
+  );
+  return buildDigest({
+    repoRoot,
+    name: "aliases",
+    inputFiles: [...tsconfigs, ...viteConfigs],
+    build: (inputs) => {
+      const rows: Array<{ alias: string; source: string; target: string }> = [];
+      for (const rel of inputs) {
+        const body = safeRead(repoRoot, rel);
+        if (!body) continue;
+        if (rel.endsWith("tsconfig.json")) {
+          const paths = parseTsconfigPaths(body);
+          for (const [alias, targets] of Object.entries(paths)) {
+            rows.push({
+              alias,
+              source: rel,
+              target: targets.join(" | "),
+            });
+          }
+        } else {
+          for (const e of parseViteAliases(body)) {
+            rows.push({
+              alias: e.alias,
+              source: rel,
+              target: e.targetHint,
+            });
+          }
+        }
+      }
+      const lines: string[] = [];
+      lines.push("# Path aliases\n");
+      lines.push(
+        "Auto-extracted from every `tsconfig.json` + `vite(st).config.{ts,js,mjs}` in the workspace. In a monorepo the SAME alias (e.g. `@/`) often resolves differently from different directories — agents should consult this digest before assuming where an `@/foo/bar` import lands.\n"
+      );
+      if (rows.length === 0) {
+        lines.push("_(No path aliases detected.)_");
+        return lines.join("\n");
+      }
+      lines.push("| Alias | Source | Target |");
+      lines.push("|---|---|---|");
+      for (const r of rows) {
+        lines.push(`| \`${r.alias}\` | \`${r.source}\` | \`${r.target}\` |`);
+      }
+      return lines.join("\n");
+    },
+  });
+}
+
 export function buildMigrationsDigest(repoRoot: string) {
   const files = findFilesByGlob(repoRoot, /\/migrations\/\d+[^/]*\.ts$/);
   return buildDigest({
@@ -595,6 +779,7 @@ export function refreshKnowledgeAuto(repoRoot: string, opts: { only?: string } =
     { name: "frontend-contexts", fn: () => buildFrontendContextsDigest(repoRoot) },
     { name: "tokens", fn: () => buildTailwindTokensDigest(repoRoot) },
     { name: "config", fn: () => buildConfigDigest(repoRoot) },
+    { name: "aliases", fn: () => buildAliasesDigest(repoRoot) },
     { name: "migrations", fn: () => buildMigrationsDigest(repoRoot) },
     { name: "routes-inventory", fn: () => buildRoutesInventoryDigest(repoRoot) },
   ];
