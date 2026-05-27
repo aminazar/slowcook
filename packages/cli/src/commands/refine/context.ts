@@ -39,7 +39,11 @@ export function buildProjectContext(repoRoot: string): string {
   const brownfield = readBrownfieldExtracts(repoRoot);
   if (brownfield) sections.push("\n" + brownfield);
 
-  const historyDigest = readHistoryIndexDigest(repoRoot);
+  // α.66 — pass skipOverlapWithAuto so history-index doesn't double up
+  // when the auto/ digests are present (they cover components +
+  // api_routes + migrations + mock_surface byte-identically).
+  const autoPresent = existsSync(join(repoRoot, ".brewing/repo-knowledge/auto"));
+  const historyDigest = readHistoryIndexDigest(repoRoot, { skipOverlapWithAuto: autoPresent });
   if (historyDigest) sections.push("\n" + historyDigest);
 
   const entitiesDigest = readEntitiesDigest(repoRoot);
@@ -218,7 +222,7 @@ export function readEntitiesDigest(repoRoot: string): string | null {
  * field, only the names + signatures. Full file is on disk for vibe +
  * testgen to consume in detail.
  */
-export function readHistoryIndexDigest(repoRoot: string): string | null {
+export function readHistoryIndexDigest(repoRoot: string, opts: { skipOverlapWithAuto?: boolean } = {}): string | null {
   const path = join(repoRoot, ".brewing/history-index.json");
   if (!existsSync(path)) return null;
   try {
@@ -242,7 +246,14 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
     );
     lines.push("");
 
-    if (idx.components && idx.components.length > 0) {
+    // α.66 — when auto/ digests exist they cover components / api_routes
+    // / migrations / mock_surface byte-identically. Skip those sections
+    // here to avoid ~20-30KB of duplicate context (Anthropic prompt
+    // cache + per-token cost both benefit). Keep test_helpers +
+    // git_attention below — they're NOT in auto/.
+    const skipOverlap = opts.skipOverlapWithAuto ?? false;
+
+    if (!skipOverlap && idx.components && idx.components.length > 0) {
       lines.push("### Existing components (with prop shape + test coverage)");
       for (const c of idx.components) {
         const propsStr = c.props.length > 0 ? ` props={${c.props.join(", ")}}` : " (no Props interface found)";
@@ -252,7 +263,7 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
       lines.push("");
     }
 
-    if (idx.api_routes && idx.api_routes.length > 0) {
+    if (!skipOverlap && idx.api_routes && idx.api_routes.length > 0) {
       lines.push("### Existing API routes");
       for (const r of idx.api_routes) {
         lines.push(`- ${r.method} ${r.path} \`${r.file}\``);
@@ -260,7 +271,7 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
       lines.push("");
     }
 
-    if (idx.migrations && idx.migrations.length > 0) {
+    if (!skipOverlap && idx.migrations && idx.migrations.length > 0) {
       lines.push("### Existing migrations (tables + columns)");
       for (const m of idx.migrations) {
         const tablesStr = m.tables_created.length > 0
@@ -273,11 +284,7 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
       lines.push("");
     }
 
-    // 0.19.0-α.23 — mock surface is the consumer's hand-authored
-    // design source-of-truth. When the PM says "match the mock" or
-    // gestures at an existing flow, refine reads the actual mock JSX
-    // here instead of asking the PM for paths.
-    if (idx.mock_surface && idx.mock_surface.length > 0) {
+    if (!skipOverlap && idx.mock_surface && idx.mock_surface.length > 0) {
       lines.push("### Mock surface (design source-of-truth)");
       lines.push(
         "These are the consumer's hand-authored mock pages/components. When the PM says \"match the mock\" or references an existing flow without citing a file, treat these as the canonical design. Mirror layout, role toggles, copy, and behavior in your spec; only deviate when the PM explicitly asks."
@@ -291,6 +298,11 @@ export function readHistoryIndexDigest(repoRoot: string): string | null {
         lines.push("```");
         lines.push("</details>\n");
       }
+      lines.push("");
+    }
+
+    if (skipOverlap) {
+      lines.push("_(components / api_routes / migrations / mock_surface sections omitted — auto/ digests cover them.)_");
       lines.push("");
     }
 
