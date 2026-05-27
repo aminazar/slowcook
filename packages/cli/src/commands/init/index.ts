@@ -9,6 +9,8 @@ import { dirname, resolve, relative, isAbsolute } from "node:path";
 import { execSync } from "node:child_process";
 import { buildPlan, InitError, type FileAction, type FileReader } from "./plan.js";
 import { getTsUiDevDependencies } from "@slowcook-ai/stack-ts";
+import { refreshKnowledgeAuto, refreshKnowledgeMineHistory } from "../refresh-knowledge.js";
+import { upsertAgentDocsCore } from "../upsert-agent-docs.js";
 
 interface InitArgs {
   cwd: string;
@@ -225,6 +227,35 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
   console.log(
     `slowcook init: ${plan.actions.length - skippedCount} file(s) written, ${skippedCount} skipped.`
   );
+
+  // α.64 — knowledge-layer bedrock. Three best-effort calls; failure of
+  // any one logs a warning but doesn't fail the whole init. All three
+  // run on first init AND on re-init so consumers always end up with
+  // a populated bedrock + the managed AGENTS.md block + a sane gitignore
+  // for the layer.
+  console.log();
+  console.log("Building repo-knowledge bedrock:");
+  try {
+    const auto = refreshKnowledgeAuto(args.cwd);
+    console.log(`  auto/    ${auto.built.length} digest(s) built (${auto.built.join(", ") || "—"})`);
+  } catch (e) {
+    console.log(`  auto/    skipped (${(e as Error).message.slice(0, 100)})`);
+  }
+  try {
+    const history = refreshKnowledgeMineHistory(args.cwd);
+    console.log(`  curated/ ${history.built.length} file(s) mined from ${history.commitsProcessed} commits`);
+  } catch (e) {
+    console.log(`  curated/ skipped (${(e as Error).message.slice(0, 100)})`);
+  }
+  try {
+    const docs = upsertAgentDocsCore(args.cwd);
+    const docPaths = docs.filesUpserted.map((f) => `${f.path} (${f.action})`).join(", ");
+    console.log(`  agents:  ${docPaths || "(none)"}`);
+    console.log(`  README:  ${docs.readme}`);
+    console.log(`  ignore:  ${docs.gitignore}`);
+  } catch (e) {
+    console.log(`  agent-docs skipped (${(e as Error).message.slice(0, 100)})`);
+  }
   console.log();
   console.log("Next steps:");
   console.log(
