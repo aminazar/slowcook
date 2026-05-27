@@ -283,6 +283,29 @@ export function buildBackendRoutesDigest(repoRoot: string) {
   });
 }
 
+/**
+ * Parse the values out of an `export enum { … }` body.
+ *
+ * Strips JSDoc block comments + line comments first, then splits on
+ * commas. Without the strip, enums whose every value is preceded by
+ * a JSDoc block (a common convention in the consumer's
+ * `packages/enums/src/*.enum.ts`) would yield zero parsed values —
+ * the JSDoc text leaks into the identifier slot, fails the
+ * uppercase-only filter, and the whole enum drops from the digest.
+ *
+ * Exported for testing.
+ */
+export function parseEnumValues(enumBody: string): string[] {
+  return enumBody
+    // Strip JSDoc / block comments — `/* … */` (incl. multi-line).
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // Strip line comments — `// …` to end of line.
+    .replace(/\/\/.*$/gm, "")
+    .split(",")
+    .map((v) => v.trim().split("=")[0]!.trim().replace(/['"\s]/g, ""))
+    .filter((v) => v && /^[A-Z_]+$/.test(v));
+}
+
 export function buildBackendEnumsDigest(repoRoot: string) {
   const enumsDir = join(repoRoot, "packages/enums/src");
   const files = existsSync(enumsDir)
@@ -300,10 +323,7 @@ export function buildBackendEnumsDigest(repoRoot: string) {
         const enumMatch = body.match(/export enum (\w+) \{([\s\S]*?)\}/);
         if (!enumMatch) continue;
         const enumName = enumMatch[1]!;
-        const values = (enumMatch[2] ?? "")
-          .split(",")
-          .map((v) => v.trim().split("=")[0]!.trim().replace(/['"\s/*]/g, ""))
-          .filter((v) => v && /^[A-Z_]+$/.test(v));
+        const values = parseEnumValues(enumMatch[2] ?? "");
         if (values.length === 0) continue;
         lines.push(`## ${enumName}`);
         lines.push(values.map((v) => `- ${v}`).join("\n"));
