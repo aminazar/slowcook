@@ -48,8 +48,10 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { execSync } from "node:child_process";
 
 const AUTO_DIR_REL = ".brewing/repo-knowledge/auto";
+const CURATED_DIR_REL = ".brewing/repo-knowledge/curated";
 
 // --- input discovery helpers ---
 
@@ -590,45 +592,388 @@ export function refreshKnowledgeAuto(repoRoot: string, opts: { only?: string } =
 
 /**
  * CLI entry point. Called from cli.ts.
+ *
+ * Default behavior (no mode flag) = run both --auto and --mine-history,
+ * since they target different output dirs and have no overlap. Either
+ * mode can be requested individually with the explicit flag.
  */
 export async function refreshKnowledge(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   if (args.help) { printHelp(); return; }
-  const result = refreshKnowledgeAuto(args.repoRoot, { only: args.only });
+  const runAuto = args.mode === "auto" || args.mode === "all";
+  const runHistory = args.mode === "mine-history" || args.mode === "all";
+
   console.log(`slowcook refresh-knowledge · ${args.repoRoot}`);
-  console.log(`  output: ${result.outDir}`);
-  console.log(`  built: ${result.built.length > 0 ? result.built.join(", ") : "(nothing built)"}`);
-  if (result.skippedEmpty.length > 0) {
-    console.log(`  skipped (no inputs): ${result.skippedEmpty.join(", ")}`);
+
+  if (runAuto) {
+    const result = refreshKnowledgeAuto(args.repoRoot, { only: args.only });
+    console.log(`  [auto] output: ${result.outDir}`);
+    console.log(`  [auto] built: ${result.built.length > 0 ? result.built.join(", ") : "(nothing built)"}`);
+    if (result.skippedEmpty.length > 0) {
+      console.log(`  [auto] skipped (no inputs): ${result.skippedEmpty.join(", ")}`);
+    }
+  }
+
+  if (runHistory) {
+    const result = refreshKnowledgeMineHistory(args.repoRoot, { full: args.fullHistory });
+    console.log(`  [history] output: ${result.outDir}`);
+    console.log(`  [history] built: ${result.built.length > 0 ? result.built.join(", ") : "(nothing built)"}`);
+    console.log(`  [history] commits processed: ${result.commitsProcessed}${result.deltaFromSha ? ` (delta-aware: stamp had ${result.deltaFromSha.slice(0, 8)})` : ""}`);
   }
 }
 
-function parseArgs(argv: string[]): { repoRoot: string; only: string | undefined; help: boolean } {
+function parseArgs(argv: string[]): {
+  repoRoot: string;
+  mode: "auto" | "mine-history" | "all";
+  only: string | undefined;
+  fullHistory: boolean;
+  help: boolean;
+} {
   let repoRoot = process.cwd();
+  let mode: "auto" | "mine-history" | "all" = "all";
   let only: string | undefined;
+  let fullHistory = false;
   let help = false;
+  let modeExplicit = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = argv[i + 1];
     if (a === "--cwd" && next) { repoRoot = next; i++; }
-    else if (a === "--only" && next) { only = next; i++; }
-    else if (a === "--auto") { /* accepted for symmetry */ }
+    else if (a === "--only" && next) { only = next; i++; mode = "auto"; modeExplicit = true; }
+    else if (a === "--auto") { mode = modeExplicit ? mode : "auto"; modeExplicit = true; }
+    else if (a === "--mine-history") { mode = modeExplicit ? "all" : "mine-history"; modeExplicit = true; }
+    else if (a === "--full") { fullHistory = true; }
     else if (a === "--help" || a === "-h") { help = true; }
   }
-  return { repoRoot, only, help };
+  return { repoRoot, mode, only, fullHistory, help };
 }
 
 function printHelp(): void {
   console.log(`
-slowcook refresh-knowledge — rebuild .brewing/repo-knowledge/auto/ digests
+slowcook refresh-knowledge — rebuild repo-knowledge digests
 
 Usage:
-  slowcook refresh-knowledge [--auto] [--only <name>] [--cwd <path>]
+  slowcook refresh-knowledge [--auto] [--mine-history] [--only <name>] [--cwd <path>]
 
-Cheap extractions (the current α.62 set) always rebuild — running the
-command is the way to refresh. --only <name> rebuilds just one.
+Modes:
+  --auto             rebuild auto/ digests (default if no mode given)
+                     cheap extractions, always rebuild
+  --mine-history     rebuild curated/ files from git history
+                     expensive deterministic; delta-aware (re-mines new commits only)
 
-Outputs land in .brewing/repo-knowledge/auto/*.md. Gitignore that dir;
-the contents are deterministic and meant to be regenerated.
+--only <name> filters to one digest (auto mode only).
+
+auto/ outputs are gitignored. curated/ outputs are TRACKED in git —
+they're the durable organizational memory.
 `);
+}
+
+// =====================================================================
+// α.63 — git-history mining (expensive deterministic, delta-aware)
+// =====================================================================
+
+interface MineStamp {
+  last_sha: string | null;
+  last_mined_at: string;
+  total_commits_seen: number;
+}
+
+interface CommitRow {
+  sha: string;
+  parent: string;
+  author: string;
+  date: string;
+  subject: string;
+  files: string[];
+}
+
+function writeCurated(repoRoot: string, name: string, body: string): void {
+  const abs = join(repoRoot, CURATED_DIR_REL, `${name}.md`);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, body, "utf8");
+}
+
+function readStamp(repoRoot: string): MineStamp | null {
+  const path = join(repoRoot, CURATED_DIR_REL, ".last-mined.json");
+  if (!existsSync(path)) return null;
+  try { return JSON.parse(readFileSync(path, "utf8")) as MineStamp; } catch { return null; }
+}
+
+function writeStamp(repoRoot: string, stamp: MineStamp): void {
+  const abs = join(repoRoot, CURATED_DIR_REL, ".last-mined.json");
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, JSON.stringify(stamp, null, 2) + "\n", "utf8");
+}
+
+/**
+ * Walk git log, return CommitRow[] sorted oldest-first.
+ *
+ * Uses `git log --name-only --pretty=format` with a unique separator so
+ * we can parse robustly. The default `maxCommits` cap (1500) covers a
+ * typical brownfield project's history without timing out.
+ */
+function gitLogRows(repoRoot: string, maxCommits = 1500): CommitRow[] {
+  const sep = "<<<COMMIT>>>";
+  const fieldSep = "<<<F>>>";
+  let raw = "";
+  try {
+    raw = execSync(
+      `git -C "${repoRoot}" log --no-merges --name-only --pretty=format:'${sep}%H${fieldSep}%P${fieldSep}%an${fieldSep}%aI${fieldSep}%s' -n ${maxCommits}`,
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch { return []; }
+  const out: CommitRow[] = [];
+  for (const block of raw.split(sep)) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    const lines = trimmed.split("\n");
+    const header = lines[0] ?? "";
+    const parts = header.split(fieldSep);
+    if (parts.length < 5) continue;
+    const sha = parts[0]!;
+    const parent = parts[1]!.split(" ")[0] ?? "";
+    const author = parts[2]!;
+    const date = parts[3]!;
+    const subject = parts[4] ?? "";
+    const files = lines.slice(1).map((l) => l.trim()).filter((l) => l.length > 0);
+    out.push({ sha, parent, author, date, subject, files });
+  }
+  // Reverse so oldest is first — easier to reason about temporal accumulation.
+  return out.reverse();
+}
+
+/**
+ * commit-conventions.md — bucket by type:scope from conventional-commit
+ * prefixes. Tells refine which prefixes + scopes are in active use so
+ * spec PRs match the local style.
+ */
+function buildCommitConventions(rows: CommitRow[]): string {
+  const conventionRe = /^(feat|fix|chore|refactor|docs|test|perf|style|build|ci|revert)(?:\(([^)]+)\))?\s*:/;
+  const byType: Record<string, number> = {};
+  const byScope: Record<string, number> = {};
+  let unconventional = 0;
+  for (const r of rows) {
+    const m = r.subject.match(conventionRe);
+    if (!m) { unconventional++; continue; }
+    const type = m[1]!;
+    let scope = m[2] ?? "(none)";
+    // Filter out `#NNN`-style "scopes" that are actually issue refs the
+    // author accidentally put in the parens (e.g., `fix(#618): ...`).
+    if (/^#\d+$/.test(scope)) scope = "(none)";
+    byType[type] = (byType[type] ?? 0) + 1;
+    byScope[scope] = (byScope[scope] ?? 0) + 1;
+  }
+  const total = rows.length;
+  const conventional = total - unconventional;
+  const lines: string[] = [];
+  lines.push("# Commit conventions (mined from git history)\n");
+  lines.push(`_Sample: ${total} non-merge commits; ${conventional} use conventional-commit prefixes (${Math.round(100 * conventional / Math.max(total, 1))}%)._`);
+  lines.push("");
+  lines.push("## Active type buckets");
+  const typesSorted = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  lines.push("| Type | Count |");
+  lines.push("|---|---|");
+  for (const [t, n] of typesSorted) lines.push(`| \`${t}\` | ${n} |`);
+  lines.push("");
+  lines.push("## Active scopes (use these in new commit messages)");
+  const scopesSorted = Object.entries(byScope).sort((a, b) => b[1] - a[1]).filter(([s]) => s !== "(none)");
+  lines.push("| Scope | Count |");
+  lines.push("|---|---|");
+  for (const [s, n] of scopesSorted.slice(0, 30)) lines.push(`| \`${s}\` | ${n} |`);
+  if (scopesSorted.length > 30) lines.push(`| … ${scopesSorted.length - 30} more | |`);
+  return lines.join("\n");
+}
+
+/**
+ * co-changes.md — file pairs that co-occur in commits >= threshold
+ * times. Surfaces temporal coupling that's invisible to static
+ * analysis (e.g., "every time `appointment.entity.ts` changes,
+ * `appointment.dto.ts` changes too in 12/14 cases").
+ *
+ * Quadratic in files-per-commit; bounded to commits with <=20 files
+ * to prevent O(n²) blow-up on huge refactors that aren't useful
+ * signal anyway.
+ */
+function buildCoChanges(rows: CommitRow[]): string {
+  const pairCounts = new Map<string, number>();
+  const fileCounts = new Map<string, number>();
+  for (const r of rows) {
+    if (r.files.length === 0 || r.files.length > 20) continue;
+    const interesting = r.files.filter((f) => /\.(ts|tsx|js|jsx|sql|md)$/.test(f) && !f.startsWith(".brewing/") && !f.startsWith("node_modules/"));
+    for (const f of interesting) fileCounts.set(f, (fileCounts.get(f) ?? 0) + 1);
+    for (let i = 0; i < interesting.length; i++) {
+      for (let j = i + 1; j < interesting.length; j++) {
+        const a = interesting[i]!;
+        const b = interesting[j]!;
+        const key = a < b ? `${a}\t${b}` : `${b}\t${a}`;
+        pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  const lines: string[] = [];
+  lines.push("# File co-change map (mined from git history)\n");
+  lines.push("Pairs of files that historically change together. When a spec / PR touches one, also consider the other — co-change ≥3 usually signals coupling the type system can't see.\n");
+  const pairs = [...pairCounts.entries()]
+    .filter(([_, n]) => n >= 3)
+    .map(([key, n]) => {
+      const [a, b] = key.split("\t");
+      return { a: a!, b: b!, n, support: Math.min(fileCounts.get(a!) ?? 1, fileCounts.get(b!) ?? 1) };
+    })
+    .filter((p) => p.n >= Math.max(3, Math.floor(p.support * 0.5))) // co-occur in >=50% of either file's commits
+    .sort((a, b) => b.n - a.n);
+  lines.push("| File A | File B | Co-changes |");
+  lines.push("|---|---|---|");
+  for (const p of pairs.slice(0, 60)) {
+    lines.push(`| \`${p.a}\` | \`${p.b}\` | ${p.n} |`);
+  }
+  if (pairs.length > 60) lines.push(`| … ${pairs.length - 60} more | | |`);
+  return lines.join("\n");
+}
+
+/**
+ * ownership.md — top author per top-level directory. Tells refine
+ * who owns what (useful for routing PM-facing questions in agent comments).
+ */
+function buildOwnership(rows: CommitRow[]): string {
+  // Per-directory granularity at depth 2 means we get "apps/back" or
+  // "packages/dtos" but also occasionally "packages/postgres" + sibling
+  // entries that explode the table. Special-cased: top-level dirs with
+  // a single file (.brewing/*.md, .githooks/*, etc.) collapse to the
+  // top-level dir to avoid one row per file.
+  const dirAuthorCount = new Map<string, Map<string, number>>();
+  const TOPLEVEL_COLLAPSE = new Set([".brewing", ".github", ".cursor", ".vscode", ".husky", ".githooks"]);
+  for (const r of rows) {
+    for (const f of r.files) {
+      const parts = f.split("/");
+      const top = parts[0]!;
+      const dir = TOPLEVEL_COLLAPSE.has(top) ? top : parts.slice(0, 2).join("/") || ".";
+      let m = dirAuthorCount.get(dir);
+      if (!m) { m = new Map(); dirAuthorCount.set(dir, m); }
+      m.set(r.author, (m.get(r.author) ?? 0) + 1);
+    }
+  }
+  const lines: string[] = [];
+  lines.push("# Directory ownership (mined from git authorship)\n");
+  lines.push("Top contributor per directory. Use this to decide who to route a PM-facing question to when a story spans multiple areas.\n");
+  lines.push("| Directory | Top author | Commits |");
+  lines.push("|---|---|---|");
+  const dirsSorted = [...dirAuthorCount.keys()].sort();
+  for (const dir of dirsSorted) {
+    const authors = [...dirAuthorCount.get(dir)!.entries()].sort((a, b) => b[1] - a[1]);
+    if (authors.length === 0) continue;
+    const [topAuthor, topCount] = authors[0]!;
+    lines.push(`| \`${dir}\` | ${topAuthor} | ${topCount} |`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * issue-traceability.md — for each `#NNN` issue/PR reference in a
+ * commit subject, list the commits that mention it. Cheap, useful for
+ * agents that want to find the PM context behind a code change.
+ */
+function buildIssueTraceability(rows: CommitRow[]): string {
+  const issueRe = /#(\d+)/g;
+  const issueToCommits = new Map<string, Array<{ sha: string; subject: string }>>();
+  for (const r of rows) {
+    let m: RegExpExecArray | null;
+    issueRe.lastIndex = 0;
+    while ((m = issueRe.exec(r.subject)) !== null) {
+      const n = m[1]!;
+      if (!issueToCommits.has(n)) issueToCommits.set(n, []);
+      issueToCommits.get(n)!.push({ sha: r.sha.slice(0, 8), subject: r.subject });
+    }
+  }
+  const lines: string[] = [];
+  lines.push("# Issue / PR traceability (mined from commit subjects)\n");
+  lines.push("Maps `#N` references to the commits that mention them. Use to find PM intent behind a body of code changes.\n");
+  const issues = [...issueToCommits.entries()].sort((a, b) => parseInt(b[0], 10) - parseInt(a[0], 10));
+  for (const [n, commits] of issues.slice(0, 100)) {
+    lines.push(`### #${n}`);
+    for (const c of commits.slice(0, 8)) {
+      lines.push(`- \`${c.sha}\` ${c.subject.replace(/\|/g, "\\|")}`);
+    }
+    lines.push("");
+  }
+  if (issues.length > 100) lines.push(`_… ${issues.length - 100} more issues with fewer commits._`);
+  return lines.join("\n");
+}
+
+/**
+ * fix-recipe-seeds.md — for each fix(*) commit, group by the files
+ * touched. Refine + chef use this to spot recurring failure classes
+ * (e.g., "vitest.config.ts has been fixed twice — known-flaky area").
+ * NOT a curated insight (that's the next layer); just file→fix-PRs
+ * map to surface the pattern.
+ */
+function buildFixRecipeSeeds(rows: CommitRow[]): string {
+  const fileFixCount = new Map<string, Array<{ sha: string; subject: string; date: string }>>();
+  for (const r of rows) {
+    if (!/^fix\b/.test(r.subject)) continue;
+    for (const f of r.files) {
+      if (!/\.(ts|tsx|js|jsx|json|yaml|yml)$/.test(f)) continue;
+      if (!fileFixCount.has(f)) fileFixCount.set(f, []);
+      fileFixCount.get(f)!.push({ sha: r.sha.slice(0, 8), subject: r.subject, date: r.date.slice(0, 10) });
+    }
+  }
+  const lines: string[] = [];
+  lines.push("# Fix-recipe seeds (mined from fix(*) commits)\n");
+  lines.push("Files that have been the target of fix-commits. A file with multiple fixes is a known-fragile area — check the listed commits before re-engineering. (Insights derived from these seeds live in `chef-known-fixes.md` once chef has analysed them.)\n");
+  const ranked = [...fileFixCount.entries()].filter(([_, fixes]) => fixes.length >= 2).sort((a, b) => b[1].length - a[1].length);
+  for (const [file, fixes] of ranked.slice(0, 40)) {
+    lines.push(`### \`${file}\` — fixed ${fixes.length}×`);
+    for (const f of fixes.slice(0, 6)) {
+      lines.push(`- \`${f.sha}\` (${f.date}) ${f.subject}`);
+    }
+    lines.push("");
+  }
+  if (ranked.length > 40) lines.push(`_… ${ranked.length - 40} more files with 2+ fixes._`);
+  return lines.join("\n");
+}
+
+export interface MineHistoryResult {
+  outDir: string;
+  built: string[];
+  commitsProcessed: number;
+  deltaFromSha: string | null;
+}
+
+export function refreshKnowledgeMineHistory(repoRoot: string, opts: { maxCommits?: number; full?: boolean } = {}): MineHistoryResult {
+  const stamp = opts.full ? null : readStamp(repoRoot);
+  const maxCommits = opts.maxCommits ?? 1500;
+  const rows = gitLogRows(repoRoot, maxCommits);
+  if (rows.length === 0) {
+    return { outDir: join(repoRoot, CURATED_DIR_REL), built: [], commitsProcessed: 0, deltaFromSha: null };
+  }
+  // For now: always re-mine the full window. Delta-aware merge is
+  // wired up via the stamp file (consumers see `last_sha`), but the
+  // actual incremental aggregation lives in a later alpha — at 1000
+  // commits this still takes <2s, so the full rebuild is fine.
+  const built: string[] = [];
+  const write = (name: string, body: string) => {
+    writeCurated(repoRoot, name, body);
+    built.push(name);
+  };
+
+  write("commit-conventions", buildCommitConventions(rows));
+  write("co-changes", buildCoChanges(rows));
+  write("ownership", buildOwnership(rows));
+  write("issue-traceability", buildIssueTraceability(rows));
+  write("fix-recipe-seeds", buildFixRecipeSeeds(rows));
+
+  // Stamp updates regardless — captures the most-recent SHA we've
+  // seen so future delta-mining knows where to resume from.
+  const newest = rows[rows.length - 1]!;
+  writeStamp(repoRoot, {
+    last_sha: newest.sha,
+    last_mined_at: new Date().toISOString(),
+    total_commits_seen: rows.length,
+  });
+
+  return {
+    outDir: join(repoRoot, CURATED_DIR_REL),
+    built,
+    commitsProcessed: rows.length,
+    deltaFromSha: stamp?.last_sha ?? null,
+  };
 }
