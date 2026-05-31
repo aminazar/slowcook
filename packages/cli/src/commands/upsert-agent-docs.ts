@@ -99,6 +99,18 @@ The slowcook pipeline opens one branch per stage (\`slowcook/<kind>/story-N\`). 
 - Slowcook agents stay on \`slowcook/<kind>/story-N\` branches; non-slowcook agents should use \`<your-name>/<short-description>\`.
 - Don't \`--force-push\` to shared branches. The human PM holds admin bypass for emergencies; agents don't.
 
+### Working alongside other agents (multi-agent choreography)
+
+When your work depends on another agent's still-open PR — common when one agent owns the app shell + another owns a feature inside it — follow this:
+
+- **Cut your branch off the OTHER agent's branch**, not \`main\`. Lets you import / reference their changes locally while you build. Example: \`git checkout -b slowcook/brew/story-009-on-bijan origin/feat/patient-therapist-portal-pages\`.
+- **Open your PR with \`--base\` pointing at THEIR branch**, not \`main\`. GitHub stacks the PRs; when their PR merges, GitHub auto-changes your PR's base to \`main\` and the diff narrows to just YOUR commits.
+- **Don't modify their files in your PR.** If you need a tweak in their work, drop a PR-comment review on THEIR PR ("can you change X?"). Editing their files in your PR creates a merge conflict at the moment THEIR PR merges, which is exactly the wrong moment to be solving conflicts.
+- **After their PR merges**: \`git fetch origin main && git rebase origin/main\` on your branch. Push with \`--force-with-lease\`. Your diff should now show only your net additions. If it shows their changes too, you missed a rebase step.
+- **If you and another agent are about to touch the same file** (same component, same migration, etc.): leave a one-line PR-comment on their open PR flagging the overlap before you cut your branch. Coordination cost ≪ conflict-resolution cost.
+
+If the PR you depend on stalls (no merge in sight), surface that to the human PM rather than waiting silently — they can either push the merge or unblock you to base on \`main\` and accept a temporary divergence.
+
 ### Refreshing the goldmine
 
 Run when you've made structural changes that other agents will need to know about:
