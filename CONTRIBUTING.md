@@ -84,6 +84,11 @@ When a fix ships in `cli@0.19.0-alpha.X`:
 - One emoji per file maximum, and only when the user is the
   audience (e.g., a cli stdout banner). Code comments stay plain.
 - Small commits, frequent pushes. Long-lived branches drift.
+- **Cost markers in PM-facing comments.** Any new agent that posts
+  comments on GitHub issues / PRs MUST emit a `<!-- slowcook:cost … -->`
+  marker. See [`docs/cost-marker-format.md`](./docs/cost-marker-format.md)
+  for the wire format + example emissions. The cost-aggregator pipeline
+  walks these markers to produce the per-story rollup.
 
 ## Prompt-regression fixtures (eval gate)
 
