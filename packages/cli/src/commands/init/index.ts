@@ -132,8 +132,10 @@ function applyAction(cwd: string, a: FileAction): void {
       : "";
   writeFileSync(full, contents, "utf8");
   // Git hooks (under .githooks/) must be executable or git silently
-  // ignores them. Any file under .githooks/ gets +x on write.
-  if (a.path.startsWith(".githooks/")) {
+  // ignores them. Same goes for shell scripts under scripts/ that
+  // agents are expected to invoke directly (e.g., agent-preflight.sh
+  // from the 0.19.x agent-bootstrap layer).
+  if (a.path.startsWith(".githooks/") || a.path.endsWith(".sh")) {
     chmodSync(full, 0o755);
   }
 }
@@ -313,4 +315,19 @@ export async function init(argv: string[], cliVersion: string): Promise<void> {
   console.log(`    with a \`@slowcook-one-time-scaffold\` marker; safe to customise, but note that`);
   console.log(`    \`slowcook init --force\` will overwrite them. Delete the marker to flag the file`);
   console.log(`    as consumer-owned if/when a future-proof guard lands.`);
+
+  console.log();
+  console.log("Agent onboarding (0.19.x+):");
+  console.log(`  • \`scripts/agent-preflight.sh\` is the script your agents should run at`);
+  console.log(`    session start. It checks they have ssh/git/gh/jq installed + are`);
+  console.log(`    authenticated. Exit 1 = fail; agent should ask you to fix rather than`);
+  console.log(`    self-heal.`);
+  console.log(`  • \`ops/agent-bootstrap.md\` is YOUR runbook for onboarding a new agent`);
+  console.log(`    (per-agent SSH keys, gh PAT, known_hosts). Agents do NOT consult this`);
+  console.log(`    file — they're not provisioning anything. AGENTS.md is the agent's`);
+  console.log(`    operating manual.`);
+  console.log(`  • Per-project preflight checks (SSH key on disk for a remote dev box,`);
+  console.log(`    env vars, etc.) go in \`scripts/agent-preflight.local.sh\` —`);
+  console.log(`    gitignored sibling sourced by the generic script. Add the path to`);
+  console.log(`    \`.gitignore\` so per-machine state stays out of the repo.`);
 }

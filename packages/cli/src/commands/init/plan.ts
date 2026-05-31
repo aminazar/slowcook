@@ -9,6 +9,8 @@ import {
   patternsReadme,
   slowcookCliVersionFile,
   preCommitHook,
+  agentPreflightScript,
+  agentBootstrapDoc,
   codeownersFullFile,
   codeownersSection,
   gitkeep,
@@ -92,6 +94,8 @@ const TARGETS = {
   manifestsGitkeep: ".brewing/manifests/.gitkeep",
   patternsReadme: ".brewing/patterns/README.md",
   preCommitHook: ".githooks/pre-commit",
+  agentPreflightScript: "scripts/agent-preflight.sh",
+  agentBootstrapDoc: "ops/agent-bootstrap.md",
   codeowners: "CODEOWNERS",
   gitignore: ".gitignore",
   packageJson: "package.json",
@@ -266,6 +270,29 @@ export function buildPlan(reader: FileReader, options: PlanOptions): Plan {
     options.force,
     TARGETS.preCommitHook,
     preCommitHook()
+  );
+
+  // 5f. scripts/agent-preflight.sh + ops/agent-bootstrap.md (0.19.x+).
+  // Two artifacts that close the agent-first-action environment gap:
+  // the preflight script the agent runs at session start to confirm
+  // its tools + auth + (optional) per-project SSH keys are in place;
+  // and the bootstrap doc the PM consults when onboarding a new agent.
+  // See ops/agent-bootstrap.md for the full provisioning recipe.
+  // Script is marked executable by index.ts via the same scripts/-prefix
+  // chmod handler that covers githooks.
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.agentPreflightScript,
+    agentPreflightScript()
+  );
+  addSimpleFile(
+    actions,
+    reader,
+    options.force,
+    TARGETS.agentBootstrapDoc,
+    agentBootstrapDoc()
   );
 
   // 6. CODEOWNERS — special case (append if exists without our markers)
