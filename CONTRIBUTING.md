@@ -57,6 +57,18 @@ warrants it).
   runs in CI on push-to-main + nightly via
   `.github/workflows/smoke-install.yml`.
 
+## Drafting a release CHANGELOG entry
+
+When cutting a release, run the changelog draft generator and paste the output into both the new CHANGELOG.md section and the release PR body:
+
+```bash
+scripts/changelog-draft.sh --since <last-release-sha> --next-version 0.19.3
+```
+
+The script walks merged PRs between two refs (default: last git tag → HEAD), groups them by conventional-commit type (`feat` / `fix` / `docs` / etc.), and emits a scaffolded markdown section. You then flesh out the WHY-prose per the existing CHANGELOG style — the script handles the boilerplate (PR list + grouping).
+
+Smoke test: `bash scripts/changelog-draft.test.sh` (asserts against this repo's own 0.19.1 → 0.19.2 range).
+
 ## After a fix lands
 
 When a fix ships in `cli@0.19.0-alpha.X`:
