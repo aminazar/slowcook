@@ -125,6 +125,16 @@ Or (if you're not running slowcook) edit \`.brewing/repo-knowledge/curated/<topi
 
 Knowledge entries are soft signal — agents reading them weight by recency and evidence, not by exact matching. \`slowcook knowledge verify\` flags [PRECARIOUS] entries whose evidence file has moved (but never auto-deletes).
 
+### Doc audience — read this, skip that
+
+This repo's docs split by audience. Don't burn turns reading the wrong layer.
+
+- **Agent-facing** (you should read): \`AGENTS.md\` and every file it links from inside this managed block. These are your operating manual — what YOU do per session.
+- **PM-facing** (you should NOT read): anything under \`ops/\` is a server-side / per-agent provisioning runbook for the human PM. Examples: \`ops/agent-bootstrap.md\` (how the PM provisions a new agent), \`ops/box/*-agent-setup.md\` (server-side useradd / sudoers / SSH key install). These require root on the dev box and are not actionable from your seat. If the PM points you at one of these by mistake, surface it: "this looks PM-facing — what specifically should I take from it?"
+- **Shared** (read on demand): \`README.md\`, \`docs/*\` typically — informational for humans + agents both.
+
+Convention: if a file's first heading says **"Audience: PM."** or lives under \`ops/\`, skip unless the PM has explicitly told you to look at one specific section. Onboarding-day cost-saver: run \`scripts/agent-preflight.sh\` (if present) at session start — it'll tell you upfront whether your environment is configured correctly without you having to read the bootstrap runbook to find out.
+
 ### Feedback to slowcook itself — open PRs proactively, don't wait
 
 If you hit a slowcook bug, a missing auto-digest, a stale prompt, or an ambiguous methodology rule while working in this repo: **open a PR to [aminazar/slowcook](https://github.com/aminazar/slowcook), don't just log it locally**. Treat this as a standing duty, not a polite suggestion.
