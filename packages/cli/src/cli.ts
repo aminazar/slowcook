@@ -31,6 +31,7 @@ import { fixtures } from "./commands/fixtures/index.js";
 import { refreshKnowledge } from "./commands/refresh-knowledge.js";
 import { upsertAgentDocs } from "./commands/upsert-agent-docs.js";
 import { knowledgeAdd } from "./commands/knowledge-add.js";
+import { costLog } from "./commands/cost-log.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
 import { budget } from "./commands/budget/index.js";
@@ -149,6 +150,17 @@ async function main(): Promise<void> {
       const sub = args[1];
       if (sub === "add") { await knowledgeAdd(args.slice(2)); return; }
       console.error(`unknown knowledge subcommand: ${sub ?? "(none)"}. try \`slowcook knowledge add --help\``);
+      process.exit(64);
+    }
+    case "cost": {
+      // `slowcook cost log --story <id> --usd <n> --agent <name> [...]`
+      // 0.19.x+ — explicit logging primitive for non-Actions agents
+      // (Claude Code sessions, Managed Agents, etc.) so their LLM spend
+      // lands in the canonical cost sidecar alongside in-process agent
+      // entries. See packages/cli/src/commands/cost-log.ts.
+      const sub = args[1];
+      if (sub === "log") { await costLog(args.slice(2)); return; }
+      console.error(`unknown cost subcommand: ${sub ?? "(none)"}. try \`slowcook cost log --help\``);
       process.exit(64);
     }
     case "on-spec-merged":
