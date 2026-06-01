@@ -6,6 +6,36 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.5 — local-claude-pipeline batch #5 round-trip
+
+Cut 2026-06-01. `@slowcook-ai/cli` 0.19.5 + `@slowcook-ai/llm-anthropic` 0.16.3.
+
+Tenth round of feedback from a local Claude Code session driving slowcook against the delgoosh consumer. Mostly mechanical adds that close gaps the agent surfaced while brewing eight stories on the consolidation branch + deploying it. Plus four 0.20 design-discussion decisions locked into `docs/plans/0.20-design-discussions.md`.
+
+- **`validateRouteCollisions` (#152)** — third member of the post-emit refine lint chain (after `validateEntityFieldReferences` in #132 and `validateComponentReuseShape` in #136). Flags when two stories claim the same `route.file` value; PM gets a `flagged`-action finding instead of two specs racing to the same file. Same shape as the existing validators; pure helper exported for unit testing.
+
+- **`validatePlateDtoColumns` (#160)** — plate-time check that every field in `packages/dtos/src/**/*.ts` either backs to a migration column or is annotated with a `// computed:` comment. Caught real DTO drift on delgoosh story-006 (peer-chat); previously a silent landmine for the next handler PR. Plugs into plate's existing flagged-finding loop.
+
+- **Chef DTO-rename surface grep (#155)** — chef now does a surface grep for the old DTO field name before applying any edits. Closes the class of bug where a chef PR renames a field in the DTO but misses one of the call sites; downstream brew sees a stale name + halts.
+
+- **Brew mirror-stories addendum (#159)** — small one-liner in `BREW_SYSTEM`: when a spec's `related_specs[].note` matches "mirror of X" / "inverted from X", brew should propose mirror-codegen rather than full re-writing. Builds toward the `slowcook mirror` codegen command parked for 0.20 (see Design Discussion #2).
+
+- **Managed-block additions in `slowcook upsert-agent-docs` (#153 + #154)** — combined-testgen+brew-PR pattern for small stories (#153) and the no-import-stub pattern for testgen against not-yet-installed deps (#154). Both surfaced as recurring patterns in the local-pipeline session.
+
+- **Doc additions (#157 + #158)** — `docs/local-pipeline-role.md` names the IDE-driving-slowcook role pattern (when to use it, what to mimic, what NOT to do); `docs/testgen-backend-conventions.md` documents the NestJS-CQRS handler-test conventions (one helper per handler, `@slowcook-stub` line-1 marker, TestManager beforeAll/beforeEach/afterAll, per-test inlined seed helpers). Both feed into the `@slowcook-ai/backend-adapter-nestjs` package now scoped for 0.20.
+
+- **0.20 design-discussion decisions (#162 + #163)** — four parked design items resolved + documented in `docs/plans/0.20-design-discussions.md`:
+  - **#1 `slowcook recipe --backend`** → per-framework adapter packages (`backend-adapter` + `backend-adapter-nestjs` first impl) mirroring `stack-ts` / `forge-github` layout
+  - **#2 `slowcook mirror` codegen** → parametrize-at-source-write + minimal mirror CLI (~30 LoC); refine + brew prompt addendums push parametrization upstream
+  - **#3 story-ID claim/release** → tombstone via `specs/_retired/story-N.yaml`; numbers never recycle; `reserve-story-id` for atomic claim; `stories release` for retirement
+  - **#4 `brew_complexity` field** → no complexity field; recipe agent emits `brew_strategy: single|multifurcate|pair-brew|escalate-to-human` directly in `recipe/manifests/<story>.json`; brew strategy router dispatches
+
+Test count: 1075 → 1087.
+
+CHANGELOG note: the 0.19.1 / 0.19.2 / 0.19.3 / 0.19.4 entries were not backfilled into this file before 0.19.5; see release PRs #137 / #138-#143 / #144 / #150 for those release bodies.
+
+---
+
 ## 0.19.0-alpha.20 — refine questions-first layout + visible cost footer
 
 Cut 2026-05-14. Two more PM-facing comment rules surfaced from
