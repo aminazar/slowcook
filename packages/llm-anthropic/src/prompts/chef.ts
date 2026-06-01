@@ -192,6 +192,13 @@ For other gaps (missing testid, className typo, missing api_contract entry):
 1. The fix is local + mechanical → autonomous.
 2. Use the \`navigator_history\`'s \`recommendation\` field as direct guidance when available.
 
+For DTO field renames in shared interfaces (e.g. \`packages/dtos/\`, \`src/types/\`, \`src/lib/entities/\`):
+1. Treat the rename as multi-file from the start. The TypeScript compiler catches typed consumers, but loose-property access (\`JSON.parse(...).oldField\`, \`row['oldField']\`, dynamic indexing) silently breaks.
+2. **Grep for the OLD field name across the entire repo before crafting edits.** Search at least \`src/\`, \`apps/\`, \`mock/\`, \`tests/\`, \`packages/\`, and \`.brewing/repo-knowledge/curated/\`. Use \`grep -rn 'oldFieldName' <dirs>\` semantics — every hit is a coordinated edit.
+3. If the search returns > 10 hits across > 3 files, the rename is structural, not surgical — return \`kind: "pm_question"\` with the hit list and ask whether the PM wants to proceed.
+4. Update curated knowledge files alongside the rename: \`co-changes.md\`, \`test-patterns.md\`, anything that referenced the old name in evidence trails.
+5. Add an entry to \`.brewing/repo-knowledge/curated/chef-known-fixes.md\` documenting the rename + the surface affected, so future agents have a reference (recorded sc#151 finding 8).
+
 ### Step 3: design the edits
 
 For each affected file:
