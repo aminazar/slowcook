@@ -35,6 +35,7 @@ import { stories } from "./commands/stories/index.js";
 import { costLog } from "./commands/cost-log.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
+import { serve } from "./commands/serve/index.js";
 import { budget } from "./commands/budget/index.js";
 import { brand } from "./commands/brand/index.js";
 import { renderHelp, renderCommandHelp, renderReadmeBlock } from "./help.js";
@@ -302,8 +303,17 @@ async function main(): Promise<void> {
     case "dev-env":
       // 0.19.0-α.21 (dev-env Phase 2) — long-lived preview env on
       // a shared branch. push/switch implemented; up/sync/reset stub
-      // print canonical shell-outs for now.
+      // print canonical shell-outs for now. Still callable for
+      // backward compat; `slowcook serve dev <verb>` is the 0.20+
+      // recommended path (design #5, Phase 1).
       await devEnv(args.slice(1));
+      return;
+    case "serve":
+      // 0.20 design #5 Phase 1. `slowcook serve <profile> <verb>`.
+      // Reads .brewing/serve.yaml or legacy .brewing/dev-env.yaml.
+      // Profile `dev` implemented end-to-end; `mock` / `staging`
+      // stubs print Phase 2/3 notices.
+      await serve(args.slice(1));
       return;
     case "budget":
       // 0.19.0-α.35 (sc#66 follow-up) — manage .brewing/budget.yaml.
