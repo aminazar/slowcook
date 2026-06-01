@@ -30,7 +30,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -F @slowcook-ai/cli build
+      # `pnpm -r build` because cli imports from sibling packages
+      # (review-overlay, etc.) and tsc -b needs their dist/ types.
+      - run: pnpm -r build
       - name: Sync README catalog block
         run: bash scripts/sync-readme-help.sh
       - name: Fail if drift
