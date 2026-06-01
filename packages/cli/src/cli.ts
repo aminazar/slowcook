@@ -31,6 +31,7 @@ import { fixtures } from "./commands/fixtures/index.js";
 import { refreshKnowledge } from "./commands/refresh-knowledge.js";
 import { upsertAgentDocs } from "./commands/upsert-agent-docs.js";
 import { knowledgeAdd } from "./commands/knowledge-add.js";
+import { stories } from "./commands/stories/index.js";
 import { costLog } from "./commands/cost-log.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
@@ -83,6 +84,7 @@ Usage:
   slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]
   slowcook budget [show|set|rm] [--monthly <usd>] [--start-day <1-31>] [--story <usd>] [--cwd <path>]
   slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]
+  slowcook stories status [--cwd <path>] [--owner <login>] [--repo <name>] [--json]
   slowcook version
   slowcook help
 
@@ -116,6 +118,7 @@ Commands available in ${VERSION}:
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
   budget             (0.19.0-α.35) Manage the project monthly budget for the fuel gauge. \`budget set --monthly 50\` writes .brewing/budget.yaml; no args shows config + month-to-date spend.
   brand              (0.19.0-α.40, sc#82 Phase 4) Design-system foundation agent. Reads a brand brief (\`.brewing/brand.yaml\` or \`--brief\`) and emits mock/src/design-system/{tokens.ts, css.ts}. Runs once per project; \`--refresh\` overwrites.
+  stories            (0.19.5-α, sc#146 #6) Per-story pipeline-stage table. \`stories status\` reads specs/_index.yaml + queries the forge for slowcook-* labelled PRs and renders a story × stage matrix (refine / testgen / vibe / brew / chef). Falls back to branch-name matching for local-pipeline PRs that don't carry slowcook labels.
 
 Coming in later versions:
   review, dashboard
@@ -152,6 +155,12 @@ async function main(): Promise<void> {
       if (sub === "add") { await knowledgeAdd(args.slice(2)); return; }
       console.error(`unknown knowledge subcommand: ${sub ?? "(none)"}. try \`slowcook knowledge add --help\``);
       process.exit(64);
+    }
+    case "stories": {
+      // `slowcook stories status [...]` — 0.19.5-α (sc#146 #6)
+      // Per-story pipeline-stage table. See packages/cli/src/commands/stories/.
+      await stories(args.slice(1));
+      return;
     }
     case "cost": {
       // `slowcook cost log --story <id> --usd <n> --agent <name> [...]`
