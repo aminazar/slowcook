@@ -30,6 +30,7 @@ import {
   validateAndRepairSpec,
   validateEntityFieldReferences,
   validateComponentReuseShape,
+  validateRouteCollisions,
   type SpecValidationFinding,
 } from "../refine/spec-validate.js";
 import type { Spec } from "@slowcook-ai/core";
@@ -127,6 +128,12 @@ export function runSpecValidateCheck(
       findings.push(...validateEntityFieldReferences(spec, entityCatalogMd));
     }
     findings.push(...validateComponentReuseShape(spec, mockReader));
+    // 0.19.4-α+ (sc#151 finding 3) — route-file collision check
+    findings.push(
+      ...validateRouteCollisions(spec, (relPath) =>
+        existsSync(resolve(repoRoot, relPath))
+      )
+    );
 
     totalFindings += findings.length;
     perFile.push({ file: rel, storyId, findings });

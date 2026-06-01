@@ -364,3 +364,47 @@ function pruneStringList(
   }
   return out;
 }
+
+/**
+ * 0.19.4-α+ (sc#151 finding 3) — flag every `routes.paths[].file` whose
+ * destination path is ALREADY OCCUPIED by an existing file in the consumer
+ * repo. Refine sometimes proposes a route at e.g. `/patient/chat` because
+ * the spec uses it as the natural noun, but the consumer repo already
+ * hosts a different feature at that path (AI chat vs peer chat in the
+ * delgoosh dogfood). Brew would have to either silently overwrite the
+ * live page or pick a different path on its own — neither is a clean
+ * handoff.
+ *
+ * Action is "flagged" (not "repaired") — the resolution is upstream:
+ * the spec author renames the route OR the existing file relocates
+ * before the spec merges.
+ *
+ * `fileExists` is a reader so the function stays pure + testable.
+ * Callers pass `(p) => existsSync(join(repoRoot, p))`.
+ */
+export function validateRouteCollisions(
+  spec: Spec,
+  fileExists: (path: string) => boolean
+): SpecValidationFinding[] {
+  const findings: SpecValidationFinding[] = [];
+  const paths = spec.proposals?.routes?.paths;
+  if (!paths || paths.length === 0) return findings;
+  for (let i = 0; i < paths.length; i++) {
+    const entry = paths[i];
+    if (!entry) continue;
+    const file = entry.file;
+    if (typeof file !== "string" || file.length === 0) continue;
+    if (fileExists(file)) {
+      findings.push({
+        path: `proposals.routes.paths[${i}].file`,
+        message:
+          `Spec proposes route \`${entry.path}\` mapped to file \`${file}\` — ` +
+          `that file already exists in the repo (likely an unrelated feature). ` +
+          `Rename the spec's route OR relocate the existing file before brewing; ` +
+          `brew would otherwise silently overwrite live code or pick a different path ad-hoc.`,
+        action: "flagged",
+      });
+    }
+  }
+  return findings;
+}
