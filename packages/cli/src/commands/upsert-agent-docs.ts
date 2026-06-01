@@ -124,6 +124,23 @@ When NOT to combine: any story with \`estimate: medium\` or \`large\`, any story
 
 Recorded sc#151 finding 6 — the combined-PR variant was used for delgoosh story-017 (mirror of story-006) and shipped cleanly in one PR.
 
+### Pattern: local pipeline (driving slowcook from your IDE)
+
+The "local pipeline" pattern: a Claude Code (or similar IDE-bound) session drives the slowcook pipeline locally — emitting refine / testgen / vibe / plate / brew / chef artefacts on slowcook-shaped branches — WITHOUT calling \`slowcook brew\` / \`slowcook refine\` etc. Same artefact shapes the bots emit, but the LLM call is the human's IDE-bound agent rather than slowcook's worker.
+
+When to use: API spend matters, you want to red-line every stage before it lands, or you're testing slowcook changes against a live consumer. When NOT: routine stories on a healthy bot pipeline, multiple parallel stories, anything where agent autonomy is the point.
+
+Conventions:
+- Branch names match the bot conventions (\`slowcook/<kind>/story-N\`); reviewers shouldn't have to tell.
+- One PR per stage by default; combined small-story PR per the section above is allowed.
+- Run \`slowcook cost log\` at the end of every story so the session's IDE cost shows in the aggregator alongside bot costs.
+- After every slowcook PR you ship lands + version-bumps, re-run \`slowcook check spec specs/story-*.yaml\` against your consumer so new gates catch existing drift.
+- DON'T run \`slowcook brew\` or any LLM-dispatch slowcook command from the local pipeline — that's a parallel agent you didn't authorise.
+
+Full doc: [\`docs/local-pipeline-role.md\`](https://github.com/aminazar/slowcook/blob/main/docs/local-pipeline-role.md) in the slowcook repo.
+
+Recorded sc#145 finding 6 — pattern emerged from the delgoosh dogfood (2026-05) and shipped 5 batches of slowcook feedback as a side effect.
+
 ### Working alongside other agents (multi-agent choreography)
 
 When your work depends on another agent's still-open PR — common when one agent owns the app shell + another owns a feature inside it — follow this:
