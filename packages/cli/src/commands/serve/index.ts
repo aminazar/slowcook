@@ -13,6 +13,8 @@
 
 import { loadServeConfig, getProfile, type ServeConfig } from "./config.js";
 import { planServeDev, type DevVerbArgs, type DevVerbResult } from "./dev.js";
+import { planServeMock, type MockVerbArgs } from "./mock.js";
+import { detectMockRunnable } from "./detect.js";
 
 export interface ServeArgs {
   profile?: string;
@@ -124,12 +126,18 @@ export async function serve(argv: string[]): Promise<void> {
       if (result.exitCode !== 0) process.exit(result.exitCode);
       return;
     }
-    case "mock":
-      console.log(
-        `[serve mock] Phase 2 stub. Compose overlay would target: ${profile.compose_overlay ?? "(unset)"}.`,
-      );
-      console.log("Phase 2 implementation tracked at task #20 in the 0.20 cut.");
+    case "mock": {
+      // Trade-off #4: auto-skip if mock/ isn't vite-runnable.
+      const detect = detectMockRunnable(args.repoRoot);
+      if (!detect.hasDevScript) {
+        console.log(`[serve mock] skipped — ${detect.reason}`);
+        return;
+      }
+      const result = runMockVerb(args, config, profile);
+      for (const line of result.output) console.log(line);
+      if (result.exitCode !== 0) process.exit(result.exitCode);
       return;
+    }
     case "staging":
       console.log(
         `[serve staging] Phase 3 stub. Mode: ${profile.mode}; scenarios: ${
@@ -157,4 +165,18 @@ function runDevVerb(args: ServeArgs, config: ServeConfig, profile: ReturnType<ty
     dryRun: args.dryRun,
   };
   return planServeDev(devArgs, config, profile);
+}
+
+function runMockVerb(args: ServeArgs, config: ServeConfig, profile: ReturnType<typeof getProfile>): DevVerbResult {
+  if (!profile) throw new Error("unreachable");
+  const mockArgs: MockVerbArgs = {
+    verb: args.verb!,
+    branch: args.branch,
+    service: args.service,
+    follow: args.follow,
+    prune: args.prune,
+    repoRoot: args.repoRoot,
+    dryRun: args.dryRun,
+  };
+  return planServeMock(mockArgs, config, profile);
 }
