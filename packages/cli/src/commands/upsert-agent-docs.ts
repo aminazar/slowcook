@@ -112,6 +112,18 @@ Brew then \`pnpm install\`s the dep, swaps the no-import stub for the real decor
 
 Recorded sc#151 finding 2 — delgoosh story-006 added \`@nestjs/websockets\` for the peer-chat gateway. Initial testgen attempted the real decorators, \`nest build\` failed during the testgen PR's CI, and the workaround above was applied.
 
+### Combined testgen+brew for small stories
+
+The default pipeline cadence (testgen PR → merge → brew PR → merge) is sized for medium/large stories where the test contract benefits from independent human review before brew touches it. For stories where \`spec.estimate === 'small'\` AND brew is expected to touch < ~10 files, a **combined testgen+brew PR** is acceptable:
+
+- Branch: \`slowcook/brew/story-N-<ts>\` (single branch — skip the separate \`slowcook/tests/story-N\` step)
+- Commit: ONE commit containing both the failing test scaffold AND the impl. Title clearly states "combined testgen+brew" so reviewers know what they're looking at.
+- PR body: explain why combined was chosen (small estimate, narrow surface). Reviewers can still red-line the test contract before approving — the diff just isn't split across two PRs.
+
+When NOT to combine: any story with \`estimate: medium\` or \`large\`, any story that introduces a new dependency that brew will install, any story where the test contract reasonably might change during impl. When in doubt, split.
+
+Recorded sc#151 finding 6 — the combined-PR variant was used for delgoosh story-017 (mirror of story-006) and shipped cleanly in one PR.
+
 ### Working alongside other agents (multi-agent choreography)
 
 When your work depends on another agent's still-open PR — common when one agent owns the app shell + another owns a feature inside it — follow this:
