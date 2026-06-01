@@ -6,6 +6,31 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.6 — `slowcook serve` multi-mode + help-manifest single-source
+
+Cut 2026-06-01. `@slowcook-ai/cli` 0.19.6 only.
+
+Same-day follow-up to 0.19.5. Two headline additions plus the per-story status CLI the delgoosh agent had drafted earlier and hadn't yet been merged.
+
+- **`slowcook serve <profile> <verb>` (design #5 — all three phases shipped)**:
+  - `serve dev` (#169) — bind-mount source for fast UI iteration. Replaces the hand-rolled push/sync plumbing every consumer had been writing on top of `dev-env`.
+  - `serve mock` (#170) — vite-dev mock app for vibe-feedback loops. Auto-skips silently when `mock/package.json` has no `scripts.dev` (Trade-off #4).
+  - `serve staging` (#171) — built-image profile with named-scenario seed reset (`seed.scenarios: {demo, enterprise, post-incident}` — Trade-off #5 map shape). `reset --scenario <name>` re-runs idempotent seed scripts; optional `seed.guard_env` blocks accidental wipes from interactive sessions.
+
+  Consumer-supplied compose overlays + bring-up commands; slowcook ships zero image-build pipeline (Trade-off #3). Config can live in `.brewing/serve.yaml` (new) OR `.brewing/dev-env.yaml` (legacy) — both paths supported forever (Trade-off #1). `slowcook dev-env <verb>` is kept as a backward-compat alias and marked deprecated in the help catalog. Phase 1–3 documented in `docs/plans/0.20-design-discussions.md` design #5 (locked DECIDED 2026-06-01 in #167).
+
+- **Help manifest — single source of truth (#168)**: `packages/cli/src/commands.manifest.ts` exports the canonical `COMMANDS` array. Both `slowcook help` AND `packages/cli/README.md`'s catalog block now render from it. `scripts/sync-readme-help.sh` regenerates the README block; `.github/workflows/readme-help-sync.yml` fails CI on drift. Closes the npm-facing help drift the user flagged — README was stuck at "Commands (v0.4)" listing only 4 commands while the cli surface had grown to 38.
+
+  Per-command `--help` shims added for `cost` and `knowledge` (both were erroring before). New invariant test: every `case "<name>":` in `cli.ts` must have a matching manifest entry — no callable command without a doc entry, enforced at build time.
+
+- **`slowcook stories status` (#161, sc#146 #6)**: per-story pipeline-stage table (refine / testgen / vibe / brew / chef). Two-source PR scan (branch-prefix search + label scan); graceful no-token fallback. Reads `specs/_index.yaml` + queries GitHub for slowcook-labelled or slowcook-branched PRs. The PR was opened by the delgoosh agent right before 0.19.5 was cut but not yet merged at the time of that release.
+
+Test count: 1087 → 1154 (+67 across the four PRs).
+
+CHANGELOG note: this entry covers PRs since 0.19.5 (`3572615 → HEAD`).
+
+---
+
 ## 0.19.5 — local-claude-pipeline batch #5 round-trip
 
 Cut 2026-06-01. `@slowcook-ai/cli` 0.19.5 + `@slowcook-ai/llm-anthropic` 0.16.3.
