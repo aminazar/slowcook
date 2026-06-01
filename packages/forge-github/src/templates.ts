@@ -905,7 +905,79 @@ export function getGitHubCiArtifacts(params: {
     // 0.16.0-α.5 — SSH preview deploy + teardown for the mock app.
     { path: ".github/workflows/slowcook-preview-deploy.yml", contents: slowcookPreviewDeployWorkflow() },
     { path: ".github/workflows/slowcook-preview-teardown.yml", contents: slowcookPreviewTeardownWorkflow() },
+    // 0.19.4-α (sc#146 finding 2) — re-runs spec validators on amendment
+    // PRs. refine's in-process lint never re-fires on commits that bypass
+    // refine, so a workflow check catches drift after merge.
+    { path: ".github/workflows/slowcook-spec-validate.yml", contents: slowcookSpecValidateWorkflow() },
   ];
+}
+
+/**
+ * 0.19.4-α (sc#146 finding 2) — spec content validators as a PR check.
+ *
+ * Fires on pull_request when files matching `specs/story-*.yaml` change.
+ * Runs `slowcook check spec` against the changed-files list (so noise
+ * stays narrow). Catches:
+ *
+ *   - YAML/Zod parse failures introduced by hand-amendments
+ *   - entity.field hallucinations (validated against
+ *     `.brewing/repo-knowledge/auto/backend-entities.md`)
+ *   - components_to_reuse paths whose mock file doesn't mention the
+ *     spec's data fields (shape mismatch — caught by sc#136 lint at
+ *     refine emit time, now also at PR-amendment time)
+ *
+ * Why a workflow and not just refine's in-process lint: the in-process
+ * check fires when refine emits the spec. Hand-amendment commits push
+ * straight to git and bypass refine entirely. Without this workflow,
+ * the lint never sees them.
+ */
+export function slowcookSpecValidateWorkflow(): string {
+  return `name: slowcook spec validate
+
+# 0.19.4-α (sc#146 finding 2)
+# Re-runs spec validators on PRs that touch specs/story-*.yaml. Refine
+# runs the same lints in-process when it emits a spec; amendment
+# commits bypass refine, so they bypass the lint too. This workflow
+# closes that gap.
+
+on:
+  pull_request:
+    paths:
+      - "specs/story-*.yaml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+${RESOLVE_PIN_STEP}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Collect changed spec files
+        id: changed
+        run: |
+          BASE_SHA="\${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="\${{ github.event.pull_request.head.sha }}"
+          mapfile -t FILES < <(git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" | grep -E '^specs/story-.*\\.yaml$' || true)
+          if [ "\${#FILES[@]}" -eq 0 ]; then
+            echo "files=" >> "$GITHUB_OUTPUT"
+          else
+            printf 'files=%s\\n' "\${FILES[*]}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: slowcook check spec
+        if: steps.changed.outputs.files != ''
+        run: npx --yes "$SLOWCOOK_CLI" check spec \${{ steps.changed.outputs.files }}
+`;
 }
 
 /**
