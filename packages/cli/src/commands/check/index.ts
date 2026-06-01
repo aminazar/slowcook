@@ -5,6 +5,8 @@
  *
  * Subcommands:
  *   - `mock-isolation`  — every mock/ import resolves inside mock/
+ *   - `spec`            — re-run spec content validators on PRs touching
+ *                          specs/story-*.yaml (0.19.4-α / sc#146 #2)
  *
  * More to come (e.g. `mock-runtime-exports` to whitelist hooks vibe
  * may import; `port-provenance` to verify src/ files copied via port
@@ -12,12 +14,15 @@
  */
 
 import { runMockIsolationCheck } from "./mock-isolation.js";
+import { runSpecValidateCli } from "./spec-validate.js";
 
 export async function check(argv: string[], _cliVersion: string): Promise<void> {
   const sub = argv[0];
   switch (sub) {
     case "mock-isolation":
       return runMockIsolationCli(argv.slice(1));
+    case "spec":
+      return runSpecValidateCli(argv.slice(1));
     case undefined:
     case "help":
     case "--help":
@@ -37,11 +42,15 @@ slowcook check — static structural checks (0.16-α.13)
 
 Usage:
   slowcook check mock-isolation [--cwd <path>]
+  slowcook check spec [file...] [--cwd <path>]
 
 Subcommands:
   mock-isolation   Verify every import in mock/ stays inside mock/.
                    Catches vibe-prompt slippage where a mock component
                    tries to import from the consumer's production src/.
+  spec             Re-run spec content validators on one or more spec
+                   files. Catches drift on amendment commits that
+                   bypass refine's in-process lint.
 
 Exit codes:
   0  no violations

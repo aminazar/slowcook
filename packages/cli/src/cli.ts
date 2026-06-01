@@ -75,6 +75,7 @@ Usage:
   slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]
   slowcook preview (deploy|teardown) --pr <number> [--ssh-key <path>] [--cwd <path>]
   slowcook check mock-isolation [--cwd <path>]
+  slowcook check spec [file...] [--cwd <path>]
   slowcook run-mock <story-id> [--no-poll] [--poll-seconds <n>] [--branch <ref>]
   slowcook dispatch <step> [inputs...]
   slowcook fixtures check [--max-age-days <n>] [--story <id>]
@@ -109,7 +110,7 @@ Commands available in ${VERSION}:
   plate              (0.15-α.3) Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
   port               (0.16-α.8) Deterministic mock/ → src/ copy. Walks mock/src/, applies useScenarioFixture → useDataDomain rewrite, prepends provenance header. Pre-brew CI step.
   preview            (0.16-α.5) SSH preview deploy. \`deploy --pr N\`: build + run the mock app on the consumer's box; post URL to PR. \`teardown --pr N\`: stop + remove.
-  check              (0.16-α.13) Static structural checks. \`check mock-isolation\` verifies every import in mock/ stays inside mock/ (catches vibe-prompt slippage that breaks the mock-vs-prod separation rule).
+  check              (0.16-α.13) Static structural checks. \`check mock-isolation\` verifies every import in mock/ stays inside mock/ (catches vibe-prompt slippage that breaks the mock-vs-prod separation rule). \`check spec\` (0.19.4-α) re-runs spec content validators on a PR's spec files — closes the amendment-bypass gap where refine's in-process lint never re-fires.
   recon              (0.17.6+) Pre-brew structural divergence check. Compares story tests against mock + src/, surfaces missing components / testid gaps / brownfield rename hazards. Runs in slowcook-brew-auto.yml before brew dispatch.
   run-mock           (0.16-α.17) One-command mock launch + auto-pull. \`run-mock <story>\`: checkout mockup branch, npm install in mock/, run next dev with overlay env vars, poll origin every 15s + git pull --ff-only on plate amendments.
   dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
