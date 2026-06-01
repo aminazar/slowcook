@@ -99,6 +99,19 @@ The slowcook pipeline opens one branch per stage (\`slowcook/<kind>/story-N\`). 
 - Slowcook agents stay on \`slowcook/<kind>/story-N\` branches; non-slowcook agents should use \`<your-name>/<short-description>\`.
 - Don't \`--force-push\` to shared branches. The human PM holds admin bypass for emergencies; agents don't.
 
+### When introducing a new package dependency in testgen
+
+If your testgen scaffolds a file that NEEDS a not-yet-installed package (e.g. a WebSocket gateway needs \`@nestjs/websockets\` + \`socket.io\` before \`nest build\` will compile any file that imports them), follow the **no-import stub** pattern:
+
+- **Do** add the dep to \`package.json\`. Brew runs \`pnpm install\` first and needs them present.
+- **Don't** import the package in the stubbed file. \`nest build\` (or any test compile) runs at testgen time and will fail with "Cannot find module '<dep>'" until brew installs.
+- **Do** scaffold the file as a no-import stub: a plain \`@Injectable()\` (or equivalent) with the decorators / types substituted by \`unknown\`-typed shims. Mark the file with \`@slowcook-stub\` on line 1.
+- **Don't** skip the file entirely. Tests that reference the symbol need the declaration to exist for type-check; the runtime throw is fine, but the export must be importable.
+
+Brew then \`pnpm install\`s the dep, swaps the no-import stub for the real decorators, and removes the \`@slowcook-stub\` marker.
+
+Recorded sc#151 finding 2 — delgoosh story-006 added \`@nestjs/websockets\` for the peer-chat gateway. Initial testgen attempted the real decorators, \`nest build\` failed during the testgen PR's CI, and the workaround above was applied.
+
 ### Working alongside other agents (multi-agent choreography)
 
 When your work depends on another agent's still-open PR — common when one agent owns the app shell + another owns a feature inside it — follow this:
