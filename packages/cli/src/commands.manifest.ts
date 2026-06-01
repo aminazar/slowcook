@@ -166,10 +166,18 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
 
   // --- Ops ---
   {
+    name: "serve",
+    usage: "slowcook serve <profile> (up|sync|down|logs|reset) [--story <id>] [--branch <name>] [--service <name>] [--follow] [--prune]",
+    description: "Multi-mode dev / mock / staging on a shared box. `dev` profile is end-to-end; `mock` and `staging` ship in follow-ups.",
+    group: "ops",
+    status: "alpha",
+  },
+  {
     name: "dev-env",
     usage: "slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]",
-    description: "Bind-mount source push + per-story preview switch on the consumer's dev box. (Subsumed by `serve dev` in 0.20.)",
+    description: "Legacy alias for `slowcook serve dev`. Bind-mount source push + per-story preview switch. Kept for backward compat.",
     group: "ops",
+    status: "deprecated",
   },
   {
     name: "preview",

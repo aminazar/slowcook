@@ -169,7 +169,11 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
 
 ### Ops (preview, dev-env, etc.)
 
-- **`dev-env`** — Bind-mount source push + per-story preview switch on the consumer's dev box. (Subsumed by `serve dev` in 0.20.)
+- **`serve`** [alpha] — Multi-mode dev / mock / staging on a shared box. `dev` profile is end-to-end; `mock` and `staging` ship in follow-ups.
+  ```
+  slowcook serve <profile> (up|sync|down|logs|reset) [--story <id>] [--branch <name>] [--service <name>] [--follow] [--prune]
+  ```
+- **`dev-env`** [DEPRECATED] — Legacy alias for `slowcook serve dev`. Bind-mount source push + per-story preview switch. Kept for backward compat.
   ```
   slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]
   ```
