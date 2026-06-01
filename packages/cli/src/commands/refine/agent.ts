@@ -34,6 +34,7 @@ import {
   validateAndRepairSpec,
   validateEntityFieldReferences,
   validateComponentReuseShape,
+  validateRouteCollisions,
 } from "./spec-validate.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import type {
@@ -492,6 +493,21 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
           return null;
         }
       })
+    );
+  } catch {
+    // Never fail spec emit on a lint hiccup.
+  }
+
+  // 0.19.4-α+ (sc#151 finding 3) — flag route-file collisions with
+  // existing repo files. Delgoosh story-006 proposed `/patient/chat`
+  // for peer-chat while AI chat already lived at that path; brew had
+  // to pick a different path ad-hoc. Catch the collision at refine
+  // time so the spec author resolves it before merge.
+  try {
+    validationFindings.push(
+      ...validateRouteCollisions(spec, (relPath) =>
+        existsSync(join(ctx.repoRoot, relPath))
+      )
     );
   } catch {
     // Never fail spec emit on a lint hiccup.

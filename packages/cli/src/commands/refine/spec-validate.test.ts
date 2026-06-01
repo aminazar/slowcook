@@ -4,6 +4,7 @@ import {
   validateEntityFieldReferences,
   parseEntityCatalog,
   validateComponentReuseShape,
+  validateRouteCollisions,
 } from "./spec-validate.js";
 import type { Spec } from "@slowcook-ai/core";
 
@@ -346,5 +347,50 @@ describe("validateComponentReuseShape", () => {
     });
     const reader = () => "x".repeat(1000);
     expect(validateComponentReuseShape(spec, reader)).toEqual([]);
+  });
+});
+
+describe("validateRouteCollisions — route file collides with existing file (sc#151 #3)", () => {
+  it("flags a route whose file already exists in the repo", () => {
+    const spec = baseSpec({
+      proposals: {
+        routes: {
+          status: "pending",
+          proposed_by: "test",
+          paths: [
+            { path: "/patient/chat", file: "apps/patient/src/app/patient/chat/page.tsx" },
+            { path: "/patient/peer-chat", file: "apps/patient/src/app/patient/peer-chat/page.tsx" },
+          ],
+        },
+      },
+    });
+    // Only /patient/chat collides; /patient/peer-chat does not.
+    const fileExists = (p: string) =>
+      p === "apps/patient/src/app/patient/chat/page.tsx";
+    const findings = validateRouteCollisions(spec, fileExists);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.path).toBe("proposals.routes.paths[0].file");
+    expect(findings[0]!.action).toBe("flagged");
+    expect(findings[0]!.message).toMatch(/already exists/);
+  });
+
+  it("returns empty when no routes proposal exists", () => {
+    const spec = baseSpec();
+    const findings = validateRouteCollisions(spec, () => true);
+    expect(findings).toEqual([]);
+  });
+
+  it("returns empty when no paths collide", () => {
+    const spec = baseSpec({
+      proposals: {
+        routes: {
+          status: "pending",
+          proposed_by: "test",
+          paths: [{ path: "/new", file: "src/app/new/page.tsx" }],
+        },
+      },
+    });
+    const findings = validateRouteCollisions(spec, () => false);
+    expect(findings).toEqual([]);
   });
 });
