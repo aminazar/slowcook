@@ -15,6 +15,7 @@ import { loadServeConfig, getProfile, type ServeConfig } from "./config.js";
 import { planServeDev, type DevVerbArgs, type DevVerbResult } from "./dev.js";
 import { planServeMock, type MockVerbArgs } from "./mock.js";
 import { detectMockRunnable } from "./detect.js";
+import { planServeStaging, type StagingVerbArgs } from "./staging.js";
 
 export interface ServeArgs {
   profile?: string;
@@ -22,6 +23,7 @@ export interface ServeArgs {
   branch?: string;
   story?: string;
   service?: string;
+  scenario?: string;
   follow?: boolean;
   prune?: boolean;
   repoRoot: string;
@@ -40,6 +42,7 @@ export function parseServeArgs(argv: string[]): ServeArgs {
       if (a === "--branch" && next) { args.branch = next; i++; }
       else if (a === "--story" && next) { args.story = next; i++; }
       else if (a === "--service" && next) { args.service = next; i++; }
+      else if (a === "--scenario" && next) { args.scenario = next; i++; }
       else if (a === "--cwd" && next) { args.repoRoot = next; i++; }
       else if (a === "--follow" || a === "-f") { args.follow = true; }
       else if (a === "--prune") { args.prune = true; }
@@ -61,16 +64,16 @@ Usage:
   slowcook serve <profile> <verb> [options]
 
 Profiles:
-  dev      — Phase 1 (this release). Bind-mount source for fast UI iteration.
-  mock     — Phase 2 (coming soon). Vite-dev mock app for vibe feedback loops.
-  staging  — Phase 3 (coming soon). Built-image staging + named-scenario seed reset.
+  dev      Bind-mount source for fast UI iteration.
+  mock     Vite-dev mock app for vibe-feedback loops (auto-skip if mock/ lacks scripts.dev).
+  staging  Built-image staging + named-scenario seed reset for PM walkthroughs.
 
 Verbs:
-  up                 Bring up the profile's compose overlay.
-  sync [--branch X]  Force-push branch X (or current HEAD) to the profile's source_branch.
-  down [--prune]     Stop the profile's services. --prune also drops volumes.
-  logs [--service]   Tail logs (optionally one service). --follow / -f for tail -f.
-  reset              No-op for dev/mock; seed-scenario reset for staging (Phase 3).
+  up                            Bring up the profile (compose overlay or consumer's bringup_cmd).
+  sync [--branch X]             Force-push branch X (or current HEAD) to the profile's source_branch.
+  down [--prune]                Stop the profile's services. --prune also drops volumes.
+  logs [--service] [--follow]   Tail logs (optionally one service).
+  reset [--scenario <name>]     Re-run a staging scenario's seed scripts (no-op for dev/mock).
 
 Backward-compat:
   slowcook dev-env push  ≡  slowcook serve dev sync
@@ -138,14 +141,12 @@ export async function serve(argv: string[]): Promise<void> {
       if (result.exitCode !== 0) process.exit(result.exitCode);
       return;
     }
-    case "staging":
-      console.log(
-        `[serve staging] Phase 3 stub. Mode: ${profile.mode}; scenarios: ${
-          profile.seed?.scenarios ? Object.keys(profile.seed.scenarios).join(", ") || "(none)" : "(none)"
-        }.`,
-      );
-      console.log("Phase 3 implementation tracked at task #21 in the 0.20 cut.");
+    case "staging": {
+      const result = runStagingVerb(args, config, profile);
+      for (const line of result.output) console.log(line);
+      if (result.exitCode !== 0) process.exit(result.exitCode);
       return;
+    }
     default:
       console.error(`slowcook serve: profile "${args.profile}" has no runtime in this release.`);
       process.exit(64);
@@ -179,4 +180,19 @@ function runMockVerb(args: ServeArgs, config: ServeConfig, profile: ReturnType<t
     dryRun: args.dryRun,
   };
   return planServeMock(mockArgs, config, profile);
+}
+
+function runStagingVerb(args: ServeArgs, config: ServeConfig, profile: ReturnType<typeof getProfile>): DevVerbResult {
+  if (!profile) throw new Error("unreachable");
+  const stagingArgs: StagingVerbArgs = {
+    verb: args.verb!,
+    branch: args.branch,
+    scenario: args.scenario,
+    service: args.service,
+    follow: args.follow,
+    prune: args.prune,
+    repoRoot: args.repoRoot,
+    dryRun: args.dryRun,
+  };
+  return planServeStaging(stagingArgs, config, profile);
 }

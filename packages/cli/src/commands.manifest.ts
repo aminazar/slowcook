@@ -167,8 +167,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   // --- Ops ---
   {
     name: "serve",
-    usage: "slowcook serve <profile> (up|sync|down|logs|reset) [--story <id>] [--branch <name>] [--service <name>] [--follow] [--prune]",
-    description: "Multi-mode dev / mock / staging on a shared box. `dev` profile is end-to-end; `mock` and `staging` ship in follow-ups.",
+    usage: "slowcook serve <profile> (up|sync|down|logs|reset) [--branch <name>] [--scenario <name>] [--service <name>] [--follow] [--prune]",
+    description: "Multi-mode dev / mock / staging on a shared box. `dev` bind-mounts source; `mock` runs vite-dev (auto-skip if no scripts.dev); `staging` is built-image with named-scenario seed reset.",
     group: "ops",
     status: "alpha",
   },
