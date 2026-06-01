@@ -37,6 +37,7 @@ import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
 import { budget } from "./commands/budget/index.js";
 import { brand } from "./commands/brand/index.js";
+import { renderHelp, renderCommandHelp, renderReadmeBlock } from "./help.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
 // version, the spec's `refined_by` field, and the init template's workflow
@@ -54,77 +55,11 @@ const VERSION: string = (() => {
   }
 })();
 
-const USAGE = `
-slowcook — TDD-first agentic development harness
-
-Usage:
-  slowcook init [--owner <handle>] [--force] [--dry-run] [--cwd <path>]
-  slowcook guard --base <ref> --head <ref> [--override] [--config <path>]
-  slowcook manifest record [--stack-config <path>] [--manifest <path>] [--story <id>]
-  slowcook manifest verify [--stack-config <path>] [--manifest <path>] [--story <id>]
-  slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]
-  slowcook on-spec-merged --pr <number> [--cwd <path>]
-  slowcook on-tests-merged --pr <number> [--cwd <path>]
-  slowcook on-brew-merged --pr <number> [--cwd <path>]
-  slowcook recipe [--spec <id>] [--all] [--cwd <path>]   (testgen — alias kept for 0.13.x)
-  slowcook catchup [--dry-run] [--cwd <path>]
-  slowcook brew --story <id> [--budget-usd <n>] [--max-iterations <n>] [--model <id>]
-  slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]
-  slowcook extract [--schema] [--tokens] [--cwd <path>]
-  slowcook vibe --spec <id> [--cwd <path>] [--owner <login>] [--repo <name>] [--dry-run]
-  slowcook plate --pr <number> [--cwd <path>] [--owner <login>] [--repo <name>] [--review-comment-id <id>]
-  slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]
-  slowcook preview (deploy|teardown) --pr <number> [--ssh-key <path>] [--cwd <path>]
-  slowcook check mock-isolation [--cwd <path>]
-  slowcook check spec [file...] [--cwd <path>]
-  slowcook run-mock <story-id> [--no-poll] [--poll-seconds <n>] [--branch <ref>]
-  slowcook dispatch <step> [inputs...]
-  slowcook fixtures check [--max-age-days <n>] [--story <id>]
-  slowcook eval (--all | --fixture <id> | --list) [--fixtures-dir <path>]
-  slowcook dev-env (push|switch|up|sync|reset) [--story <id>] [--branch <name>]
-  slowcook budget [show|set|rm] [--monthly <usd>] [--start-day <1-31>] [--story <usd>] [--cwd <path>]
-  slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]
-  slowcook stories status [--cwd <path>] [--owner <login>] [--repo <name>] [--json]
-  slowcook version
-  slowcook help
-
-Commands available in ${VERSION}:
-  init               Scaffold slowcook configuration in a consumer project.
-  guard              Check for frozen-path violations between two git refs.
-  manifest           Record or verify the set of discoverable tests.
-  refine             Drive a GitHub issue toward a frozen spec (refinement agent).
-  on-spec-merged     Transition source-issue labels + post audit-trail comment after a spec PR merges.
-  on-tests-merged    Post audit-trail comment after a tests PR merges.
-  on-brew-merged     Post final "shipped" audit-trail comment after a brew PR merges.
-  recipe             Generate Vitest tests from merged specs (a "recipe" — the test contract brew follows). Aliases: testgen.
-  investigate        (alpha.2a, scaffold) Diagnose a bug from a GitHub issue and emit a bug-profile.
-  sift               (alpha.4) Narrow red→green ratchet for a bug fix; bounded by bug-profile fix_scope.
-  chef               (alpha.5c) PR-CI failure classifier — dispatches retry / escalate based on check status.
-  chef-drift         (0.18.0-α.9 L1) Surgical drift-fixer. Triggered by mock-isolation / recon / brew / navigator halts.
-  chef-orchestrate   (0.19.0-α.2 L3) Pipeline orchestrator. Decides redispatch_brew / rebase / escalate / close on a halted PR.
-  refactor           (0.19.0-α.7) Rank refactor proposals by benefit/cost. Reads .brewing/refactor/proposals.json.
-  garnish            (0.19.0-α.15) Local commit-gate for human tweaks on agent work. Runs tests, commits with learning-signal trailers.
-  catchup            Detect + run pipeline steps that should have triggered but didn't.
-  brew               Ratcheted implementation loop: flip red tests to green for one story.
-  map                Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
-  extract            Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.
-  vibe               (0.15-α.1) Design-first mockup generator. Reads spec + brownfield + code-map; emits runnable React mockup to slowcook/mockup/story-N PR.
-  plate              (0.15-α.3) Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
-  port               (0.16-α.8) Deterministic mock/ → src/ copy. Walks mock/src/, applies useScenarioFixture → useDataDomain rewrite, prepends provenance header. Pre-brew CI step.
-  preview            (0.16-α.5) SSH preview deploy. \`deploy --pr N\`: build + run the mock app on the consumer's box; post URL to PR. \`teardown --pr N\`: stop + remove.
-  check              (0.16-α.13) Static structural checks. \`check mock-isolation\` verifies every import in mock/ stays inside mock/ (catches vibe-prompt slippage that breaks the mock-vs-prod separation rule). \`check spec\` (0.19.4-α) re-runs spec content validators on a PR's spec files — closes the amendment-bypass gap where refine's in-process lint never re-fires.
-  recon              (0.17.6+) Pre-brew structural divergence check. Compares story tests against mock + src/, surfaces missing components / testid gaps / brownfield rename hazards. Runs in slowcook-brew-auto.yml before brew dispatch.
-  run-mock           (0.16-α.17) One-command mock launch + auto-pull. \`run-mock <story>\`: checkout mockup branch, npm install in mock/, run next dev with overlay env vars, poll origin every 15s + git pull --ff-only on plate amendments.
-  dispatch           Trigger a slowcook GitHub Actions workflow remotely (brew / testgen / refine).
-  budget             (0.19.0-α.35) Manage the project monthly budget for the fuel gauge. \`budget set --monthly 50\` writes .brewing/budget.yaml; no args shows config + month-to-date spend.
-  brand              (0.19.0-α.40, sc#82 Phase 4) Design-system foundation agent. Reads a brand brief (\`.brewing/brand.yaml\` or \`--brief\`) and emits mock/src/design-system/{tokens.ts, css.ts}. Runs once per project; \`--refresh\` overwrites.
-  stories            (0.19.5-α, sc#146 #6) Per-story pipeline-stage table. \`stories status\` reads specs/_index.yaml + queries the forge for slowcook-* labelled PRs and renders a story × stage matrix (refine / testgen / vibe / brew / chef). Falls back to branch-name matching for local-pipeline PRs that don't carry slowcook labels.
-
-Coming in later versions:
-  review, dashboard
-
-Docs: https://github.com/aminazar/slowcook
-`;
+// Help text is rendered from `commands.manifest.ts` via `./help.ts`.
+// The previous monolithic USAGE template drifted from the actual command
+// surface (refresh-knowledge, upsert-agent-docs, knowledge, cost, etc.
+// were callable but unlisted). The manifest fixes that — one entry per
+// callable command, validated by a CI gate against this switch statement.
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -153,6 +88,10 @@ async function main(): Promise<void> {
       // `slowcook knowledge add <agent> "<claim>" [...]`
       const sub = args[1];
       if (sub === "add") { await knowledgeAdd(args.slice(2)); return; }
+      if (sub === "--help" || sub === "-h" || sub === "help") {
+        console.log(renderCommandHelp("knowledge"));
+        return;
+      }
       console.error(`unknown knowledge subcommand: ${sub ?? "(none)"}. try \`slowcook knowledge add --help\``);
       process.exit(64);
     }
@@ -170,6 +109,10 @@ async function main(): Promise<void> {
       // entries. See packages/cli/src/commands/cost-log.ts.
       const sub = args[1];
       if (sub === "log") { await costLog(args.slice(2)); return; }
+      if (sub === "--help" || sub === "-h" || sub === "help") {
+        console.log(renderCommandHelp("cost"));
+        return;
+      }
       console.error(`unknown cost subcommand: ${sub ?? "(none)"}. try \`slowcook cost log --help\``);
       process.exit(64);
     }
@@ -384,11 +327,29 @@ async function main(): Promise<void> {
     case undefined:
     case "help":
     case "--help":
-    case "-h":
-      console.log(USAGE);
+    case "-h": {
+      const rest = args.slice(1);
+      // `slowcook help --markdown-readme` — emits the markdown catalog
+      // for `scripts/sync-readme-help.sh` to splice into the README.
+      if (rest[0] === "--markdown-readme") {
+        process.stdout.write(renderReadmeBlock());
+        return;
+      }
+      // `slowcook help <cmd>` — per-command usage.
+      if (rest[0] && !rest[0].startsWith("-")) {
+        const block = renderCommandHelp(rest[0]);
+        if (block) {
+          console.log(block);
+          return;
+        }
+        console.error(`Unknown command: ${rest[0]}\n${renderHelp(VERSION)}`);
+        process.exit(64);
+      }
+      console.log(renderHelp(VERSION));
       return;
+    }
     default:
-      console.error(`Unknown command: ${command}\n${USAGE}`);
+      console.error(`Unknown command: ${command}\n${renderHelp(VERSION)}`);
       process.exit(64); // EX_USAGE
   }
 }

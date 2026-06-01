@@ -1,0 +1,44 @@
+name: readme-help-sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/cli/src/commands.manifest.ts
+      - packages/cli/src/help.ts
+      - packages/cli/README.md
+      - scripts/sync-readme-help.sh
+      - .github/workflows/readme-help-sync.yml
+  pull_request:
+    paths:
+      - packages/cli/src/commands.manifest.ts
+      - packages/cli/src/help.ts
+      - packages/cli/README.md
+      - scripts/sync-readme-help.sh
+      - .github/workflows/readme-help-sync.yml
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -F @slowcook-ai/cli build
+      - name: Sync README catalog block
+        run: bash scripts/sync-readme-help.sh
+      - name: Fail if drift
+        run: |
+          if ! git diff --quiet packages/cli/README.md; then
+            echo "::error::packages/cli/README.md COMMANDS BLOCK is out of sync with the manifest."
+            echo "::error::Run \`pnpm -F @slowcook-ai/cli build && bash scripts/sync-readme-help.sh\` locally and commit."
+            git diff packages/cli/README.md
+            exit 1
+          fi
+          echo "README catalog block is in sync with the manifest."
