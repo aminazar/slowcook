@@ -47,7 +47,7 @@
     "@slowcook-ai/llm-anthropic": "workspace:^",
     "@slowcook-ai/recorder": "workspace:^",
     "@slowcook-ai/review-overlay": "workspace:^",
-    "@anthropic-ai/sdk": "^0.98.0",
+    "@anthropic-ai/sdk": "^0.100.1",
     "@octokit/rest": "^22.0.1",
     "ts-morph": "^28.0.0",
     "yaml": "^2.9.0",
