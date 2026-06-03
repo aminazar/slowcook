@@ -1,32 +1,23 @@
 /**
  * `slowcook serve staging <verb>` — Phase 3 implementation.
  *
- * The staging profile runs a built-image deployment for PM walkthroughs +
- * manual QA. Distinct from `dev` (bind-mount source) and `mock` (vite-dev):
+ * The staging profile runs a built-image deployment for PM walkthroughs.
  *
- *   - mode: built-image (Trade-off #3 — slowcook ships zero image-build;
- *     consumer's `bringup_cmd` does the heavy lifting).
- *   - reset: named-scenario re-seed via `seed.scenarios: {demo: ..., ...}`
- *     (Trade-off #5 — map shape from day 1; no single-value form).
+ * 0.19.7 (sc#173): same refactor as dev.ts / mock.ts — emit
+ * ShellCommand[] for the cli wrapper to execute via runCommands(),
+ * supporting ssh-wrap when `ssh_target` is set; honour `compose_files`
+ * multi-`-f`; pass `--build` (staging IS built-image).
  *
- * Verbs (Phase 3):
- *   - up      — bring up the staging profile via consumer's bringup_cmd
- *   - sync    — push the staging-tracking branch (default `main`); the
- *               box's CI/deploy chain picks it up + rebuilds the image
- *   - down    — stop the profile's services (volumes preserved)
- *   - logs    — pass-through to docker-compose logs
- *   - reset --scenario <name> — re-run the named scenario's seed scripts;
- *               protected by the optional `seed.guard_env` env-var sentinel
- *               to prevent accidental wipes from interactive sessions.
- *
- * Per design #5 "Additional decisions" — the staging seed is idempotent;
- * each scenario's scripts MUST be re-runnable. Slowcook just invokes them
- * via `ts-node` (Trade-off #2) inside the container.
+ * `reset --scenario <name>` re-runs the named scenario's seed scripts.
+ * Idempotency is the seed-script author's contract; slowcook bails on
+ * any non-zero exit. Optional `seed.guard_env` blocks accidental wipes.
  */
 
 import { execSync } from "node:child_process";
 import type { ProfileConfig, ServeConfig } from "./config.js";
+import { composeFiles, shouldBuildOnUp } from "./config.js";
 import type { DevVerbResult } from "./dev.js";
+import type { ShellCommand } from "./runner.js";
 
 export interface StagingVerbArgs {
   verb: string;
@@ -56,27 +47,35 @@ export function planServeStaging(
     case "reset":
       return planReset(args, profile);
     default:
-      return {
-        exitCode: 64,
-        output: [`Unknown verb: ${args.verb}. See \`slowcook serve --help\`.`],
-      };
+      return { exitCode: 64, output: [`Unknown verb: ${args.verb}. See \`slowcook serve --help\`.`] };
   }
 }
 
 function planUp(_args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult {
-  const lines: string[] = [`[serve staging up] mode: ${profile.mode}`];
+  const output: string[] = [`[serve staging up] mode: ${profile.mode}`];
+
+  // Trade-off #3: when consumer's bringup_cmd is set, slowcook just shells it out.
   if (profile.bringup_cmd) {
-    // Trade-off #3 — consumer's bring-up runs the show. Slowcook just shells out.
-    lines.push(`  cmd: ${profile.bringup_cmd}`);
-    return { exitCode: 0, output: lines };
+    return {
+      exitCode: 0,
+      output,
+      commands: [{ cmd: profile.bringup_cmd, remote: true, label: "bring up" }],
+    };
   }
-  if (profile.compose_overlay) {
-    lines.push(`  cmd: docker compose -f ${profile.compose_overlay} up -d`);
-    return { exitCode: 0, output: lines };
+
+  const files = composeFiles(profile);
+  if (files.length === 0) {
+    return {
+      exitCode: 64,
+      output: ["[serve staging up] neither bringup_cmd nor compose_files / compose_overlay set; nothing to bring up."],
+    };
   }
+  const fileFlags = files.map((f) => `-f ${f}`).join(" ");
+  const buildFlag = shouldBuildOnUp(profile) ? " --build" : "";
   return {
-    exitCode: 64,
-    output: ["[serve staging up] neither bringup_cmd nor compose_overlay set; nothing to bring up."],
+    exitCode: 0,
+    output,
+    commands: [{ cmd: `docker compose ${fileFlags} up -d${buildFlag}`, remote: true, label: "bring up" }],
   };
 }
 
@@ -101,57 +100,37 @@ function planSync(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult 
       output: ["[serve staging sync] couldn't resolve a local branch (detached HEAD?). Pass --branch <name>."],
     };
   }
-  const lines = [`[serve staging sync] ${localBranch} → origin/${sourceBranch} (staging-deploy CI rebuilds)`];
-  if (args.dryRun) {
-    lines.push(`  would run: git push --force origin ${localBranch}:${sourceBranch}`);
-    return { exitCode: 0, output: lines };
-  }
-  try {
-    execSync(`git push --force origin ${localBranch}:${sourceBranch}`, {
-      cwd: args.repoRoot,
-      stdio: "inherit",
-    });
-  } catch {
-    return {
-      exitCode: 1,
-      output: [...lines, `[serve staging sync] git push failed. Check push permissions on origin/${sourceBranch}.`],
-    };
-  }
-  lines.push(`[serve staging sync] done.`);
-  return { exitCode: 0, output: lines };
-}
-
-function planDown(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult {
-  if (!profile.compose_overlay) {
-    return { exitCode: 64, output: ["[serve staging down] no compose_overlay set; nothing to stop."] };
-  }
-  const cmd = args.prune
-    ? `docker compose -f ${profile.compose_overlay} down -v`
-    : `docker compose -f ${profile.compose_overlay} down`;
-  return { exitCode: 0, output: ["[serve staging down]", `  cmd: ${cmd}`] };
-}
-
-function planLogs(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult {
-  if (!profile.compose_overlay) {
-    return { exitCode: 64, output: ["[serve staging logs] no compose_overlay set; nothing to tail."] };
-  }
-  const follow = args.follow ? "-f" : "";
-  const service = args.service ?? "";
   return {
     exitCode: 0,
-    output: [`  cmd: docker compose -f ${profile.compose_overlay} logs ${follow} ${service}`.replace(/\s+/g, " ").trim()],
+    output: [`[serve staging sync] ${localBranch} → origin/${sourceBranch} (staging-deploy CI rebuilds)`],
+    commands: [{ cmd: `git push --force origin ${localBranch}:${sourceBranch}`, remote: false, label: "git push" }],
   };
 }
 
-/**
- * `serve staging reset --scenario <name>` — re-run the named scenario's
- * seed scripts. Idempotency is the seed-script author's job; slowcook
- * just invokes them via ts-node (Trade-off #2 — runtime model locked).
- *
- * Guard: if `seed.guard_env` is set in the profile, the named env var
- * must be non-empty in the caller's environment. Prevents accidental
- * wipes from an interactive `serve staging reset`.
- */
+function planDown(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult {
+  const files = composeFiles(profile);
+  if (files.length === 0) {
+    return { exitCode: 64, output: ["[serve staging down] no compose_files / compose_overlay set; nothing to stop."] };
+  }
+  const fileFlags = files.map((f) => `-f ${f}`).join(" ");
+  const cmd = args.prune
+    ? `docker compose ${fileFlags} down -v`
+    : `docker compose ${fileFlags} down`;
+  return { exitCode: 0, output: ["[serve staging down]"], commands: [{ cmd, remote: true, label: "compose down" }] };
+}
+
+function planLogs(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult {
+  const files = composeFiles(profile);
+  if (files.length === 0) {
+    return { exitCode: 64, output: ["[serve staging logs] no compose_files / compose_overlay set; nothing to tail."] };
+  }
+  const fileFlags = files.map((f) => `-f ${f}`).join(" ");
+  const follow = args.follow ? "-f" : "";
+  const service = args.service ?? "";
+  const cmd = `docker compose ${fileFlags} logs ${follow} ${service}`.replace(/\s+/g, " ").trim();
+  return { exitCode: 0, output: ["[serve staging logs]"], commands: [{ cmd, remote: true, label: "compose logs" }] };
+}
+
 function planReset(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult {
   if (!args.scenario) {
     const available = profile.seed?.scenarios ? Object.keys(profile.seed.scenarios) : [];
@@ -187,23 +166,11 @@ function planReset(args: StagingVerbArgs, profile: ProfileConfig): DevVerbResult
       };
     }
   }
-  const lines: string[] = [`[serve staging reset] scenario=${args.scenario}`];
-  for (const script of scenario.scripts) {
-    lines.push(`  ts-node ${script}`);
-  }
-  if (args.dryRun || scenario.scripts.length === 0) {
-    return { exitCode: 0, output: lines };
-  }
-  // Real reset: shell out to ts-node for each script. Idempotency is the
-  // seed-script author's contract; slowcook bails on any non-zero exit.
-  for (const script of scenario.scripts) {
-    try {
-      execSync(`pnpm exec ts-node ${script}`, { cwd: args.repoRoot, stdio: "inherit" });
-    } catch {
-      lines.push(`[serve staging reset] script ${script} failed; aborting.`);
-      return { exitCode: 1, output: lines };
-    }
-  }
-  lines.push(`[serve staging reset] scenario=${args.scenario} complete.`);
-  return { exitCode: 0, output: lines };
+  const output: string[] = [`[serve staging reset] scenario=${args.scenario}`];
+  const commands: ShellCommand[] = scenario.scripts.map((script) => ({
+    cmd: `pnpm exec ts-node ${script}`,
+    remote: true,
+    label: `seed ${script}`,
+  }));
+  return { exitCode: 0, output, commands };
 }

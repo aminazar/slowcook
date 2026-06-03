@@ -16,6 +16,7 @@ import { planServeDev, type DevVerbArgs, type DevVerbResult } from "./dev.js";
 import { planServeMock, type MockVerbArgs } from "./mock.js";
 import { detectMockRunnable } from "./detect.js";
 import { planServeStaging, type StagingVerbArgs } from "./staging.js";
+import { runCommands } from "./runner.js";
 
 export interface ServeArgs {
   profile?: string;
@@ -122,13 +123,11 @@ export async function serve(argv: string[]): Promise<void> {
     process.exit(64);
   }
 
+  let planResult: DevVerbResult;
   switch (args.profile) {
-    case "dev": {
-      const result = runDevVerb(args, config, profile);
-      for (const line of result.output) console.log(line);
-      if (result.exitCode !== 0) process.exit(result.exitCode);
-      return;
-    }
+    case "dev":
+      planResult = runDevVerb(args, config, profile);
+      break;
     case "mock": {
       // Trade-off #4: auto-skip if mock/ isn't vite-runnable.
       const detect = detectMockRunnable(args.repoRoot);
@@ -136,20 +135,33 @@ export async function serve(argv: string[]): Promise<void> {
         console.log(`[serve mock] skipped — ${detect.reason}`);
         return;
       }
-      const result = runMockVerb(args, config, profile);
-      for (const line of result.output) console.log(line);
-      if (result.exitCode !== 0) process.exit(result.exitCode);
-      return;
+      planResult = runMockVerb(args, config, profile);
+      break;
     }
-    case "staging": {
-      const result = runStagingVerb(args, config, profile);
-      for (const line of result.output) console.log(line);
-      if (result.exitCode !== 0) process.exit(result.exitCode);
-      return;
-    }
+    case "staging":
+      planResult = runStagingVerb(args, config, profile);
+      break;
     default:
       console.error(`slowcook serve: profile "${args.profile}" has no runtime in this release.`);
       process.exit(64);
+  }
+
+  for (const line of planResult.output) console.log(line);
+  if (planResult.exitCode !== 0) process.exit(planResult.exitCode);
+
+  // sc#173 #1: actually execute the plan. Wraps `remote: true` commands
+  // in `ssh user@host 'cd <checkout_dir> && <cmd>'` when ssh_target is
+  // set; runs locally otherwise. --dry-run prints the wrapped form
+  // without executing.
+  if (planResult.commands && planResult.commands.length > 0) {
+    const runResult = runCommands({
+      commands: planResult.commands,
+      profile,
+      repoRoot: args.repoRoot,
+      dryRun: args.dryRun,
+    });
+    for (const line of runResult.output) console.log(line);
+    if (runResult.exitCode !== 0) process.exit(runResult.exitCode);
   }
 }
 
