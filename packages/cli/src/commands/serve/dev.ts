@@ -3,7 +3,7 @@
  *
  * Verbs (Phase 1):
  *   - up      — bring up the dev profile (compose overlay or fallback)
- *   - sync    — rsync source to the box + restart the bind-mount targets
+ *   - sync    — push source-branch + restart bind-mount targets
  *   - down    — stop the profile's services (volumes preserved)
  *   - logs    — pass-through to docker-compose logs
  *   - reset   — no-op for dev profile (only meaningful for staging)
@@ -13,45 +13,41 @@
  *   - `slowcook dev-env up` ≡ `slowcook serve dev up`
  *   - `slowcook dev-env reset` ≡ `slowcook serve dev reset` (no-op + notice)
  *
- * `bind-mount-source` mode (the DECIDED choice for dev profile) uses
- * rsync to push source + an anonymous-volume node_modules in the
- * compose overlay. Avoids node_modules collision on macOS + chmod
- * surprises. See `docs/plans/0.20-design-discussions.md` design #5
- * "Additional decisions" for the rationale.
+ * 0.19.7 (sc#173 fixes):
+ *   - Planner populates `commands[]` (structured ShellCommand records).
+ *     The cli wrapper invokes runCommands() to actually execute (or
+ *     dry-run); previously `up`/`down`/`logs` were planners only.
+ *   - Compose-file layering: respects `profile.compose_files` (multi-`-f`)
+ *     OR `compose_overlay` (single). Real consumers need base+overlay.
+ *   - `--build` flag is suppressed for `bind-mount-source` mode (the
+ *     mode's whole point is skipping the build loop).
  */
 
 import { execSync } from "node:child_process";
 import type { ProfileConfig, ServeConfig } from "./config.js";
+import { composeFiles, shouldBuildOnUp } from "./config.js";
+import type { ShellCommand } from "./runner.js";
 
 export interface DevVerbArgs {
   verb: string;
-  /** Branch to push (sync verb). Resolved from HEAD if undefined. */
   branch?: string;
-  /** Story id, included in the push log line for audit. */
   story?: string;
-  /** Filter logs to one app (logs verb). */
   service?: string;
-  /** Follow logs (logs verb). */
   follow?: boolean;
-  /** Drop volumes too (down verb). */
   prune?: boolean;
   repoRoot: string;
-  /** Test seam: skip actual git/docker calls; emit a plan only. */
+  /** Test seam: report the plan but skip actual git rev-parse. */
   dryRun?: boolean;
 }
 
 export interface DevVerbResult {
   exitCode: number;
-  /** Lines emitted to stdout / "what would have run" under dryRun. */
+  /** Human narrative emitted by the planner. */
   output: string[];
+  /** Shell commands the cli wrapper should execute (in order). */
+  commands?: ShellCommand[];
 }
 
-/**
- * Pure dispatcher for the dev profile. Returns a DevVerbResult so the
- * caller (cli) can render output + set the exit code. Splitting the
- * pure planner from the IO wrapper lets the tests assert on the plan
- * without spawning docker.
- */
 export function planServeDev(
   args: DevVerbArgs,
   _config: ServeConfig,
@@ -77,18 +73,24 @@ export function planServeDev(
 }
 
 function planUp(_args: DevVerbArgs, profile: ProfileConfig): DevVerbResult {
-  const overlay = profile.compose_overlay;
+  const files = composeFiles(profile);
   const apps = Object.keys(profile.apps);
-  const lines: string[] = [`[serve dev up] bringing up: ${apps.join(", ") || "(no apps configured)"}`];
-  if (overlay) {
-    lines.push(`  cmd: docker compose -f ${overlay} up -d --build`);
-  } else {
-    lines.push("  (no compose_overlay set; consumer must wire its own up command)");
+  const output: string[] = [`[serve dev up] bringing up: ${apps.join(", ") || "(no apps configured)"}`];
+
+  if (files.length === 0) {
+    output.push("  (no compose_files / compose_overlay set; declare one in serve.yaml)");
+    return { exitCode: 64, output };
   }
+
+  const fileFlags = files.map((f) => `-f ${f}`).join(" ");
+  const buildFlag = shouldBuildOnUp(profile) ? " --build" : "";
+  const commands: ShellCommand[] = [
+    { cmd: `docker compose ${fileFlags} up -d${buildFlag}`, remote: true, label: "bring up" },
+  ];
   if (profile.seed_script) {
-    lines.push(`  seed: pnpm exec ts-node ${profile.seed_script}`);
+    commands.push({ cmd: `pnpm exec ts-node ${profile.seed_script}`, remote: true, label: "seed" });
   }
-  return { exitCode: 0, output: lines };
+  return { exitCode: 0, output, commands };
 }
 
 function planSync(args: DevVerbArgs, profile: ProfileConfig): DevVerbResult {
@@ -98,7 +100,7 @@ function planSync(args: DevVerbArgs, profile: ProfileConfig): DevVerbResult {
     try {
       localBranch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: args.repoRoot, encoding: "utf8" }).trim();
     } catch {
-      // fall through; handled below
+      // handled below
     }
   } else if (!localBranch && args.dryRun) {
     localBranch = "<current-branch>";
@@ -109,47 +111,43 @@ function planSync(args: DevVerbArgs, profile: ProfileConfig): DevVerbResult {
       output: ["[serve dev sync] couldn't resolve a local branch (detached HEAD?). Pass --branch <name>."],
     };
   }
-  const lines: string[] = [
+  const output: string[] = [
     `[serve dev sync] ${localBranch} → origin/${sourceBranch}${args.story ? ` (story-${args.story})` : ""}`,
   ];
-  if (args.dryRun) {
-    lines.push(`  would run: git push --force origin ${localBranch}:${sourceBranch}`);
-    return { exitCode: 0, output: lines };
-  }
-  try {
-    execSync(`git push --force origin ${localBranch}:${sourceBranch}`, { cwd: args.repoRoot, stdio: "inherit" });
-  } catch {
-    return {
-      exitCode: 1,
-      output: [...lines, `[serve dev sync] git push failed. Check push permissions on origin/${sourceBranch}.`],
-    };
-  }
-  lines.push(`[serve dev sync] done. The dev-deploy workflow on origin/${sourceBranch} will fire next.`);
-  return { exitCode: 0, output: lines };
+  const commands: ShellCommand[] = [
+    { cmd: `git push --force origin ${localBranch}:${sourceBranch}`, remote: false, label: "git push" },
+  ];
+  return { exitCode: 0, output, commands };
 }
 
 function planDown(args: DevVerbArgs, profile: ProfileConfig): DevVerbResult {
-  const overlay = profile.compose_overlay;
-  const lines: string[] = ["[serve dev down]"];
-  if (!overlay) {
-    return { exitCode: 64, output: ["[serve dev down] no compose_overlay set; nothing to stop."] };
+  const files = composeFiles(profile);
+  if (files.length === 0) {
+    return { exitCode: 64, output: ["[serve dev down] no compose_files / compose_overlay set; nothing to stop."] };
   }
+  const fileFlags = files.map((f) => `-f ${f}`).join(" ");
   const cmd = args.prune
-    ? `docker compose -f ${overlay} down -v`
-    : `docker compose -f ${overlay} down`;
-  lines.push(`  cmd: ${cmd}`);
-  return { exitCode: 0, output: lines };
+    ? `docker compose ${fileFlags} down -v`
+    : `docker compose ${fileFlags} down`;
+  return {
+    exitCode: 0,
+    output: ["[serve dev down]"],
+    commands: [{ cmd, remote: true, label: "compose down" }],
+  };
 }
 
 function planLogs(args: DevVerbArgs, profile: ProfileConfig): DevVerbResult {
-  const overlay = profile.compose_overlay;
-  if (!overlay) {
-    return { exitCode: 64, output: ["[serve dev logs] no compose_overlay set; nothing to tail."] };
+  const files = composeFiles(profile);
+  if (files.length === 0) {
+    return { exitCode: 64, output: ["[serve dev logs] no compose_files / compose_overlay set; nothing to tail."] };
   }
+  const fileFlags = files.map((f) => `-f ${f}`).join(" ");
   const follow = args.follow ? "-f" : "";
   const service = args.service ?? "";
+  const cmd = `docker compose ${fileFlags} logs ${follow} ${service}`.replace(/\s+/g, " ").trim();
   return {
     exitCode: 0,
-    output: [`  cmd: docker compose -f ${overlay} logs ${follow} ${service}`.replace(/\s+/g, " ").trim()],
+    output: ["[serve dev logs]"],
+    commands: [{ cmd, remote: true, label: "compose logs" }],
   };
 }

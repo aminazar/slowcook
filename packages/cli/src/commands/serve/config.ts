@@ -91,7 +91,24 @@ export const ProfileConfigSchema = z.object({
   mode: ProfileModeSchema.optional().default("bind-mount-source"),
   /** Git branch the profile tracks. Default: `dev`. */
   source_branch: z.string().default("dev"),
-  /** Optional compose-overlay path (consumer-supplied; slowcook calls it via docker compose). */
+  /**
+   * One or more compose files passed as `-f <path>` in declared order.
+   * The canonical pattern for `bind-mount-source` profiles:
+   *
+   *   compose_files:
+   *     - docker-compose.production.yml   # base: postgres, networks, depends_on chain
+   *     - docker-compose.dev.yml          # overlay: bind-mount overrides
+   *
+   * Real consumers (delgoosh, etc.) define their long-lived services
+   * (postgres / temporal / non-swapped apps) in a base compose and the
+   * dev/staging overlays ONLY redefine the services that swap. Emitting
+   * just `-f overlay.yml` skips the base, breaking `depends_on`.
+   *
+   * Takes precedence over `compose_overlay` if both are set. Reported
+   * as a dogfood gap on serve 0.19.6 (sc#173 finding #2).
+   */
+  compose_files: z.array(z.string()).optional(),
+  /** Single compose-overlay path (legacy). Use `compose_files` for base+overlay layering. */
   compose_overlay: z.string().optional(),
   /**
    * Built-image profiles call into the consumer's bring-up script
@@ -192,4 +209,29 @@ function formatZodError(source: string, err: z.ZodError): string {
 /** Convenience: lookup a profile by name (case-sensitive). */
 export function getProfile(config: ServeConfig, name: string): ProfileConfig | undefined {
   return config.profiles[name];
+}
+
+/**
+ * Return the ordered list of compose files for `docker compose -f ... -f ...`.
+ * Prefers `compose_files` (the multi-file shape sc#173 #2 surfaced); falls
+ * back to `compose_overlay` (legacy single-file). Empty when neither is set.
+ */
+export function composeFiles(profile: ProfileConfig): string[] {
+  if (profile.compose_files && profile.compose_files.length > 0) return profile.compose_files;
+  if (profile.compose_overlay) return [profile.compose_overlay];
+  return [];
+}
+
+/**
+ * Whether `docker compose up` should pass `--build`.
+ *
+ * - `bind-mount-source`: NEVER. The whole point of the mode is to skip
+ *   docker build (rsync source into a bind-mounted container). Passing
+ *   `--build` triggers a rebuild that takes minutes per up. sc#173 #2.
+ * - `built-image`: usually no — the consumer's bring-up rebuilds out of
+ *   band. But the explicit `--build` from `up` is conventional for
+ *   built-image so the local docker daemon picks up image edits.
+ */
+export function shouldBuildOnUp(profile: ProfileConfig): boolean {
+  return profile.mode === "built-image";
 }

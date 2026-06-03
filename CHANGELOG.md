@@ -6,6 +6,32 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.19.7 — `slowcook serve` execution layer + compose-file layering (sc#173)
+
+Cut 2026-06-03. `@slowcook-ai/cli` 0.19.7 only.
+
+Dogfood feedback on the 0.19.6 `slowcook serve` release (issue sc#173, delgoosh local-pipeline session 2026-06-01) surfaced two correctness gaps in the planners. Both fixed here.
+
+- **sc#173 finding #1 — `serve <profile> up` actually executes.** Previously the planners emitted `cmd: docker compose -f ... up -d` into `output[]` and exited without running it, even when `profile.ssh_target` was set. Operators had to copy-paste + ssh themselves. Now planners populate `result.commands[]` with structured `ShellCommand` records; the cli wrapper invokes `runCommands()` which wraps `remote: true` commands in `ssh user@host 'cd <checkout_dir> && <cmd>'` and executes via `execSync`. `--dry-run` prints the wrapped form without executing.
+
+  Local-only commands like `git push` (sync verb) declare `remote: false` so they're never ssh-wrapped. Stdio is inherited so operators see docker / git output in real time.
+
+- **sc#173 finding #2 — multi-file compose + `--build` suppression.** New `compose_files: [string]` field on the profile schema; takes precedence over `compose_overlay` when both are set. Real consumers (delgoosh, etc.) put long-lived services (postgres, networks, depends_on chain) in `docker-compose.production.yml` and the dev overlay ONLY redefines the bind-mounted services. Emitting just `-f overlay.yml` skipped the base + broke the `depends_on` graph.
+
+  The `--build` flag is now suppressed for `bind-mount-source` mode (the whole point of bind-mount is skipping the build loop). Still passed for `built-image` mode.
+
+  New `composeFiles(profile)` and `shouldBuildOnUp(profile)` helpers, both pure + exported for testing.
+
+- **`runner.ts` + `ShellCommand`**: introduces the structured-command layer. Pure `resolveCommand()` returns the wire-shape string (with ssh-wrap applied when applicable); `runCommands()` executes a list, bailing on first failure. Six new unit tests cover the local / remote / single-quote-escape / dry-run paths.
+
+- **Backward-compat**: every existing `slowcook serve` invocation continues to work. The legacy single-file `compose_overlay` field still resolves through `composeFiles()`. Existing `.brewing/dev-env.yaml` consumers can adopt `compose_files` incrementally.
+
+Findings #3–#7 from the same dogfood (autosync workflow scaffold, dynamic source-branch resolver, alpine-vs-debian for native modules, dev-mode side-effects audit pattern, mock-detect verbosity) tracked as follow-ups; some are net-new design discussions, some are doc-shaped.
+
+Test count: 1154 → 1169.
+
+---
+
 ## 0.19.6 — `slowcook serve` multi-mode + help-manifest single-source
 
 Cut 2026-06-01. `@slowcook-ai/cli` 0.19.6 only.
