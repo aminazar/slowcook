@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@slowcook-ai/core": "workspace:^",
-    "@anthropic-ai/sdk": "^0.98.0"
+    "@anthropic-ai/sdk": "^0.100.1"
   },
   "devDependencies": {
     "@types/node": "^25.9.1"
