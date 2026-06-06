@@ -3,6 +3,12 @@ export { checkTapTargets } from "./tap-targets.js";
 export { checkNoOverflow } from "./overflow.js";
 export type { GateViolation } from "./types.js";
 
+// Fidelity eye (design #8) — visual + behavioural mock-vs-prod diff.
+export { captureSnapshot, FIDELITY_STYLE_PROPS, COLOR_PROPS } from "./fidelity/snapshot.js";
+export type { StyleSnapshot, ElementSnapshot, SnapshotContext } from "./fidelity/snapshot.js";
+export { diffSnapshots, summariseFidelity } from "./fidelity/diff.js";
+export type { FidelityViolation, FidelityAxis, DiffOptions } from "./fidelity/diff.js";
+
 import type { Page } from "@playwright/test";
 import { checkContrast } from "./contrast.js";
 import { checkTapTargets } from "./tap-targets.js";
