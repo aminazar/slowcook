@@ -38,6 +38,8 @@ import { devEnv } from "./commands/dev-env/index.js";
 import { serve } from "./commands/serve/index.js";
 import { budget } from "./commands/budget/index.js";
 import { brand } from "./commands/brand/index.js";
+import { eye } from "./commands/eye/index.js";
+import { gate } from "./commands/gate/index.js";
 import { renderHelp, renderCommandHelp, renderReadmeBlock } from "./help.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
@@ -280,6 +282,16 @@ async function main(): Promise<void> {
       // both mockup PR + tests PR are merged; catches residual
       // vibe ⇄ testgen divergence before brew burns tokens.
       await recon(args.slice(1), VERSION);
+      return;
+    case "eye":
+      // design #8 — render reference (mock) + candidate (brewed) URLs across
+      // the viewport×scheme matrix, grade fidelity, screenshot, exit 1 on drift.
+      await eye(args.slice(1), VERSION);
+      return;
+    case "gate":
+      // design #9 — HITL halt: refuse to advance a stage until a human in the
+      // required role has approved on the PR (agent-unforgeable).
+      await gate(args.slice(1), VERSION);
       return;
     case "run-mock":
       // 0.16.0-α.17 — one-command mock launch + auto-pull on plate

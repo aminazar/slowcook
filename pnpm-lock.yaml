@@ -26,12 +26,18 @@ importers:
       '@octokit/rest':
         specifier: ^22.0.1
         version: 22.0.1
+      '@playwright/test':
+        specifier: ^1.40.0
+        version: 1.59.1
       '@slowcook-ai/core':
         specifier: workspace:^
         version: link:../core
       '@slowcook-ai/forge-github':
         specifier: workspace:^
         version: link:../forge-github
+      '@slowcook-ai/gates':
+        specifier: workspace:^
+        version: link:../gates
       '@slowcook-ai/llm-anthropic':
         specifier: workspace:^
         version: link:../llm-anthropic
