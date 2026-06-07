@@ -31,6 +31,14 @@ export interface EyeOptions {
   /** Raw narrowing flags, re-applied after a spec-derived matrix is built. */
   viewport?: string;
   scheme?: string;
+  /** design #8 / sc#189 — warm-browser HMR re-eye loop. */
+  watch: boolean;
+  /** Poll interval between watch passes (ms). Default 2000. */
+  intervalMs: number;
+  /** In watch mode, exit 0 as soon as the gate passes. */
+  untilConverged: boolean;
+  /** Safety cap on watch passes. Default 60. */
+  maxPasses: number;
 }
 
 export const VIEWPORTS: Record<string, { width: number; height: number }> = {
@@ -108,6 +116,9 @@ export function parseEyeArgs(args: string[]): EyeOptions {
   if (maxV !== undefined) gate.maxViolations = Number.parseInt(maxV, 10);
   if (failOn) gate.failOnAxes = failOn.split(",").map((s) => s.trim()) as FidelityAxis[];
 
+  const interval = val(args, "--interval");
+  const maxPasses = val(args, "--max-passes");
+
   return {
     referenceUrl,
     candidateUrl,
@@ -118,5 +129,9 @@ export function parseEyeArgs(args: string[]): EyeOptions {
     cwd: val(args, "--cwd") ?? ".",
     viewport,
     scheme,
+    watch: args.includes("--watch"),
+    intervalMs: interval !== undefined ? Number.parseInt(interval, 10) : 2000,
+    untilConverged: args.includes("--until-converged"),
+    maxPasses: maxPasses !== undefined ? Number.parseInt(maxPasses, 10) : 60,
   };
 }

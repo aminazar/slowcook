@@ -15,11 +15,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEyeArgs, matrixFromModes, narrowMatrix } from "./plan.js";
 import { loadFidelityModes } from "./spec-modes.js";
-import { runEyeMatrix } from "./run.js";
+import { runEyeMatrix, runEyeWatch } from "./run.js";
 
 export async function eye(args: string[], _version: string): Promise<void> {
   if (args[0] === "--help" || args[0] === "-h") {
-    console.log("usage: slowcook eye --reference <url> --candidate <url> [--story <id>] [--cwd <dir>] [--out dir] [--viewport m] [--scheme s] [--max-violations N] [--fail-on a,b]");
+    console.log("usage: slowcook eye --reference <url> --candidate <url> [--story <id>] [--cwd <dir>] [--out dir] [--viewport m] [--scheme s] [--max-violations N] [--fail-on a,b] [--watch [--interval ms] [--until-converged] [--max-passes N]]");
     return;
   }
 
@@ -41,6 +41,25 @@ export async function eye(args: string[], _version: string): Promise<void> {
     } else {
       console.log(`eye: story-${opts.story} declares no fidelity.modes; using ${opts.matrix.length}-cell default matrix`);
     }
+  }
+
+  // sc#189 — warm-browser HMR re-eye loop for fast visual convergence.
+  if (opts.watch) {
+    console.log(`eye --watch: ${opts.matrix.length} cell(s) · interval ${opts.intervalMs}ms · max ${opts.maxPasses} passes${opts.untilConverged ? " · until-converged" : ""}`);
+    const { result, passes, converged } = await runEyeWatch({
+      referenceUrl: opts.referenceUrl,
+      candidateUrl: opts.candidateUrl,
+      matrix: opts.matrix,
+      outDir: opts.outDir,
+      gate: opts.gate,
+      intervalMs: opts.intervalMs,
+      untilConverged: opts.untilConverged,
+      maxPasses: opts.maxPasses,
+    });
+    writeFileSync(join(opts.outDir, "eye-report.json"), JSON.stringify({ ...result, passes, converged }, null, 2));
+    console.log(`\nslowcook eye --watch — ${result.passed ? "PASS ✓" : "FAIL ✗"} after ${passes} pass(es)`);
+    if (opts.untilConverged && !result.passed) process.exit(1);
+    return;
   }
 
   const { result, screenshots } = await runEyeMatrix({
