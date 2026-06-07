@@ -64,3 +64,21 @@ Validated piecemeal: local eye run (Playwright 1.60) caught real login drift;
 a minimal #192 preview let eye render the authed `/patient/therapists`; the mock
 needed the same `?__preview` bypass; and ad-hoc (non-shared) fixtures made the
 comparison noisy — motivating §4.
+
+## 6. Mode matrix must include locale / direction (not just viewport × scheme)
+
+Today eye's matrix is `viewport × scheme` (≤4). Bilingual / RTL apps add a **third
+axis — locale/direction** — so the full space is `viewport × scheme × locale`
+(e.g. desktop/mobile × light/dark × fa/en = 8). RTL layouts drift independently
+of LTR, so an en-LTR page can be broken while fa-RTL looks fine (and vice-versa).
+
+- **First-class axis.** `eye` should accept `--locale fa,en` (and `spec.fidelity.modes`
+  should express locale), driving the consumer's language the same dev way it drives
+  auth/preview — via a query param (`?lang=`/`?__preview`) honored on **both** the
+  candidate AND the mock reference. (A consumer that reads `?lang` only on one side
+  yields a 100%-mirror false-diff — observed in the delgoosh dogfood: en run jumped
+  to 1077 violations until the mock honored `?lang`, then collapsed to the fa baseline.)
+- **Consumer-declared subset (not always all 2^N).** Exhaustive 2^N is often overkill;
+  the consumer declares the *necessary* subset in `fidelity.modes`. delgoosh's call:
+  **6 of 8** — primary language (fa) full incl. dark (4), secondary (en) light-only (2).
+  eye runs exactly the declared cells.
