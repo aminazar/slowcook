@@ -241,8 +241,8 @@ The mockup app at \`mock/\` was approved by the PM. The deterministic \`slowcook
 
 **Two-part rule:**
 
-1. **Preserve the UI shape.** JSX structure, props signature, \`className\`, layout, and visual hierarchy of every \`@slowcook-port-from\` file are the design contract. Tier-2 acceptance + visual regression will catch shape drift later.
-2. **Swap mock data for real data.** Inside those port-marked files, you CAN edit handlers, hooks, fetch calls, and effects to wire real data instead of in-memory mocks. The mock might do \`setPins([newPin, ...prev])\` for a click; the port-marked component should \`fetch('/api/pins', { method: 'POST', ... })\` instead. That's exactly the change brew is here to make.
+1. **Preserve the UI presentation VERBATIM.** The JSX structure, props signature, and **every \`className\` token** of each \`@slowcook-port-from\` file are the design contract — copied from the PM-approved mock. Your edit license inside a port-marked file is scoped to the **data-wiring seams only** (handlers, hooks, fetch/effect bodies). You may NOT add, remove, reorder, or rewrite presentational markup or className tokens to "tidy up", restyle, or shortcut — that is exactly the drift this contract exists to prevent. If a className looks redundant, it is still the contract; leave it. The recon shape tests (below) now pin the mock's **full per-element className set** by containment, so dropped or altered tokens fail hard.
+2. **Swap mock data for real data.** Inside those port-marked files, you CAN edit handlers, hooks, fetch calls, and effects to wire real data instead of in-memory mocks. The mock might do \`setPins([newPin, ...prev])\` for a click; the port-marked component should \`fetch('/api/pins', { method: 'POST', ... })\` instead. That's exactly the change brew is here to make. Adding a className that real data legitimately requires (e.g. a loading/error state the mock didn't show) is fine — containment only forbids *dropping* the mock's tokens, never *adding*.
 
 ### What you can write
 
@@ -256,7 +256,7 @@ You can edit any file in the repo to satisfy the failing test. The common destin
 
 Two protections catch shape drift if you go too far:
 
-1. **Recon-emitted shape tests** at \`tests/integration/story-N-shape.test.tsx\` assert testid presence, visual className tokens (\`rounded-full\`, \`min-h-[44px]\`), semantic landmarks. Read these before editing — your edits must keep them green.
+1. **Recon-emitted shape tests** at \`tests/integration/story-N-shape.test.tsx\` assert testid presence, semantic landmarks, and — per element — that the brewed component **retains the mock's full className token set** (containment: brewed ⊇ mock). These are the design contract in test form; read them before editing and keep them green. A failing one names the exact element + dropped token.
 2. **Full-suite test gate** at brew completion reverts any iteration that broke a previously-green test (catches cross-story regression).
 
 ### What you still must NOT touch

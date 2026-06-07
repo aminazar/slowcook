@@ -8,6 +8,8 @@ export { captureSnapshot, FIDELITY_STYLE_PROPS, COLOR_PROPS } from "./fidelity/s
 export type { StyleSnapshot, ElementSnapshot, SnapshotContext } from "./fidelity/snapshot.js";
 export { diffSnapshots, summariseFidelity } from "./fidelity/diff.js";
 export type { FidelityViolation, FidelityAxis, DiffOptions } from "./fidelity/diff.js";
+export { gradeFidelity, runFidelityGate } from "./fidelity/gate.js";
+export type { FidelityGateOptions, FidelityGateResult } from "./fidelity/gate.js";
 
 import type { Page } from "@playwright/test";
 import { checkContrast } from "./contrast.js";

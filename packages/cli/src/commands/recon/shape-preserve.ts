@@ -414,6 +414,25 @@ export function synthesiseShapeTestFileV2(opts: SynthOpts): string {
         lines.push(`      expect(missing, "dropped mock class tokens").toEqual([]);`);
         lines.push(`    });`);
       }
+      // design #10 — no-testid dense coverage: tokens on unanchored elements
+      // can't be matched per-element, so assert each survives SOMEWHERE in the
+      // rendered tree (file-level containment via [class*=]). Excludes tokens
+      // already covered by a testid-anchored or visualToken assertion.
+      const anchoredV2 = new Set((shape.elementClasses ?? []).filter((e) => e.testid).flatMap((e) => e.tokens));
+      const noTestidTokens = [
+        ...new Set(
+          (shape.elementClasses ?? [])
+            .filter((e) => !e.testid)
+            .flatMap((e) => e.tokens)
+            .filter((t) => !anchoredV2.has(t) && !shape.visualTokens.includes(t)),
+        ),
+      ];
+      for (const token of noTestidTokens) {
+        lines.push(`    it("rendered DOM keeps mock class token '${token}'", () => {`);
+        lines.push(`      const { container } = render(<${cn} />);`);
+        lines.push(`      expect(container.querySelector('[class*="${token}"]')).toBeTruthy();`);
+        lines.push(`    });`);
+      }
       lines.push(`  });`);
       lines.push(``);
     }
