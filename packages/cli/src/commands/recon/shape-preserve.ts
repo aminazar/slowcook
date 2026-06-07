@@ -33,6 +33,23 @@ export interface ExtractedShape {
   hasHeader: boolean;
   /** Component name (best-effort). */
   componentName: string | null;
+  /**
+   * design #10 — dense, paradigm-aware per-element class facts. Unlike
+   * `visualTokens` (filtered through the 17-item TOKENS_OF_INTEREST
+   * allowlist), this captures the element's *actual* utility-class set so
+   * the shape test can assert `brewed ⊇ mock` containment per element and
+   * drift can't hide in unpinned classes. Optional + additive: absent on
+   * hand-built fixtures and pre-#10 callers.
+   */
+  elementClasses?: ElementClassFacts[];
+}
+
+/** design #10 — one element's testid anchor + its utility-class tokens. */
+export interface ElementClassFacts {
+  /** data-testid on the element, or null (anchor for per-element assertions). */
+  testid: string | null;
+  /** Utility-shaped class tokens on the element (string-literal classNames only). */
+  tokens: string[];
 }
 
 const TOKENS_OF_INTEREST = [
@@ -63,8 +80,73 @@ export function extractShape(absFile: string, repoRoot: string): ExtractedShape 
   const testids = [...new Set(extractTestids(cleaned))];
   const visualTokens = [...new Set(extractTokens(cleaned, TOKENS_OF_INTEREST))];
   const hasHeader = /<header\b/.test(cleaned);
+  const elementClasses = extractElementClasses(cleaned);
 
-  return { file: fileRel, testids, visualTokens, hasHeader, componentName };
+  return { file: fileRel, testids, visualTokens, hasHeader, componentName, elementClasses };
+}
+
+/**
+ * design #10 — extract per-element utility-class facts from a (mock-chrome-
+ * stripped) source. Paradigm-aware: only reads STRING-LITERAL classNames
+ * (`className="..."` / `'...'` / plain backtick). `className={...}` brace
+ * expressions — CSS-modules (`{styles.x}`), `cx(...)`, conditional template
+ * literals with `${}` — are SKIPPED, because their tokens are either hashed
+ * identifiers (noise, not design intent) or computed; extracting them would
+ * be over-extraction. Styling fidelity for those mocks defers to the #8 eye.
+ *
+ * Pairs each element's tokens with its `data-testid` (the stable anchor for
+ * per-element containment assertions). Only elements carrying ≥1 utility
+ * token are returned.
+ */
+export function extractElementClasses(source: string): ElementClassFacts[] {
+  const facts: ElementClassFacts[] = [];
+  // Iterate JSX opening tags (and self-closing). Attr blob is captured
+  // non-greedily up to the tag close.
+  for (const m of source.matchAll(/<[A-Za-z][\w.]*\b([^>]*?)\/?>/g)) {
+    const attrs = m[1] ?? "";
+    const className = literalClassName(attrs);
+    if (className === null) continue; // dynamic/module/no className → skip
+    const tokens = className
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => isUtilityShaped(t));
+    if (tokens.length === 0) continue;
+    const tidMatch = attrs.match(/data-testid\s*=\s*["']([^"']+)["']/);
+    facts.push({
+      testid: tidMatch?.[1] ?? null,
+      tokens: [...new Set(tokens)],
+    });
+  }
+  return facts;
+}
+
+/**
+ * Return the string-literal value of a `className` attribute from a tag's
+ * attr blob, or null when the className is absent or a brace expression
+ * (`className={...}` — dynamic/module/computed; intentionally not read).
+ * Plain backtick literals are read only when they contain no `${}`.
+ */
+function literalClassName(attrs: string): string | null {
+  const dq = attrs.match(/className\s*=\s*"([^"]*)"/);
+  if (dq) return dq[1] ?? "";
+  const sq = attrs.match(/className\s*=\s*'([^']*)'/);
+  if (sq) return sq[1] ?? "";
+  const bt = attrs.match(/className\s*=\s*`([^`]*)`/);
+  if (bt && !bt[1]?.includes("${")) return bt[1] ?? "";
+  return null;
+}
+
+/**
+ * Heuristic: is `t` a utility-class token (Tailwind-shaped) rather than a
+ * component/module identifier? Keeps lowercase-led tokens + any token with
+ * a utility marker (`-`, `:`, `[`); drops capitalised identifiers and the
+ * empty string. Errs permissive — string-literal classNames in a utility
+ * mock are virtually all utilities.
+ */
+export function isUtilityShaped(t: string): boolean {
+  if (!t) return false;
+  if (/[-:[]/.test(t)) return true; // bg-primary, hover:..., min-h-[44px]
+  return /^[a-z][a-z0-9]*$/.test(t); // flex, grid, block, hidden, relative
 }
 
 /**
@@ -315,6 +397,23 @@ export function synthesiseShapeTestFileV2(opts: SynthOpts): string {
         lines.push(`      expect(container.querySelector("header")).toBeTruthy();`);
         lines.push(`    });`);
       }
+      // design #10 — per-element class containment (brewed ⊇ mock), anchored
+      // by testid. Asserts the rendered element keeps the mock's utility-class
+      // set; brew may ADD real-data classes (containment, not equality) but
+      // not DROP the mock's styling.
+      for (const ec of shape.elementClasses ?? []) {
+        if (!ec.testid || ec.tokens.length === 0) continue;
+        lines.push(`    it("[data-testid=${ec.testid}] keeps mock class tokens", () => {`);
+        lines.push(`      const { queryByTestId } = render(<${cn} />);`);
+        lines.push(`      const el = queryByTestId(${JSON.stringify(ec.testid)});`);
+        lines.push(
+          `      expect(el, ${JSON.stringify(`expected [data-testid=${ec.testid}] in rendered <${cn} />`)}).toBeTruthy();`,
+        );
+        lines.push(`      const have = (el?.getAttribute("class") ?? "").split(/\\s+/);`);
+        lines.push(`      const missing = ${JSON.stringify(ec.tokens)}.filter((t) => !have.includes(t));`);
+        lines.push(`      expect(missing, "dropped mock class tokens").toEqual([]);`);
+        lines.push(`    });`);
+      }
       lines.push(`  });`);
       lines.push(``);
     }
@@ -377,6 +476,17 @@ function synthesiseShapeTestFileV1(opts: SynthOpts): string {
       for (const token of shape.visualTokens) {
         lines.push(`    it("preserves visual token '${token}'", () => {`);
         lines.push(`      expect(src).toMatch(/className=[^>]*\\b${escapeRegexForTest(token)}\\b/);`);
+        lines.push(`    });`);
+      }
+      // design #10 — dense token containment (file-level, source-grep).
+      // Coarse vs v2's per-element render assertion, but robust to bracket/
+      // colon/slash tokens; ensures the mock's full utility set survives brew.
+      const denseTokens = [...new Set((shape.elementClasses ?? []).flatMap((e) => e.tokens))].filter(
+        (t) => !shape.visualTokens.includes(t),
+      );
+      for (const token of denseTokens) {
+        lines.push(`    it("preserves mock class token '${token}'", () => {`);
+        lines.push(`      expect(src).toContain(${JSON.stringify(token)});`);
         lines.push(`    });`);
       }
       if (shape.hasHeader) {
