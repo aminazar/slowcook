@@ -159,7 +159,7 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "eye",
-    usage: "slowcook eye --reference <url> --candidate <url> [--out <dir>] [--viewport <m>] [--scheme <s>] [--max-violations <n>] [--fail-on <axes>]",
+    usage: "slowcook eye --reference <url> --candidate <url> [--story <id>] [--out <dir>] [--viewport <m>] [--scheme <s>] [--max-violations <n>] [--fail-on <axes>] [--watch [--interval <ms>] [--until-converged] [--max-passes <n>]]",
     description: "Fidelity eye (design #8). Renders mock + brewed URLs across the viewport×scheme matrix, grades visual drift, screenshots, exits 1 on drift.",
     group: "checks",
   },

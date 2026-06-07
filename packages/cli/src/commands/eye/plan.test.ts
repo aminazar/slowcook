@@ -96,6 +96,22 @@ describe("parseEyeArgs", () => {
     expect(o.matrix).toHaveLength(4);
   });
 
+  it("defaults watch off with sane interval/max-passes", () => {
+    const o = parseEyeArgs(base);
+    expect(o.watch).toBe(false);
+    expect(o.intervalMs).toBe(2000);
+    expect(o.untilConverged).toBe(false);
+    expect(o.maxPasses).toBe(60);
+  });
+
+  it("parses --watch + --interval + --until-converged + --max-passes (sc#189)", () => {
+    const o = parseEyeArgs([...base, "--watch", "--interval", "500", "--until-converged", "--max-passes", "10"]);
+    expect(o.watch).toBe(true);
+    expect(o.intervalMs).toBe(500);
+    expect(o.untilConverged).toBe(true);
+    expect(o.maxPasses).toBe(10);
+  });
+
   it("DEFAULT_MATRIX is the 4-cell product", () => {
     expect(DEFAULT_MATRIX).toHaveLength(4);
   });
