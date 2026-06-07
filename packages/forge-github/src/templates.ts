@@ -875,6 +875,71 @@ jobs:
 `;
 }
 
+function slowcookEyeWorkflow(cliVersion: string): string {
+  return `name: slowcook eye (visual fidelity)
+
+# design #8 — post-green visual-fidelity gate. Invoked (workflow_call / dispatch)
+# once the mock + brewed candidate are BOTH serving (e.g. after the preview
+# deploy hands back two URLs). Renders the spec's \`fidelity.modes\` across the
+# viewport×scheme matrix, grades candidate-vs-mock, uploads the screenshots as
+# \`eye-pr-<N>-screenshots\` (cleaned up on PR close by slowcook-eye-cleanup), and
+# on drift applies the \`blocked-on-designer\` label to trigger the #9 gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mock_url: { description: "Reference (mock) URL", required: true, type: string }
+      candidate_url: { description: "Candidate (brewed) URL", required: true, type: string }
+      story: { description: "Story id (for fidelity.modes)", required: true, type: string }
+      pr: { description: "PR number", required: true, type: string }
+  workflow_call:
+    inputs:
+      mock_url: { required: true, type: string }
+      candidate_url: { required: true, type: string }
+      story: { required: true, type: string }
+      pr: { required: true, type: string }
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  eye:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Chromium
+        run: npx --yes playwright@1.59.1 install --with-deps chromium
+      - name: Run the eye
+        id: eye
+        continue-on-error: true
+        run: |
+          npx --yes @slowcook-ai/cli@${cliVersion} eye \\
+            --story "\${{ inputs.story }}" \\
+            --reference "\${{ inputs.mock_url }}" \\
+            --candidate "\${{ inputs.candidate_url }}" \\
+            --out .brewing/eye
+      - name: Upload eye artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eye-pr-\${{ inputs.pr }}-screenshots
+          path: .brewing/eye
+          retention-days: 14
+      - name: Escalate to designer gate on drift
+        if: steps.eye.outcome == 'failure'
+        env:
+          GH_TOKEN: \${{ github.token }}
+          PR: \${{ inputs.pr }}
+        run: |
+          gh pr edit "\${PR}" --add-label blocked-on-designer || true
+          gh pr comment "\${PR}" --body "🎨 slowcook eye found visual-fidelity drift vs the mock (story \${{ inputs.story }}). See the \\\`eye-pr-\${PR}-screenshots\\\` artifact. Blocking on designer review (#9 gate)."
+`;
+}
+
 function slowcookEyeCleanupWorkflow(): string {
   return `name: slowcook eye cleanup
 
@@ -1008,6 +1073,8 @@ export function getGitHubCiArtifacts(params: {
     // PRs. refine's in-process lint never re-fires on commits that bypass
     // refine, so a workflow check catches drift after merge.
     { path: ".github/workflows/slowcook-spec-validate.yml", contents: slowcookSpecValidateWorkflow() },
+    // design #8 — post-green visual-fidelity gate (renders + grades + escalates).
+    { path: ".github/workflows/slowcook-eye.yml", contents: slowcookEyeWorkflow(params.cliVersion) },
     // design #8 — trigger-based eye-artifact cleanup on PR close.
     { path: ".github/workflows/slowcook-eye-cleanup.yml", contents: slowcookEyeCleanupWorkflow() },
     // design #9 — HITL role gate: re-evaluated on every PR review submission.
