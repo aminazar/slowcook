@@ -149,6 +149,10 @@ const SpecSchema = z.object({
   invariants: z.array(z.string()),
   api_contract: z.array(z.unknown()).optional(),
   ui_behavior: z.record(z.string(), z.string()).optional(),
+  // design #8 — which viewport/scheme cells are in fidelity scope for the eye.
+  // Dimension-value tokens (light|dark|mobile|desktop); the eye expands them to
+  // the (declared-or-full) product. Absent = eye uses its full default matrix.
+  fidelity: z.object({ modes: z.array(z.string()) }).optional(),
   acceptance_scenarios: z.array(z.string()),
   non_goals: z.array(z.string()),
   related_specs: z

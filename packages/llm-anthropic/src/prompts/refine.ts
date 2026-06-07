@@ -442,6 +442,7 @@ When emitting the spec: output ONLY the YAML, nothing before or after, starting 
 - invariants: string[]
 - api_contract?: [{ method, path, request_schema?, responses? }]
 - ui_behavior?: { desktop_light: string, mobile_light: string, mobile_dark: string, ... }
+- fidelity?: { modes: string[] } — which viewport/scheme cells the visual-fidelity eye must check, as dimension tokens from \`light | dark | mobile | desktop\`. **Emit this whenever the design is mode-specific** (a dark theme, a distinct mobile layout). Derive it from the \`ui_behavior\` keys you wrote: if \`ui_behavior\` mentions \`*_dark\`, include \`dark\`; if it mentions \`mobile_*\`, include \`mobile\`. A spec that only specifies one mode (e.g. light desktop) should NOT list the others — that would force the eye to check cells the design never defined. Omit entirely only when mode is genuinely irrelevant (the eye then falls back to its full default matrix).
 - acceptance_scenarios: string[] (Given/When/Then form)
 - non_goals: string[]
 - related_specs?: [{ id, relationship: "overlap"|"related"|"superseded", note? }]

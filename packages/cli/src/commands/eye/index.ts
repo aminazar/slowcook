@@ -14,7 +14,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
 import { captureSnapshot, gradeFidelity, type StyleSnapshot } from "@slowcook-ai/gates";
-import { parseEyeArgs, type EyeContext } from "./plan.js";
+import { parseEyeArgs, matrixFromModes, narrowMatrix, type EyeContext } from "./plan.js";
+import { loadFidelityModes } from "./spec-modes.js";
 
 export async function eye(args: string[], _version: string): Promise<void> {
   if (args[0] === "--help" || args[0] === "-h") {
@@ -28,6 +29,18 @@ export async function eye(args: string[], _version: string): Promise<void> {
   } catch (e) {
     console.error(String(e instanceof Error ? e.message : e));
     process.exit(64);
+  }
+
+  // Spec-declared modes (the contract) override the default matrix; explicit
+  // --viewport/--scheme flags still narrow on top.
+  if (opts.story) {
+    const modes = loadFidelityModes(opts.cwd, opts.story);
+    if (modes && modes.length) {
+      opts.matrix = narrowMatrix(matrixFromModes(modes), { viewport: opts.viewport, scheme: opts.scheme });
+      console.log(`eye: matrix from story-${opts.story} fidelity.modes [${modes.join(", ")}] → ${opts.matrix.length} cell(s)`);
+    } else {
+      console.log(`eye: story-${opts.story} declares no fidelity.modes; using ${opts.matrix.length}-cell default matrix`);
+    }
   }
 
   mkdirSync(opts.outDir, { recursive: true });
