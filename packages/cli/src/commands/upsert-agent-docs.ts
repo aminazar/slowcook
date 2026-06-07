@@ -141,6 +141,18 @@ Full doc: [\`docs/local-pipeline-role.md\`](https://github.com/aminazar/slowcook
 
 Recorded sc#145 finding 6 — pattern emerged from the delgoosh dogfood (2026-05) and shipped 5 batches of slowcook feedback as a side effect.
 
+### HITL review gates — you cannot self-advance past one (design #9)
+
+Some stage transitions are gated on a HUMAN review by a named role (PM / designer / QA), configured in \`.brewing/reviewers.yaml\`. Default gates: refine spec → PM; vibe/plate mock → designer; brew output → QA + designer.
+
+This is a HARD halt, and the integrity of it depends on you NOT bypassing it:
+- **Do not advance a story past a gated stage until \`slowcook gate check --stage <stage> --pr <n>\` exits 0.** Run it; don't assume.
+- **Your own approval does NOT count, and you must not manufacture one.** A valid approval is a GitHub PR review (state \`APPROVED\`) from a *human* handle listed for the required role. Reviews from \`slowcook-*[bot]\`, \`github-actions\`, or the agent identity are classified as bot and never satisfy a gate — do not try to approve your own PR, ask a teammate to "rubber-stamp", or label your way around the gate.
+- **A \`CHANGES_REQUESTED\` from a required-role human is a hard stop.** Address it and re-request review; loop back to the gate's \`on_reject_target\` stage (designer reject of a mock → back to plate, not forward to brew).
+- **If a gate blocks you, surface it to the PM** ("blocked-on-\<role\>: needs designer approval on PR #N") rather than working around it. The gate exists because the human's eyes are the contract at that point.
+
+The bot pipeline enforces the same gate via \`.github/workflows/slowcook-gate.yml\`; the local pipeline enforces it by your honouring this section.
+
 ### Working alongside other agents (multi-agent choreography)
 
 When your work depends on another agent's still-open PR — common when one agent owns the app shell + another owns a feature inside it — follow this:

@@ -875,6 +875,105 @@ jobs:
 `;
 }
 
+function slowcookEyeCleanupWorkflow(): string {
+  return `name: slowcook eye cleanup
+
+# design #8 — trigger-based eye-artifact cleanup. When a PR closes (merged or
+# not), delete its full-res eye render/snapshot artifacts. The review thumbnail
+# lives in the PR comment + the eye-review branch, so nothing reviewable is
+# lost; full renders regenerate from the mock at the merged SHA. Artifacts are
+# uploaded by slowcook-acceptance as \`eye-pr-<N>-<viewport>-<scheme>\`.
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to clean up"
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete eye artifacts for this PR
+        env:
+          GH_TOKEN: \${{ github.token }}
+          PR: \${{ github.event.pull_request.number || github.event.inputs.pr }}
+          REPO: \${{ github.repository }}
+        run: |
+          prefix="eye-pr-\${PR}-"
+          echo "Deleting eye artifacts with prefix \${prefix}"
+          gh api --paginate "repos/\${REPO}/actions/artifacts" \\
+            --jq ".artifacts[] | select(.name | startswith(\\"\${prefix}\\")) | .id" \\
+          | while read -r id; do
+              echo "  rm artifact \${id}"
+              gh api -X DELETE "repos/\${REPO}/actions/artifacts/\${id}" || true
+            done
+`;
+}
+
+function slowcookGateWorkflow(cliVersion: string): string {
+  return `name: slowcook HITL gate
+
+# design #9 — the human-review halt. On every PR review submission (and on
+# demand) re-evaluate the stage gate: a stage may only advance once a HUMAN in
+# the required role (.brewing/reviewers.yaml) has approved. A bot/agent review
+# never satisfies the gate. Stage is derived from the slowcook branch prefix.
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Resolve stage from branch
+        id: stage
+        env:
+          HEAD: \${{ github.event.pull_request.head.ref || github.head_ref }}
+        run: |
+          case "\${HEAD}" in
+            slowcook/brew/*)   echo "stage=brew"   >> "\$GITHUB_OUTPUT" ;;
+            slowcook/plate/*)  echo "stage=plate"  >> "\$GITHUB_OUTPUT" ;;
+            slowcook/vibe/*)   echo "stage=plate"  >> "\$GITHUB_OUTPUT" ;;
+            slowcook/refine/*) echo "stage=refine" >> "\$GITHUB_OUTPUT" ;;
+            *)                 echo "stage=" >> "\$GITHUB_OUTPUT" ;;
+          esac
+      - name: Evaluate gate
+        if: steps.stage.outputs.stage != ''
+        env:
+          GH_TOKEN: \${{ github.token }}
+          PR: \${{ github.event.pull_request.number || github.event.inputs.pr }}
+          REPO: \${{ github.repository }}
+        run: |
+          npx --yes @slowcook-ai/cli@${cliVersion} gate check \\
+            --stage "\${{ steps.stage.outputs.stage }}" --pr "\${PR}" --repo "\${REPO}"
+`;
+}
+
 export function getGitHubCiArtifacts(params: {
   cliVersion: string;
   /** Consumer package manager (slowcook#25). Defaults to npm. */
@@ -909,6 +1008,10 @@ export function getGitHubCiArtifacts(params: {
     // PRs. refine's in-process lint never re-fires on commits that bypass
     // refine, so a workflow check catches drift after merge.
     { path: ".github/workflows/slowcook-spec-validate.yml", contents: slowcookSpecValidateWorkflow() },
+    // design #8 — trigger-based eye-artifact cleanup on PR close.
+    { path: ".github/workflows/slowcook-eye-cleanup.yml", contents: slowcookEyeCleanupWorkflow() },
+    // design #9 — HITL role gate: re-evaluated on every PR review submission.
+    { path: ".github/workflows/slowcook-gate.yml", contents: slowcookGateWorkflow(params.cliVersion) },
   ];
 }
 

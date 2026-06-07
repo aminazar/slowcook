@@ -158,6 +158,18 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "checks",
   },
   {
+    name: "eye",
+    usage: "slowcook eye --reference <url> --candidate <url> [--out <dir>] [--viewport <m>] [--scheme <s>] [--max-violations <n>] [--fail-on <axes>]",
+    description: "Fidelity eye (design #8). Renders mock + brewed URLs across the viewport×scheme matrix, grades visual drift, screenshots, exits 1 on drift.",
+    group: "checks",
+  },
+  {
+    name: "gate",
+    usage: "slowcook gate check --stage <refine|plate|brew> --pr <n> [--repo <owner/name>]",
+    description: "HITL review halt (design #9). Refuses to advance a stage until a human in the required role has approved on the PR; bot/agent reviews never satisfy it.",
+    group: "checks",
+  },
+  {
     name: "map",
     usage: "slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]",
     description: "Generate / check the repo-wide code map (APIs, pages, components, helpers, types).",
