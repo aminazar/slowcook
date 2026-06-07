@@ -153,6 +153,17 @@ This is a HARD halt, and the integrity of it depends on you NOT bypassing it:
 
 The bot pipeline enforces the same gate via \`.github/workflows/slowcook-gate.yml\`; the local pipeline enforces it by your honouring this section.
 
+### Eye behind auth — dev-only preview (always available, design #192)
+
+Most real surfaces sit behind auth, so \`eye\` (headless) and PM preview links can only reach public pages **unless the consumer ships a dev-only preview seam**. Every consumer should stand one up so eye converges EVERY route deterministically — gated so it can NEVER work in prod:
+
+- **Two independent gates, both required.** Active only when a build-time flag is set (e.g. \`VITE_EYE_PREVIEW=1\` / \`EYE_PREVIEW=1\`) — never set in prod builds, so the branch is dead-stripped — AND the URL carries \`?__preview\`. If a backend is consulted it independently refuses the preview header unless \`NODE_ENV !== 'production'\` and the request origin is on a dev allowlist.
+- **No real session, no PII.** In preview the app short-circuits auth to a fake "Preview User" and resolves data through the fixture seam (\`useScenarioFixture\` / a fixture-returning API stub) to committed mock fixtures — so screenshots are reproducible.
+- **How eye uses it.** Pass the candidate as \`…/<route>?__preview[&scenario=<name>]\`. The mock *reference* needs the same bypass so BOTH sides render the authed route (else you compare login-vs-page).
+- **Safety.** The prod build asserts the flag is unset (guard/CI); any token is dev-secret-signed, short-lived, and render-only (mints no real identity).
+
+Stand this up once per consumer; thereafter eye is a real drift-guard on authed surfaces, not just public ones. See slowcook#192.
+
 ### Working alongside other agents (multi-agent choreography)
 
 When your work depends on another agent's still-open PR — common when one agent owns the app shell + another owns a feature inside it — follow this:
