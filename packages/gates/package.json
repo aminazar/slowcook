@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/gates",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Gate 1 — deterministic mechanical UI checks for slowcook tier-2 acceptance: contrast, focus visibility, overflow, tap targets",
   "license": "MIT",
   "author": "aminazar",

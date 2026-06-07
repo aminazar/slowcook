@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.20.0 — anti-drift + HITL-halt pipeline: fidelity eye, role gates, dense extraction (sc#173 #12–#14)
+
+Cut 2026-06-07. `@slowcook-ai/cli` 0.20.0 · `@slowcook-ai/gates` 0.11.0 · `@slowcook-ai/llm-anthropic` 0.17.0 · `@slowcook-ai/forge-github` 0.13.0. (Also folds the unpublished 0.19.7 `slowcook serve` fixes, which never reached npm.)
+
+Builds designs #8/#9/#10 from the delgoosh design-react dogfood: brew shipped front-ends that weren't pixel-faithful to the mock, and the pipeline could advance past points needing human review.
+
+- **#8 — fidelity eye.** `@slowcook-ai/gates` gains `diffSnapshots`/`captureSnapshot`/`gradeFidelity`/`runFidelityGate` — render mock + brewed across the viewport×scheme matrix and diff computed-style/color/box/missing. New `slowcook eye --reference <url> --candidate <url> [--story <id>]` command renders the spec's declared `fidelity.modes`, grades, screenshots, exits 1 on drift. `runFidelityPhase` (gate-only or eye-driven via the bounded `runFidelityLoop`) + `slowcook-eye.yml` workflow (uploads `eye-pr-<N>-*`, escalates `blocked-on-designer`) + `slowcook-eye-cleanup.yml`. Validated on the real delgoosh login dark-mode drift.
+- **#9 — HITL role gates.** New `slowcook gate check --stage <s> --pr <n>` + `slowcook-gate.yml`. A stage only advances once a *human* in the required role (`.brewing/reviewers.yaml`) approves on the PR — bot/agent reviews never satisfy a gate. Local-pipeline managed-docs halt section.
+- **#10 — dense mock-style extraction.** recon now pins each element's *full* utility-class set (brewed ⊇ mock containment) instead of a 17-token allowlist; brew plate-mode prompt scopes the edit license to data-wiring seams and treats the dense tests as the design contract.
+- **Spec `fidelity.modes`** (refine declares → eye enforces → brew is measured) on the `Spec` schema.
+- `slowcook` cli now depends on `@slowcook-ai/gates` (the eye launches Chromium; gates supplies the diff engine) + `@playwright/test`.
+
+The one seam not yet validated end-to-end: the live `applyFix` → brew-agent fix turn (eye-DRIVEN correction over a hot-reload candidate). It's injected, not defaulted; gate-only escalation is fully wired.
+
+---
+
 ## 0.19.7 — `slowcook serve` execution layer + compose-file layering (sc#173)
 
 Cut 2026-06-03. `@slowcook-ai/cli` 0.19.7 only.
