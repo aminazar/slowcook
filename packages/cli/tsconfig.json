@@ -11,6 +11,7 @@
     { "path": "../stack-ts" },
     { "path": "../forge-github" },
     { "path": "../llm-anthropic" },
-    { "path": "../recorder" }
+    { "path": "../recorder" },
+    { "path": "../gates" }
   ]
 }
