@@ -1,6 +1,8 @@
 # Eye + mock: a live, watchable, behind-auth fidelity feedback loop
 
-Status: proposal (consolidates #189, #191, #192 + the delgoosh dogfood findings).
+Status: in progress (consolidates #189, #191, #192 + the delgoosh dogfood findings).
+§4 (shared-fixture `--scenario`) and §6 (locale axis `--locale`) are **implemented**
+in `slowcook eye` (see `packages/cli/src/commands/eye`); §1/§2/§3/§5 remain proposed.
 
 The eye is most valuable as a **continuous** signal, not a one-shot gate at the end.
 This doc specifies slowcook standing up + **keeping warm** the pieces that make

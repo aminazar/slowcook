@@ -21,11 +21,47 @@ export interface RunEyeOptions {
   referenceUrl: string;
   candidateUrl: string;
   matrix: EyeContext[];
-  /** Directory for screenshots. Files named `<label>-<viewport>-<scheme>.png`. */
+  /** Directory for screenshots. Files named `<label>-<viewport>-<scheme>[-<locale>].png`. */
   outDir: string;
   gate?: FidelityGateOptions;
   /** Screenshot filename prefix (e.g. `eye-pr-123`); default none. */
   shotPrefix?: string;
+  /**
+   * design §4 — shared-fixture scenario, appended as `?scenario=<name>` to BOTH
+   * sides so the mock's mock-data layer + the candidate's dev-only data adaptor
+   * render the SAME data → only real UI drift, no data noise.
+   */
+  scenario?: string;
+}
+
+/**
+ * Pure: build the per-cell URL by merging the §6 locale (`lang=`) and §4
+ * scenario (`scenario=`) query params into `url`, preserving any params already
+ * present (e.g. `?__preview=1`). Applied identically to reference + candidate so
+ * both render the same locale/fixture. Returns `url` unchanged when neither
+ * applies and the URL has no params to normalise.
+ */
+export function withEyeParams(url: string, ctx: EyeContext, scenario?: string): string {
+  if (!ctx.locale && !scenario) return url;
+  try {
+    const u = new URL(url);
+    if (ctx.locale) u.searchParams.set("lang", ctx.locale);
+    if (scenario) u.searchParams.set("scenario", scenario);
+    return u.toString();
+  } catch {
+    // Relative/opaque URL — fall back to naive append (keeps existing query).
+    const sep = url.includes("?") ? "&" : "?";
+    const extra = [
+      ctx.locale ? `lang=${encodeURIComponent(ctx.locale)}` : "",
+      scenario ? `scenario=${encodeURIComponent(scenario)}` : "",
+    ].filter(Boolean).join("&");
+    return extra ? `${url}${sep}${extra}` : url;
+  }
+}
+
+/** Pure: screenshot/label suffix for a cell — locale appended only when present. */
+export function cellLabel(ctx: EyeContext): string {
+  return `${ctx.viewport}-${ctx.scheme}${ctx.locale ? `-${ctx.locale}` : ""}`;
 }
 
 export interface RunEyeResult {
@@ -47,12 +83,12 @@ export async function runEyeMatrix(opts: RunEyeOptions): Promise<RunEyeResult> {
       deviceScaleFactor: 2,
     });
     const page = await c.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
+    await page.goto(withEyeParams(url, ctx, opts.scenario), { waitUntil: "networkidle" });
     await page.waitForTimeout(400); // let lazy / client styles settle
-    const shot = join(opts.outDir, `${prefix}${label}-${ctx.viewport}-${ctx.scheme}.png`);
+    const shot = join(opts.outDir, `${prefix}${label}-${cellLabel(ctx)}.png`);
     await page.screenshot({ path: shot, fullPage: true });
     screenshots.push(shot);
-    const snap = await captureSnapshot(page, { viewport: ctx.viewport, scheme: ctx.scheme });
+    const snap = await captureSnapshot(page, { viewport: ctx.viewport, scheme: ctx.scheme, locale: ctx.locale });
     await c.close();
     return snap;
   };
@@ -114,13 +150,13 @@ export async function runEyeWatch(opts: WatchEyeOptions): Promise<WatchEyeResult
         deviceScaleFactor: 2,
       });
       const p = await c.newPage();
-      await p.goto(url, { waitUntil: "networkidle" });
+      await p.goto(withEyeParams(url, ctx, opts.scenario), { waitUntil: "networkidle" });
       await p.waitForTimeout(400);
       return { c, p };
     };
     for (const ctx of opts.matrix) {
       const ref = await newCell(opts.referenceUrl, ctx);
-      const reference = await captureSnapshot(ref.p, { viewport: ctx.viewport, scheme: ctx.scheme });
+      const reference = await captureSnapshot(ref.p, { viewport: ctx.viewport, scheme: ctx.scheme, locale: ctx.locale });
       await ref.c.close(); // reference is static — capture once, release it
       const cand = await newCell(opts.candidateUrl, ctx);
       cells.push({ ctx, reference, page: cand.p, close: () => cand.c.close() });
@@ -135,7 +171,7 @@ export async function runEyeWatch(opts: WatchEyeOptions): Promise<WatchEyeResult
       for (const cell of cells) {
         await cell.page.reload({ waitUntil: "networkidle" });
         await cell.page.waitForTimeout(300);
-        const candidate = await captureSnapshot(cell.page, { viewport: cell.ctx.viewport, scheme: cell.ctx.scheme });
+        const candidate = await captureSnapshot(cell.page, { viewport: cell.ctx.viewport, scheme: cell.ctx.scheme, locale: cell.ctx.locale });
         pairs.push({ reference: cell.reference, candidate });
       }
       result = gradeFidelity(pairs, opts.gate);
