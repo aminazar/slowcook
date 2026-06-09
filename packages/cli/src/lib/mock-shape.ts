@@ -35,6 +35,17 @@ const MockShapeConfigSchema = z.object({
    *    amends per-page. GUCDI mocks set this.
    */
   review_mode: z.enum(["scenarios", "lcr"]).default("scenarios"),
+  /**
+   * 0.6.0 — override the OAuth App Client ID reviewers sign in with (LCR
+   * multi-person review). Optional: defaults to the shared slowcook reviewer
+   * app. Set this only if a project wants its own consent-screen branding.
+   */
+  review_oauth_client_id: z.string().optional(),
+  /**
+   * 0.6.0 — OAuth scope reviewers grant. `public_repo` (default) for public
+   * repos; `repo` when the consumer repo is private.
+   */
+  review_oauth_scope: z.string().default("public_repo"),
 });
 
 export type MockShapeConfig = z.infer<typeof MockShapeConfigSchema>;
@@ -48,6 +59,7 @@ const NEXTJS_DEFAULT: MockShapeConfig = {
   scenarios_dir: "mock/scenarios",
   scenario_registry_file: "mock/src/lib/scenario-registry.ts",
   review_mode: "scenarios",
+  review_oauth_scope: "public_repo",
 };
 
 const VITE_DEFAULT: MockShapeConfig = {
@@ -60,6 +72,7 @@ const VITE_DEFAULT: MockShapeConfig = {
   scenarios_dir: "mock/scenarios",
   scenario_registry_file: "mock/src/lib/scenario-registry.ts",
   review_mode: "scenarios",
+  review_oauth_scope: "public_repo",
 };
 
 /**

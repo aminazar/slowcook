@@ -62,6 +62,12 @@ interface Args {
    * NEXT_PUBLIC_SLOWCOOK_REVIEW). PM uses DevTools instead.
    */
   garnish: boolean;
+  /**
+   * 0.6.0 — bind the reviewer auth-helper on 0.0.0.0 (not 127.0.0.1) so a
+   * co-worker's browser can reach it for LCR review hosted on a remote box.
+   * Safe: the helper carries no host secret. Only meaningful in lcr mode.
+   */
+  expose: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -72,6 +78,7 @@ function parseArgs(argv: string[]): Args {
     skipInstall: false,
     branchOverride: null,
     garnish: false,
+    expose: false,
   };
   // Positional first arg is story id (consumer convenience).
   if (argv.length > 0 && argv[0] && !argv[0].startsWith("-")) {
@@ -88,6 +95,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--no-poll") { args.pollSeconds = 0; }
     else if (a === "--skip-install") { args.skipInstall = true; }
     else if (a === "--garnish") { args.garnish = true; }
+    else if (a === "--expose") { args.expose = true; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
   }
   if (!args.story) {
@@ -119,6 +127,9 @@ Options:
   --poll-seconds <n>       Auto-pull interval (default 15; 0 disables).
   --no-poll                Disable auto-pull.
   --skip-install           Skip npm install even on lockfile drift.
+  --expose                 (0.6.0) Bind the LCR reviewer sign-in helper on
+                           0.0.0.0 so a co-worker on another machine can reach
+                           it. Use when hosting LCR review on a remote box.
   --garnish                (0.19.0-α.16) DevTools Workspaces mode. Disables
                            the review-overlay; instead prints Chrome
                            Workspaces pairing instructions + watches
@@ -270,10 +281,40 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   // local gh CLI; falls back silently when gh isn't installed or the
   // user hasn't logged in (overlay then uses its old PAT-prompt path).
   //
-  // 0.19.0-α.16 — in --garnish mode the overlay is disabled, so we
-  // skip starting the proxy (saves a port + a couple of stderr lines).
+  // 0.19.0+ (sc#82) — detect mock shape so the log message is honest.
+  // `npm run dev` works for both shapes (Next.js: `next dev`; Vite:
+  // `vite`) — only the cosmetic label here needs branching.
+  // 0.6.0 — also read review_mode so an LCR mock gets the free-nav
+  // overlay (shows on every route + per-route comment capture).
+  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
+  const mockConfig = loadMockShapeConfig(args.repoRoot);
+  const mockShape = mockConfig.shape;
+  const isLcr = mockConfig.review_mode === "lcr";
+
+  // Host the comment-submission helpers. Two distinct identity models:
+  //  - scenarios mode → gh-proxy: substitutes the HOST's `gh auth token` so
+  //    the solo PM never pastes a PAT. Must stay on 127.0.0.1 (it carries a
+  //    privileged token).
+  //  - lcr mode → reviewer auth-helper: device-flow endpoints so EACH reviewer
+  //    signs in as themselves (per-person attribution). Carries no host secret,
+  //    so it's safe to expose off-host with --expose for the remote-box case.
+  // 0.6.0 — in --garnish mode the overlay is disabled, so we skip both.
   let proxy: ProxyHandle | null = null;
-  if (!args.garnish) {
+  let authServer: { url: string; close: () => void } | null = null;
+  let reviewClientId = "";
+  const bindHost = args.expose ? "0.0.0.0" : "127.0.0.1";
+  if (!args.garnish && isLcr) {
+    const { GitHubReviewerAuth, SLOWCOOK_REVIEW_OAUTH_CLIENT_ID } = await import("@slowcook-ai/forge-github");
+    const { startReviewerAuthServer } = await import("./reviewer-auth-server.js");
+    reviewClientId = mockConfig.review_oauth_client_id ?? SLOWCOOK_REVIEW_OAUTH_CLIENT_ID;
+    try {
+      const auth = new GitHubReviewerAuth({ clientId: reviewClientId, scope: mockConfig.review_oauth_scope });
+      authServer = await startReviewerAuthServer(auth, { clientId: reviewClientId, host: bindHost });
+      console.log(`  auth   reviewer sign-in helper on ${authServer.url} (device flow; each reviewer signs in as themselves)${args.expose ? " — exposed on 0.0.0.0" : ""}`);
+    } catch (e) {
+      console.warn(`  auth   reviewer auth-helper failed to start (${(e as Error).message}); overlay will fall back to PAT prompt.`);
+    }
+  } else if (!args.garnish) {
     const ghToken = readGhToken();
     if (ghToken) {
       try {
@@ -289,31 +330,35 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     console.log(`  proxy  skipped (--garnish mode; overlay disabled)`);
   }
 
-  // 0.19.0+ (sc#82) — detect mock shape so the log message is honest.
-  // `npm run dev` works for both shapes (Next.js: `next dev`; Vite:
-  // `vite`) — only the cosmetic label here needs branching.
-  // 0.6.0 — also read review_mode so an LCR mock gets the free-nav
-  // overlay (shows on every route + per-route comment capture).
-  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
-  const mockConfig = loadMockShapeConfig(args.repoRoot);
-  const mockShape = mockConfig.shape;
-
-  // Step 4: spawn next dev with env vars.
+  // Step 4: spawn next dev with env vars. Set BOTH NEXT_PUBLIC_* (Next.js
+  // inlines these) and VITE_* (Vite only exposes VITE_-prefixed vars to
+  // import.meta.env) so the overlay mount reads the same values in either
+  // mock shape.
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (!args.garnish) {
-    env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] = "1";
-    env["NEXT_PUBLIC_SLOWCOOK_OWNER"] = detected.owner;
-    env["NEXT_PUBLIC_SLOWCOOK_REPO"] = detected.repo;
-    env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] = prNumber ? String(prNumber) : "0";
-    env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] = args.story;
-    env["NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE"] = mockConfig.review_mode;
-    if (proxy) env["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] = proxy.url;
+    const overlayEnv: Record<string, string> = {
+      REVIEW: "1",
+      OWNER: detected.owner,
+      REPO: detected.repo,
+      PR_NUMBER: prNumber ? String(prNumber) : "0",
+      STORY_ID: args.story,
+      REVIEW_MODE: mockConfig.review_mode,
+    };
+    if (proxy) overlayEnv["GH_PROXY"] = proxy.url;
+    if (authServer) {
+      overlayEnv["AUTH_BASE"] = authServer.url;
+      overlayEnv["REVIEW_CLIENT_ID"] = reviewClientId;
+    }
+    for (const [k, v] of Object.entries(overlayEnv)) {
+      env[`NEXT_PUBLIC_SLOWCOOK_${k}`] = v;
+      env[`VITE_SLOWCOOK_${k}`] = v;
+    }
   }
 
   const devLabel = mockShape === "vite" ? "vite :3100" : "next dev :3100";
   console.log(`  npm    run dev (${devLabel})`);
   if (!args.garnish) {
-    console.log(`         overlay env: REVIEW=1 MODE=${mockConfig.review_mode} OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
+    console.log(`         overlay env: REVIEW=1 MODE=${mockConfig.review_mode} OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}${authServer ? ` AUTH_BASE=${authServer.url}` : ""}`);
     if (!prNumber) {
       console.warn(`         (no open mockup PR found for branch ${branch}; overlay submits will fail until one exists)`);
     }
@@ -420,6 +465,7 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     if (watcher) { try { watcher.close(); } catch { /* ignore */ } }
     if (watcherDebounceTimer) { clearTimeout(watcherDebounceTimer); watcherDebounceTimer = null; }
     if (proxy) { try { proxy.close(); } catch { /* ignore */ } }
+    if (authServer) { try { authServer.close(); } catch { /* ignore */ } }
     if (dev && !dev.killed) {
       try { dev.kill(signal as NodeJS.Signals ?? "SIGTERM"); } catch { /* ignore */ }
     }
