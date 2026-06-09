@@ -41,6 +41,7 @@ import { brand } from "./commands/brand/index.js";
 import { eye } from "./commands/eye/index.js";
 import { gate } from "./commands/gate/index.js";
 import { menu } from "./commands/menu/index.js";
+import { trace } from "./commands/trace/index.js";
 import { renderHelp, renderCommandHelp, renderReadmeBlock } from "./help.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
@@ -288,6 +289,11 @@ async function main(): Promise<void> {
       // GUCDI — decompose a PRD into a comprehensive, anchored, data-contracted
       // story set under specs/. The greenfield entry point.
       await menu(args.slice(1), VERSION);
+      return;
+    case "trace":
+      // GUCDI — provenance-completeness lint over the spine (the keystone):
+      // every node has a why ∈ {requirement|convention|craft}; orphans fail.
+      await trace(args.slice(1), VERSION);
       return;
     case "eye":
       // design #8 — render reference (mock) + candidate (brewed) URLs across

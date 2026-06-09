@@ -984,6 +984,31 @@ jobs:
 `;
 }
 
+function slowcookTraceWorkflow(cliVersion: string): string {
+  return `name: slowcook trace check
+
+# GUCDI — provenance-completeness lint over the requirements spine. Every spec
+# and LCR node must trace to a why (requirement / convention / craft); orphans
+# and dangling refs fail. Brownfield-safe: never demands a PRD (no-ops cleanly
+# when there's nothing GUCDI-shaped to trace).
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: trace check
+        run: npx --yes @slowcook-ai/cli@${cliVersion} trace check
+`;
+}
+
 function slowcookGateWorkflow(cliVersion: string): string {
   return `name: slowcook HITL gate
 
@@ -1079,6 +1104,8 @@ export function getGitHubCiArtifacts(params: {
     { path: ".github/workflows/slowcook-eye-cleanup.yml", contents: slowcookEyeCleanupWorkflow() },
     // design #9 — HITL role gate: re-evaluated on every PR review submission.
     { path: ".github/workflows/slowcook-gate.yml", contents: slowcookGateWorkflow(params.cliVersion) },
+    // GUCDI — provenance-completeness lint over the requirements spine.
+    { path: ".github/workflows/slowcook-trace.yml", contents: slowcookTraceWorkflow(params.cliVersion) },
   ];
 }
 
