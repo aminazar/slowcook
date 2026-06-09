@@ -50,6 +50,12 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "pipeline",
   },
   {
+    name: "greenfield",
+    usage: "slowcook greenfield status [--prd <path>] [--cwd <dir>]",
+    description: "GUCDI scope-completeness dashboard: where the project is in PRD → stories → brand → LCR → trace, and the single next action.",
+    group: "pipeline",
+  },
+  {
     name: "refine",
     usage: "slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]",
     description: "Drive a GitHub issue through a clarifying-question loop until a frozen spec PR is emitted.",

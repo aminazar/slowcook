@@ -41,6 +41,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook menu [--prd <path>] [--cwd <dir>] [--model <id>] [--dry-run]
   ```
+- **`greenfield`** — GUCDI scope-completeness dashboard: where the project is in PRD → stories → brand → LCR → trace, and the single next action.
+  ```
+  slowcook greenfield status [--prd <path>] [--cwd <dir>]
+  ```
 - **`refine`** — Drive a GitHub issue through a clarifying-question loop until a frozen spec PR is emitted.
   ```
   slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]
