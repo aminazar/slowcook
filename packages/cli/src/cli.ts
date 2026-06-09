@@ -40,6 +40,7 @@ import { budget } from "./commands/budget/index.js";
 import { brand } from "./commands/brand/index.js";
 import { eye } from "./commands/eye/index.js";
 import { gate } from "./commands/gate/index.js";
+import { menu } from "./commands/menu/index.js";
 import { renderHelp, renderCommandHelp, renderReadmeBlock } from "./help.js";
 
 // Read VERSION from package.json at runtime so the CLI's self-reported
@@ -282,6 +283,11 @@ async function main(): Promise<void> {
       // both mockup PR + tests PR are merged; catches residual
       // vibe ⇄ testgen divergence before brew burns tokens.
       await recon(args.slice(1), VERSION);
+      return;
+    case "menu":
+      // GUCDI — decompose a PRD into a comprehensive, anchored, data-contracted
+      // story set under specs/. The greenfield entry point.
+      await menu(args.slice(1), VERSION);
       return;
     case "eye":
       // design #8 — render reference (mock) + candidate (brewed) URLs across

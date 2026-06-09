@@ -44,6 +44,12 @@ export interface CommandEntry {
 export const COMMANDS: ReadonlyArray<CommandEntry> = [
   // --- Pipeline ---
   {
+    name: "menu",
+    usage: "slowcook menu [--prd <path>] [--cwd <dir>] [--model <id>] [--dry-run]",
+    description: "GUCDI greenfield entry: decompose a PRD into a comprehensive, anchored, data-contracted story set under specs/.",
+    group: "pipeline",
+  },
+  {
     name: "refine",
     usage: "slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]",
     description: "Drive a GitHub issue through a clarifying-question loop until a frozen spec PR is emitted.",
