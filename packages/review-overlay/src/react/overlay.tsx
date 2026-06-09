@@ -997,19 +997,22 @@ function ModeToggle(props: {
           <circle cx="4.5" cy="12" r="1.1" fill="currentColor" />
         </svg>
       </div>
-      <ToggleButton
-        active={mode === "nav"}
-        onClick={() => onChangeSafe("nav")}
-        disabled={disabled}
-        label={isMobile ? "🧭" : "Nav"}
-        title="Navigate (default)"
-      />
+      {/* 0.6.9 — single Nav/Comment toggle (was two buttons): off = navigate,
+          on (accent) = comment mode. */}
       <ToggleButton
         active={mode === "comment"}
-        onClick={() => onChangeSafe("comment")}
+        onClick={() => onChangeSafe(mode === "comment" ? "nav" : "comment")}
         disabled={disabled}
-        label={isMobile ? "💬" : "💬 Comment"}
-        title={newCount ? `Comment — ${newCount} new update(s)` : "Comment on an element"}
+        label={
+          mode === "comment"
+            ? (isMobile ? "💬" : "💬 Commenting")
+            : (isMobile ? "🧭" : "🧭 Navigating")
+        }
+        title={
+          mode === "comment"
+            ? "Comment mode on — click to go back to navigating"
+            : (newCount ? `Click to comment — ${newCount} new update(s)` : "Click to comment on an element")
+        }
         accent
         badge={newCount}
       />
