@@ -1036,8 +1036,9 @@ function ModeToggle(props: {
           ✓ Approved
         </span>
       )}
-      {/* 0.5.0 — list-panel toggle. Always reachable; shows ALL
-          comments (incl. hidden-element + general). Count badge. */}
+      {/* 0.6.11 — comments-list toggle + sign-in only show in Comment mode;
+          Nav mode stays minimal (just the toggle). */}
+      {mode === "comment" && (
       <button
         type="button"
         onClick={onListSafe}
@@ -1072,9 +1073,11 @@ function ModeToggle(props: {
           }}>{commentCount}</span>
         )}
       </button>
+      )}
       {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
-          explicit (white-on-dark) so the app's dark/light theme can't touch it. */}
-      {reviewMode === "lcr" && (
+          explicit (white-on-dark) so the app's dark/light theme can't touch it.
+          0.6.11 — only in Comment mode. */}
+      {reviewMode === "lcr" && mode === "comment" && (
         identity ? (
           <span
             title={confirmLogout ? "Click again to sign out (or click anything else to cancel)" : `Signed in as @${identity.login}`}
