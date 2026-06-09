@@ -1975,6 +1975,18 @@ function CommentsListPanel(props: {
                 <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                   {r.payload.prose}
                 </div>
+                {/* 0.6.7 — show the latest reply inline so the answer is visible
+                    in the list, not only the pin popover. */}
+                {r.plateReply?.summary && (
+                  <div style={{
+                    marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)",
+                    fontSize: 11.5, lineHeight: 1.45, color: "rgba(255,255,255,0.82)",
+                    display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden",
+                  }}>
+                    <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>
+                    {r.plateReply.summary}
+                  </div>
+                )}
               </button>
             );
           })
