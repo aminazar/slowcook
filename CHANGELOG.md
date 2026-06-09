@@ -6,6 +6,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.21.1 — fix: publish llm-anthropic 0.18.0 (MENU_SYSTEM)
+
+`@slowcook-ai/cli` 0.21.1 · `@slowcook-ai/llm-anthropic` 0.18.0. The GUCDI `menu` command imports `MENU_SYSTEM`/`MenuStoryDraft` from llm-anthropic, but llm-anthropic was never republished after they were added — so cli 0.21.0 (pinning `^0.17.0`) crashed at load with `does not provide an export named 'MENU_SYSTEM'`. Bump llm-anthropic to 0.18.0 (with the menu prompt) and republish cli so it pins `^0.18.0`.
+
 ## 0.21.0 — multi-person LCR review (free-nav + GitHub identity + contextualised issues) · GUCDI commands
 
 `@slowcook-ai/cli` 0.21.0 · `@slowcook-ai/core` 0.15.0 · `@slowcook-ai/forge-github` 0.14.0 · `@slowcook-ai/review-overlay` 0.6.0. (Also the first release carrying the GUCDI greenfield commands — `menu`, `trace check`, `greenfield status`, `brand logo` — that landed on main after 0.20.0.)
