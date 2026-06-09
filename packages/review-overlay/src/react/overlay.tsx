@@ -190,7 +190,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   });
   const sigOf = (r: OverlayCommentRecord) =>
     `${r.commentId}:${r.plateReply?.status ?? ""}:${(r.plateReply?.summary ?? "").length}`;
-  const newCount = comments.filter((r) => !seenSigs.has(sigOf(r))).length;
+  // 0.6.10 — only an AGENT action is an "event": a reply comment (plateCommentUrl)
+  // or a resolution (applied). A reviewer's own freshly-filed comment (open issue,
+  // no reply) is NOT an event — it shouldn't ping their own badge.
+  const isAgentEvent = (r: OverlayCommentRecord) =>
+    r.plateReply != null && (r.plateReply.status === "applied" || !!r.plateCommentUrl);
+  const newCount = comments.filter((r) => isAgentEvent(r) && !seenSigs.has(sigOf(r))).length;
   const markAllSeen = useCallback(() => {
     const sigs = comments.map(sigOf);
     setSeenSigs(new Set(sigs));
