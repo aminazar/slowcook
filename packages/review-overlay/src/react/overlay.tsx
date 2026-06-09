@@ -145,6 +145,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // are declared. Bails early during SSR via the typeof window check.
   const [mode, setMode] = useState<Mode>("nav");
   const [target, setTarget] = useState<Element | null>(null);
+  // 0.6.5 — element under the cursor in comment mode (green hover preview).
+  const [hoverEl, setHoverEl] = useState<Element | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   // 0.5.0 — comments-list panel state. Opened by the "📋" button in
   // the pill OR by clicking the count badge on the Comment toggle.
@@ -355,24 +357,38 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // Capture clicks at the document level when in comment/approve mode.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (mode === "nav") return;
+    if (mode === "nav") { setHoverEl(null); return; }
+    const isOwnUi = (el: Element | null) =>
+      !el ||
+      (composerRef.current && composerRef.current.contains(el)) ||
+      !!(el as HTMLElement).closest('[data-slowcook-overlay-ui="1"]');
     function onClick(e: MouseEvent) {
       const el = e.target as Element | null;
-      if (!el) return;
-      // Don't capture clicks on the overlay's own UI.
-      if (composerRef.current && composerRef.current.contains(el)) return;
-      if ((el as HTMLElement).closest('[data-slowcook-overlay-ui="1"]')) return;
+      if (!el || isOwnUi(el)) return;
       e.preventDefault();
       e.stopPropagation();
       if (mode === "comment") {
         setTarget(el);
+        setHoverEl(null);
         setComposerOpen(true);
       } else if (mode === "approve") {
         void submitApproval();
       }
     }
+    // 0.6.5 — live hover preview in comment mode: green-outline the element that
+    // would be selected on click, so the reviewer isn't minesweeping. (The red
+    // outline marks the element already chosen for the open composer.)
+    function onMove(e: MouseEvent) {
+      if (mode !== "comment") return;
+      const el = e.target as Element | null;
+      setHoverEl(el && !isOwnUi(el) ? el : null);
+    }
     document.addEventListener("click", onClick, { capture: true });
-    return () => document.removeEventListener("click", onClick, { capture: true });
+    document.addEventListener("mouseover", onMove, { capture: true });
+    return () => {
+      document.removeEventListener("click", onClick, { capture: true });
+      document.removeEventListener("mouseover", onMove, { capture: true });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -621,6 +637,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           aria-hidden="true"
         />
       )}
+      {/* 0.6.5 — green hover preview of the click target in comment mode. */}
+      {mode === "comment" && !composerOpen && hoverEl && <HoverHighlight el={hoverEl} />}
       <ModeToggle
         mode={mode}
         onChange={(m) => (m === "approve" ? onApproveClicked() : setMode(m))}
@@ -713,6 +731,32 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
 }
 
 /**
+/**
+ * 0.6.5 — green hover preview in comment mode. Outlines the element the cursor
+ * is over (the one a click would attach the comment to) so the reviewer can see
+ * the target before committing — no minesweeping. Distinct from the red outline,
+ * which marks the element already chosen for the open composer.
+ */
+function HoverHighlight({ el }: { el: Element }): JSX.Element {
+  const r = el.getBoundingClientRect();
+  return (
+    <div
+      data-slowcook-overlay-ui="1"
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        top: r.top, left: r.left, width: r.width, height: r.height,
+        border: "2px solid #22c55e",
+        background: "rgba(34, 197, 94, 0.12)",
+        borderRadius: 4,
+        boxShadow: "0 0 0 1px rgba(34,197,94,0.35)",
+        pointerEvents: "none",
+        zIndex: 2147483200,
+      }}
+    />
+  );
+}
+
 /** 0.6.0 — device-flow login dialog: shows the user code + verification link. */
 function ReviewerLoginDialog({
   userCode, verificationUri, status, onClose,
