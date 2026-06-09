@@ -164,6 +164,12 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "checks",
   },
   {
+    name: "trace",
+    usage: "slowcook trace check [--prd <path>] [--cwd <dir>]",
+    description: "GUCDI provenance-completeness lint over the spine: every spec/LCR node has a why (requirement/convention/craft); orphans + dangling refs fail; craft is reported. Brownfield-safe (never demands a PRD).",
+    group: "checks",
+  },
+  {
     name: "eye",
     usage: "slowcook eye --reference <url> --candidate <url> [--story <id>] [--out <dir>] [--viewport <m>] [--scheme <s>] [--max-violations <n>] [--fail-on <axes>] [--watch [--interval <ms>] [--until-converged] [--max-passes <n>]]",
     description: "Fidelity eye (design #8). Renders mock + brewed URLs across the viewport×scheme matrix, grades visual drift, screenshots, exits 1 on drift.",
