@@ -47,6 +47,26 @@ PRD ──▶ stories ──▶                          ┌── (per story) �
 3. **Greenfield orchestration** — `slowcook init --greenfield` / a driver that sequences: `menu` (PRD→stories) → `brand` (brief→design system) → loop[`vibe` story → `eye` across modes → fidelity gate] until the v1 set is covered → hand off to the backend flow. Mostly wiring; the eye/fidelity.modes are the per-story verification.
 4. **Brand-agent expansion** — i18n typography (per-script font stacks), multiple palettes (dark/light as first-class), logo handling, and **brand-cue → token anchors** so `trace check` can verify provenance. (See Risk 4 on logos.)
 
+## Brownfield compatibility (GUCDI must NOT break the current flow)
+
+GUCDI is the *greenfield initiation*; brownfield projects (no PRD, no up-front LCR — the current consumers like delgoosh/rewo) must be unaffected. They are, because GUCDI's machinery **generalizes** what brownfield already does rather than replacing it:
+
+| GUCDI artifact | Brownfield equivalent (already exists) |
+|---|---|
+| PRD initiative (provenance) | the **GitHub issue** — already recorded as `source_issue` |
+| LCR (living artifact) | the **existing app** + `.brewing/repo-knowledge`/DISCOVERY (vibe/plate already operate on it) |
+| design system | existing CSS/tokens, or `brand --refresh` to adopt them |
+| the spine | a generalization of existing partial traceability: `source_issue`, `related_specs`, `history-index`, `references` (#7) |
+
+**The unifying abstraction is provenance (Risk 3).** `trace check` requires *a* why, not *a PRD* — and provenance is a **union `{issue | prd | convention | craft}`**. Brownfield traces to issues/conventions/craft; greenfield additionally uses PRD anchors. Same lint, same machinery; the PRD class is simply unused in brownfield.
+
+**Hard design constraints so brownfield can't break:**
+- The spine schema makes **`prd_ref` OPTIONAL**; `trace check` never demands a PRD.
+- GUCDI ships as an **opt-in greenfield mode** (`slowcook init --greenfield` / the `menu` entry), not a change to the per-issue pipeline.
+- A greenfield project **transitions into brownfield** after its first scope (it now has an app + spine); GUCDI is the bootstrap, not a permanent separate world.
+
+Bonus: brownfield projects can *opt into* the spine retroactively — a `trace check` over an existing app simply reports more craft/convention provenance and fewer requirement anchors, which is honest and still useful.
+
 ## Terminology decisions (revised from the proposal)
 
 The original proposal introduced six acronyms; three rename concepts slowcook already names. Collapsed:
