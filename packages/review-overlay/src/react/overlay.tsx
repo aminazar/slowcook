@@ -44,6 +44,17 @@ import {
   type RepoCoord,
   type OverlayCommentRecord,
 } from "../github.js";
+import {
+  loadReviewerToken,
+  loadReviewerIdentity,
+  saveReviewerToken,
+  saveReviewerIdentity,
+  clearReviewerSession,
+  runDeviceLogin,
+  identifyReviewer,
+} from "../reviewer-session.js";
+import { isResolvedStatus } from "../comment-format.js";
+import type { ReviewerIdentity } from "@slowcook-ai/core";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -79,6 +90,12 @@ export interface SlowcookReviewOverlayProps {
    *    comment captures its route so plate can amend per-page.
    */
   reviewMode?: "scenarios" | "lcr";
+  /**
+   * 0.6.0 — base URL of the box-hosted reviewer auth-helper (run-mock's
+   * device-flow endpoints). Falls back to `NEXT_PUBLIC_SLOWCOOK_AUTH_BASE`.
+   * Only used in `lcr` mode; enables per-reviewer "Sign in with GitHub".
+   */
+  authBase?: string;
   /** Overlay package version, included in the JSON payload. */
   overlayVersion?: string;
 }
@@ -102,6 +119,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const reviewMode: "scenarios" | "lcr" =
     props.reviewMode ??
     (process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE"] === "lcr" ? "lcr" : "scenarios");
+  // 0.6.0 — LCR multi-person review: box-hosted device-flow helper base URL.
+  const authBase = props.authBase ?? process.env["NEXT_PUBLIC_SLOWCOOK_AUTH_BASE"] ?? "";
   const overlayVersion = props.overlayVersion ?? "0.6.0";
   const repoCoord: RepoCoord = { owner, repo };
 
@@ -135,6 +154,15 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+  // 0.6.0 — LCR multi-person review: who's signed in (this browser) + the
+  // device-flow login dialog state. Comments post as this reviewer.
+  const [reviewerIdentity, setReviewerIdentity] = useState<ReviewerIdentity | null>(null);
+  const [login, setLogin] = useState<{ open: boolean; userCode?: string; verificationUri?: string; status: string }>({ open: false, status: "" });
+  const loginAbort = useRef(false);
+  // 0.6.0 — "show already-applied" toggle for the comments list. Resolved
+  // comments (applied/declined/noop) hide by default; needs-clarification +
+  // unresolved always show.
+  const [showApplied, setShowApplied] = useState<boolean>(false);
   // 0.2.0 — track viewport width for the icon-only mobile collapse + the
   // picker-route hide. Updates on resize + initial mount.
   const [isMobile, setIsMobile] = useState<boolean>(false);
@@ -188,6 +216,49 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     mql.addEventListener("change", apply);
     return () => mql.removeEventListener("change", apply);
   }, []);
+
+  // 0.6.0 — restore a prior reviewer session (lcr mode).
+  useEffect(() => {
+    if (typeof window === "undefined" || reviewMode !== "lcr") return;
+    setReviewerIdentity(loadReviewerIdentity(window.localStorage, { owner, repo }));
+  }, [reviewMode, owner, repo]);
+
+  const signIn = useCallback(async () => {
+    if (!authBase) {
+      setLogin({ open: true, status: "Sign-in helper not configured (no AUTH_BASE). Run via `slowcook run-mock`." });
+      return;
+    }
+    loginAbort.current = false;
+    setLogin({ open: true, status: "Requesting a code…" });
+    const token = await runDeviceLogin({
+      authBase,
+      shouldStop: () => loginAbort.current,
+      onEvent: (e) => {
+        if (e.type === "code") {
+          setLogin({ open: true, userCode: e.grant.userCode, verificationUri: e.grant.verificationUri, status: "Waiting for you to authorize on GitHub…" });
+        } else if (e.type === "denied") setLogin({ open: true, status: "Authorization was denied." });
+        else if (e.type === "expired") setLogin({ open: true, status: "The code expired — try again." });
+        else if (e.type === "error") setLogin({ open: true, status: `Sign-in error: ${e.message}` });
+      },
+    });
+    if (!token) return;
+    try {
+      const id = await identifyReviewer(token);
+      saveReviewerToken(window.localStorage, { owner, repo }, token);
+      saveReviewerIdentity(window.localStorage, { owner, repo }, id);
+      setReviewerIdentity(id);
+      setLogin({ open: false, status: "" });
+      setFeedback(`Signed in as @${id.login}.`);
+    } catch (e) {
+      setLogin({ open: true, status: `Could not read your GitHub identity: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }, [authBase, owner, repo]);
+
+  const signOut = useCallback(() => {
+    if (typeof window !== "undefined") clearReviewerSession(window.localStorage, { owner, repo });
+    setReviewerIdentity(null);
+    setFeedback("Signed out.");
+  }, [owner, repo]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -259,9 +330,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     setSubmitting(true);
     setFeedback(null);
     try {
-      const pat = ensurePat(repoCoord);
+      const pat = ensurePat(repoCoord, reviewMode === "lcr");
       if (!pat) {
-        setFeedback("Approval cancelled — no PAT.");
+        if (reviewMode === "lcr") { void signIn(); setFeedback("Sign in with GitHub to approve as yourself."); }
+        else setFeedback("Approval cancelled — no PAT.");
         return;
       }
       // 0.5.2 — three things land on approve, in order:
@@ -330,9 +402,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       setSubmitting(true);
       setFeedback(null);
       try {
-        const pat = ensurePat(repoCoord);
+        const pat = ensurePat(repoCoord, reviewMode === "lcr");
         if (!pat) {
-          setFeedback("Cancelled — no PAT.");
+          if (reviewMode === "lcr") { void signIn(); setFeedback("Sign in with GitHub to comment as yourself."); }
+          else setFeedback("Cancelled — no PAT.");
           return;
         }
         const sel = extractSelector(target);
@@ -408,9 +481,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       setSubmitting(true);
       setFeedback(null);
       try {
-        const pat = ensurePat(repoCoord);
+        const pat = ensurePat(repoCoord, reviewMode === "lcr");
         if (!pat) {
-          setFeedback("Cancelled — no PAT.");
+          if (reviewMode === "lcr") { void signIn(); setFeedback("Sign in with GitHub to comment as yourself."); }
+          else setFeedback("Cancelled — no PAT.");
           return;
         }
         const viewport: ViewportInfo = {
@@ -528,6 +602,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       {listPanelOpen && (
         <CommentsListPanel
           records={comments}
+          showApplied={showApplied}
+          onToggleApplied={() => setShowApplied((v) => !v)}
           onClose={() => setListPanelOpen(false)}
           onOpenComment={(id) => {
             setListPanelOpen(false);
@@ -574,7 +650,86 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           submitting={submitting}
         />
       )}
+      {/* 0.6.0 — LCR multi-person review: per-reviewer GitHub sign-in. */}
+      {reviewMode === "lcr" && (
+        <ReviewerSignInBadge
+          identity={reviewerIdentity}
+          onSignIn={() => void signIn()}
+          onSignOut={signOut}
+        />
+      )}
+      {login.open && (
+        <ReviewerLoginDialog
+          userCode={login.userCode}
+          verificationUri={login.verificationUri}
+          status={login.status}
+          onClose={() => { loginAbort.current = true; setLogin({ open: false, status: "" }); }}
+        />
+      )}
       {feedback && <FeedbackToast text={feedback} onDismiss={() => setFeedback(null)} />}
+    </div>
+  );
+}
+
+/**
+ * 0.6.0 — sign-in badge for LCR review (top-right). Shows "Sign in with
+ * GitHub" until the reviewer authenticates, then their @login + sign-out.
+ * Every comment then posts as that reviewer (real GitHub attribution).
+ */
+function ReviewerSignInBadge({
+  identity, onSignIn, onSignOut,
+}: { identity: ReviewerIdentity | null; onSignIn: () => void; onSignOut: () => void }): JSX.Element {
+  return (
+    <div style={{ position: "fixed", top: 12, right: 12, pointerEvents: "auto", zIndex: 2147483600 }}>
+      {identity ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 999, padding: "5px 10px 5px 6px", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", fontSize: 13 }}>
+          {identity.avatarUrl
+            ? <img src={identity.avatarUrl} alt="" width={22} height={22} style={{ borderRadius: "50%" }} />
+            : <span aria-hidden style={{ width: 22, height: 22, borderRadius: "50%", background: "#eee", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>👤</span>}
+          <span style={{ fontWeight: 600 }}>@{identity.login}</span>
+          <button onClick={onSignOut} title="Sign out" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#888", fontSize: 12 }}>sign out</button>
+        </div>
+      ) : (
+        <button
+          onClick={onSignIn}
+          style={{ display: "flex", alignItems: "center", gap: 8, background: "#24292f", color: "#fff", border: "none", borderRadius: 999, padding: "8px 14px", cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.18)", fontSize: 13, fontWeight: 600 }}
+        >
+          <span aria-hidden>⧉</span> Sign in with GitHub
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 0.6.0 — device-flow login dialog: shows the user code + verification link. */
+function ReviewerLoginDialog({
+  userCode, verificationUri, status, onClose,
+}: { userCode?: string; verificationUri?: string; status: string; onClose: () => void }): JSX.Element {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: 2147483601 }}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 360, maxWidth: "90vw", boxShadow: "0 12px 40px rgba(0,0,0,0.3)", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6, color: "#111" }}>Sign in with GitHub</div>
+        {userCode ? (
+          <>
+            <p style={{ fontSize: 13.5, color: "#555", margin: "0 0 14px" }}>
+              Open GitHub and enter this code to review as yourself:
+            </p>
+            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: "0.18em", textAlign: "center", background: "#f3f4f6", borderRadius: 10, padding: "12px 0", color: "#111", fontFamily: "ui-monospace, monospace" }}>
+              {userCode}
+            </div>
+            <a href={verificationUri} target="_blank" rel="noreferrer"
+               style={{ display: "block", textAlign: "center", marginTop: 14, background: "#2da44e", color: "#fff", borderRadius: 999, padding: "9px 0", textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+              Open {verificationUri?.replace(/^https?:\/\//, "")}
+            </a>
+          </>
+        ) : (
+          <p style={{ fontSize: 14, color: "#555", margin: "8px 0 14px" }}>{status || "Starting…"}</p>
+        )}
+        {userCode && <p style={{ fontSize: 12, color: "#888", marginTop: 12 }}>{status}</p>}
+        <button onClick={onClose} style={{ marginTop: 16, width: "100%", border: "1px solid rgba(0,0,0,0.12)", background: "#fff", borderRadius: 999, padding: "8px 0", cursor: "pointer", fontSize: 13, color: "#444" }}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -1148,7 +1303,14 @@ function getProxyApiBase(): string | null {
 
 const PROXY_PAT_SENTINEL = "__slowcook_proxy__";
 
-function ensurePat(repo: RepoCoord): string | null {
+function ensurePat(repo: RepoCoord, lcr = false): string | null {
+  // 0.6.0 — LCR multi-person review: post as the signed-in reviewer using
+  // their own device-flow token. No prompt — the "Sign in with GitHub" UI
+  // drives acquisition; null here means "not signed in yet".
+  if (lcr) {
+    if (typeof window === "undefined") return null;
+    return loadReviewerToken(window.localStorage, repo);
+  }
   // Proxy mode: skip prompt + storage; the proxy ignores the
   // Authorization header and signs upstream with `gh auth token`.
   if (getProxyApiBase()) return PROXY_PAT_SENTINEL;
@@ -1514,11 +1676,19 @@ function formatTimeAgo(iso: string): string {
  */
 function CommentsListPanel(props: {
   records: OverlayCommentRecord[];
+  showApplied: boolean;
+  onToggleApplied: () => void;
   onClose: () => void;
   onOpenComment: (id: number) => void;
   onAddGeneral: () => void;
 }): JSX.Element {
-  const { records, onClose, onOpenComment, onAddGeneral } = props;
+  const { records, showApplied, onToggleApplied, onClose, onOpenComment, onAddGeneral } = props;
+  // 0.6.0 — resolved comments (applied/declined/noop) hide by default so the
+  // list shows what still needs attention; needs-clarification + unresolved
+  // always show. The toggle reveals the resolved ones.
+  const isResolved = (r: OverlayCommentRecord) => r.plateReply != null && isResolvedStatus(r.plateReply.status);
+  const hiddenCount = records.filter(isResolved).length;
+  const visible = showApplied ? records : records.filter((r) => !isResolved(r));
   return (
     <div
       data-slowcook-overlay-ui="1"
@@ -1544,7 +1714,7 @@ function CommentsListPanel(props: {
       }}
     >
       <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ fontWeight: 600 }}>Comments ({records.length})</div>
+        <div style={{ fontWeight: 600 }}>Comments ({visible.length})</div>
         <button
           type="button"
           onClick={onClose}
@@ -1583,13 +1753,24 @@ function CommentsListPanel(props: {
           + Add note (about the page, not an element)
         </button>
       </div>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={onToggleApplied}
+          style={{ margin: "0 12px 8px", padding: "7px 10px", background: "transparent", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, cursor: "pointer", font: "inherit", fontSize: 12 }}
+        >
+          {showApplied ? `Hide ${hiddenCount} already-applied` : `Show ${hiddenCount} already-applied`}
+        </button>
+      )}
       <div style={{ overflow: "auto", flex: 1, padding: 8 }}>
-        {records.length === 0 ? (
+        {visible.length === 0 ? (
           <div style={{ padding: 16, opacity: 0.55, textAlign: "center", fontSize: 12 }}>
-            No comments yet. Toggle 💬 Comment + click an element to anchor a comment, or use the button above for a page-level note.
+            {records.length === 0
+              ? "No comments yet. Toggle 💬 Comment + click an element to anchor a comment, or use the button above for a page-level note."
+              : "Nothing needs attention — all comments are applied. Use the toggle above to see them."}
           </div>
         ) : (
-          records.slice().reverse().map((r) => {
+          visible.slice().reverse().map((r) => {
             const status = r.plateReply?.status ?? null;
             const palette = pinPalette(status as never, false);
             const anchored = r.payload.element !== null;
