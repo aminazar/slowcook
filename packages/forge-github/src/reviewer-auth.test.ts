@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { GitHubReviewerAuth } from "./reviewer-auth.js";
+import { GitHubReviewerAuth, SLOWCOOK_REVIEW_OAUTH_CLIENT_ID } from "./reviewer-auth.js";
 
 /** Build a fetch stub that returns the given JSON for the first matching URL substring. */
 function stubFetch(routes: Array<{ match: string; status?: number; json: unknown }>): typeof fetch {
@@ -16,8 +16,19 @@ function stubFetch(routes: Array<{ match: string; status?: number; json: unknown
 }
 
 describe("GitHubReviewerAuth", () => {
-  it("requires a clientId", () => {
-    expect(() => new GitHubReviewerAuth({ clientId: "" })).toThrow(/clientId/);
+  it("defaults to the shared slowcook OAuth app when no clientId is given", () => {
+    expect(SLOWCOOK_REVIEW_OAUTH_CLIENT_ID).toMatch(/^Ov23/); // OAuth App client-id format
+    // sends the default client_id in the device-code request body
+    let sentBody = "";
+    const auth = new GitHubReviewerAuth({
+      fetchImpl: (async (_u: unknown, init: RequestInit) => {
+        sentBody = String(init.body);
+        return { ok: true, status: 200, json: async () => ({ device_code: "d", user_code: "u", verification_uri: "v", expires_in: 1, interval: 1 }) } as Response;
+      }) as typeof fetch,
+    });
+    return auth.requestDeviceCode().then(() => {
+      expect(JSON.parse(sentBody).client_id).toBe(SLOWCOOK_REVIEW_OAUTH_CLIENT_ID);
+    });
   });
 
   it("maps the device-code grant", async () => {

@@ -24,9 +24,21 @@ const TOKEN_URL = "https://github.com/login/oauth/access_token";
 const USER_URL = "https://api.github.com/user";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
+/**
+ * Default OAuth App Client ID for the shared "slowcook reviewer" app
+ * (Device Flow enabled). A Client ID is a PUBLIC identifier — not a secret —
+ * so it ships as the zero-config default. Because device flow uses no
+ * callback URL and an OAuth-App grant is per-user (scoped globally, not
+ * per-repo), this ONE app works for every consumer repo on every box: a
+ * reviewer authorizes it once and can comment on any repo they can access.
+ * Override per-project via config when someone wants their own consent-screen
+ * branding (or a tighter-scoped GitHub App).
+ */
+export const SLOWCOOK_REVIEW_OAUTH_CLIENT_ID = "Ov23liYJzTY9HiXGeTUN";
+
 export interface GitHubReviewerAuthOptions {
-  /** OAuth App Client ID (Device Flow enabled). */
-  clientId: string;
+  /** OAuth App Client ID (Device Flow enabled). Defaults to the shared slowcook app. */
+  clientId?: string;
   /**
    * OAuth scope to request. `public_repo` lets reviewers comment on public
    * repos; private repos need `repo`. Default `public_repo`.
@@ -41,9 +53,8 @@ export class GitHubReviewerAuth implements ForgeReviewerAuth {
   private readonly scope: string;
   private readonly f: typeof fetch;
 
-  constructor(opts: GitHubReviewerAuthOptions) {
-    if (!opts.clientId) throw new Error("GitHubReviewerAuth: clientId is required");
-    this.clientId = opts.clientId;
+  constructor(opts: GitHubReviewerAuthOptions = {}) {
+    this.clientId = opts.clientId ?? SLOWCOOK_REVIEW_OAUTH_CLIENT_ID;
     this.scope = opts.scope ?? "public_repo";
     this.f = opts.fetchImpl ?? fetch;
   }
