@@ -73,10 +73,20 @@ export const PAYLOAD_MARKER = "slowcook:review-overlay";
 export const PLATE_REPLY_MARKER = "slowcook:plate-reply";
 
 export type PlateReplyStatus =
-  | "applied"        // plate amended the mock per the comment
-  | "declined"       // plate read the comment but chose not to amend (cosmetic-but-already-fine)
-  | "spec-altering"  // plate escalated; PM must confirm a spec change
-  | "noop";          // plate considered, no diff produced (re-emit yielded byte-identical files)
+  | "applied"            // plate/vibe amended the mock per the comment
+  | "declined"           // read the comment but chose not to amend (cosmetic-but-already-fine)
+  | "spec-altering"      // escalated; PM must confirm a spec change
+  | "needs-clarification" // 0.6.0 — couldn't act on it; asked the reviewer to clarify
+  | "noop";              // considered, no diff produced (re-emit yielded byte-identical files)
+
+/**
+ * 0.6.0 — which reply statuses are "resolved" (the comment can be hidden behind
+ * the overlay's "show applied" toggle). `needs-clarification` is intentionally
+ * NOT resolved: it stays visible so the reviewer sees the question and answers.
+ */
+export function isResolvedStatus(s: PlateReplyStatus): boolean {
+  return s === "applied" || s === "declined" || s === "noop";
+}
 
 export interface PlateReplyEntry {
   /** GitHub comment id of the overlay comment this reply addresses. */

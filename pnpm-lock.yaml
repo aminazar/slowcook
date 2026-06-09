@@ -132,6 +132,9 @@ importers:
 
   packages/review-overlay:
     devDependencies:
+      '@slowcook-ai/core':
+        specifier: workspace:^
+        version: link:../core
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.1
