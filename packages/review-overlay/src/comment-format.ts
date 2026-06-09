@@ -39,6 +39,13 @@ export interface ReviewCommentPayload {
   pathname?: string;
   /** 0.6.0 — the query string at comment time (e.g. `?clean=1`), if any. */
   route_query?: string;
+  /**
+   * 0.6.0 — the story/requirement the commented route belongs to, when the LCR
+   * declares it at runtime (data-slowcook-story). Lets an LCR review comment
+   * become a contextualised issue tagged with the exact requirement; absent
+   * when the LCR doesn't self-report (vibe can still derive it from the route).
+   */
+  route_story?: string;
   timestamp: string;
   prose: string;
   /**
@@ -248,6 +255,60 @@ function isReviewCommentPayload(v: unknown): v is ReviewCommentPayload {
   );
 }
 
+/**
+ * 0.6.0 — LCR contextualised issue. In LCR review a comment isn't about one PR;
+ * it's about a route → a story/requirement of the living spec. So an LCR comment
+ * becomes a standalone issue that says (a) it's about the LCR, (b) which story,
+ * (c) carries the `vibe` label so vibe picks it up + applies the fix to the mock.
+ */
+export const LCR_REVIEW_LABEL = "lcr-review";
+export const VIBE_LABEL = "vibe";
+
+export interface LcrIssue {
+  title: string;
+  body: string;
+  labels: string[];
+}
+
+/** Build the title/body/labels for an LCR review issue (pure). */
+export function formatLcrIssue(args: {
+  payload: ReviewCommentPayload;
+  screenshotDataUrl?: string;
+}): LcrIssue {
+  const { payload } = args;
+  const route = payload.pathname ? `${payload.pathname}${payload.route_query ?? ""}` : undefined;
+  const story = payload.route_story;
+  const oneLine = payload.prose.replace(/\s+/g, " ").trim().slice(0, 60);
+  const titleBits = ["[LCR]"];
+  if (story) titleBits.push(`story-${story.replace(/^story-/, "")}`);
+  else if (route) titleBits.push(route);
+  titleBits.push(`— ${oneLine}${payload.prose.length > 60 ? "…" : ""}`);
+
+  const lines: string[] = [];
+  lines.push(`**Living Coded Requirement review note**`);
+  lines.push("");
+  if (story) lines.push(`**Story / requirement:** \`story-${story.replace(/^story-/, "")}\``);
+  if (route) lines.push(`**Route:** \`${route}\``);
+  if (payload.element) {
+    lines.push(`**Element:** \`${payload.element.selector}\` (${payload.element.tag}${payload.element.text_hint ? ` · "${payload.element.text_hint}"` : ""})`);
+  }
+  lines.push(`**Viewport:** ${payload.viewport.width}×${payload.viewport.height} ${payload.viewport.colorScheme}`);
+  lines.push("");
+  lines.push(`> ${payload.prose.split("\n").join("\n> ")}`);
+  lines.push("");
+  if (args.screenshotDataUrl) { lines.push(`![screenshot](${args.screenshotDataUrl})`); lines.push(""); }
+  lines.push(`_Filed from the LCR review overlay — labelled \`${VIBE_LABEL}\` for vibe to apply to the mock._`);
+  lines.push("");
+  lines.push("<!--");
+  lines.push(PAYLOAD_MARKER);
+  lines.push(JSON.stringify(payload));
+  lines.push("-->");
+
+  const labels = [LCR_REVIEW_LABEL, VIBE_LABEL];
+  if (story) labels.push(`story-${story.replace(/^story-/, "")}`);
+  return { title: titleBits.join(" "), body: lines.join("\n"), labels };
+}
+
 export function buildPayload(args: {
   overlayVersion: string;
   storyId: string | null;
@@ -256,6 +317,8 @@ export function buildPayload(args: {
   pathname?: string;
   /** 0.6.0 — current query string (window.location.search). */
   routeQuery?: string;
+  /** 0.6.0 — story the route belongs to (LCR runtime self-report). */
+  routeStory?: string;
   prose: string;
   /**
    * 0.5.0 — selector + bbox are now optional. Pass both for
@@ -283,6 +346,7 @@ export function buildPayload(args: {
     url: args.url,
     ...(args.pathname ? { pathname: args.pathname } : {}),
     ...(args.routeQuery ? { route_query: args.routeQuery } : {}),
+    ...(args.routeStory ? { route_story: args.routeStory } : {}),
     timestamp: new Date().toISOString(),
     prose: args.prose,
     element,

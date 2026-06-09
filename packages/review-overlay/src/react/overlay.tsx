@@ -28,12 +28,15 @@ import { extractSelector, resolveStoredSelector } from "../selector.js";
 import {
   buildPayload,
   formatReviewComment,
+  formatLcrIssue,
   type ViewportInfo,
+  type ReviewCommentPayload,
 } from "../comment-format.js";
 import {
   loadPat,
   savePat,
   submitComment,
+  createIssue,
   fetchOverlayComments,
   loadCachedComments,
   saveCachedComments,
@@ -54,6 +57,7 @@ import {
   identifyReviewer,
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
+import { readCurrentStory } from "./use-story-marker.js";
 import type { ReviewerIdentity } from "@slowcook-ai/core";
 
 export interface SlowcookReviewOverlayProps {
@@ -260,6 +264,31 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     setFeedback("Signed out.");
   }, [owner, repo]);
 
+  // 0.6.0 — where a comment lands depends on context:
+  //  - scenarios mode → a comment on the mockup PR (vibe applies it).
+  //  - lcr mode → a standalone [LCR] issue tagged with the route's story +
+  //    the `vibe` label, since an LCR note is about a requirement, not a PR.
+  const postPayload = useCallback(
+    async (payload: ReviewCommentPayload, pat: string) => {
+      if (reviewMode === "lcr") {
+        const issue = formatLcrIssue({ payload });
+        const res = await createIssue({
+          owner: repoCoord.owner, repo: repoCoord.repo, pat,
+          title: issue.title, body: issue.body, labels: issue.labels,
+          apiBase: getProxyApiBase() ?? undefined,
+        });
+        return { res, kind: "issue" as const };
+      }
+      const res = await submitComment({
+        owner: repoCoord.owner, repo: repoCoord.repo, pr: prNumber, pat,
+        body: formatReviewComment({ payload }),
+        apiBase: getProxyApiBase() ?? undefined,
+      });
+      return { res, kind: "comment" as const };
+    },
+    [reviewMode, repoCoord, prNumber],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     // 0.2.0 — hide on the picker route (homepage). The picker is for
@@ -424,23 +453,16 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           url: window.location.href,
           pathname: window.location.pathname,
           routeQuery: window.location.search,
+          routeStory: readCurrentStory(),
           prose,
           selector: sel,
           bbox: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
           viewport,
           userAgent: navigator.userAgent,
         });
-        const body = formatReviewComment({ payload });
-        const result = await submitComment({
-          owner: repoCoord.owner,
-          repo: repoCoord.repo,
-          pr: prNumber,
-          pat,
-          body,
-          apiBase: getProxyApiBase() ?? undefined,
-        });
+        const { res: result, kind } = await postPayload(payload, pat);
         if (result.ok) {
-          setFeedback(`Comment posted (#${result.commentId}).`);
+          setFeedback(kind === "issue" ? `LCR issue filed (#${result.commentId}).` : `Comment posted (#${result.commentId}).`);
           setComposerOpen(false);
           setTarget(null);
           // 0.4.1 — push the just-submitted comment into the local pin
@@ -501,22 +523,15 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           url: window.location.href,
           pathname: window.location.pathname,
           routeQuery: window.location.search,
+          routeStory: readCurrentStory(),
           prose,
           viewport,
           userAgent: navigator.userAgent,
           // No selector + no bbox → general comment.
         });
-        const body = formatReviewComment({ payload });
-        const result = await submitComment({
-          owner: repoCoord.owner,
-          repo: repoCoord.repo,
-          pr: prNumber,
-          pat,
-          body,
-          apiBase: getProxyApiBase() ?? undefined,
-        });
+        const { res: result, kind } = await postPayload(payload, pat);
         if (result.ok) {
-          setFeedback(`Note posted (#${result.commentId}).`);
+          setFeedback(kind === "issue" ? `LCR issue filed (#${result.commentId}).` : `Note posted (#${result.commentId}).`);
           setGeneralComposerOpen(false);
           const optimisticRecord = {
             commentId: result.commentId,

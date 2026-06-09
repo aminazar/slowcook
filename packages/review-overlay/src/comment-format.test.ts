@@ -3,6 +3,9 @@ import {
   formatReviewComment,
   parseReviewComment,
   buildPayload,
+  formatLcrIssue,
+  LCR_REVIEW_LABEL,
+  VIBE_LABEL,
   PAYLOAD_MARKER,
 } from "./comment-format.js";
 import type { ExtractedSelector } from "./selector.js";
@@ -193,5 +196,31 @@ trailing prose
     const p = parseReviewComment(body);
     expect(p).not.toBeNull();
     expect(p!.element.selector).toBe("#a");
+  });
+});
+
+describe("formatLcrIssue", () => {
+  const base = {
+    overlayVersion: "0.6.0", storyId: "rewo-lcr",
+    url: "http://localhost:3100/r/webb-deep-field",
+    pathname: "/r/webb-deep-field", routeStory: "104",
+    viewport: sampleViewport, userAgent: "x",
+  };
+  it("titles + labels by story, embeds route + payload, carries vibe label", () => {
+    const p = buildPayload({ ...base, prose: "The fascinate bucket should lead." });
+    const issue = formatLcrIssue({ payload: p });
+    expect(issue.title).toContain("[LCR]");
+    expect(issue.title).toContain("story-104");
+    expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL, "story-104"]);
+    expect(issue.body).toContain("**Story / requirement:** `story-104`");
+    expect(issue.body).toContain("**Route:** `/r/webb-deep-field`");
+    // round-trips: the hidden payload survives for plate/vibe to parse
+    expect(parseReviewComment(issue.body)?.route_story).toBe("104");
+  });
+  it("falls back to route in the title when no story is declared", () => {
+    const p = buildPayload({ ...base, routeStory: undefined, prose: "x" });
+    const issue = formatLcrIssue({ payload: p });
+    expect(issue.title).toContain("/r/webb-deep-field");
+    expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL]); // no story label
   });
 });

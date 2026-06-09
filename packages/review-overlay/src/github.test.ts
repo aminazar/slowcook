@@ -5,6 +5,7 @@ import {
   savePat,
   clearPat,
   submitComment,
+  createIssue,
   type RepoCoord,
 } from "./github.js";
 
@@ -163,5 +164,29 @@ describe("submitComment", () => {
     expect(fetchImpl.mock.calls[0]![0]).toBe(
       "https://github.example.com/api/v3/repos/o/r/issues/5/comments"
     );
+  });
+});
+
+describe("createIssue", () => {
+  it("POSTs to /issues with title+body+labels and returns the issue number", async () => {
+    let captured: { url: string; body: unknown } | null = null;
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      captured = { url, body: JSON.parse(String(init.body)) };
+      return { ok: true, status: 201, json: async () => ({ number: 42, html_url: "http://gh/issues/42" }) } as Response;
+    }) as unknown as typeof fetch;
+    const res = await createIssue({
+      owner: "aminazar", repo: "slowcook", pat: "tok",
+      title: "[LCR] story-104 — x", body: "body", labels: ["lcr-review", "vibe"],
+      fetchImpl,
+    });
+    expect(res).toEqual({ ok: true, commentId: 42, htmlUrl: "http://gh/issues/42" });
+    expect(captured!.url).toBe("https://api.github.com/repos/aminazar/slowcook/issues");
+    expect(captured!.body).toEqual({ title: "[LCR] story-104 — x", body: "body", labels: ["lcr-review", "vibe"] });
+  });
+
+  it("surfaces a GitHub error", async () => {
+    const fetchImpl = (async () => ({ ok: false, status: 403, json: async () => ({ message: "Forbidden" }) } as Response)) as typeof fetch;
+    const res = await createIssue({ owner: "o", repo: "r", pat: "t", title: "x", body: "y", fetchImpl });
+    expect(res).toEqual({ ok: false, status: 403, message: "Forbidden" });
   });
 });

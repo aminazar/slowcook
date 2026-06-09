@@ -495,3 +495,49 @@ export async function submitComment(args: SubmitArgs): Promise<SubmitResult> {
   const j = (await res.json()) as { id: number; html_url: string };
   return { ok: true, commentId: j.id, htmlUrl: j.html_url };
 }
+
+export interface CreateIssueArgs extends RepoCoord {
+  pat: string;
+  title: string;
+  body: string;
+  labels?: string[];
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * 0.6.0 — open a standalone issue (LCR review). Distinct from submitComment
+ * (which comments on a PR): an LCR review note is about a story/route of the
+ * living spec, so it becomes its own `vibe`-labelled issue. Returns the same
+ * SubmitResult shape (commentId = issue number).
+ */
+export async function createIssue(args: CreateIssueArgs): Promise<SubmitResult> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ title: args.title, body: args.body, labels: args.labels ?? [] }),
+    });
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const j = (await res.json()) as { message?: string };
+      detail = j.message ?? "";
+    } catch { /* non-JSON body */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  }
+  const j = (await res.json()) as { number: number; html_url: string };
+  return { ok: true, commentId: j.number, htmlUrl: j.html_url };
+}
