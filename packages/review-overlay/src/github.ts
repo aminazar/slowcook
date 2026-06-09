@@ -162,6 +162,75 @@ export async function fetchOverlayComments(args: FetchArgs): Promise<OverlayComm
 }
 
 /**
+ * 0.6.4 — LCR mode retrieval. In lcr mode a comment IS a `lcr-review` issue
+ * (not a PR comment), so the pin layer + comments list must read the repo's
+ * issues, not a PR's comments. Lists `lcr-review` issues (open + closed),
+ * decodes each one's hidden payload, and maps the issue STATE onto the
+ * reply-status the list-panel filter understands: a CLOSED issue is treated as
+ * resolved/applied (hidden behind "show already-applied"); an OPEN one shows.
+ * A `needs-clarification` label keeps it visible (status stays unresolved).
+ *
+ * Requires a token with read access (the signed-in reviewer's token; the repo
+ * is typically private). Returns [] on any error so the overlay degrades to its
+ * cached state.
+ */
+export interface FetchLcrArgs extends RepoCoord {
+  token: string;
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}
+export async function fetchLcrIssues(args: FetchLcrArgs): Promise<OverlayCommentRecord[]> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues?labels=lcr-review&state=all&per_page=100`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      headers: {
+        Authorization: `Bearer ${args.token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  const issues = (await res.json()) as Array<{
+    number: number;
+    user: { login: string } | null;
+    body: string | null;
+    created_at: string;
+    html_url: string;
+    state: "open" | "closed";
+    labels: Array<{ name: string }>;
+    pull_request?: unknown;
+  }>;
+
+  const out: OverlayCommentRecord[] = [];
+  for (const it of issues) {
+    if (it.pull_request) continue; // the /issues endpoint also returns PRs
+    const payload = parseReviewComment(it.body ?? "");
+    if (!payload) continue;
+    const needsClarification = it.labels?.some((l) => l.name === "needs-clarification");
+    const resolved = it.state === "closed" && !needsClarification;
+    out.push({
+      commentId: it.number,
+      author: it.user?.login ?? "unknown",
+      createdAt: it.created_at,
+      htmlUrl: it.html_url,
+      payload,
+      plateReply: resolved
+        ? { to_comment_id: it.number, status: "applied", summary: "Resolved — issue closed." }
+        : needsClarification
+          ? { to_comment_id: it.number, status: "needs-clarification", summary: "Awaiting your clarification." }
+          : null,
+    });
+  }
+  return out;
+}
+
+/**
  * localStorage cache for the comment list — lets the pin layer render
  * instantly on refresh without waiting for the network round-trip.
  * Background-refresh fires after, updating with any newer state.

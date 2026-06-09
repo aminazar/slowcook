@@ -38,6 +38,7 @@ import {
   submitComment,
   createIssue,
   fetchOverlayComments,
+  fetchLcrIssues,
   loadCachedComments,
   saveCachedComments,
   fetchPrLabels,
@@ -183,13 +184,37 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // discussion (plate refuses to amend either way).
   const [isApproved, setIsApproved] = useState<boolean>(false);
 
-  // Mount-time + on-focus fetch of overlay comments.
+  // Mount-time + on-focus fetch of overlay comments / LCR issues.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!enabled) return;
-    // 0.6.1 — the pin layer reads PR comments; lcr mode (no PR) skips it and
-    // relies on the GitHub issues it files instead.
-    if (!owner || !repo || !prNumber) return;
+    if (!enabled || !owner || !repo) return;
+
+    // 0.6.4 — lcr mode: comments are `lcr-review` ISSUES, retrieved with the
+    // signed-in reviewer's token. Closed issues = applied (hidden behind the
+    // "show already-applied" toggle); open = shown. Without a token (not signed
+    // in yet) there's nothing to read on a private repo — refetches after login
+    // via the reviewerIdentity dep.
+    if (reviewMode === "lcr") {
+      const cached = loadCachedComments(window.localStorage, { owner, repo }, 0);
+      if (cached) setComments(cached);
+      const refresh = () => {
+        const token = loadReviewerToken(window.localStorage, { owner, repo });
+        if (!token) return;
+        void fetchLcrIssues({ owner, repo, token })
+          .then((records) => {
+            setComments(records);
+            saveCachedComments(window.localStorage, { owner, repo }, 0, records);
+          })
+          .catch(() => { /* silent — cached state still renders */ });
+      };
+      refresh();
+      const onFocus = () => refresh();
+      window.addEventListener("focus", onFocus);
+      return () => window.removeEventListener("focus", onFocus);
+    }
+
+    // scenarios mode — the pin layer reads PR comments (needs a PR).
+    if (!prNumber) return;
     const cached = loadCachedComments(window.localStorage, { owner, repo }, prNumber);
     if (cached) setComments(cached);
     const refresh = () => {
@@ -212,7 +237,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [enabled, owner, repo, prNumber]);
+  }, [enabled, owner, repo, prNumber, reviewMode, reviewerIdentity]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

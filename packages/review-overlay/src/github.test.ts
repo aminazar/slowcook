@@ -6,6 +6,7 @@ import {
   clearPat,
   submitComment,
   createIssue,
+  fetchLcrIssues,
   type RepoCoord,
 } from "./github.js";
 
@@ -188,5 +189,30 @@ describe("createIssue", () => {
     const fetchImpl = (async () => ({ ok: false, status: 403, json: async () => ({ message: "Forbidden" }) } as Response)) as typeof fetch;
     const res = await createIssue({ owner: "o", repo: "r", pat: "t", title: "x", body: "y", fetchImpl });
     expect(res).toEqual({ ok: false, status: 403, message: "Forbidden" });
+  });
+});
+
+describe("fetchLcrIssues", () => {
+  const issueBody = (story) => "x\n<!--\nslowcook:review-overlay\n" + JSON.stringify({
+    slowcook_overlay_version:"0.6.4", story_id:"lcr", url:"http://x/", pathname:"/", route_story:story,
+    timestamp:"2026-06-09T00:00:00Z", prose:"p", element:null, viewport:{width:1,height:1,colorScheme:"dark",dpr:1}, user_agent:"x"
+  }) + "\n-->";
+  it("maps open→shown, closed→applied(hidden), needs-clarification→visible; skips PRs", async () => {
+    const fetchImpl = (async () => ({ ok:true, status:200, json: async () => ([
+      { number: 10, user:{login:"ali"}, body: issueBody("102"), created_at:"t", html_url:"u", state:"open", labels:[{name:"lcr-review"}] },
+      { number: 11, user:{login:"ben"}, body: issueBody("104"), created_at:"t", html_url:"u", state:"closed", labels:[{name:"lcr-review"}] },
+      { number: 12, user:{login:"ana"}, body: issueBody("106"), created_at:"t", html_url:"u", state:"open", labels:[{name:"lcr-review"},{name:"needs-clarification"}] },
+      { number: 13, user:{login:"x"}, body: issueBody("1"), created_at:"t", html_url:"u", state:"open", labels:[], pull_request:{} }, // a PR — skip
+      { number: 14, user:{login:"x"}, body: "no payload", created_at:"t", html_url:"u", state:"open", labels:[] }, // not an overlay issue — skip
+    ])} as Response)) as typeof fetch;
+    const recs = await fetchLcrIssues({ owner:"reworthy", repo:"app", token:"t", fetchImpl });
+    expect(recs.map(r => r.commentId)).toEqual([10, 11, 12]);
+    expect(recs[0].plateReply).toBeNull();                       // open → shown
+    expect(recs[1].plateReply?.status).toBe("applied");          // closed → resolved/hidden
+    expect(recs[2].plateReply?.status).toBe("needs-clarification"); // visible
+  });
+  it("returns [] on a non-OK response", async () => {
+    const fetchImpl = (async () => ({ ok:false, status:401 } as Response)) as typeof fetch;
+    expect(await fetchLcrIssues({ owner:"o", repo:"r", token:"t", fetchImpl })).toEqual([]);
   });
 });
