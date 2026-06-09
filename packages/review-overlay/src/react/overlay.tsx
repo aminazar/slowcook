@@ -180,6 +180,23 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // refresh; background-refresh on focus.
   const [comments, setComments] = useState<OverlayCommentRecord[]>([]);
   const [openCommentId, setOpenCommentId] = useState<number | null>(null);
+  // 0.6.8 — "new activity" badge: track which comment states the reviewer has
+  // already seen, so new replies / newly-applied resolutions ping the Comment
+  // button with a green count. Signature = id + reply status + reply length.
+  const seenKey = `slowcook.review-overlay.seen.${owner}/${repo}`;
+  const [seenSigs, setSeenSigs] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(window.localStorage.getItem(seenKey) ?? "[]") as string[]); }
+    catch { return new Set(); }
+  });
+  const sigOf = (r: OverlayCommentRecord) =>
+    `${r.commentId}:${r.plateReply?.status ?? ""}:${(r.plateReply?.summary ?? "").length}`;
+  const newCount = comments.filter((r) => !seenSigs.has(sigOf(r))).length;
+  const markAllSeen = useCallback(() => {
+    const sigs = comments.map(sigOf);
+    setSeenSigs(new Set(sigs));
+    try { window.localStorage.setItem(seenKey, JSON.stringify(sigs)); } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comments]);
   // 0.4.2 — approved state. True when the PR carries the
   // slowcook-mockup-approved label; pill renders green-tinted +
   // hides the Approve button. Nav + Comment still work for follow-up
@@ -660,7 +677,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         isMobile={isMobile}
         isApproved={isApproved}
         commentCount={comments.length}
-        onListClick={() => setListPanelOpen(true)}
+        newCount={newCount}
+        onListClick={() => { setListPanelOpen(true); markAllSeen(); }}
         reviewMode={reviewMode}
         identity={reviewerIdentity}
         onSignIn={() => void signIn()}
@@ -697,6 +715,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
             setListPanelOpen(false);
             setGeneralComposerOpen(true);
           }}
+          onApprove={() => { setListPanelOpen(false); onApproveClicked(); }}
+          isApproved={isApproved}
         />
       )}
       {generalComposerOpen && (
@@ -851,6 +871,7 @@ function ModeToggle(props: {
   isMobile: boolean;
   isApproved: boolean;
   commentCount: number;
+  newCount: number;
   onListClick: () => void;
   // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
   // not a separate fixed badge.
@@ -859,7 +880,7 @@ function ModeToggle(props: {
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
-  const { mode, onChange, disabled, isMobile, isApproved, commentCount, onListClick, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -988,36 +1009,24 @@ function ModeToggle(props: {
         onClick={() => onChangeSafe("comment")}
         disabled={disabled}
         label={isMobile ? "💬" : "💬 Comment"}
-        title="Comment on an element"
+        title={newCount ? `Comment — ${newCount} new update(s)` : "Comment on an element"}
         accent
+        badge={newCount}
       />
-      {isApproved ? (
+      {/* 0.6.8 — Approve moved into the Comments panel (under "+ Add note").
+          The disk only shows the approved state now, never the action. */}
+      {isApproved && (
         <span
           data-slowcook-overlay-ui="1"
           title="Mockup approved — comment thread stays open for follow-up; plate refuses to amend"
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            padding: "6px 12px",
-            borderRadius: 999,
-            background: APPROVED_GREEN,
-            color: "white",
-            fontWeight: 700,
-            fontSize: 13,
+            display: "inline-flex", alignItems: "center", gap: 4,
+            padding: "6px 12px", borderRadius: 999, background: APPROVED_GREEN,
+            color: "white", fontWeight: 700, fontSize: 13,
           }}
         >
           ✓ Approved
         </span>
-      ) : (
-        <ToggleButton
-          active={mode === "approve"}
-          onClick={() => onChangeSafe("approve")}
-          disabled={disabled}
-          label={isMobile ? "✅" : "✅ Approve"}
-          title="Approve the mockup (asks for confirmation)"
-          approve
-        />
       )}
       {/* 0.5.0 — list-panel toggle. Always reachable; shows ALL
           comments (incl. hidden-element + general). Count badge. */}
@@ -1227,7 +1236,7 @@ function SlowcookLogo(): JSX.Element {
   );
 }
 
-function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean }): JSX.Element {
+function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean; badge?: number }): JSX.Element {
   const bg = props.active
     ? props.approve
       ? "#22c55e"
@@ -1242,6 +1251,7 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
       disabled={props.disabled}
       title={props.title}
       style={{
+        position: "relative",
         background: bg,
         color: "white",
         border: "none",
@@ -1253,6 +1263,15 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
       }}
     >
       {props.label}
+      {/* 0.6.8 — green "new activity" badge (new replies / newly-applied). */}
+      {props.badge ? (
+        <span style={{
+          position: "absolute", top: -5, right: -5, minWidth: 16, height: 16,
+          padding: "0 4px", borderRadius: 999, background: "#22c55e", color: "white",
+          fontSize: 10, fontWeight: 800, display: "inline-flex", alignItems: "center",
+          justifyContent: "center", boxShadow: "0 0 0 2px rgba(15,15,24,0.92)",
+        }}>{props.badge}</span>
+      ) : null}
     </button>
   );
 }
@@ -1819,8 +1838,10 @@ function CommentsListPanel(props: {
   onClose: () => void;
   onOpenComment: (id: number) => void;
   onAddGeneral: () => void;
+  onApprove: () => void;
+  isApproved: boolean;
 }): JSX.Element {
-  const { records, showApplied, onToggleApplied, onClose, onOpenComment, onAddGeneral } = props;
+  const { records, showApplied, onToggleApplied, onClose, onOpenComment, onAddGeneral, onApprove, isApproved } = props;
   // 0.6.0 — resolved comments (applied/declined/noop) hide by default so the
   // list shows what still needs attention; needs-clarification + unresolved
   // always show. The toggle reveals the resolved ones.
@@ -1889,6 +1910,23 @@ function CommentsListPanel(props: {
           }}
         >
           + Add note (about the page, not an element)
+        </button>
+        {/* 0.6.8 — Approve lives here now (out of the floating disk, where it was
+            too easy to hit). It asks for confirmation before approving. */}
+        <button
+          type="button"
+          onClick={isApproved ? undefined : onApprove}
+          disabled={isApproved}
+          title={isApproved ? "Mockup already approved" : "Approve the whole mockup (asks to confirm)"}
+          style={{
+            width: "100%", marginTop: 8, padding: "10px 12px",
+            background: isApproved ? "rgba(34,197,94,0.15)" : "rgba(34,197,94,0.10)",
+            color: APPROVED_GREEN, border: `1px solid ${APPROVED_GREEN}`,
+            borderRadius: 8, cursor: isApproved ? "default" : "pointer",
+            font: "inherit", fontWeight: 700, fontSize: 13,
+          }}
+        >
+          {isApproved ? "✓ Mockup approved" : "✅ Approve mockup"}
         </button>
       </div>
       {hiddenCount > 0 && (
