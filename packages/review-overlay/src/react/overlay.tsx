@@ -1590,6 +1590,7 @@ function pinPalette(status: OverlayCommentRecord["plateReply"] extends infer R ?
     case "declined":      return { bg: "#94a3b8", fg: "white",   glyph: "⊘", ring: "rgba(148, 163, 184, 0.35)" };
     case "spec-altering": return { bg: "#facc15", fg: "#1a1a1a", glyph: "!", ring: "rgba(250, 204, 21, 0.35)" };
     case "noop":          return { bg: "#94a3b8", fg: "white",   glyph: "•", ring: "rgba(148, 163, 184, 0.35)" };
+    case "needs-clarification": return { bg: "#4D96FF", fg: "white", glyph: "?", ring: "rgba(77, 150, 255, 0.35)" };
     default:              return { bg: ACCENT,    fg: "white",   glyph: "💬", ring: "rgba(255, 107, 107, 0.35)" };
   }
 }
@@ -1777,7 +1778,7 @@ function CommentThreadPopover(props: {
         </a>
         {record.plateCommentUrl && (
           <a href={record.plateCommentUrl} target="_blank" rel="noreferrer" style={{ color: "#22c55e", textDecoration: "none" }}>
-            ↗ Plate reply on GitHub
+            ↗ Reply on GitHub
           </a>
         )}
       </div>

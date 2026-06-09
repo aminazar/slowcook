@@ -204,8 +204,15 @@ export async function fetchLcrIssues(args: FetchLcrArgs): Promise<OverlayComment
     html_url: string;
     state: "open" | "closed";
     labels: Array<{ name: string }>;
+    comments: number;
+    comments_url: string;
     pull_request?: unknown;
   }>;
+  const headers = {
+    Authorization: `Bearer ${args.token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
 
   const out: OverlayCommentRecord[] = [];
   for (const it of issues) {
@@ -214,20 +221,48 @@ export async function fetchLcrIssues(args: FetchLcrArgs): Promise<OverlayComment
     if (!payload) continue;
     const needsClarification = it.labels?.some((l) => l.name === "needs-clarification");
     const resolved = it.state === "closed" && !needsClarification;
+    // closed → applied (hidden behind the toggle); open → needs-clarification
+    // (always visible — it still wants the reviewer's attention).
+    const status: PlateReplyEntry["status"] = resolved ? "applied" : "needs-clarification";
+
+    // 0.6.7 — pull the latest reply so the answer shows IN the overlay (pin
+    // popover + list), not only on GitHub. Maintainer/fixer comments are the
+    // reply channel; the issue body is the original note.
+    let reply: { body: string; htmlUrl: string } | null = null;
+    if (it.comments > 0) {
+      try {
+        const cres = await fetchImpl(`${it.comments_url}?per_page=100`, { headers });
+        if (cres.ok) {
+          const cs = (await cres.json()) as Array<{ body: string | null; html_url: string }>;
+          const last = cs[cs.length - 1];
+          if (last?.body) reply = { body: cleanReplyBody(last.body), htmlUrl: last.html_url };
+        }
+      } catch { /* keep going without a reply */ }
+    }
+
+    const plateReply: PlateReplyEntry | null =
+      reply ? { to_comment_id: it.number, status, summary: reply.body }
+      : resolved ? { to_comment_id: it.number, status: "applied", summary: "Resolved — issue closed." }
+      : needsClarification ? { to_comment_id: it.number, status: "needs-clarification", summary: "Awaiting your clarification." }
+      : null;
+
     out.push({
       commentId: it.number,
       author: it.user?.login ?? "unknown",
       createdAt: it.created_at,
       htmlUrl: it.html_url,
       payload,
-      plateReply: resolved
-        ? { to_comment_id: it.number, status: "applied", summary: "Resolved — issue closed." }
-        : needsClarification
-          ? { to_comment_id: it.number, status: "needs-clarification", summary: "Awaiting your clarification." }
-          : null,
+      plateReply,
+      plateCommentUrl: reply?.htmlUrl,
     });
   }
   return out;
+}
+
+/** Strip hidden payload/plate markers + trim a reply body for the overlay. */
+function cleanReplyBody(body: string): string {
+  const cut = (body.split("<!--")[0] ?? "").trim();
+  return cut.length > 500 ? cut.slice(0, 500) + "…" : cut;
 }
 
 /**
