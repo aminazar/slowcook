@@ -167,3 +167,66 @@ export interface ForgeAdapter {
    */
   findPullRequestByBranch(headBranch: string): Promise<PullRequestSummary | null>;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reviewer identity (0.6.0) — multi-person LCR review.
+//
+// Distinct from `ForgeAdapter` (which an AGENT uses with a service token). This
+// seam is REVIEWER-facing: when several people review a hosted LCR, each must
+// authenticate as THEMSELVES so the forge attributes their comments to their own
+// account. It lives in the forge layer (not the cli/overlay) because the auth
+// dance is forge-specific — GitHub OAuth device flow here; GitLab/Gitea later
+// implement the same seam in their own adapter packages.
+//
+// Why a server-side helper exists: GitHub's device-flow token-exchange endpoint
+// is not CORS-accessible from a browser, so the overlay cannot complete login on
+// its own. The forge adapter provides `requestDeviceCode` + `pollAccessToken`
+// (run server-side, e.g. hosted next to the mock); the browser then uses the
+// returned token directly against CORS-enabled read/write endpoints.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A reviewer authenticated against the forge (their real account). */
+export interface ReviewerIdentity {
+  /** Forge handle, e.g. GitHub login. Authoritative — the forge stamps it. */
+  login: string;
+  /** Display name when the forge exposes one; falls back to `login`. */
+  name: string;
+  /** Avatar URL when available (overlay shows it next to the reviewer's pins). */
+  avatarUrl?: string;
+}
+
+/** What the overlay shows the reviewer to start a device-flow login. */
+export interface DeviceCodeGrant {
+  /** Opaque code the server polls with (NOT shown to the user). */
+  deviceCode: string;
+  /** Short code the user types at the verification URL. */
+  userCode: string;
+  /** Where the user enters `userCode` (e.g. https://github.com/login/device). */
+  verificationUri: string;
+  /** Seconds between `pollAccessToken` attempts (forge-mandated minimum). */
+  intervalSeconds: number;
+  /** Seconds until `deviceCode` expires. */
+  expiresInSeconds: number;
+}
+
+/** Result of polling for the access token during a device-flow login. */
+export type PollResult =
+  | { status: "authorized"; token: string }
+  | { status: "pending" }            // user hasn't approved yet — poll again
+  | { status: "slow_down"; intervalSeconds: number } // back off, then poll
+  | { status: "expired" }            // deviceCode expired — restart the flow
+  | { status: "denied" };            // user declined
+
+/**
+ * Reviewer-facing auth seam. A forge adapter package implements this so a hosted
+ * LCR can let each reviewer sign in as themselves. The cli/overlay program
+ * against this interface only — never against GitHub/GitLab specifics.
+ */
+export interface ForgeReviewerAuth {
+  /** Begin a device-flow login. Server-side (token endpoints aren't CORS-open). */
+  requestDeviceCode(): Promise<DeviceCodeGrant>;
+  /** Poll once for the access token after the user has been shown the code. */
+  pollAccessToken(deviceCode: string): Promise<PollResult>;
+  /** Resolve a token to the reviewer's identity (CORS-OK read; browser or server). */
+  identify(token: string): Promise<ReviewerIdentity>;
+}
