@@ -77,8 +77,13 @@ The original proposal introduced six acronyms; three rename concepts slowcook al
    - **craft** — a genuinely novel inline-tagged decision: `// craft: <what> (no requirement; <rationale>)`.
 
    A node with **none** of these is a true orphan → error. A craft-tagged node **passes** (honest provenance) — so the lint neither blocks good work nor forces a lie. It then emits the **craft-decisions report** (choices not in any requirement) as a reviewable list; each can flow **up the spine** as a candidate requirement/convention amendment the PM **ratifies** (promote to PRD/conventions) or leaves as craft. The lint's job is to make "the design made un-required choices" *visible and honest*, not to punish it.
-4. **SVG logo by LLM is unreliable.** **Mitigation:** prefer PM-supplied logo → brand agent only *tokenizes/recolors* (dark/light variants) rather than generates from scratch; generation is best-effort opt-in.
-5. **Cost/scale.** A real PRD × all modes is a large, expensive run. **Mitigation:** per-story eye/fidelity gate; a cost model + budget gauge (existing `budget` command) before the LCR loop.
+4. **SVG logo — use a deterministic tracer, never LLM path-authoring (PM call, 2026-06-09).** The delgoosh logo pain was Claude Code hand-authoring SVG paths from a PNG — which LLMs are bad at (many iterations). But PNG→SVG is a *solved, deterministic* problem; no LLM needed. The brand logo pipeline:
+   1. **PM supplies the logo.** If SVG → passthrough. If PNG → trace with **`potrace`** (mono marks) or **`vtracer`** (color marks); `imagemagick` to preprocess (threshold/trim), `svgo` to optimize.
+   2. **Tokenize** (the genuinely useful step, deterministic ± light LLM assist): map the traced fills to CSS-var references (`fill="var(--brand-primary)"`) and emit **dark/light variants**.
+   3. **Validate with the eye:** render the traced SVG and diff it against the original PNG — trace fidelity is *measured*, not eyeballed across iterations.
+
+   The LLM never draws a path. Caveat: tracing excels on flat/vector-style marks (most logos), is poor on photographic/gradient; an original vector export (Figma/Illustrator) beats tracing a raster when it exists. LLM generation drops to a last-resort opt-in.
+5. **Cost/scale — budgeting deferred to the paid tier (PM call, 2026-06-09).** A real PRD × all modes is a large, expensive run, but **cost-management / budget orchestration is a separate beast and a paid-tier feature**, not GUCDI core (aligns with the OSS/commercial split, `0.20-decisions.md`). **GUCDI core** bounds work the natural way: the **per-story eye/fidelity gate** makes the LCR loop incremental and resumable (each story is verified + committed before the next), so a run can stop/resume without waste. The cost *model* (estimate before a full LCR run) stays a noted open question for the paid tier.
 
 ## Phased build plan
 
