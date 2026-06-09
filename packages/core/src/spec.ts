@@ -157,6 +157,24 @@ export interface Spec {
   acceptance_scenarios: string[];
   non_goals: string[];
 
+  /** design #8 — viewport/scheme/locale modes the fidelity eye must check. */
+  fidelity?: { modes: string[] };
+  /**
+   * GUCDI — provenance anchor to a PRD initiative (greenfield only; optional).
+   * Brownfield traces via `source_issue`. `trace check` never demands this.
+   */
+  prd_ref?: { file: string; anchor: string };
+  /**
+   * GUCDI — the data contract this story needs, baked into the LCR's SQLite+ORM
+   * schema and inherited by the backend (mock→prod becomes a data-source swap).
+   */
+  data_contract?: {
+    entities?: { name: string; fields?: { name: string; type: string }[]; relations?: string[] }[];
+    api?: { method: string; path: string; note?: string }[];
+  };
+  /** GUCDI — open questions; addressable must resolve before the scope is "complete". */
+  open_questions?: { addressable: string[]; deferred: string[] };
+
   related_specs?: RelatedSpec[];
 
   /**
