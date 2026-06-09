@@ -187,6 +187,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!enabled) return;
+    // 0.6.1 — the pin layer reads PR comments; lcr mode (no PR) skips it and
+    // relies on the GitHub issues it files instead.
     if (!owner || !repo || !prNumber) return;
     const cached = loadCachedComments(window.localStorage, { owner, repo }, prNumber);
     if (cached) setComments(cached);
@@ -563,9 +565,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   if (typeof window === "undefined") return null;
   if (isPickerRoute) return null;
   // 0.5.1 — auto-detect path: skip when env vars + props together
-  // don't supply a real owner/repo/pr. Avoids "submit comment"
-  // failing silently because the API call goes nowhere.
-  if (!owner || !repo || !prNumber) return null;
+  // don't supply a real owner/repo. Avoids "submit comment" failing
+  // silently because the API call goes nowhere.
+  // 0.6.1 — lcr mode files ISSUES (not PR comments), so it needs no PR;
+  // only scenarios mode requires a prNumber.
+  if (!owner || !repo) return null;
+  if (reviewMode !== "lcr" && !prNumber) return null;
 
   return (
     <div
