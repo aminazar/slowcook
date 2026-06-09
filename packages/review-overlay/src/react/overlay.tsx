@@ -784,9 +784,24 @@ function ModeToggle(props: {
   useEffect(() => { setPos(loadTogglePosition()); }, []);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
 
+  // 0.6.3 — sign-out is a two-step confirm: the disk floats, so a single
+  // mis-click shouldn't log you out. First click/tap on the identity chip arms
+  // confirmation (the chip turns into "Sign out?"); a second click/tap within a
+  // few seconds confirms. ANY other action (mode toggle, list, drag) cancels.
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const cancelLogout = useCallback(() => setConfirmLogout(false), []);
+  useEffect(() => {
+    if (!confirmLogout) return;
+    const t = setTimeout(() => setConfirmLogout(false), 3500);
+    return () => clearTimeout(t);
+  }, [confirmLogout]);
+  const onChangeSafe = useCallback((m: Mode) => { setConfirmLogout(false); onChange(m); }, [onChange]);
+  const onListSafe = useCallback(() => { setConfirmLogout(false); onListClick(); }, [onListClick]);
+
   // Drag handlers — pointer events for unified mouse + touch.
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     // Only drag from the grip itself; clicks on toggle buttons must stay clicks.
+    setConfirmLogout(false); // dragging cancels a pending sign-out confirm
     e.preventDefault();
     e.stopPropagation();
     const target = e.currentTarget;
@@ -880,14 +895,14 @@ function ModeToggle(props: {
       </div>
       <ToggleButton
         active={mode === "nav"}
-        onClick={() => onChange("nav")}
+        onClick={() => onChangeSafe("nav")}
         disabled={disabled}
         label={isMobile ? "🧭" : "Nav"}
         title="Navigate (default)"
       />
       <ToggleButton
         active={mode === "comment"}
-        onClick={() => onChange("comment")}
+        onClick={() => onChangeSafe("comment")}
         disabled={disabled}
         label={isMobile ? "💬" : "💬 Comment"}
         title="Comment on an element"
@@ -914,7 +929,7 @@ function ModeToggle(props: {
       ) : (
         <ToggleButton
           active={mode === "approve"}
-          onClick={() => onChange("approve")}
+          onClick={() => onChangeSafe("approve")}
           disabled={disabled}
           label={isMobile ? "✅" : "✅ Approve"}
           title="Approve the mockup (asks for confirmation)"
@@ -925,7 +940,7 @@ function ModeToggle(props: {
           comments (incl. hidden-element + general). Count badge. */}
       <button
         type="button"
-        onClick={onListClick}
+        onClick={onListSafe}
         disabled={disabled}
         title={`See all comments (${commentCount})`}
         style={{
@@ -962,18 +977,26 @@ function ModeToggle(props: {
       {reviewMode === "lcr" && (
         identity ? (
           <span
-            title={`Signed in as @${identity.login} — click to sign out`}
-            onClick={onSignOut}
+            title={confirmLogout ? "Click again to sign out (or click anything else to cancel)" : `Signed in as @${identity.login}`}
+            onClick={() => { if (confirmLogout) { setConfirmLogout(false); onSignOut(); } else { setConfirmLogout(true); } }}
             style={{
               marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
               padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
-              background: "rgba(255,255,255,0.10)", color: "white", fontSize: 12, fontWeight: 600,
+              background: confirmLogout ? "rgba(255,107,107,0.25)" : "rgba(255,255,255,0.10)",
+              border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
+              color: "white", fontSize: 12, fontWeight: 600,
             }}
           >
-            {identity.avatarUrl
-              ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
-              : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
-            @{identity.login}
+            {confirmLogout ? (
+              <><span aria-hidden>🚪</span> Sign out?</>
+            ) : (
+              <>
+                {identity.avatarUrl
+                  ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
+                  : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
+                @{identity.login}
+              </>
+            )}
           </span>
         ) : (
           <button
