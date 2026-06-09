@@ -289,6 +289,15 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     console.log(`  proxy  skipped (--garnish mode; overlay disabled)`);
   }
 
+  // 0.19.0+ (sc#82) — detect mock shape so the log message is honest.
+  // `npm run dev` works for both shapes (Next.js: `next dev`; Vite:
+  // `vite`) — only the cosmetic label here needs branching.
+  // 0.6.0 — also read review_mode so an LCR mock gets the free-nav
+  // overlay (shows on every route + per-route comment capture).
+  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
+  const mockConfig = loadMockShapeConfig(args.repoRoot);
+  const mockShape = mockConfig.shape;
+
   // Step 4: spawn next dev with env vars.
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (!args.garnish) {
@@ -297,18 +306,14 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     env["NEXT_PUBLIC_SLOWCOOK_REPO"] = detected.repo;
     env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] = prNumber ? String(prNumber) : "0";
     env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] = args.story;
+    env["NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE"] = mockConfig.review_mode;
     if (proxy) env["NEXT_PUBLIC_SLOWCOOK_GH_PROXY"] = proxy.url;
   }
 
-  // 0.19.0+ (sc#82) — detect mock shape so the log message is honest.
-  // `npm run dev` works for both shapes (Next.js: `next dev`; Vite:
-  // `vite`) — only the cosmetic label here needs branching.
-  const { loadMockShapeConfig } = await import("../../lib/mock-shape.js");
-  const mockShape = loadMockShapeConfig(args.repoRoot).shape;
   const devLabel = mockShape === "vite" ? "vite :3100" : "next dev :3100";
   console.log(`  npm    run dev (${devLabel})`);
   if (!args.garnish) {
-    console.log(`         overlay env: REVIEW=1 OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
+    console.log(`         overlay env: REVIEW=1 MODE=${mockConfig.review_mode} OWNER=${detected.owner} REPO=${detected.repo} PR=${prNumber ?? "?"} STORY=${args.story}${proxy ? ` GH_PROXY=${proxy.url}` : ""}`);
     if (!prNumber) {
       console.warn(`         (no open mockup PR found for branch ${branch}; overlay submits will fail until one exists)`);
     }

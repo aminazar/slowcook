@@ -47,6 +47,18 @@ scenario_registry_file: mock/src/lib/scenario-registry.ts
     expect(out.shape).toBe("vite");
     expect(out.router_file).toBe("mock/src/App.tsx");
     expect(out.screens_root).toBe("mock/src/apps");
+    // 0.6.0 — review_mode defaults to scenarios when omitted.
+    expect(out.review_mode).toBe("scenarios");
+  });
+
+  it("reads review_mode: lcr for a GUCDI/LCR mock", () => {
+    mkdirSync(join(repo, ".brewing"), { recursive: true });
+    writeFileSync(
+      join(repo, ".brewing", "mock.yaml"),
+      "schema_version: 1\nshape: vite\nreview_mode: lcr\n",
+      "utf8",
+    );
+    expect(loadMockShapeConfig(repo).review_mode).toBe("lcr");
   });
 
   it("throws on schema violation", () => {

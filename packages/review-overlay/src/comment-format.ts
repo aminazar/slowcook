@@ -28,6 +28,17 @@ export interface ReviewCommentPayload {
   slowcook_overlay_version: string;
   story_id: string | null;
   url: string;
+  /**
+   * 0.6.0 — the route the comment was left on, split out from `url` for
+   * convenience. In LCR review mode the reviewer roams the mock's own
+   * router (e.g. `/r/webb-deep-field`, `/discover`), so plate keys
+   * amendments by route, not by a single per-PR story_id. Optional for
+   * back-compat: older payloads (and scenario-mode comments) omit it,
+   * and consumers can recover it from `url` when absent.
+   */
+  pathname?: string;
+  /** 0.6.0 — the query string at comment time (e.g. `?clean=1`), if any. */
+  route_query?: string;
   timestamp: string;
   prose: string;
   /**
@@ -161,6 +172,9 @@ export function formatReviewComment(args: FormatArgs): string {
   lines.push(
     `**Viewport:** ${payload.viewport.width}×${payload.viewport.height} ${payload.viewport.colorScheme} (dpr ${payload.viewport.dpr})`
   );
+  if (payload.pathname) {
+    lines.push(`**Route:** \`${payload.pathname}${payload.route_query ?? ""}\``);
+  }
   lines.push(`**URL:** ${payload.url}`);
   lines.push("");
 
@@ -228,6 +242,10 @@ export function buildPayload(args: {
   overlayVersion: string;
   storyId: string | null;
   url: string;
+  /** 0.6.0 — current route path (window.location.pathname). */
+  pathname?: string;
+  /** 0.6.0 — current query string (window.location.search). */
+  routeQuery?: string;
   prose: string;
   /**
    * 0.5.0 — selector + bbox are now optional. Pass both for
@@ -253,6 +271,8 @@ export function buildPayload(args: {
     slowcook_overlay_version: args.overlayVersion,
     story_id: args.storyId,
     url: args.url,
+    ...(args.pathname ? { pathname: args.pathname } : {}),
+    ...(args.routeQuery ? { route_query: args.routeQuery } : {}),
     timestamp: new Date().toISOString(),
     prose: args.prose,
     element,

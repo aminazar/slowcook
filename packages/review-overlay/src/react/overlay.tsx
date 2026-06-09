@@ -67,6 +67,18 @@ export interface SlowcookReviewOverlayProps {
    * tree-shake the overlay out cleanly.
    */
   enabled?: boolean;
+  /**
+   * 0.6.0 — review surface shape. Falls back to
+   * `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE` (default `"scenarios"`).
+   *
+   *  - `"scenarios"` (legacy): the mock is a scenario picker at `/`; the
+   *    overlay hides on the `/` route (commenting there is noise).
+   *  - `"lcr"`: the mock is a full navigable Living Coded Requirement
+   *    with its own router. The overlay shows on EVERY route (incl. `/`)
+   *    so the reviewer can roam the whole app and comment anywhere; each
+   *    comment captures its route so plate can amend per-page.
+   */
+  reviewMode?: "scenarios" | "lcr";
   /** Overlay package version, included in the JSON payload. */
   overlayVersion?: string;
 }
@@ -87,7 +99,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const prNumber = props.prNumber ?? parseInt(process.env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] ?? "0", 10);
   const storyId = props.storyId ?? process.env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] ?? null;
   const enabled = props.enabled ?? (process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] === "1");
-  const overlayVersion = props.overlayVersion ?? "0.5.1";
+  const reviewMode: "scenarios" | "lcr" =
+    props.reviewMode ??
+    (process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE"] === "lcr" ? "lcr" : "scenarios");
+  const overlayVersion = props.overlayVersion ?? "0.6.0";
   const repoCoord: RepoCoord = { owner, repo };
 
   // 0.5.1 — hydration-mismatch fix. The overlay can't render during
@@ -178,6 +193,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     if (typeof window === "undefined") return;
     // 0.2.0 — hide on the picker route (homepage). The picker is for
     // navigation, not for review; commenting affordances would be noise.
+    // 0.6.0 — only in scenarios mode. In LCR mode `/` is the app home, a
+    // first-class surface to review, so we never route-hide.
+    if (reviewMode === "lcr") {
+      setIsPickerRoute(false);
+      return;
+    }
     // Re-evaluate on pop/push via a polling tick (Next App Router doesn't
     // emit a usable event for this without a router hook).
     const apply = () => setIsPickerRoute(window.location.pathname === "/");
@@ -188,7 +209,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       clearInterval(interval);
       window.removeEventListener("popstate", apply);
     };
-  }, []);
+  }, [reviewMode]);
 
   // ESC exits comment/approve mode + closes composer.
   useEffect(() => {
@@ -328,6 +349,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           overlayVersion,
           storyId,
           url: window.location.href,
+          pathname: window.location.pathname,
+          routeQuery: window.location.search,
           prose,
           selector: sel,
           bbox: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
@@ -402,6 +425,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           overlayVersion,
           storyId,
           url: window.location.href,
+          pathname: window.location.pathname,
+          routeQuery: window.location.search,
           prose,
           viewport,
           userAgent: navigator.userAgent,

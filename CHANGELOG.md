@@ -6,6 +6,15 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## Unreleased — plate free-navigation commenting for LCRs
+
+On `feat/plate-lcr-free-nav` (not yet cut/published). Pairs with the GUCDI LCR shape: a mock is now a full navigable app, so review must let a human roam every route and comment anywhere, not pick a scenario.
+
+- **`@slowcook-ai/review-overlay` 0.6.0** — new `reviewMode: "scenarios" | "lcr"` prop (env `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`, default `scenarios`). In `lcr` mode the overlay no longer hides on the `/` route (an LCR's home is a first-class surface) and every comment payload now carries `pathname` + `route_query` (the route it was left on), rendered as a `**Route:**` line. Back-compat: scenario-mode payloads omit the fields; the parser ignores extras.
+- **plate** reads `payload.pathname` (falling back to parsing `url`) and prefixes each comment fed to the amendment agent with `` on route `/x` `` (new pure `plate/route-hint.ts`), so it amends the component rendering THAT page instead of guessing from the selector alone.
+- **run-mock** reads `review_mode` from `.brewing/mock.yaml` and passes it through as `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`. New `review_mode` field on the mock-shape config (default `scenarios`; GUCDI mocks set `lcr`).
+- Remaining for a full Vite LCR demo: the Vite mock template must mount `<SlowcookReviewOverlay reviewMode="lcr" />` (today only the Next.js template mounts the overlay), and the consumer must pin review-overlay 0.6.0 — both land once 0.6.0 publishes.
+
 ## 0.20.0 — anti-drift + HITL-halt pipeline: fidelity eye, role gates, dense extraction (sc#173 #12–#14)
 
 Cut 2026-06-07. `@slowcook-ai/cli` 0.20.0 · `@slowcook-ai/gates` 0.11.0 · `@slowcook-ai/llm-anthropic` 0.17.0 · `@slowcook-ai/forge-github` 0.13.0. (Also folds the unpublished 0.19.7 `slowcook serve` fixes, which never reached npm.)

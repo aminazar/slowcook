@@ -24,6 +24,17 @@ const MockShapeConfigSchema = z.object({
   router_file: z.string().optional(),
   scenarios_dir: z.string().default("mock/scenarios"),
   scenario_registry_file: z.string().default("mock/src/lib/scenario-registry.ts"),
+  /**
+   * 0.6.0 — review surface shape for the overlay (run-mock passes it to
+   * the overlay via NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE).
+   *
+   *  - `"scenarios"` (default): a scenario-picker mock; the overlay hides
+   *    on `/` and comments key by story_id.
+   *  - `"lcr"`: a full navigable Living Coded Requirement; the overlay
+   *    shows on every route and each comment captures its route so plate
+   *    amends per-page. GUCDI mocks set this.
+   */
+  review_mode: z.enum(["scenarios", "lcr"]).default("scenarios"),
 });
 
 export type MockShapeConfig = z.infer<typeof MockShapeConfigSchema>;
@@ -36,6 +47,7 @@ const NEXTJS_DEFAULT: MockShapeConfig = {
   design_system_dir: "mock/src/design-system",
   scenarios_dir: "mock/scenarios",
   scenario_registry_file: "mock/src/lib/scenario-registry.ts",
+  review_mode: "scenarios",
 };
 
 const VITE_DEFAULT: MockShapeConfig = {
@@ -47,6 +59,7 @@ const VITE_DEFAULT: MockShapeConfig = {
   router_file: "mock/src/App.tsx",
   scenarios_dir: "mock/scenarios",
   scenario_registry_file: "mock/src/lib/scenario-registry.ts",
+  review_mode: "scenarios",
 };
 
 /**

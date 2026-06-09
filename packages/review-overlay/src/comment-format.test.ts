@@ -67,6 +67,44 @@ describe("buildPayload", () => {
     });
     expect(p.story_id).toBeNull();
   });
+
+  // 0.6.0 — LCR free-nav: the comment carries the route it was left on.
+  it("captures pathname + route_query when supplied (LCR mode)", () => {
+    const p = buildPayload({
+      overlayVersion: "0.6.0",
+      storyId: "rewo-lcr",
+      url: "http://localhost:3100/r/webb-deep-field?clean=1",
+      pathname: "/r/webb-deep-field",
+      routeQuery: "?clean=1",
+      prose: "Bucket order looks off here.",
+      viewport: sampleViewport,
+      userAgent: "x",
+    });
+    expect(p.pathname).toBe("/r/webb-deep-field");
+    expect(p.route_query).toBe("?clean=1");
+    // round-trips through the markdown body + survives the parser
+    const body = formatReviewComment({ payload: p });
+    expect(body).toContain("**Route:** `/r/webb-deep-field?clean=1`");
+    const back = parseReviewComment(body);
+    expect(back?.pathname).toBe("/r/webb-deep-field");
+    expect(back?.route_query).toBe("?clean=1");
+  });
+
+  it("omits route fields when not supplied (scenarios mode / back-compat)", () => {
+    const p = buildPayload({
+      overlayVersion: "0.6.0",
+      storyId: "017",
+      url: "http://localhost:3100/",
+      prose: "x",
+      selector: sampleSelector,
+      bbox: { x: 0, y: 0, w: 0, h: 0 },
+      viewport: sampleViewport,
+      userAgent: "x",
+    });
+    expect(p.pathname).toBeUndefined();
+    expect(p.route_query).toBeUndefined();
+    expect(formatReviewComment({ payload: p })).not.toContain("**Route:**");
+  });
 });
 
 describe("formatReviewComment + parseReviewComment round trip", () => {
