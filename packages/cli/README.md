@@ -77,9 +77,9 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook chef-orchestrate --pr <number> --story <id> [--cwd <path>]
   ```
-- **`brand`** — Design-system foundation agent. Emits mock/src/design-system/{tokens.ts, css.ts} from a brand brief.
+- **`brand`** — Design-system foundation agent. Emits mock/src/design-system/{tokens.ts, css.ts} from a brand brief. `brand logo` tokenizes a supplied SVG / deterministically traces a PNG (vtracer/potrace — no LLM path-authoring).
   ```
-  slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]
+  slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]  ·  slowcook brand logo --in <svg|png> [--out <dir>] [--map #hex=token,...]
   ```
 
 ### Checks + guards

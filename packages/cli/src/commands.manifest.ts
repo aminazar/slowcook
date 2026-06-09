@@ -309,8 +309,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "brand",
-    usage: "slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]",
-    description: "Design-system foundation agent. Emits mock/src/design-system/{tokens.ts, css.ts} from a brand brief.",
+    usage: "slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]  ·  slowcook brand logo --in <svg|png> [--out <dir>] [--map #hex=token,...]",
+    description: "Design-system foundation agent. Emits mock/src/design-system/{tokens.ts, css.ts} from a brand brief. `brand logo` tokenizes a supplied SVG / deterministically traces a PNG (vtracer/potrace — no LLM path-authoring).",
     group: "pipeline",
   },
   {

@@ -185,6 +185,13 @@ export function buildProjectContext(repoRoot: string, args: BrandArgs): string {
 }
 
 export async function brand(argv: string[], _cliVersion: string): Promise<void> {
+  // GUCDI — `brand logo` subcommand: tokenize a supplied SVG / trace a PNG.
+  if (argv[0] === "logo") {
+    const { brandLogo } = await import("./logo-cmd.js");
+    await brandLogo(argv.slice(1));
+    return;
+  }
+
   let args: BrandArgs;
   try {
     args = parseArgs(argv);
