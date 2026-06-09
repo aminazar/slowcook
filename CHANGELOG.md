@@ -6,9 +6,19 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## Unreleased — plate free-navigation commenting for LCRs
+## 0.21.0 — multi-person LCR review (free-nav + GitHub identity + contextualised issues) · GUCDI commands
 
-On `feat/plate-lcr-free-nav` (not yet cut/published). Pairs with the GUCDI LCR shape: a mock is now a full navigable app, so review must let a human roam every route and comment anywhere, not pick a scenario.
+`@slowcook-ai/cli` 0.21.0 · `@slowcook-ai/core` 0.15.0 · `@slowcook-ai/forge-github` 0.14.0 · `@slowcook-ai/review-overlay` 0.6.0. (Also the first release carrying the GUCDI greenfield commands — `menu`, `trace check`, `greenfield status`, `brand logo` — that landed on main after 0.20.0.)
+
+Pairs with the GUCDI LCR shape: a mock is now a full navigable app, so review lets a human roam every route and comment anywhere, not pick a scenario — and several reviewers can each sign in as themselves.
+
+**Multi-person LCR review** (review-overlay 0.6.0 + the new reviewer-identity seam):
+- `reviewMode: "scenarios" | "lcr"` (env `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`). In `lcr` mode the overlay shows on every route (incl. `/`), captures each comment's `pathname`/`route_query`/`route_story`, and files a standalone `[LCR] story-NNN` issue labelled `lcr-review`+`vibe` instead of a PR comment.
+- **Reviewer identity** — core `ForgeReviewerAuth` seam + forge-github `GitHubReviewerAuth` (OAuth device flow). run-mock in lcr mode hosts a device-flow auth-helper (`--expose` for a remote box); the overlay's "Sign in with GitHub" posts each comment as that reviewer's own account. Ships a default shared OAuth client-id (overridable via `.brewing/mock.yaml` `review_oauth_client_id`/`review_oauth_scope`).
+- **Lifecycle** — applied/declined/noop comments hide behind a "show already-applied" toggle; the new `needs-clarification` status stays visible.
+- `useStoryMarker`/`readCurrentStory` — an LCR page self-reports its story at runtime (`data-slowcook-story`) so the issue is tagged with the exact requirement.
+
+On `feat/plate-lcr-free-nav`.
 
 - **`@slowcook-ai/review-overlay` 0.6.0** — new `reviewMode: "scenarios" | "lcr"` prop (env `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`, default `scenarios`). In `lcr` mode the overlay no longer hides on the `/` route (an LCR's home is a first-class surface) and every comment payload now carries `pathname` + `route_query` (the route it was left on), rendered as a `**Route:**` line. Back-compat: scenario-mode payloads omit the fields; the parser ignores extras.
 - **plate** reads `payload.pathname` (falling back to parsing `url`) and prefixes each comment fed to the amendment agent with `` on route `/x` `` (new pure `plate/route-hint.ts`), so it amends the component rendering THAT page instead of guessing from the selector alone.
