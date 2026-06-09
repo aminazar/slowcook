@@ -153,6 +153,33 @@ const SpecSchema = z.object({
   // Dimension-value tokens (light|dark|mobile|desktop); the eye expands them to
   // the (declared-or-full) product. Absent = eye uses its full default matrix.
   fidelity: z.object({ modes: z.array(z.string()) }).optional(),
+  // GUCDI — provenance anchor to a PRD initiative (greenfield only). OPTIONAL:
+  // brownfield specs trace via source_issue instead, and `trace check` NEVER
+  // demands a prd_ref (provenance is the union {issue|prd|convention|craft}).
+  prd_ref: z.object({ file: z.string(), anchor: z.string() }).optional(),
+  // GUCDI — the data contract this story needs, baked into the LCR's SQLite+ORM
+  // schema and inherited by the backend (mock→prod becomes a data-source swap).
+  data_contract: z
+    .object({
+      entities: z
+        .array(
+          z.object({
+            name: z.string(),
+            fields: z.array(z.object({ name: z.string(), type: z.string() })).optional(),
+            relations: z.array(z.string()).optional(),
+          }),
+        )
+        .optional(),
+      api: z
+        .array(z.object({ method: z.string(), path: z.string(), note: z.string().optional() }))
+        .optional(),
+    })
+    .optional(),
+  // GUCDI — open questions surfaced at decomposition or via path-discovery.
+  // addressable = must resolve before the scope is "complete"; deferred = parked.
+  open_questions: z
+    .object({ addressable: z.array(z.string()), deferred: z.array(z.string()) })
+    .optional(),
   acceptance_scenarios: z.array(z.string()),
   non_goals: z.array(z.string()),
   related_specs: z
