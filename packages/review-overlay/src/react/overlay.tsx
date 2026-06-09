@@ -604,6 +604,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         isApproved={isApproved}
         commentCount={comments.length}
         onListClick={() => setListPanelOpen(true)}
+        reviewMode={reviewMode}
+        identity={reviewerIdentity}
+        onSignIn={() => void signIn()}
+        onSignOut={signOut}
       />
       {/* 0.3.0 — Figma-style pin layer for previously-left comments.
           Only visible in Comment mode (Nav stays clean). 0.5.0 —
@@ -670,14 +674,6 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           submitting={submitting}
         />
       )}
-      {/* 0.6.0 — LCR multi-person review: per-reviewer GitHub sign-in. */}
-      {reviewMode === "lcr" && (
-        <ReviewerSignInBadge
-          identity={reviewerIdentity}
-          onSignIn={() => void signIn()}
-          onSignOut={signOut}
-        />
-      )}
       {login.open && (
         <ReviewerLoginDialog
           userCode={login.userCode}
@@ -692,35 +688,6 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
 }
 
 /**
- * 0.6.0 — sign-in badge for LCR review (top-right). Shows "Sign in with
- * GitHub" until the reviewer authenticates, then their @login + sign-out.
- * Every comment then posts as that reviewer (real GitHub attribution).
- */
-function ReviewerSignInBadge({
-  identity, onSignIn, onSignOut,
-}: { identity: ReviewerIdentity | null; onSignIn: () => void; onSignOut: () => void }): JSX.Element {
-  return (
-    <div style={{ position: "fixed", top: 12, right: 12, pointerEvents: "auto", zIndex: 2147483600 }}>
-      {identity ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 999, padding: "5px 10px 5px 6px", boxShadow: "0 2px 10px rgba(0,0,0,0.12)", fontSize: 13 }}>
-          {identity.avatarUrl
-            ? <img src={identity.avatarUrl} alt="" width={22} height={22} style={{ borderRadius: "50%" }} />
-            : <span aria-hidden style={{ width: 22, height: 22, borderRadius: "50%", background: "#eee", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>👤</span>}
-          <span style={{ fontWeight: 600 }}>@{identity.login}</span>
-          <button onClick={onSignOut} title="Sign out" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#888", fontSize: 12 }}>sign out</button>
-        </div>
-      ) : (
-        <button
-          onClick={onSignIn}
-          style={{ display: "flex", alignItems: "center", gap: 8, background: "#24292f", color: "#fff", border: "none", borderRadius: 999, padding: "8px 14px", cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.18)", fontSize: 13, fontWeight: 600 }}
-        >
-          <span aria-hidden>⧉</span> Sign in with GitHub
-        </button>
-      )}
-    </div>
-  );
-}
-
 /** 0.6.0 — device-flow login dialog: shows the user code + verification link. */
 function ReviewerLoginDialog({
   userCode, verificationUri, status, onClose,
@@ -802,8 +769,14 @@ function ModeToggle(props: {
   isApproved: boolean;
   commentCount: number;
   onListClick: () => void;
+  // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
+  // not a separate fixed badge.
+  reviewMode: "scenarios" | "lcr";
+  identity: ReviewerIdentity | null;
+  onSignIn: () => void;
+  onSignOut: () => void;
 }): JSX.Element {
-  const { mode, onChange, disabled, isMobile, isApproved, commentCount, onListClick } = props;
+  const { mode, onChange, disabled, isMobile, isApproved, commentCount, onListClick, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -984,6 +957,44 @@ function ModeToggle(props: {
           }}>{commentCount}</span>
         )}
       </button>
+      {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
+          explicit (white-on-dark) so the app's dark/light theme can't touch it. */}
+      {reviewMode === "lcr" && (
+        identity ? (
+          <span
+            title={`Signed in as @${identity.login} — click to sign out`}
+            onClick={onSignOut}
+            style={{
+              marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
+              background: "rgba(255,255,255,0.10)", color: "white", fontSize: 12, fontWeight: 600,
+            }}
+          >
+            {identity.avatarUrl
+              ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
+              : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
+            @{identity.login}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onSignIn}
+            disabled={disabled}
+            title="Sign in with GitHub to comment as yourself"
+            style={{
+              marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "6px 12px", borderRadius: 999, border: "none",
+              background: "white", color: "#24292f", cursor: disabled ? "not-allowed" : "pointer",
+              font: "inherit", fontSize: 12, fontWeight: 700,
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="#24292f" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Sign in
+          </button>
+        )
+      )}
     </div>
   );
 }
