@@ -392,6 +392,20 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
+  // 0.6.6 — entering Nav clears the whole comment surface: any open composer,
+  // the comments-list panel, a general-note composer, an open pin popover, the
+  // approve confirm, the hover preview. Nav = "done reviewing, clean slate".
+  useEffect(() => {
+    if (mode !== "nav") return;
+    setComposerOpen(false);
+    setTarget(null);
+    setGeneralComposerOpen(false);
+    setListPanelOpen(false);
+    setOpenCommentId(null);
+    setApproveConfirmOpen(false);
+    setHoverEl(null);
+  }, [mode]);
+
   const onApproveClicked = useCallback(() => {
     // 0.2.0 — two-step confirm; protects against fat-finger approval.
     setMode("approve");
