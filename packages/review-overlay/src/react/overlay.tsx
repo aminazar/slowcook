@@ -1287,6 +1287,28 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
   );
 }
 
+/**
+ * 0.6.13 — page-context badge in the composer so the reviewer sees which page
+ * the comment is on (route + the story it declares, if any) before submitting.
+ */
+function PageBadge(): JSX.Element | null {
+  if (typeof window === "undefined") return null;
+  const route = window.location.pathname + window.location.search;
+  const story = readCurrentStory();
+  return (
+    <div style={{
+      display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%",
+      fontSize: 11.5, color: "#3a3a3a", background: "rgba(255,107,107,0.10)",
+      border: "1px solid rgba(255,107,107,0.30)", borderRadius: 6,
+      padding: "3px 9px", marginBottom: 8,
+    }}>
+      <span aria-hidden>📄</span>
+      <span style={{ fontFamily: "ui-monospace, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{route}</span>
+      {story && <span style={{ fontWeight: 700, color: "#d6336c" }}>· story-{story}</span>}
+    </div>
+  );
+}
+
 function Composer(props: {
   target: Element;
   onCancel: () => void;
@@ -1367,7 +1389,8 @@ function Composer(props: {
           zIndex: 2147483647,
         }}
       >
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>Review comment</div>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>Review comment</div>
+        <PageBadge />
         <div style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, opacity: 0.7, marginBottom: 8, wordBreak: "break-all" }}>
           {sel.selector}
         </div>
@@ -2080,7 +2103,8 @@ function GeneralComposer(props: {
         fontSize: 13,
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>Add page note</div>
+      <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 14 }}>Add page note</div>
+      <PageBadge />
       <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
         Comment about overall behavior — not anchored to a specific element.
       </div>
