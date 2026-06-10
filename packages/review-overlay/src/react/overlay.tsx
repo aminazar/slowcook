@@ -1384,6 +1384,7 @@ function Composer(props: {
             border: "1px solid rgba(0,0,0,0.15)",
             borderRadius: 6,
             font: "inherit",
+            fontSize: 16, // 0.6.12 — ≥16px stops iOS Safari auto-zooming on focus
             resize: "vertical",
             boxSizing: "border-box",
           }}
@@ -2096,6 +2097,7 @@ function GeneralComposer(props: {
           border: "1px solid rgba(0,0,0,0.15)",
           borderRadius: 6,
           font: "inherit",
+          fontSize: 16, // 0.6.12 — ≥16px stops iOS Safari auto-zooming on focus
           resize: "vertical",
           boxSizing: "border-box",
         }}
