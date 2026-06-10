@@ -405,11 +405,26 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       const el = e.target as Element | null;
       setHoverEl(el && !isOwnUi(el) ? el : null);
     }
+    // 0.6.15 — native controls (a <select>, <input>, link, button) activate on
+    // mousedown/pointerdown, BEFORE click — so without this they'd open their
+    // dropdown / focus / navigate instead of letting the click attach a comment.
+    // Swallow the down-press on the page (not the overlay's own UI) in
+    // comment/approve mode; the click still fires and opens the composer.
+    function onDown(e: Event) {
+      const el = e.target as Element | null;
+      if (!el || isOwnUi(el)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }
     document.addEventListener("click", onClick, { capture: true });
     document.addEventListener("mouseover", onMove, { capture: true });
+    document.addEventListener("mousedown", onDown, { capture: true });
+    document.addEventListener("pointerdown", onDown, { capture: true });
     return () => {
       document.removeEventListener("click", onClick, { capture: true });
       document.removeEventListener("mouseover", onMove, { capture: true });
+      document.removeEventListener("mousedown", onDown, { capture: true });
+      document.removeEventListener("pointerdown", onDown, { capture: true });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
