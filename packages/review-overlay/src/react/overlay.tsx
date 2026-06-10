@@ -208,6 +208,21 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // discussion (plate refuses to amend either way).
   const [isApproved, setIsApproved] = useState<boolean>(false);
 
+  // Lock page scroll while a composer or thread popover is open. Those boxes
+  // (and the element highlight) are positioned once at open time, so a scroll
+  // would leave them behind — easy to lose on mobile. Freezing the page keeps
+  // the box and its highlight together until the reviewer is done.
+  useEffect(() => {
+    const locked = composerOpen || generalComposerOpen || openCommentId !== null;
+    if (!locked || typeof document === "undefined") return;
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    const prevTouch = body.style.touchAction;
+    body.style.overflow = "hidden";
+    body.style.touchAction = "none";
+    return () => { body.style.overflow = prevOverflow; body.style.touchAction = prevTouch; };
+  }, [composerOpen, generalComposerOpen, openCommentId]);
+
   // Mount-time + on-focus fetch of overlay comments / LCR issues.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -674,6 +689,18 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         zIndex: 2147483000,
       }}
     >
+      {/* Style isolation — the overlay renders into the host's DOM, so the
+          host's global form rules (e.g. a `[data-theme="dark"] textarea {…}`
+          dark-mode override) bleed onto the overlay's own inputs and turn the
+          comment box dark. These scoped !important rules pin every overlay
+          form control to its intended light surface regardless of host theme. */}
+      <style dangerouslySetInnerHTML={{ __html:
+        `[data-slowcook-overlay-ui] textarea,[data-slowcook-overlay-ui] input,[data-slowcook-overlay-ui] select{` +
+        `color:#1a1a1a !important;background-color:#fff !important;` +
+        `-webkit-text-fill-color:#1a1a1a !important;border-color:rgba(0,0,0,0.15) !important;caret-color:#1a1a1a !important;}` +
+        `[data-slowcook-overlay-ui] textarea::placeholder,[data-slowcook-overlay-ui] input::placeholder{` +
+        `color:rgba(0,0,0,0.4) !important;-webkit-text-fill-color:rgba(0,0,0,0.4) !important;}`
+      }} />
       {mode !== "nav" && (
         <div
           style={{
@@ -1624,17 +1651,24 @@ function CommentPins(props: {
 
   return (
     <div data-slowcook-overlay-ui="1" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-      {placements.map(({ record, rect, drifted }) => (
-        <PinIcon
-          key={record.commentId}
-          record={record}
-          x={rect.x}
-          y={rect.y}
-          drifted={drifted}
-          flashing={flashCommentId === record.commentId}
-          onClick={() => onOpen(record.commentId)}
-        />
-      ))}
+      {/* Only render pins that track a live element. Drifted comments (selector
+          no longer resolves) used to render a frozen placeholder at the capture
+          bbox that didn't move on scroll — misleading. They now live only in the
+          sidebar list. A pin opened from the list (its id matches) still renders
+          so "Locate" has something to point at. */}
+      {placements
+        .filter(({ record, drifted }) => !drifted || record.commentId === openCommentId)
+        .map(({ record, rect, drifted }) => (
+          <PinIcon
+            key={record.commentId}
+            record={record}
+            x={rect.x}
+            y={rect.y}
+            drifted={drifted}
+            flashing={flashCommentId === record.commentId}
+            onClick={() => onOpen(record.commentId)}
+          />
+        ))}
       {openCommentId !== null && (() => {
         const placement = placements.find((p) => p.record.commentId === openCommentId);
         if (!placement) return null;
@@ -1999,7 +2033,16 @@ function CommentsListPanel(props: {
               : "Nothing needs attention — all comments are applied. Use the toggle above to see them."}
           </div>
         ) : (
-          visible.slice().reverse().map((r) => {
+          (() => {
+            // #198-overlay — separate page-level notes from element-anchored
+            // comments into labelled groups; element comments are the ones that
+            // get sticky pins, page notes live only here.
+            const rows = visible.slice().reverse();
+            const groups: Array<{ label: string; items: OverlayCommentRecord[] }> = [
+              { label: "📍 On an element", items: rows.filter((r) => r.payload.element !== null) },
+              { label: "📄 On the page", items: rows.filter((r) => r.payload.element === null) },
+            ];
+            const renderRow = (r: OverlayCommentRecord) => {
             const status = r.plateReply?.status ?? null;
             const palette = pinPalette(status as never, false);
             const anchored = r.payload.element !== null;
@@ -2059,7 +2102,18 @@ function CommentsListPanel(props: {
                 </div>
               </div>
             );
-          })
+            };
+            return groups
+              .filter((g) => g.items.length > 0)
+              .map((g) => (
+                <div key={g.label}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "rgba(255,255,255,0.42)", padding: "10px 6px 4px" }}>
+                    {g.label} · {g.items.length}
+                  </div>
+                  {g.items.map(renderRow)}
+                </div>
+              ));
+          })()
         )}
       </div>
     </div>
