@@ -1877,6 +1877,9 @@ function CommentsListPanel(props: {
   isApproved: boolean;
 }): JSX.Element {
   const { records, showApplied, onToggleApplied, onClose, onOpenComment, onAddGeneral, onApprove, isApproved } = props;
+  // 0.6.14 — expand/collapse a row in place to read the full prose + reply,
+  // open the GitHub issue, or (for anchored comments) locate the pin on the page.
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   // 0.6.0 — resolved comments (applied/declined/noop) hide by default so the
   // list shows what still needs attention; needs-clarification + unresolved
   // always show. The toggle reveals the resolved ones.
@@ -1999,68 +2002,47 @@ function CommentsListPanel(props: {
               : hidden
               ? { text: "hidden", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
               : { text: "anchored", color: "#22c55e", bg: "rgba(34,197,94,0.18)" };
+            const expanded = expandedId === r.commentId;
+            const clamp = (lines: number) => expanded ? {} : { display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical" as const, overflow: "hidden" };
             return (
-              <button
+              <div
                 key={r.commentId}
-                type="button"
-                onClick={() => onOpenComment(r.commentId)}
                 style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
                   background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 8,
-                  padding: 10,
-                  marginBottom: 6,
-                  cursor: "pointer",
-                  color: "white",
-                  font: "inherit",
+                  border: `1px solid ${expanded ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)"}`,
+                  borderRadius: 8, padding: 10, marginBottom: 6, color: "white",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                  <span style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 18,
-                    height: 18,
-                    borderRadius: 999,
-                    background: palette.bg,
-                    color: palette.fg,
-                    fontSize: 10,
-                    fontWeight: 700,
-                  }}>{palette.glyph}</span>
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                    padding: "1px 6px",
-                    borderRadius: 999,
-                    background: anchorLabel.bg,
-                    color: anchorLabel.color,
-                  }}>{anchorLabel.text}</span>
-                  <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>
-                    @{r.author} · {formatTimeAgo(r.createdAt)}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                  {r.payload.prose}
-                </div>
-                {/* 0.6.7 — show the latest reply inline so the answer is visible
-                    in the list, not only the pin popover. */}
+                {/* Header — click toggles expand. */}
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(expanded ? null : r.commentId)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", color: "white", font: "inherit", cursor: "pointer" }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 999, background: palette.bg, color: palette.fg, fontSize: 10, fontWeight: 700 }}>{palette.glyph}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: anchorLabel.bg, color: anchorLabel.color }}>{anchorLabel.text}</span>
+                  <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>@{r.author} · {formatTimeAgo(r.createdAt)}</span>
+                  <span aria-hidden style={{ fontSize: 10, opacity: 0.55, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▶</span>
+                </button>
+                <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
                 {r.plateReply?.summary && (
-                  <div style={{
-                    marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)",
-                    fontSize: 11.5, lineHeight: 1.45, color: "rgba(255,255,255,0.82)",
-                    display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden",
-                  }}>
-                    <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>
-                    {r.plateReply.summary}
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 11.5, lineHeight: 1.45, color: "rgba(255,255,255,0.82)", whiteSpace: "pre-wrap", ...clamp(4) }}>
+                    <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>{r.plateReply.summary}
                   </div>
                 )}
-              </button>
+                {/* Actions — always offer GitHub; locate only when anchored. */}
+                <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11.5 }}>
+                  <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ color: "#7cc7ff", textDecoration: "none" }}>↗ Open issue on GitHub</a>
+                  {anchored && (
+                    <button type="button" onClick={() => onOpenComment(r.commentId)} style={{ color: "#22c55e", font: "inherit", fontSize: 11.5, cursor: "pointer" }}>
+                      📍 {live ? "Locate on page" : "Anchor drifted"}
+                    </button>
+                  )}
+                  {!expanded && (r.payload.prose.length > 120 || (r.plateReply?.summary?.length ?? 0) > 180) && (
+                    <button type="button" onClick={() => setExpandedId(r.commentId)} style={{ color: "rgba(255,255,255,0.6)", font: "inherit", fontSize: 11.5, cursor: "pointer", marginLeft: "auto" }}>Expand</button>
+                  )}
+                </div>
+              </div>
             );
           })
         )}
