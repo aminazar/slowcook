@@ -738,6 +738,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       {mode === "comment" && comments.length > 0 && (
         <CommentPins
           records={comments.filter((c) => c.payload.element !== null)}
+          showApplied={showApplied}
           openCommentId={openCommentId}
           onOpen={(id) => setOpenCommentId(id)}
           onClose={() => setOpenCommentId(null)}
@@ -1588,12 +1589,22 @@ function ensurePat(repo: RepoCoord, lcr = false): string | null {
  */
 function CommentPins(props: {
   records: OverlayCommentRecord[];
+  showApplied: boolean;
   openCommentId: number | null;
   onOpen: (id: number) => void;
   onClose: () => void;
   flashCommentId?: number | null;
 }): JSX.Element {
-  const { records, openCommentId, onOpen, onClose, flashCommentId } = props;
+  const { records: allRecords, showApplied, openCommentId, onOpen, onClose, flashCommentId } = props;
+  // Hide pins for resolved/applied comments unless the reviewer has asked to
+  // see them (the same "show applied" toggle that governs the list). An open
+  // pin stays visible so "Locate from list" still works.
+  const records = allRecords.filter(
+    (r) =>
+      showApplied ||
+      r.commentId === openCommentId ||
+      !(r.plateReply != null && isResolvedStatus(r.plateReply.status)),
+  );
   // tick forces a re-render on every animation frame so pins follow
   // the underlying DOM as the page scrolls / reflows.
   const [tick, setTick] = useState(0);
@@ -1698,6 +1709,20 @@ function pinPalette(status: OverlayCommentRecord["plateReply"] extends infer R ?
   }
 }
 
+/** Per-author colour — Figma-style. Hashes the FULL author handle to a hue, so
+ *  two reviewers with the same initial still get distinct colours. */
+function authorColor(author: string): { bg: string; ring: string } {
+  let h = 0;
+  for (let i = 0; i < author.length; i++) h = (h * 31 + author.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  return { bg: `hsl(${hue}, 58%, 42%)`, ring: `hsla(${hue}, 58%, 42%, 0.35)` };
+}
+/** First alphanumeric character of the author handle, uppercased. */
+function authorInitial(author: string): string {
+  const m = author.replace(/[^a-zA-Z0-9]/g, "");
+  return (m[0] ?? "?").toUpperCase();
+}
+
 function PinIcon(props: {
   record: OverlayCommentRecord;
   x: number;
@@ -1706,11 +1731,18 @@ function PinIcon(props: {
   flashing?: boolean;
   onClick: () => void;
 }): JSX.Element {
+  const author = props.record.author || "unknown";
   const status = props.record.plateReply?.status ?? null;
-  const palette = pinPalette(status as never, props.drifted);
-  const title = props.drifted
-    ? `Selector drifted (anchored at original bbox); click to view`
-    : `${status ?? "unresolved"} · click to view`;
+  const col = authorColor(author);
+  // Status is shown as a small corner badge (not the whole pin) so the pin's
+  // body can carry the author's identity instead. No badge for a plain
+  // unresolved comment; drifted/resolved states get one.
+  const statusBadge = props.drifted
+    ? pinPalette(null as never, true)
+    : status
+    ? pinPalette(status as never, false)
+    : null;
+  const title = `@${author}${props.drifted ? " · selector drifted" : status ? ` · ${status}` : ""} · click to view`;
   return (
     <button
       type="button"
@@ -1725,18 +1757,18 @@ function PinIcon(props: {
         width: 22,
         height: 22,
         borderRadius: 999,
-        background: palette.bg,
-        color: palette.fg,
+        background: col.bg,
+        color: "#fff",
         border: `2px solid white`,
         boxShadow: props.flashing
-          ? `0 2px 6px rgba(0,0,0,0.25), 0 0 0 12px ${palette.ring}`
-          : `0 2px 6px rgba(0,0,0,0.25), 0 0 0 4px ${palette.ring}`,
+          ? `0 2px 6px rgba(0,0,0,0.25), 0 0 0 12px ${col.ring}`
+          : `0 2px 6px rgba(0,0,0,0.25), 0 0 0 4px ${col.ring}`,
         transform: props.flashing ? "scale(1.4)" : "scale(1)",
         transition: "transform 220ms ease, box-shadow 220ms ease",
         cursor: "pointer",
         pointerEvents: "auto",
         fontSize: 11,
-        fontWeight: 700,
+        fontWeight: 800,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -1745,7 +1777,22 @@ function PinIcon(props: {
         lineHeight: 1,
       }}
     >
-      {palette.glyph}
+      {authorInitial(author)}
+      {statusBadge && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute", top: -5, right: -5,
+            width: 12, height: 12, borderRadius: 999,
+            background: statusBadge.bg, color: statusBadge.fg,
+            border: "1.5px solid white", fontSize: 8, fontWeight: 800,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            lineHeight: 1,
+          }}
+        >
+          {statusBadge.glyph}
+        </span>
+      )}
     </button>
   );
 }
@@ -2077,7 +2124,14 @@ function CommentsListPanel(props: {
                   onClick={() => setExpandedId(expanded ? null : r.commentId)}
                   style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", color: "white", font: "inherit", cursor: "pointer" }}
                 >
-                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 999, background: palette.bg, color: palette.fg, fontSize: 10, fontWeight: 700 }}>{palette.glyph}</span>
+                  {/* Per-author identity disk (colour + initial), with the plate
+                      status as a small corner badge — matches the on-page pins. */}
+                  <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 999, background: authorColor(r.author || "unknown").bg, color: "#fff", fontSize: 9, fontWeight: 800 }}>{authorInitial(r.author || "unknown")}</span>
+                    {status && (
+                      <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: "1.5px solid rgba(15,15,24,1)", fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
+                    )}
+                  </span>
                   <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: anchorLabel.bg, color: anchorLabel.color }}>{anchorLabel.text}</span>
                   <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>@{r.author} · {formatTimeAgo(r.createdAt)}</span>
                   <span aria-hidden style={{ fontSize: 10, opacity: 0.55, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▶</span>
