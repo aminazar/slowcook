@@ -9,14 +9,14 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@25.9.1)(jsdom@29.1.1)
+        version: 2.1.9(@types/node@25.9.3)(jsdom@29.1.1)
 
   packages/cli:
     dependencies:
@@ -61,14 +61,14 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
 
   packages/core:
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
 
   packages/forge-github:
     dependencies:
@@ -80,8 +80,8 @@ importers:
         version: link:../core
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
 
   packages/gates:
     dependencies:
@@ -99,8 +99,8 @@ importers:
         version: link:../core
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
 
   packages/mock-runtime:
     dependencies:
@@ -109,8 +109,8 @@ importers:
         version: link:../core
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15
@@ -127,14 +127,14 @@ importers:
   packages/recorder:
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
 
   packages/review-overlay:
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15
@@ -155,8 +155,8 @@ importers:
         version: link:../core
     devDependencies:
       '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
+        specifier: ^25.9.3
+        version: 25.9.3
 
 packages:
 
@@ -763,8 +763,8 @@ packages:
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
-  '@types/node@25.9.1':
-    resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
+  '@types/node@25.9.3':
+    resolution: {integrity: sha512-603BddQMv3pUcr4U2dhujk83N2tTDVr/34wII2B6bJy6g+8WD6yUb11jszNs0gdi4PesVWl7ABt8nYMVpnLUcg==}
 
   '@types/react@19.2.15':
     resolution: {integrity: sha512-eRwcGNHve+E8qtEQSSRl6urh+rFop4v8gm6O8rGv25CodbvFdLjA1vVQ1KkiFE0w0UPOnb8tDiFKL5lp0rtY5Q==}
@@ -1673,7 +1673,7 @@ snapshots:
 
   '@types/estree@1.0.8': {}
 
-  '@types/node@25.9.1':
+  '@types/node@25.9.3':
     dependencies:
       undici-types: 7.24.6
 
@@ -1688,13 +1688,13 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 1.2.0
 
-  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@25.9.1))':
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@25.9.3))':
     dependencies:
       '@vitest/spy': 2.1.9
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 5.4.21(@types/node@25.9.1)
+      vite: 5.4.21(@types/node@25.9.3)
 
   '@vitest/pretty-format@2.1.9':
     dependencies:
@@ -2099,13 +2099,13 @@ snapshots:
 
   universal-user-agent@7.0.3: {}
 
-  vite-node@2.1.9(@types/node@25.9.1):
+  vite-node@2.1.9(@types/node@25.9.3):
     dependencies:
       cac: 6.7.14
       debug: 4.4.3
       es-module-lexer: 1.7.0
       pathe: 1.1.2
-      vite: 5.4.21(@types/node@25.9.1)
+      vite: 5.4.21(@types/node@25.9.3)
     transitivePeerDependencies:
       - '@types/node'
       - less
@@ -2117,19 +2117,19 @@ snapshots:
       - supports-color
       - terser
 
-  vite@5.4.21(@types/node@25.9.1):
+  vite@5.4.21(@types/node@25.9.3):
     dependencies:
       esbuild: 0.21.5
       postcss: 8.5.15
       rollup: 4.60.2
     optionalDependencies:
-      '@types/node': 25.9.1
+      '@types/node': 25.9.3
       fsevents: 2.3.3
 
-  vitest@2.1.9(@types/node@25.9.1)(jsdom@29.1.1):
+  vitest@2.1.9(@types/node@25.9.3)(jsdom@29.1.1):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@25.9.1))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@25.9.3))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9
@@ -2145,11 +2145,11 @@ snapshots:
       tinyexec: 0.3.2
       tinypool: 1.1.1
       tinyrainbow: 1.2.0
-      vite: 5.4.21(@types/node@25.9.1)
-      vite-node: 2.1.9(@types/node@25.9.1)
+      vite: 5.4.21(@types/node@25.9.3)
+      vite-node: 2.1.9(@types/node@25.9.3)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 25.9.1
+      '@types/node': 25.9.3
       jsdom: 29.1.1
     transitivePeerDependencies:
       - less
