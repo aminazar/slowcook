@@ -56,10 +56,11 @@ import {
   clearReviewerSession,
   runDeviceLogin,
   identifyReviewer,
+  checkRepoWriteAccess,
+  type StoredReviewerIdentity,
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
-import type { ReviewerIdentity } from "@slowcook-ai/core";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -163,7 +164,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
   // 0.6.0 — LCR multi-person review: who's signed in (this browser) + the
   // device-flow login dialog state. Comments post as this reviewer.
-  const [reviewerIdentity, setReviewerIdentity] = useState<ReviewerIdentity | null>(null);
+  const [reviewerIdentity, setReviewerIdentity] = useState<StoredReviewerIdentity | null>(null);
   const [login, setLogin] = useState<{ open: boolean; userCode?: string; verificationUri?: string; status: string }>({ open: false, status: "" });
   const loginAbort = useRef(false);
   // 0.6.0 — "show already-applied" toggle for the comments list. Resolved
@@ -313,12 +314,17 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     });
     if (!token) return;
     try {
-      const id = await identifyReviewer(token);
+      const base = await identifyReviewer(token);
+      // Derive the apply tier from repo write access (push/maintain/admin).
+      const canApply = await checkRepoWriteAccess(token, { owner, repo });
+      const id = { ...base, canApply };
       saveReviewerToken(window.localStorage, { owner, repo }, token);
       saveReviewerIdentity(window.localStorage, { owner, repo }, id);
       setReviewerIdentity(id);
       setLogin({ open: false, status: "" });
-      setFeedback(`Signed in as @${id.login}.`);
+      setFeedback(canApply
+        ? `Signed in as @${id.login} — your comments are applied.`
+        : `Signed in as @${id.login} — your feedback goes to the team for review.`);
     } catch (e) {
       setLogin({ open: true, status: `Could not read your GitHub identity: ${e instanceof Error ? e.message : String(e)}` });
     }
@@ -337,7 +343,9 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const postPayload = useCallback(
     async (payload: ReviewCommentPayload, pat: string) => {
       if (reviewMode === "lcr") {
-        const issue = formatLcrIssue({ payload });
+        // Only write-access reviewers get the `vibe` (auto-apply) label; others
+        // are labelled `community-review` and held for the team to triage.
+        const issue = formatLcrIssue({ payload, canApply: reviewerIdentity?.canApply === true });
         const res = await createIssue({
           owner: repoCoord.owner, repo: repoCoord.repo, pat,
           title: issue.title, body: issue.body, labels: issue.labels,
@@ -352,7 +360,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       });
       return { res, kind: "comment" as const };
     },
-    [reviewMode, repoCoord, prNumber],
+    [reviewMode, repoCoord, prNumber, reviewerIdentity],
   );
 
   useEffect(() => {
@@ -924,7 +932,7 @@ function ModeToggle(props: {
   // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
   // not a separate fixed badge.
   reviewMode: "scenarios" | "lcr";
-  identity: ReviewerIdentity | null;
+  identity: StoredReviewerIdentity | null;
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
@@ -1123,7 +1131,11 @@ function ModeToggle(props: {
       {reviewMode === "lcr" && mode === "comment" && (
         identity ? (
           <span
-            title={confirmLogout ? "Click again to sign out (or click anything else to cancel)" : `Signed in as @${identity.login}`}
+            title={confirmLogout
+              ? "Click again to sign out (or click anything else to cancel)"
+              : identity.canApply
+              ? `Signed in as @${identity.login} — you have write access, so your comments are applied`
+              : `Signed in as @${identity.login} — no write access, so your feedback is gathered for the team to review (not auto-applied)`}
             onClick={() => { if (confirmLogout) { setConfirmLogout(false); onSignOut(); } else { setConfirmLogout(true); } }}
             style={{
               marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
@@ -1141,6 +1153,13 @@ function ModeToggle(props: {
                   ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
                   : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
                 @{identity.login}
+                {/* tier chip — write access applies; otherwise feedback to team */}
+                <span style={{
+                  fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, textTransform: "uppercase",
+                  padding: "1px 6px", borderRadius: 999,
+                  background: identity.canApply ? "rgba(34,197,94,0.22)" : "rgba(148,163,184,0.25)",
+                  color: identity.canApply ? "#4ade80" : "#cbd5e1",
+                }}>{identity.canApply ? "applies" : "review"}</span>
               </>
             )}
           </span>

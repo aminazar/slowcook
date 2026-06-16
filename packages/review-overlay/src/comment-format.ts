@@ -263,6 +263,10 @@ function isReviewCommentPayload(v: unknown): v is ReviewCommentPayload {
  */
 export const LCR_REVIEW_LABEL = "lcr-review";
 export const VIBE_LABEL = "vibe";
+// Comments from reviewers WITHOUT repo write access carry this label instead of
+// `vibe`. The apply pipeline only acts on `vibe`, so these are never auto-applied
+// — they're gathered for the team/PM to triage (and promote to `vibe` if wanted).
+export const COMMUNITY_LABEL = "community-review";
 
 export interface LcrIssue {
   title: string;
@@ -270,11 +274,16 @@ export interface LcrIssue {
   labels: string[];
 }
 
-/** Build the title/body/labels for an LCR review issue (pure). */
+/** Build the title/body/labels for an LCR review issue (pure).
+ *  `canApply` (default true) reflects the reviewer's repo write access: when
+ *  false the issue is labelled `community-review` (held for the team) rather
+ *  than `vibe` (auto-applied). */
 export function formatLcrIssue(args: {
   payload: ReviewCommentPayload;
   screenshotDataUrl?: string;
+  canApply?: boolean;
 }): LcrIssue {
+  const canApply = args.canApply !== false;
   const { payload } = args;
   const route = payload.pathname ? `${payload.pathname}${payload.route_query ?? ""}` : undefined;
   const story = payload.route_story;
@@ -297,14 +306,16 @@ export function formatLcrIssue(args: {
   lines.push(`> ${payload.prose.split("\n").join("\n> ")}`);
   lines.push("");
   if (args.screenshotDataUrl) { lines.push(`![screenshot](${args.screenshotDataUrl})`); lines.push(""); }
-  lines.push(`_Filed from the LCR review overlay — labelled \`${VIBE_LABEL}\` for vibe to apply to the mock._`);
+  lines.push(canApply
+    ? `_Filed from the LCR review overlay — labelled \`${VIBE_LABEL}\` for vibe to apply to the mock._`
+    : `_Filed from the LCR review overlay by a reviewer without repo write access — labelled \`${COMMUNITY_LABEL}\` and gathered for the team to review (not auto-applied)._`);
   lines.push("");
   lines.push("<!--");
   lines.push(PAYLOAD_MARKER);
   lines.push(JSON.stringify(payload));
   lines.push("-->");
 
-  const labels = [LCR_REVIEW_LABEL, VIBE_LABEL];
+  const labels = [LCR_REVIEW_LABEL, canApply ? VIBE_LABEL : COMMUNITY_LABEL];
   if (story) labels.push(`story-${story.replace(/^story-/, "")}`);
   return { title: titleBits.join(" "), body: lines.join("\n"), labels };
 }

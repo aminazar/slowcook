@@ -6,6 +6,7 @@ import {
   formatLcrIssue,
   LCR_REVIEW_LABEL,
   VIBE_LABEL,
+  COMMUNITY_LABEL,
   PAYLOAD_MARKER,
 } from "./comment-format.js";
 import type { ExtractedSelector } from "./selector.js";
@@ -222,5 +223,24 @@ describe("formatLcrIssue", () => {
     const issue = formatLcrIssue({ payload: p });
     expect(issue.title).toContain("/r/webb-deep-field");
     expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL]); // no story label
+  });
+  it("write-access reviewers (canApply) get the vibe label", () => {
+    const p = buildPayload({ ...base, prose: "x" });
+    const issue = formatLcrIssue({ payload: p, canApply: true });
+    expect(issue.labels).toContain(VIBE_LABEL);
+    expect(issue.labels).not.toContain(COMMUNITY_LABEL);
+    expect(issue.body).toContain("for vibe to apply");
+  });
+  it("non-write reviewers (canApply false) get community-review, never vibe", () => {
+    const p = buildPayload({ ...base, prose: "x" });
+    const issue = formatLcrIssue({ payload: p, canApply: false });
+    expect(issue.labels).toContain(COMMUNITY_LABEL);
+    expect(issue.labels).not.toContain(VIBE_LABEL);
+    expect(issue.labels).toEqual([LCR_REVIEW_LABEL, COMMUNITY_LABEL, "story-104"]);
+    expect(issue.body).toContain("without repo write access");
+  });
+  it("defaults to applied (vibe) when canApply is omitted (back-compat)", () => {
+    const p = buildPayload({ ...base, prose: "x" });
+    expect(formatLcrIssue({ payload: p }).labels).toContain(VIBE_LABEL);
   });
 });

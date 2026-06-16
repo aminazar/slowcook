@@ -26,17 +26,22 @@ export function loadReviewerToken(storage: Storage, repo: RepoCoord): string | n
 export function saveReviewerToken(storage: Storage, repo: RepoCoord, token: string): void {
   storage.setItem(tokenKey(repo), token);
 }
-export function loadReviewerIdentity(storage: Storage, repo: RepoCoord): ReviewerIdentity | null {
+/** Identity plus the access tier we derive from repo permissions. `canApply`
+ *  true → repo write access → comments get the `vibe` label (auto-applied);
+ *  false → comments are held for the team (`community-review`). */
+export type StoredReviewerIdentity = ReviewerIdentity & { canApply?: boolean };
+
+export function loadReviewerIdentity(storage: Storage, repo: RepoCoord): StoredReviewerIdentity | null {
   const raw = storage.getItem(identityKey(repo));
   if (!raw) return null;
   try {
-    const v = JSON.parse(raw) as ReviewerIdentity;
+    const v = JSON.parse(raw) as StoredReviewerIdentity;
     return typeof v?.login === "string" ? v : null;
   } catch {
     return null;
   }
 }
-export function saveReviewerIdentity(storage: Storage, repo: RepoCoord, id: ReviewerIdentity): void {
+export function saveReviewerIdentity(storage: Storage, repo: RepoCoord, id: StoredReviewerIdentity): void {
   storage.setItem(identityKey(repo), JSON.stringify(id));
 }
 export function clearReviewerSession(storage: Storage, repo: RepoCoord): void {
@@ -74,6 +79,30 @@ export async function identifyReviewer(token: string, f: typeof fetch = fetch): 
   if (!res.ok) throw new Error(`identify failed: ${res.status}`);
   const j = (await res.json()) as { login: string; name: string | null; avatar_url?: string };
   return { login: j.login, name: j.name ?? j.login, avatarUrl: j.avatar_url };
+}
+
+/**
+ * Does this reviewer have write access (push or higher) to the repo? Drives the
+ * apply tier: GET /repos/{owner}/{repo} returns `permissions` for the
+ * authenticated user. `push` (write), `maintain`, or `admin` → can apply.
+ * Anything else (read/none), or any error, → held for the team (fail closed).
+ */
+export async function checkRepoWriteAccess(token: string, repo: RepoCoord, f: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const res = await f(`https://api.github.com/repos/${repo.owner}/${repo.repo}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!res.ok) return false;
+    const j = (await res.json()) as { permissions?: { push?: boolean; maintain?: boolean; admin?: boolean } };
+    const p = j.permissions ?? {};
+    return !!(p.push || p.maintain || p.admin);
+  } catch {
+    return false; // fail closed — unknown access never auto-applies
+  }
 }
 
 export type LoginEvent =
