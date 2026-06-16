@@ -44,10 +44,14 @@ import {
   fetchPrLabels,
   addLabelsToPr,
   submitPrApproval,
+  fetchDocFile,
+  commitDocFile,
   APPROVED_LABEL,
   type RepoCoord,
   type OverlayCommentRecord,
+  type DocFile,
 } from "../github.js";
+import { renderMarkdown } from "./markdown.js";
 import {
   loadReviewerToken,
   loadReviewerIdentity,
@@ -104,6 +108,17 @@ export interface SlowcookReviewOverlayProps {
   authBase?: string;
   /** Overlay package version, included in the JSON payload. */
   overlayVersion?: string;
+  /**
+   * 0.7.0 — docs studio: the spine markdown docs a reviewer can read + edit as
+   * the "textual" half of review. Falls back to `NEXT_PUBLIC_SLOWCOOK_DOC_PATHS`
+   * (comma-separated). Default: the common GUCDI docs. Empty disables Docs mode.
+   */
+  docPaths?: string[];
+  /**
+   * 0.7.0 — the working branch a doc "scope change" commits to (where the PR
+   * lives). Falls back to `NEXT_PUBLIC_SLOWCOOK_BRANCH`, then the repo default.
+   */
+  branch?: string;
 }
 
 type Mode = "nav" | "comment" | "approve";
@@ -129,6 +144,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   const authBase = props.authBase ?? process.env["NEXT_PUBLIC_SLOWCOOK_AUTH_BASE"] ?? "";
   const overlayVersion = props.overlayVersion ?? "0.6.0";
   const repoCoord: RepoCoord = { owner, repo };
+  // 0.7.0 — docs studio config.
+  const docPaths: string[] = props.docPaths ??
+    (process.env["NEXT_PUBLIC_SLOWCOOK_DOC_PATHS"]?.split(",").map((s) => s.trim()).filter(Boolean)) ??
+    ["docs/PRD.md", "docs/ROADMAP.md", "docs/USER_STORIES.md", "docs/ARCHITECTURE.md"];
+  const branchProp = props.branch ?? process.env["NEXT_PUBLIC_SLOWCOOK_BRANCH"] ?? "";
 
   // 0.5.1 — hydration-mismatch fix. The overlay can't render during
   // SSR (no localStorage, no window.matchMedia, no DOM), so it returns
@@ -171,6 +191,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // comments (applied/declined/noop) hide by default; needs-clarification +
   // unresolved always show.
   const [showApplied, setShowApplied] = useState<boolean>(false);
+  // 0.7.0 — docs studio (textual review): panel open + the resolved working
+  // branch a scope-change commits to.
+  const [docsPanelOpen, setDocsPanelOpen] = useState<boolean>(false);
+  const [resolvedBranch, setResolvedBranch] = useState<string>(branchProp);
   // 0.2.0 — track viewport width for the icon-only mobile collapse + the
   // picker-route hide. Updates on resize + initial mount.
   const [isMobile, setIsMobile] = useState<boolean>(false);
@@ -223,6 +247,22 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     body.style.touchAction = "none";
     return () => { body.style.overflow = prevOverflow; body.style.touchAction = prevTouch; };
   }, [composerOpen, generalComposerOpen, openCommentId]);
+
+  // 0.7.0 — resolve the working branch for doc scope-changes. Prefer the
+  // configured branch; else the head branch of the open mockup PR; else the
+  // repo default. Runs once in lcr mode when no branch was provided.
+  useEffect(() => {
+    if (typeof window === "undefined" || reviewMode !== "lcr" || branchProp || !owner || !repo) return;
+    let alive = true;
+    (async () => {
+      const base = getProxyApiBase() ?? "https://api.github.com";
+      try {
+        const r = await fetch(`${base}/repos/${owner}/${repo}`, { headers: { Accept: "application/vnd.github+json" } });
+        if (r.ok && alive) { const j = (await r.json()) as { default_branch?: string }; if (j.default_branch) setResolvedBranch(j.default_branch); }
+      } catch { /* offline / rate-limited — Docs read falls back to default ref */ }
+    })();
+    return () => { alive = false; };
+  }, [reviewMode, branchProp, owner, repo]);
 
   // Mount-time + on-focus fetch of overlay comments / LCR issues.
   useEffect(() => {
@@ -734,6 +774,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         commentCount={comments.length}
         newCount={newCount}
         onListClick={() => { setListPanelOpen(true); markAllSeen(); }}
+        docsEnabled={reviewMode === "lcr" && docPaths.length > 0}
+        onDocsClick={() => setDocsPanelOpen(true)}
         reviewMode={reviewMode}
         identity={reviewerIdentity}
         onSignIn={() => void signIn()}
@@ -773,6 +815,20 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           }}
           onApprove={() => { setListPanelOpen(false); onApproveClicked(); }}
           isApproved={isApproved}
+        />
+      )}
+      {/* 0.7.0 — docs studio: the textual half of review. */}
+      {docsPanelOpen && (
+        <DocsPanel
+          repo={repoCoord}
+          docPaths={docPaths}
+          branch={resolvedBranch}
+          identity={reviewerIdentity}
+          getToken={() => (typeof window !== "undefined" ? loadReviewerToken(window.localStorage, repoCoord) : null)}
+          onSignIn={() => void signIn()}
+          apiBase={getProxyApiBase() ?? undefined}
+          onClose={() => setDocsPanelOpen(false)}
+          onFeedback={(t) => setFeedback(t)}
         />
       )}
       {generalComposerOpen && (
@@ -929,6 +985,8 @@ function ModeToggle(props: {
   commentCount: number;
   newCount: number;
   onListClick: () => void;
+  docsEnabled: boolean;
+  onDocsClick: () => void;
   // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
   // not a separate fixed badge.
   reviewMode: "scenarios" | "lcr";
@@ -936,7 +994,7 @@ function ModeToggle(props: {
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
-  const { mode, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -1124,6 +1182,24 @@ function ModeToggle(props: {
           }}>{commentCount}</span>
         )}
       </button>
+      )}
+      {/* 0.7.0 — Docs (textual review): read + edit the spec docs. Available in
+          both Nav and Comment modes — it's a parallel review surface. */}
+      {docsEnabled && (
+        <button
+          type="button"
+          onClick={() => { setConfirmLogout(false); onDocsClick(); }}
+          disabled={disabled}
+          title="Review & edit the spec docs (textual review)"
+          style={{
+            marginLeft: 4, background: "rgba(255,255,255,0.06)", color: "white",
+            border: "none", padding: "6px 10px", borderRadius: 999,
+            cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+            font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
+          }}
+        >
+          📄 Docs
+        </button>
       )}
       {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
           explicit (white-on-dark) so the app's dark/light theme can't touch it.
@@ -2286,6 +2362,181 @@ function GeneralComposer(props: {
           {props.submitting ? "Posting…" : "Post note"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 0.7.0 — Docs studio: the textual half of review. Reads the spine markdown docs
+ * on the working branch, lets a reviewer edit them with an edit/preview toggle,
+ * and (write-access only) commits the edit to the branch as a "scope change"
+ * that `refine` reconciles. Non-write reviewers get read + preview.
+ */
+function DocsPanel(props: {
+  repo: RepoCoord;
+  docPaths: string[];
+  branch: string;
+  identity: StoredReviewerIdentity | null;
+  getToken: () => string | null;
+  onSignIn: () => void;
+  apiBase?: string;
+  onClose: () => void;
+  onFeedback: (t: string) => void;
+}): JSX.Element {
+  const { repo, docPaths, branch, identity, getToken, onSignIn, apiBase, onClose, onFeedback } = props;
+  const [path, setPath] = useState<string>(docPaths[0] ?? "");
+  const [file, setFile] = useState<DocFile | null>(null);
+  const [draft, setDraft] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"edit" | "preview">("preview");
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const canApply = identity?.canApply === true;
+  const dirty = file != null && draft !== file.content;
+  const ref = branch || "HEAD";
+
+  const load = useCallback(async (p: string) => {
+    setLoading(true); setError(null); setFile(null);
+    const token = getToken();
+    const res = await fetchDocFile({ owner: repo.owner, repo: repo.repo, path: p, ref, pat: token ?? undefined, apiBase });
+    if (res.ok) { setFile(res.file); setDraft(res.file.content); setView("preview"); }
+    else if (!token && (res.status === 404 || res.status === 401)) {
+      setError(`Sign in with GitHub to read ${p.split("/").pop()} — this repo is private.`);
+    } else {
+      setError(`Couldn't load ${p}: ${res.message} (${res.status})`);
+    }
+    setLoading(false);
+  }, [repo.owner, repo.repo, ref, apiBase, getToken]);
+
+  useEffect(() => { if (path) void load(path); }, [path, load]);
+
+  async function submit() {
+    if (!file || !dirty) return;
+    const token = getToken();
+    if (!canApply || !token) return;
+    setSubmitting(true);
+    const res = await commitDocFile({
+      owner: repo.owner, repo: repo.repo, path, content: draft, sha: file.sha,
+      branch: ref, message: `docs(scope): ${path} edited via review (PM scope change)`,
+      pat: token, apiBase,
+    });
+    setSubmitting(false);
+    if (res.ok) {
+      onFeedback(`Scope change committed to ${ref} — refine will reconcile ${path.split("/").pop()}.`);
+      await load(path); // refresh sha + content
+    } else {
+      setError(`Commit failed: ${res.message} (${res.status})`);
+    }
+  }
+
+  const name = (p: string) => p.split("/").pop() ?? p;
+
+  return (
+    <div
+      data-slowcook-overlay-ui="1"
+      role="dialog"
+      aria-label="Docs studio"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed", inset: 0, zIndex: 2147483602,
+        background: "rgba(15,15,24,0.97)", color: "white", pointerEvents: "auto",
+        fontFamily: "system-ui, -apple-system, sans-serif", fontSize: 13,
+        display: "flex", flexDirection: "column",
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>📄 Docs · textual review</span>
+        <span style={{ fontSize: 11, opacity: 0.6 }}>branch <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 6px", borderRadius: 5 }}>{ref}</code></span>
+        <span style={{ marginLeft: "auto" }} />
+        <button type="button" onClick={onClose} aria-label="Close docs" style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 22, lineHeight: 1 }}>×</button>
+      </div>
+
+      {/* Doc tabs */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        {docPaths.map((p) => (
+          <button key={p} type="button" onClick={() => setPath(p)} title={p}
+            style={{
+              fontSize: 12, fontWeight: p === path ? 800 : 600, padding: "5px 11px", borderRadius: 999,
+              cursor: "pointer", border: "1px solid " + (p === path ? "rgba(255,107,107,0.7)" : "rgba(255,255,255,0.15)"),
+              background: p === path ? "rgba(255,107,107,0.18)" : "transparent", color: p === path ? "#ffb4b4" : "rgba(255,255,255,0.75)",
+            }}>{name(p)}{dirty && p === path ? " •" : ""}</button>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ display: "inline-flex", background: "rgba(255,255,255,0.06)", borderRadius: 999, padding: 2 }}>
+          {(["preview", "edit"] as const).map((v) => (
+            <button key={v} type="button" onClick={() => setView(v)}
+              style={{ fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 999, border: "none", cursor: "pointer",
+                background: view === v ? "white" : "transparent", color: view === v ? "#111" : "rgba(255,255,255,0.7)" }}>
+              {v === "preview" ? "Preview" : "Edit"}
+            </button>
+          ))}
+        </div>
+        <span style={{ marginLeft: "auto" }} />
+        {identity ? (
+          canApply ? (
+            <button type="button" disabled={!dirty || submitting} onClick={() => void submit()}
+              title={dirty ? "Commit this edit to the branch as a scope change" : "No changes yet"}
+              style={{ fontSize: 12.5, fontWeight: 800, padding: "7px 14px", borderRadius: 8, border: "none",
+                cursor: !dirty || submitting ? "not-allowed" : "pointer", opacity: !dirty || submitting ? 0.5 : 1,
+                background: "#22c55e", color: "white" }}>
+              {submitting ? "Submitting…" : "Submit scope change"}
+            </button>
+          ) : (
+            <span style={{ fontSize: 11.5, opacity: 0.7, maxWidth: 280 }}>Read-only — write access is required to submit a scope change; your notes can go via a review comment.</span>
+          )
+        ) : (
+          <button type="button" onClick={onSignIn}
+            style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer", background: "white", color: "#111" }}>
+            Sign in to edit
+          </button>
+        )}
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflow: "auto", padding: 0 }}>
+        {loading ? (
+          <div style={{ padding: 24, opacity: 0.6 }}>Loading {name(path)}…</div>
+        ) : error ? (
+          <div style={{ padding: 24, color: "#ffb4b4" }}>{error}</div>
+        ) : view === "edit" ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            style={{
+              width: "100%", height: "100%", minHeight: 400, boxSizing: "border-box",
+              padding: "16px 20px", border: "none", outline: "none", resize: "none",
+              background: "#11111b", color: "#e8e8f0", fontSize: 16, lineHeight: 1.55,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            }}
+          />
+        ) : (
+          <div
+            className="sc-doc-prose"
+            style={{ padding: "16px 24px", maxWidth: 860, margin: "0 auto", lineHeight: 1.6 }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(draft) }}
+          />
+        )}
+      </div>
+
+      {/* Prose styling (scoped) */}
+      <style dangerouslySetInnerHTML={{ __html:
+        `.sc-doc-prose h1,.sc-doc-prose h2,.sc-doc-prose h3{color:#fff;margin:1.1em 0 .4em;line-height:1.25}` +
+        `.sc-doc-prose h1{font-size:24px}.sc-doc-prose h2{font-size:19px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:4px}.sc-doc-prose h3{font-size:16px}` +
+        `.sc-doc-prose p,.sc-doc-prose li{color:rgba(255,255,255,0.85)}` +
+        `.sc-doc-prose code{background:rgba(255,255,255,0.1);padding:1px 5px;border-radius:5px;font-size:0.9em}` +
+        `.sc-doc-prose pre{background:#11111b;padding:12px 14px;border-radius:8px;overflow:auto}.sc-doc-prose pre code{background:none;padding:0}` +
+        `.sc-doc-prose a{color:#7cc7ff}` +
+        `.sc-doc-prose blockquote{border-left:3px solid rgba(255,107,107,0.6);margin:.6em 0;padding:.2em 0 .2em 14px;color:rgba(255,255,255,0.7)}` +
+        `.sc-doc-prose hr{border:none;border-top:1px solid rgba(255,255,255,0.12);margin:1.2em 0}` +
+        `.sc-doc-prose table{border-collapse:collapse;width:100%;margin:.8em 0;font-size:12.5px}` +
+        `.sc-doc-prose th,.sc-doc-prose td{border:1px solid rgba(255,255,255,0.15);padding:6px 10px;text-align:left}` +
+        `.sc-doc-prose th{background:rgba(255,255,255,0.06)}`
+      }} />
     </div>
   );
 }

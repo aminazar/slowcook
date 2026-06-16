@@ -645,3 +645,88 @@ export async function createIssue(args: CreateIssueArgs): Promise<SubmitResult> 
   const j = (await res.json()) as { number: number; html_url: string };
   return { ok: true, commentId: j.number, htmlUrl: j.html_url };
 }
+
+// ── Docs studio (0.7.0) — the textual half of review. Read + commit the spine
+//    markdown docs on the working branch via the GitHub Contents API, so a
+//    scope-change edit lands as a real commit that `refine` picks up. ──────────
+
+/** UTF-8-safe base64 (the docs carry emoji/unicode). */
+function b64decodeUtf8(b64: string): string {
+  const bin = atob(b64.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+function b64encodeUtf8(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+export interface DocFile { path: string; content: string; sha: string }
+
+/** Read one markdown doc at a ref (branch). `pat` optional for public repos. */
+export async function fetchDocFile(args: RepoCoord & {
+  path: string; ref: string; pat?: string; apiBase?: string; fetchImpl?: typeof fetch;
+}): Promise<{ ok: true; file: DocFile } | { ok: false; status: number; message: string }> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/contents/${args.path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(args.ref)}`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      headers: {
+        ...(args.pat ? { Authorization: `Bearer ${args.pat}` } : {}),
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = ((await res.json()) as { message?: string }).message ?? ""; } catch { /* */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  }
+  const j = (await res.json()) as { content?: string; sha: string; encoding?: string };
+  const content = j.content && j.encoding === "base64" ? b64decodeUtf8(j.content) : (j.content ?? "");
+  return { ok: true, file: { path: args.path, content, sha: j.sha } };
+}
+
+/** Commit an edited doc to a branch (the "scope change"). Requires write access. */
+export async function commitDocFile(args: RepoCoord & {
+  path: string; content: string; sha: string; branch: string; message: string;
+  pat: string; apiBase?: string; fetchImpl?: typeof fetch;
+}): Promise<{ ok: true; htmlUrl?: string; commit?: string } | { ok: false; status: number; message: string }> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/contents/${args.path.split("/").map(encodeURIComponent).join("/")}`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({
+        message: args.message,
+        content: b64encodeUtf8(args.content),
+        sha: args.sha,
+        branch: args.branch,
+      }),
+    });
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = ((await res.json()) as { message?: string }).message ?? ""; } catch { /* */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  }
+  const j = (await res.json()) as { commit?: { html_url?: string; sha?: string } };
+  return { ok: true, htmlUrl: j.commit?.html_url, commit: j.commit?.sha };
+}
