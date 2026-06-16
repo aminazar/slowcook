@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkTrace, parseLcrProvenance, type SpecNode, type LcrNode } from "./check.js";
+import { checkTrace, checkCoverage, parseLcrProvenance, type SpecNode, type LcrNode } from "./check.js";
 
 describe("parseLcrProvenance", () => {
   it("recognizes @story / story-N / @convention / @craft forms", () => {
@@ -70,5 +70,34 @@ describe("checkTrace — provenance-completeness, not coverage", () => {
       lcrNodes: [lcr("mock/src/components/Old.tsx", [{ kind: "story", id: "story-099" }])],
     });
     expect(r.violations).toMatchObject([{ code: "dangling-lcr-story", subject: "mock/src/components/Old.tsx" }]);
+  });
+});
+
+describe("checkCoverage — the inverse: every story has a surface", () => {
+  const spec2 = (id: string): SpecNode => ({ storyId: id });
+  it("passes when every story is referenced by an LCR surface", () => {
+    const r = checkCoverage({
+      specs: [spec2("101"), spec2("109")],
+      lcrNodes: [
+        lcr("mock/src/components/Feed.tsx", [{ kind: "story", id: "story-101" }]),
+        lcr("mock/src/pages/rewowner/Overview.tsx", [{ kind: "story", id: "story-109" }]),
+      ],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.uncovered).toEqual([]);
+    expect(r.coveredCount).toBe(2);
+  });
+  it("flags stories with no surface (the persona-coverage gap)", () => {
+    const r = checkCoverage({
+      specs: [spec2("101"), spec2("113"), spec2("115")],
+      lcrNodes: [lcr("mock/src/components/Feed.tsx", [{ kind: "story", id: "story-101" }])],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.uncovered).toEqual(["story-113", "story-115"]);
+    expect(r.coveredCount).toBe(1);
+    expect(r.totalStories).toBe(3);
+  });
+  it("is empty-safe", () => {
+    expect(checkCoverage({ specs: [], lcrNodes: [] })).toMatchObject({ ok: true, uncovered: [] });
   });
 });

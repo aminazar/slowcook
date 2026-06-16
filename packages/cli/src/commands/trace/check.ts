@@ -73,6 +73,45 @@ export function parseLcrProvenance(source: string): LcrProvenance[] {
   return out;
 }
 
+/**
+ * COVERAGE — the inverse of provenance. Provenance asks "does every surface
+ * trace UP to a story?"; coverage asks "does every story trace DOWN to a
+ * surface?". A story with zero LCR surfaces is either a real gap (a persona /
+ * requirement the mock forgot to build) or a legitimately surface-less backend
+ * story (DB schema, CI). The lint can't tell those apart on its own, so it
+ * REPORTS uncovered stories and only FAILS when the caller opts in
+ * (`--coverage`), or when a spec marks itself surface-bearing (future
+ * `expects_surface`). This is the dogfood fix for "the mock covered only one
+ * persona" — every story now gets checked for a home.
+ */
+export interface CoverageResult {
+  /** story ids (story-NNN) that no LCR file references. */
+  uncovered: string[];
+  coveredCount: number;
+  totalStories: number;
+  ok: boolean;
+}
+
+export function checkCoverage(input: { specs: SpecNode[]; lcrNodes: LcrNode[] }): CoverageResult {
+  const referenced = new Set<string>();
+  for (const n of input.lcrNodes) {
+    for (const p of n.provenance) {
+      if (p.kind === "story") referenced.add(p.id);
+    }
+  }
+  const uncovered: string[] = [];
+  for (const s of input.specs) {
+    const id = `story-${s.storyId}`;
+    if (!referenced.has(id)) uncovered.push(id);
+  }
+  return {
+    uncovered,
+    coveredCount: input.specs.length - uncovered.length,
+    totalStories: input.specs.length,
+    ok: uncovered.length === 0,
+  };
+}
+
 export function checkTrace(input: {
   specs: SpecNode[];
   /** PRD initiative anchors. Empty = no PRD (brownfield) → prd-ref checks skipped. */
