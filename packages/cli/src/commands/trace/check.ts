@@ -112,6 +112,44 @@ export function checkCoverage(input: { specs: SpecNode[]; lcrNodes: LcrNode[] })
   };
 }
 
+// ── Persona/surface trace (0.21.x) — the SAME forward+inverse rules, applied to
+//    the persona surfaces. A spec's `surfaces[].route` is a PROMISE that the mock
+//    exposes that route; the lint checks each promise resolves to a real router
+//    path (forward), and that a declared persona actually has a resolvable home
+//    (so a persona can't be all-dangling). This is the persona analogue of
+//    dangling-lcr-story + coverage. ─────────────────────────────────────────────
+export interface SpecSurface { storyId: string; persona: string; route: string; home?: boolean }
+
+/** A concrete surface route is satisfied by a router path when every segment
+ *  matches — a param segment (`:slug`) matches anything. e.g. `/u/:handle`
+ *  satisfies `/u/you`. */
+export function routeSatisfies(routerPath: string, surfaceRoute: string): boolean {
+  const a = routerPath.split("/").filter(Boolean);
+  const b = surfaceRoute.split("/").filter(Boolean);
+  if (a.length !== b.length) return false;
+  return a.every((seg, i) => seg.startsWith(":") || seg === b[i]);
+}
+
+export interface SurfaceResult {
+  /** declared surfaces whose route resolves to no real router path. */
+  dangling: SpecSurface[];
+  /** personas whose declared home route doesn't resolve (an unreachable persona). */
+  unreachablePersonas: string[];
+  surfaceCount: number;
+  ok: boolean;
+}
+
+export function checkSurfaces(input: { surfaces: SpecSurface[]; routes: string[] }): SurfaceResult {
+  const resolves = (route: string) => input.routes.some((r) => routeSatisfies(r, route));
+  const dangling = input.surfaces.filter((s) => !resolves(s.route));
+  const homeByPersona = new Map<string, boolean>();
+  for (const s of input.surfaces) {
+    if (s.home) homeByPersona.set(s.persona, resolves(s.route) || homeByPersona.get(s.persona) === true);
+  }
+  const unreachablePersonas = [...homeByPersona.entries()].filter(([, ok]) => !ok).map(([p]) => p);
+  return { dangling, unreachablePersonas, surfaceCount: input.surfaces.length, ok: dangling.length === 0 && unreachablePersonas.length === 0 };
+}
+
 export function checkTrace(input: {
   specs: SpecNode[];
   /** PRD initiative anchors. Empty = no PRD (brownfield) → prd-ref checks skipped. */

@@ -11,10 +11,37 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { listActiveSpecs } from "../refine/spec-yaml.js";
+import YAML from "yaml";
+import { listActiveSpecs, SPECS_DIR } from "../refine/spec-yaml.js";
 import { loadMockShapeConfig } from "../../lib/mock-shape.js";
 import { parsePrdInitiatives } from "../menu/prd.js";
-import { checkTrace, checkCoverage, parseLcrProvenance, type LcrNode, type SpecNode } from "./check.js";
+import { checkTrace, checkCoverage, checkSurfaces, parseLcrProvenance, type LcrNode, type SpecNode, type SpecSurface } from "./check.js";
+
+/** Read persona-surface declarations from the spec YAMLs (the `persona` +
+ *  `surfaces` blocks the generator compiles into the mock). */
+function readSpecSurfaces(cwd: string): SpecSurface[] {
+  const dir = resolve(cwd, SPECS_DIR);
+  if (!existsSync(dir)) return [];
+  const out: SpecSurface[] = [];
+  for (const name of readdirSync(dir)) {
+    if (!/^story-.*\.yaml$/.test(name)) continue;
+    let doc: { story_id?: string; persona?: { id?: string }; surfaces?: Array<{ route?: string; home?: boolean }> };
+    try { doc = YAML.parse(readFileSync(join(dir, name), "utf8")) ?? {}; } catch { continue; }
+    const persona = doc.persona?.id;
+    if (!persona || !Array.isArray(doc.surfaces)) continue;
+    for (const s of doc.surfaces) {
+      if (s?.route) out.push({ storyId: `story-${doc.story_id}`, persona, route: s.route, home: s.home === true });
+    }
+  }
+  return out;
+}
+
+/** Extract concrete route paths from a react-router file (path="..."). */
+function readRouterPaths(file: string): string[] {
+  if (!existsSync(file)) return [];
+  const src = readFileSync(file, "utf8");
+  return [...src.matchAll(/path\s*=\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]!).filter((p) => p && p !== "*");
+}
 
 function val(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -75,6 +102,12 @@ export async function trace(argv: string[], _cliVersion: string): Promise<void> 
 
   const result = checkTrace({ specs: specNodes, prdAnchors, lcrNodes });
   const coverage = checkCoverage({ specs: specNodes, lcrNodes });
+  // Persona/surface trace: the same forward+inverse rules on the persona surfaces
+  // declared in specs vs the routes the mock router actually exposes.
+  const specSurfaces = readSpecSurfaces(cwd);
+  const routerFile = mock.router_file ? resolve(cwd, mock.router_file) : "";
+  const routes = routerFile ? readRouterPaths(routerFile) : [];
+  const surfaceRes = checkSurfaces({ surfaces: specSurfaces, routes });
 
   console.log(
     `trace check: ${specNodes.length} specs · ${prdAnchors.length} PRD initiatives · ${lcrNodes.length} LCR files`,
@@ -97,15 +130,34 @@ export async function trace(argv: string[], _cliVersion: string): Promise<void> 
     }
   }
 
+  // Persona/surface trace report (same rules as provenance, applied to surfaces).
+  if (specSurfaces.length > 0) {
+    if (surfaceRes.ok) {
+      console.log(`\n  surfaces: ${surfaceRes.surfaceCount} persona surface(s), every declared route resolves to a real mock route.`);
+    } else {
+      if (surfaceRes.dangling.length) {
+        console.error(`\n  surfaces: ${surfaceRes.dangling.length} declared surface(s) with NO matching mock route (dangling):`);
+        for (const s of surfaceRes.dangling) console.error(`    ✗ ${s.persona} → ${s.route} (${s.storyId})`);
+      }
+      if (surfaceRes.unreachablePersonas.length) {
+        console.error(`  surfaces: persona(s) whose home route is unreachable: ${surfaceRes.unreachablePersonas.join(", ")}`);
+      }
+    }
+  }
+
   const provenanceOk = result.ok;
   const coverageOk = !enforceCoverage || coverage.ok;
-  if (provenanceOk && coverageOk) {
-    console.log("\ntrace check: PASS ✓ — every node has honest provenance" + (enforceCoverage ? " and every story has a surface." : "."));
+  const surfacesOk = surfaceRes.ok;
+  if (provenanceOk && coverageOk && surfacesOk) {
+    console.log("\ntrace check: PASS ✓ — every node has honest provenance" + (enforceCoverage ? ", every story has a surface," : "") + " and every persona surface resolves.");
     return;
   }
   if (!provenanceOk) {
     console.error(`\ntrace check: FAIL ✗ — ${result.violations.length} provenance violation(s):`);
     for (const v of result.violations) console.error(`  [${v.code}] ${v.subject}: ${v.detail}`);
+  }
+  if (!surfacesOk) {
+    console.error(`\ntrace check: FAIL ✗ — ${surfaceRes.dangling.length + surfaceRes.unreachablePersonas.length} persona-surface violation(s) (a spec promises a surface the mock doesn't expose).`);
   }
   if (enforceCoverage && !coverage.ok) {
     console.error(`\ntrace check: FAIL ✗ — ${coverage.uncovered.length} story(ies) with no surface (--coverage).`);

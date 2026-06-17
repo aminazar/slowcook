@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkTrace, checkCoverage, parseLcrProvenance, type SpecNode, type LcrNode } from "./check.js";
+import { checkTrace, checkCoverage, checkSurfaces, routeSatisfies, parseLcrProvenance, type SpecNode, type LcrNode, type SpecSurface } from "./check.js";
 
 describe("parseLcrProvenance", () => {
   it("recognizes @story / story-N / @convention / @craft forms", () => {
@@ -99,5 +99,35 @@ describe("checkCoverage — the inverse: every story has a surface", () => {
   });
   it("is empty-safe", () => {
     expect(checkCoverage({ specs: [], lcrNodes: [] })).toMatchObject({ ok: true, uncovered: [] });
+  });
+});
+
+describe("checkSurfaces — persona surfaces resolve to real routes", () => {
+  const surf = (persona: string, route: string, home = false): SpecSurface => ({ storyId: `story-1`, persona, route, home });
+  it("routeSatisfies matches param segments", () => {
+    expect(routeSatisfies("/u/:handle", "/u/you")).toBe(true);
+    expect(routeSatisfies("/rewowner", "/rewowner")).toBe(true);
+    expect(routeSatisfies("/admin/uue", "/admin/taxonomy")).toBe(false);
+    expect(routeSatisfies("/r/:slug", "/r/x/y")).toBe(false); // segment count differs
+  });
+  it("passes when every declared surface route exists in the router", () => {
+    const r = checkSurfaces({
+      surfaces: [surf("member", "/", true), surf("member", "/u/you"), surf("rewowner", "/rewowner", true)],
+      routes: ["/", "/u/:handle", "/rewowner", "/rewowner/claim"],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.dangling).toEqual([]);
+  });
+  it("flags a surface the mock doesn't expose (dangling) — same rule as dangling-lcr-story", () => {
+    const r = checkSurfaces({
+      surfaces: [surf("moderator", "/admin/moderation", true), surf("ghost", "/admin/nope", true)],
+      routes: ["/admin/moderation"],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.dangling.map((s) => s.route)).toEqual(["/admin/nope"]);
+    expect(r.unreachablePersonas).toContain("ghost");
+  });
+  it("is empty-safe", () => {
+    expect(checkSurfaces({ surfaces: [], routes: [] })).toMatchObject({ ok: true, dangling: [] });
   });
 });

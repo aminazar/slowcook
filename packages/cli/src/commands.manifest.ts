@@ -172,7 +172,7 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   {
     name: "trace",
     usage: "slowcook trace check [--prd <path>] [--cwd <dir>] [--coverage]",
-    description: "GUCDI traceability lint over the spine. Provenance (forward): every spec/LCR node has a why (requirement/convention/craft); orphans + dangling refs fail; craft is reported. Coverage (inverse): reports stories with no LCR surface; --coverage makes them a hard failure (for UI milestones). Brownfield-safe (never demands a PRD).",
+    description: "GUCDI traceability lint over the spine. Provenance (forward): every spec/LCR node has a why (requirement/convention/craft); orphans + dangling refs fail; craft is reported. Coverage (inverse): reports stories with no LCR surface; --coverage makes them a hard failure (for UI milestones). Persona surfaces: each spec's declared persona surface route must resolve to a real mock router path (a promised surface the mock doesn't expose fails). Brownfield-safe (never demands a PRD).",
     group: "checks",
   },
   {
