@@ -119,6 +119,21 @@ export interface SlowcookReviewOverlayProps {
    * lives). Falls back to `NEXT_PUBLIC_SLOWCOOK_BRANCH`, then the repo default.
    */
   branch?: string;
+  /**
+   * 0.7.1 — review surfaces: named entry points (personas/sections) the mock
+   * exposes, so the floating pane can offer a "Viewing as" switcher to roam
+   * them. This is a REVIEW affordance — a real user is one role; only a reviewer
+   * hops between surfaces — so it lives here, not in the product mock. Falls back
+   * to `NEXT_PUBLIC_SLOWCOOK_SURFACES` (JSON). Empty hides the switcher.
+   */
+  surfaces?: ReviewSurface[];
+}
+
+export interface ReviewSurface {
+  label: string;
+  home: string; // route to navigate to
+  icon?: string;
+  blurb?: string;
 }
 
 type Mode = "nav" | "comment" | "approve";
@@ -149,6 +164,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     (process.env["NEXT_PUBLIC_SLOWCOOK_DOC_PATHS"]?.split(",").map((s) => s.trim()).filter(Boolean)) ??
     ["docs/PRD.md", "docs/ROADMAP.md", "docs/USER_STORIES.md", "docs/ARCHITECTURE.md"];
   const branchProp = props.branch ?? process.env["NEXT_PUBLIC_SLOWCOOK_BRANCH"] ?? "";
+  // 0.7.1 — review surfaces (persona switcher lives in the pane, not the mock).
+  const surfaces: ReviewSurface[] = props.surfaces ?? (() => {
+    try { const raw = process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES"]; return raw ? (JSON.parse(raw) as ReviewSurface[]) : []; }
+    catch { return []; }
+  })();
 
   // 0.5.1 — hydration-mismatch fix. The overlay can't render during
   // SSR (no localStorage, no window.matchMedia, no DOM), so it returns
@@ -776,6 +796,14 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         onListClick={() => { setListPanelOpen(true); markAllSeen(); }}
         docsEnabled={reviewMode === "lcr" && docPaths.length > 0}
         onDocsClick={() => setDocsPanelOpen(true)}
+        surfaces={reviewMode === "lcr" ? surfaces : []}
+        onNavigate={(home) => {
+          if (typeof window === "undefined") return;
+          // Router-agnostic SPA nav: pushState + popstate so react-router (or any
+          // history listener) updates without a full reload.
+          window.history.pushState({}, "", home);
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        }}
         reviewMode={reviewMode}
         identity={reviewerIdentity}
         onSignIn={() => void signIn()}
@@ -908,7 +936,7 @@ function ReviewerLoginDialog({
   userCode, verificationUri, status, onClose,
 }: { userCode?: string; verificationUri?: string; status: string; onClose: () => void }): JSX.Element {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: 2147483601 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: 2147483647 /* 0.7.1 — above the Docs panel (…602) so the sign-in popup isn't hidden behind it */ }}>
       <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 360, maxWidth: "90vw", boxShadow: "0 12px 40px rgba(0,0,0,0.3)", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6, color: "#111" }}>Sign in with GitHub</div>
         {userCode ? (
@@ -987,6 +1015,8 @@ function ModeToggle(props: {
   onListClick: () => void;
   docsEnabled: boolean;
   onDocsClick: () => void;
+  surfaces: ReviewSurface[];
+  onNavigate: (home: string) => void;
   // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
   // not a separate fixed badge.
   reviewMode: "scenarios" | "lcr";
@@ -994,7 +1024,7 @@ function ModeToggle(props: {
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
-  const { mode, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -1201,6 +1231,9 @@ function ModeToggle(props: {
           📄 Docs
         </button>
       )}
+      {/* 0.7.1 — "Viewing as" surface switcher. A REVIEW affordance (a real user
+          is one role), so it lives in the pane, not the mock. */}
+      {surfaces.length > 0 && <SurfaceSwitcher surfaces={surfaces} onNavigate={onNavigate} disabled={disabled} />}
       {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
           explicit (white-on-dark) so the app's dark/light theme can't touch it.
           0.6.11 — only in Comment mode. */}
@@ -2538,5 +2571,47 @@ function DocsPanel(props: {
         `.sc-doc-prose th{background:rgba(255,255,255,0.06)}`
       }} />
     </div>
+  );
+}
+
+/**
+ * 0.7.1 — "Viewing as" surface switcher, in the review pane. Lets a reviewer
+ * jump between the mock's persona/section surfaces. This is review-only — a real
+ * user is one role — so it must NOT live in the product mock. Tracks the current
+ * route (longest matching surface home) and navigates via the parent's
+ * router-agnostic handler.
+ */
+function SurfaceSwitcher(props: { surfaces: ReviewSurface[]; onNavigate: (home: string) => void; disabled: boolean }): JSX.Element {
+  const { surfaces, onNavigate, disabled } = props;
+  const [path, setPath] = useState<string>(typeof window !== "undefined" ? window.location.pathname : "/");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const on = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", on);
+    return () => window.removeEventListener("popstate", on);
+  }, []);
+  const current = surfaces
+    .filter((s) => (s.home === "/" ? true : path === s.home || path.startsWith(s.home + "/") || path === s.home))
+    .sort((a, b) => b.home.length - a.home.length)[0] ?? surfaces[0];
+  return (
+    <select
+      aria-label="Viewing as (review surface)"
+      title="Viewing as — jump between persona surfaces (review only; not a real control)"
+      value={current?.home ?? ""}
+      disabled={disabled}
+      onChange={(e) => onNavigate(e.target.value)}
+      style={{
+        marginLeft: 4, maxWidth: 170, background: "rgba(255,255,255,0.08)", color: "white",
+        border: "1px solid rgba(255,255,255,0.18)", borderRadius: 999, padding: "6px 10px",
+        cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+        font: "inherit", fontSize: 12, fontWeight: 700,
+      }}
+    >
+      {surfaces.map((s) => (
+        <option key={s.home} value={s.home} style={{ color: "#111" }}>
+          {(s.icon ? s.icon + " " : "") + "as " + s.label}
+        </option>
+      ))}
+    </select>
   );
 }
