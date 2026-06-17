@@ -767,7 +767,13 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         `color:#1a1a1a !important;background-color:#fff !important;` +
         `-webkit-text-fill-color:#1a1a1a !important;border-color:rgba(0,0,0,0.15) !important;caret-color:#1a1a1a !important;}` +
         `[data-slowcook-overlay-ui] textarea::placeholder,[data-slowcook-overlay-ui] input::placeholder{` +
-        `color:rgba(0,0,0,0.4) !important;-webkit-text-fill-color:rgba(0,0,0,0.4) !important;}`
+        `color:rgba(0,0,0,0.4) !important;-webkit-text-fill-color:rgba(0,0,0,0.4) !important;}` +
+        // 0.7.2 — the compact pane select. Higher specificity (attr + class +
+        // element) so the host's `select{font-size:16px !important}` (iOS-zoom
+        // guard) can't bloat it; keep it small + dark to match the pane.
+        `[data-slowcook-overlay-ui] select.sc-ovl-pane-select{` +
+        `font-size:11px !important;padding:4px 7px !important;line-height:1.15 !important;` +
+        `color:#1a1a1a !important;background-color:#fff !important;font-weight:700 !important;}`
       }} />
       {mode !== "nav" && (
         <div
@@ -1090,13 +1096,22 @@ function ModeToggle(props: {
         pointerEvents: "auto",
         display: "flex",
         alignItems: "center",
+        // 0.7.1 — wrap to multiple rows when crowded (Nav/Comment + 📋 + Docs +
+        // persona switcher + sign-in don't fit one row on portrait mobile).
+        flexWrap: "wrap",
+        justifyContent: "flex-end",
+        // 0.7.2 — cap to the viewport (not a fixed px) so it stays one row on
+        // desktop but wraps to two on portrait mobile when crowded (Comment mode
+        // adds 📋 + Sign-in on top of Docs + the persona switcher).
+        maxWidth: "94vw",
         gap: 4,
+        rowGap: 5,
         // 0.4.2 — green-tinted background + green border when approved.
         background: isApproved
           ? "rgba(20, 83, 45, 0.92)"      // dark-green pill
           : "rgba(15, 15, 24, 0.92)",     // default dark
-        padding: "4px 4px 4px 6px",
-        borderRadius: 999,
+        padding: "5px 6px",
+        borderRadius: 16,
         border: isApproved
           ? `1px solid rgba(34, 197, 94, 0.55)`   // brighter green border
           : "1px solid rgba(255, 255, 255, 0.16)",
@@ -2595,16 +2610,16 @@ function SurfaceSwitcher(props: { surfaces: ReviewSurface[]; onNavigate: (home: 
     .sort((a, b) => b.home.length - a.home.length)[0] ?? surfaces[0];
   return (
     <select
+      className="sc-ovl-pane-select"
       aria-label="Viewing as (review surface)"
       title="Viewing as — jump between persona surfaces (review only; not a real control)"
       value={current?.home ?? ""}
       disabled={disabled}
       onChange={(e) => onNavigate(e.target.value)}
       style={{
-        marginLeft: 4, maxWidth: 170, background: "rgba(255,255,255,0.08)", color: "white",
-        border: "1px solid rgba(255,255,255,0.18)", borderRadius: 999, padding: "6px 10px",
+        marginLeft: 2, maxWidth: 150,
+        border: "1px solid rgba(0,0,0,0.15)", borderRadius: 999,
         cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
-        font: "inherit", fontSize: 12, fontWeight: 700,
       }}
     >
       {surfaces.map((s) => (
