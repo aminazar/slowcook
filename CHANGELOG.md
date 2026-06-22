@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.21.2 — trace-check coverage + persona-surface lints · review-overlay 0.7.2 (docs studio, persona pane, write-gate)
+
+`@slowcook-ai/cli` 0.21.2 · `@slowcook-ai/review-overlay` 0.7.2. (core/forge-github/llm-anthropic unchanged since 0.21.1.) Ships the two trace-check lints and the overlay 0.6.1→0.7.2 arc that had accumulated on the LCR-review branch under stale version numbers — npm's `cli@0.21.1` predated both lints, and `review-overlay` was still at 0.6.0.
+
+**`trace check` — two new lints:**
+- `--coverage` — the inverse of provenance: reports stories/requirements with no LCR mock surface. Opt-in hard-fail (backend-only stories legitimately have no surface, so it's off by default).
+- **persona-surface lint** (always-on hard fail): every spec's `persona` + `surfaces[].route` must resolve to a real mock router path (`/u/:handle` matches `/u/you`). Catches a promised-but-unbuilt surface.
+
+**review-overlay 0.6.1 → 0.7.2** (LCR multi-person review polish):
+- **0.7.0 Docs studio** — a 📄 mode that fetches/commits the spine markdown (PRD/stories/etc.) via the Contents API on the branch, so a reviewer's doc edit is itself a scope change.
+- **0.6.18 write-access apply-gate** — `GET /repos` `permissions.push` decides `vibe` auto-apply vs `community-review` held-for-PM; requires a GitHub login (no anon).
+- **0.7.1** persona switcher moves out of the mock into the pane (`surfaces` prop + `SurfaceSwitcher`, pushState nav); login-dialog z-index above the Docs panel.
+- **0.7.2** compact pane select (beats host `select{16px!important}`) + pane flex-wraps to 2 rows on portrait mobile.
+- **0.6.16/0.6.17** sticky pins, scroll-lock, page/element split, style-isolation; per-author pin identity + hide resolved pins.
+
 ## 0.21.1 — fix: publish llm-anthropic 0.18.0 (MENU_SYSTEM)
 
 `@slowcook-ai/cli` 0.21.1 · `@slowcook-ai/llm-anthropic` 0.18.0. The GUCDI `menu` command imports `MENU_SYSTEM`/`MenuStoryDraft` from llm-anthropic, but llm-anthropic was never republished after they were added — so cli 0.21.0 (pinning `^0.17.0`) crashed at load with `does not provide an export named 'MENU_SYSTEM'`. Bump llm-anthropic to 0.18.0 (with the menu prompt) and republish cli so it pins `^0.18.0`.
