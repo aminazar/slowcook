@@ -252,7 +252,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // 0.6.0 — LCR multi-person review: who's signed in (this browser) + the
   // device-flow login dialog state. Comments post as this reviewer.
   const [reviewerIdentity, setReviewerIdentity] = useState<StoredReviewerIdentity | null>(null);
-  const [login, setLogin] = useState<{ open: boolean; userCode?: string; verificationUri?: string; status: string }>({ open: false, status: "" });
+  const [login, setLogin] = useState<{ open: boolean; userCode?: string; verificationUri?: string; status: string; error?: string }>({ open: false, status: "" });
   const loginAbort = useRef(false);
   // 0.6.0 — "show already-applied" toggle for the comments list. Resolved
   // comments (applied/declined/noop) hide by default; needs-clarification +
@@ -401,11 +401,50 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     setReviewerIdentity(loadReviewerIdentity(window.localStorage, { owner, repo }));
   }, [reviewMode, owner, repo]);
 
-  const signIn = useCallback(async () => {
-    if (!authBase) {
-      setLogin({ open: true, status: "Sign-in helper not configured (no AUTH_BASE). Run via `slowcook run-mock`." });
-      return;
+  // 0.8.1 — open the sign-in dialog. It always offers the classic-PAT path
+  // (deterministic auth instructions live there), plus device-flow when an
+  // authBase helper is configured. `error` shows a contextual reason (e.g. a
+  // 403 from an org's OAuth-App restriction) above the instructions.
+  const openLogin = useCallback((error?: string) => {
+    setLogin({ open: true, status: "", error });
+  }, []);
+
+  // 0.8.1 — classic-PAT sign-in. The reliable path for PRIVATE repos and orgs
+  // that restrict OAuth Apps: a classic PAT is not an OAuth App, so the org's
+  // "OAuth App access restrictions" don't block it, and the `repo` scope covers
+  // private repos (the device-flow app only gets public_repo). Validates the
+  // token, derives identity + write-access tier, stores it like a device token.
+  const signInWithPat = useCallback(async (tokenRaw: string) => {
+    const token = tokenRaw.trim();
+    if (!token) return;
+    setLogin((l) => ({ ...l, status: "Checking token…", error: undefined }));
+    try {
+      const base = await identifyReviewer(token);
+      const canApply = await checkRepoWriteAccess(token, { owner, repo });
+      const id = { ...base, canApply };
+      saveReviewerToken(window.localStorage, { owner, repo }, token);
+      saveReviewerIdentity(window.localStorage, { owner, repo }, id);
+      setReviewerIdentity(id);
+      setLogin({ open: false, status: "" });
+      setFeedback(canApply
+        ? `Signed in as @${id.login} — your comments are applied.`
+        : `Signed in as @${id.login} — your feedback goes to the team for review.`);
+    } catch (e) {
+      setLogin((l) => ({ ...l, status: "", error: `That token didn't work (${e instanceof Error ? e.message : String(e)}). Use a CLASSIC token with the \`repo\` scope.` }));
     }
+  }, [owner, repo]);
+
+  // 0.8.1 — a write failure that's really an auth problem (401/403/404 — bad
+  // token, org OAuth-App restriction, or a private repo the token can't see)
+  // routes to the sign-in dialog with a deterministic explanation, instead of a
+  // dead-end toast. Other failures still toast.
+  const reportFailure = useCallback((status: number | undefined, message: string | undefined, prefix: string) => {
+    if (status === 401 || status === 403 || status === 404) openLogin(describeAuthError(status, message, { owner, repo }));
+    else setFeedback(`${prefix}: ${status ?? "?"} ${message ?? ""}`);
+  }, [openLogin, owner, repo]);
+
+  const startDeviceLogin = useCallback(async () => {
+    if (!authBase) return;
     loginAbort.current = false;
     setLogin({ open: true, status: "Requesting a code…" });
     const token = await runDeviceLogin({
@@ -594,7 +633,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     try {
       const pat = ensurePat(repoCoord, reviewMode === "lcr");
       if (!pat) {
-        if (reviewMode === "lcr") { void signIn(); setFeedback("Sign in with GitHub to approve as yourself."); }
+        if (reviewMode === "lcr") { openLogin(); }
         else setFeedback("Approval cancelled — no PAT.");
         return;
       }
@@ -651,7 +690,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         setMode("nav");
         if (labelOk) setIsApproved(true); // optimistic; focus-refresh confirms
       } else {
-        setFeedback(`Approval failed: ${result.status} ${result.message}`);
+        reportFailure(result.status, result.message, "Approval failed");
       }
     } finally {
       setSubmitting(false);
@@ -666,7 +705,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       try {
         const pat = ensurePat(repoCoord, reviewMode === "lcr");
         if (!pat) {
-          if (reviewMode === "lcr") { void signIn(); setFeedback("Sign in with GitHub to comment as yourself."); }
+          if (reviewMode === "lcr") { openLogin(); }
           else setFeedback("Cancelled — no PAT.");
           return;
         }
@@ -718,7 +757,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
             return next;
           });
         } else {
-          setFeedback(`Failed: ${result.status} ${result.message}`);
+          reportFailure(result.status, result.message, "Failed");
         }
       } finally {
         setSubmitting(false);
@@ -738,7 +777,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       try {
         const pat = ensurePat(repoCoord, reviewMode === "lcr");
         if (!pat) {
-          if (reviewMode === "lcr") { void signIn(); setFeedback("Sign in with GitHub to comment as yourself."); }
+          if (reviewMode === "lcr") { openLogin(); }
           else setFeedback("Cancelled — no PAT.");
           return;
         }
@@ -782,7 +821,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
             return next;
           });
         } else {
-          setFeedback(`Failed: ${result.status} ${result.message}`);
+          reportFailure(result.status, result.message, "Failed");
         }
       } finally {
         setSubmitting(false);
@@ -909,7 +948,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         }}
         reviewMode={reviewMode}
         identity={reviewerIdentity}
-        onSignIn={() => void signIn()}
+        onSignIn={() => openLogin()}
         onSignOut={signOut}
       />
       {/* 0.3.0 — Figma-style pin layer for previously-left comments.
@@ -956,7 +995,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           branch={resolvedBranch}
           identity={reviewerIdentity}
           getToken={() => (typeof window !== "undefined" ? loadReviewerToken(window.localStorage, repoCoord) : null)}
-          onSignIn={() => void signIn()}
+          onSignIn={() => openLogin()}
           apiBase={getProxyApiBase() ?? undefined}
           onClose={() => setDocsPanelOpen(false)}
           onFeedback={(t) => setFeedback(t)}
@@ -996,9 +1035,15 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       )}
       {login.open && (
         <ReviewerLoginDialog
+          owner={repoCoord.owner}
+          repo={repoCoord.repo}
           userCode={login.userCode}
           verificationUri={login.verificationUri}
           status={login.status}
+          error={login.error}
+          hasAuthBase={Boolean(authBase)}
+          onSubmitPat={(tok) => void signInWithPat(tok)}
+          onStartDevice={() => void startDeviceLogin()}
           onClose={() => { loginAbort.current = true; setLogin({ open: false, status: "" }); }}
         />
       )}
@@ -1035,31 +1080,116 @@ function HoverHighlight({ el }: { el: Element }): JSX.Element {
   );
 }
 
-/** 0.6.0 — device-flow login dialog: shows the user code + verification link. */
+/**
+ * 0.8.1 — deterministic, in-code explanation of a write/auth failure. No LLM,
+ * no agent: the overlay itself tells the reviewer exactly why GitHub rejected
+ * the post and what to do (use a classic PAT with the `repo` scope), keyed off
+ * the HTTP status + GitHub's own message. Surfaced on every repo the overlay is
+ * mounted on.
+ */
+function describeAuthError(status: number | undefined, message: string | undefined, repo: RepoCoord): string {
+  const m = (message ?? "").toLowerCase();
+  if (status === 403 && m.includes("oauth app access restrictions")) {
+    return `Your "${repo.owner}" organization restricts third-party OAuth Apps, so the GitHub sign-in app is blocked from posting here — even though you're signed in. Use a classic personal access token with the \`repo\` scope instead: a PAT isn't an OAuth App, so the restriction doesn't apply.`;
+  }
+  if (status === 403) {
+    return `GitHub returned 403 (forbidden) for ${repo.owner}/${repo.repo}. If it's a private repo, or your org restricts OAuth Apps, sign in with a classic token that has the \`repo\` scope.`;
+  }
+  if (status === 401) {
+    return `GitHub rejected the token (401) — it's likely expired or missing scope. Sign in again with a classic token that has the \`repo\` scope.`;
+  }
+  if (status === 404) {
+    return `${repo.owner}/${repo.repo} wasn't found for this token — it's probably private and your token lacks the \`repo\` scope. Sign in with a classic token that has \`repo\`.`;
+  }
+  return message ?? "Sign-in needed to post your comment.";
+}
+
+/**
+ * 0.6.0 → 0.8.1 — sign-in dialog. Always offers a classic-PAT path with baked-in
+ * instructions (the reliable route for private repos + orgs that restrict OAuth
+ * Apps), plus device-flow login when an authBase helper is configured. `error`
+ * shows the deterministic reason a write was just rejected.
+ */
 function ReviewerLoginDialog({
-  userCode, verificationUri, status, onClose,
-}: { userCode?: string; verificationUri?: string; status: string; onClose: () => void }): JSX.Element {
+  owner, repo, userCode, verificationUri, status, error, hasAuthBase, onSubmitPat, onStartDevice, onClose,
+}: {
+  owner: string; repo: string;
+  userCode?: string; verificationUri?: string; status: string; error?: string;
+  hasAuthBase: boolean;
+  onSubmitPat: (token: string) => void;
+  onStartDevice: () => void;
+  onClose: () => void;
+}): JSX.Element {
+  const [pat, setPat] = useState("");
+  const tokenUrl = `https://github.com/settings/tokens/new?scopes=repo&description=${encodeURIComponent(`slowcook review ${owner}/${repo}`)}`;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: 2147483647 /* 0.7.1 — above the Docs panel (…602) so the sign-in popup isn't hidden behind it */ }}>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 24, width: 360, maxWidth: "90vw", boxShadow: "0 12px 40px rgba(0,0,0,0.3)", fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6, color: "#111" }}>Sign in with GitHub</div>
-        {userCode ? (
-          <>
-            <p style={{ fontSize: 13.5, color: "#555", margin: "0 0 14px" }}>
-              Open GitHub and enter this code to review as yourself:
-            </p>
-            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: "0.18em", textAlign: "center", background: "#f3f4f6", borderRadius: 10, padding: "12px 0", color: "#111", fontFamily: "ui-monospace, monospace" }}>
-              {userCode}
-            </div>
-            <a href={verificationUri} target="_blank" rel="noreferrer"
-               style={{ display: "block", textAlign: "center", marginTop: 14, background: "#2da44e", color: "#fff", borderRadius: 999, padding: "9px 0", textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
-              Open {verificationUri?.replace(/^https?:\/\//, "")}
-            </a>
-          </>
-        ) : (
-          <p style={{ fontSize: 14, color: "#555", margin: "8px 0 14px" }}>{status || "Starting…"}</p>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: 2147483647, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 400, maxWidth: "92vw", maxHeight: "88vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2, color: "#111" }}>Sign in to review</div>
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 12, fontFamily: "ui-monospace, monospace" }}>{owner}/{repo}</div>
+
+        {error && (
+          <div style={{ background: "#fff1f0", border: "1px solid #ffccc7", color: "#a8071a", borderRadius: 8, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.5, marginBottom: 14 }}>
+            {error}
+          </div>
         )}
-        {userCode && <p style={{ fontSize: 12, color: "#888", marginTop: 12 }}>{status}</p>}
+
+        {/* Classic-PAT path — the reliable route (deterministic instructions). */}
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "#111", marginBottom: 4 }}>Personal access token{!hasAuthBase && " (recommended)"}</div>
+        <p style={{ fontSize: 12.5, color: "#555", margin: "0 0 10px", lineHeight: 1.5 }}>
+          Works for <strong>private repos</strong> and orgs that restrict OAuth Apps. Create a <strong>classic</strong> token with the <code style={{ background: "#f3f4f6", padding: "1px 4px", borderRadius: 4 }}>repo</code> scope, then paste it below.
+        </p>
+        <a href={tokenUrl} target="_blank" rel="noreferrer"
+           style={{ display: "block", textAlign: "center", background: "#1f2328", color: "#fff", borderRadius: 8, padding: "8px 0", textDecoration: "none", fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+          ① Create a classic token (repo scope) ↗
+        </a>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="password"
+            value={pat}
+            onChange={(e) => setPat(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && pat.trim()) onSubmitPat(pat); }}
+            placeholder="② Paste token (ghp_… / github_pat_…)"
+            autoComplete="off"
+            style={{ flex: 1, minWidth: 0, padding: "8px 10px", border: "1px solid #d0d7de", borderRadius: 8, fontSize: 14, color: "#111", background: "#fff" }}
+          />
+          <button
+            type="button"
+            disabled={pat.trim() === ""}
+            onClick={() => onSubmitPat(pat)}
+            style={{ background: pat.trim() ? "#2da44e" : "#94d3a2", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: pat.trim() ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
+          >
+            Save
+          </button>
+        </div>
+        <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0", lineHeight: 1.5 }}>
+          Stored only in this browser, scoped to {owner}/{repo}. {status && <span style={{ color: "#555", fontWeight: 600 }}>· {status}</span>}
+        </p>
+
+        {/* Device-flow path — only when an auth helper (authBase) is configured. */}
+        {hasAuthBase && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "16px 0 12px", color: "#999", fontSize: 11 }}>
+              <span style={{ flex: 1, height: 1, background: "#eaeaea" }} /> OR <span style={{ flex: 1, height: 1, background: "#eaeaea" }} />
+            </div>
+            {userCode ? (
+              <>
+                <p style={{ fontSize: 12.5, color: "#555", margin: "0 0 10px" }}>Open GitHub and enter this code:</p>
+                <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "0.18em", textAlign: "center", background: "#f3f4f6", borderRadius: 10, padding: "10px 0", color: "#111", fontFamily: "ui-monospace, monospace" }}>{userCode}</div>
+                <a href={verificationUri} target="_blank" rel="noreferrer"
+                   style={{ display: "block", textAlign: "center", marginTop: 12, background: "#2da44e", color: "#fff", borderRadius: 999, padding: "9px 0", textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+                  Open {verificationUri?.replace(/^https?:\/\//, "")}
+                </a>
+              </>
+            ) : (
+              <button type="button" onClick={onStartDevice}
+                style={{ width: "100%", background: "#fff", color: "#1f2328", border: "1px solid #d0d7de", borderRadius: 8, padding: "9px 0", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                Sign in with GitHub device login
+              </button>
+            )}
+          </>
+        )}
+
         <button onClick={onClose} style={{ marginTop: 16, width: "100%", border: "1px solid rgba(0,0,0,0.12)", background: "#fff", borderRadius: 999, padding: "8px 0", cursor: "pointer", fontSize: 13, color: "#444" }}>
           Cancel
         </button>
