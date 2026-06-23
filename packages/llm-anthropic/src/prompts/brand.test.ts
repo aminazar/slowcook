@@ -44,10 +44,34 @@ describe("BRAND_SYSTEM (sc#82 Phase 4)", () => {
     expect(out).toContain("dir = lang === 'fa'");
   });
 
-  it("specifies file paths for both emitted files", () => {
+  it("specifies file paths for all four emitted files", () => {
     const out = BRAND_SYSTEM("");
     expect(out).toContain("mock/src/design-system/tokens.ts");
     expect(out).toContain("mock/src/design-system/css.ts");
+    expect(out).toContain("mock/src/design-system/theme.css");
+    expect(out).toContain("mock/src/design-system/brand-board.html");
+  });
+
+  it("requires a dual-mode Tailwind theme.css", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain('@import "tailwindcss"');
+    expect(out).toContain("[data-theme]");
+    expect(out).toContain("@theme");
+    // dual mode is not optional when the brief asks
+    expect(out).toContain("Dual mode is not optional");
+  });
+
+  it("requires first-class tokens for 'must read distinctly' domain semantics", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("Domain semantics get first-class tokens");
+    expect(out).toContain("--color-agent");
+  });
+
+  it("requires a felt, self-contained brand board with a day/dark toggle", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("brand-board.html");
+    expect(out).toContain("felt, not read");
+    expect(out).toContain("day/dark toggle");
   });
 
   it("instructs the agent to derive ghost from primary at coherent alpha", () => {
