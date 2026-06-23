@@ -67,7 +67,7 @@ import {
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
-import { loadManifest, activeEpicId, applySelection, getSelection, type Manifest } from "../testing-surfaces.js";
+import { loadManifest, applySelection, getSelection, type Manifest } from "../testing-surfaces.js";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -1224,24 +1224,27 @@ function ReviewerLoginDialog({
  * Keys it on the active document's origin so different repos /
  * preview deploys don't share placement.
  */
-const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos";
+// 0.9.0 — LEFT-anchored (was right): the grip + logo + nav/rev pin to the left
+// edge and the EPSS status grows the pill rightward. Bumped key suffix so old
+// right-based saved positions don't mis-place the new left-anchored pill.
+const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos.v2";
 
 interface TogglePosition {
   /** Absolute top in CSS px from viewport top. */
   top: number;
-  /** Absolute right in CSS px from viewport right. */
-  right: number;
+  /** Absolute left in CSS px from viewport left. */
+  left: number;
 }
 
 function loadTogglePosition(): TogglePosition {
-  const fallback: TogglePosition = { top: 12, right: 12 };
+  const fallback: TogglePosition = { top: 12, left: 12 };
   if (typeof window === "undefined") return fallback;
   try {
     const raw = window.localStorage.getItem(TOGGLE_POSITION_STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<TogglePosition>;
-    if (typeof parsed.top !== "number" || typeof parsed.right !== "number") return fallback;
-    return { top: parsed.top, right: parsed.right };
+    if (typeof parsed.top !== "number" || typeof parsed.left !== "number") return fallback;
+    return { top: parsed.top, left: parsed.left };
   } catch {
     return fallback;
   }
@@ -1284,17 +1287,13 @@ function ModeToggle(props: {
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
-  const [pos, setPos] = useState<TogglePosition>({ top: 12, right: 12 });
+  const [pos, setPos] = useState<TogglePosition>({ top: 12, left: 12 });
   useEffect(() => { setPos(loadTogglePosition()); }, []);
-  const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startTop: number; startLeft: number } | null>(null);
 
-  // 0.9.0 — EPSS router drill-down state (epic ▸ context ▸ scenario; state pick
-  // navigates). Seeded from the persisted selection.
-  const sel0 = getSelection();
-  const [epicId, setEpicId] = useState<string>(sel0?.epicId ?? "");
-  const [ctxId, setCtxId] = useState<string>(sel0?.contextId ?? "");
-  const [scnId, setScnId] = useState<string>(sel0?.scenarioId ?? "");
-  useEffect(() => { if (surfaceManifest && !epicId) setEpicId(activeEpicId(surfaceManifest)); }, [surfaceManifest, epicId]);
+  // 0.9.0 — EPSS jump palette open state. The tappable status (right of the
+  // pill) opens it; it lists every state (browse-first) to jump to.
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // 0.6.3 — sign-out is a two-step confirm: the disk floats, so a single
   // mis-click shouldn't log you out. First click/tap on the identity chip arms
@@ -1322,7 +1321,7 @@ function ModeToggle(props: {
       startX: e.clientX,
       startY: e.clientY,
       startTop: pos.top,
-      startRight: pos.right,
+      startLeft: pos.left,
     };
   }, [pos]);
 
@@ -1332,8 +1331,10 @@ function ModeToggle(props: {
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
     const newTop = Math.max(0, dragRef.current.startTop + dy);
-    const newRight = Math.max(0, dragRef.current.startRight - dx);
-    setPos({ top: newTop, right: newRight });
+    // Allow a slightly-negative left so a clipped (grown-right) pill can be
+    // panned left to reveal its right side; the grip stays grabbable.
+    const newLeft = Math.max(-2000, dragRef.current.startLeft + dx);
+    setPos({ top: newTop, left: newLeft });
   }, []);
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -1350,14 +1351,16 @@ function ModeToggle(props: {
       style={{
         position: "absolute",
         top: pos.top,
-        right: pos.right,
+        left: pos.left,
         pointerEvents: "auto",
         display: "flex",
         alignItems: "center",
         // 0.7.1 — wrap to multiple rows when crowded (Nav/Comment + 📋 + Docs +
-        // persona switcher + sign-in don't fit one row on portrait mobile).
+        // sign-in + EPSS status don't fit one row on portrait mobile).
         flexWrap: "wrap",
-        justifyContent: "flex-end",
+        // 0.9.0 — left-anchored: grip + logo + nav/rev pin to the left edge; the
+        // EPSS status grows the pill rightward.
+        justifyContent: "flex-start",
         // 0.7.2/0.9.0 — cap to a nimble fixed width (not the whole viewport) so
         // the pill stays compact on desktop too; buttons wrap and the EPSS router
         // (review mode) fits two snug dropdown rows instead of sprawling wide.
@@ -1382,9 +1385,9 @@ function ModeToggle(props: {
         userSelect: "none",
       }}
     >
-      {/* Slowcook logo — slow-cook pot with steam. Scales with currentColor. */}
-      <SlowcookLogo />
-      {/* Grip handle for dragging. Pointer events only on this element. */}
+      {/* 0.9.0 — Grip on the LEFTMOST edge (doubles as left padding). If a long
+          EPSS status grows the pill off the right of the viewport, the grip
+          stays put so you can drag the pill left to reveal the rest. */}
       <div
         role="button"
         aria-label="Drag overlay toggle"
@@ -1396,13 +1399,14 @@ function ModeToggle(props: {
         style={{
           width: 8,
           height: 22,
-          marginRight: 2,
+          marginRight: 1,
           cursor: dragRef.current ? "grabbing" : "grab",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           opacity: 0.55,
           touchAction: "none",
+          flexShrink: 0,
         }}
       >
         <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
@@ -1414,6 +1418,8 @@ function ModeToggle(props: {
           <circle cx="4.5" cy="12" r="1.1" fill="currentColor" />
         </svg>
       </div>
+      {/* Slowcook logo — pinned next to the grip on the left. */}
+      <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
           a review session: the page still navigates freely; you arm a pick with
           the "📍 Pin a comment" button below. (Was "Commenting" — but comment
@@ -1591,51 +1597,128 @@ function ModeToggle(props: {
           </button>
         )
       )}
-      {/* 0.9.0 — EPSS testing-surface router. Shows ONLY in review (comment)
-          mode — nav mode stays a nimble pill. A 2×2 dropdown router (one
-          artifact, in the pill); picking a state writes the selection + navigates. */}
-      {mode === "comment" && surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
-        const epic = surfaceManifest.epics.find((e) => e.id === epicId) ?? surfaceManifest.epics[0]!;
-        const ctx = epic.contexts.find((c) => c.id === ctxId) ?? epic.contexts[0]!;
-        const scn = ctx.scenarios.find((s) => s.id === scnId) ?? ctx.scenarios[0]!;
-        const groups: Record<string, typeof epic.contexts> = {};
-        for (const c of epic.contexts) (groups[c.group ?? "Other"] ??= []).push(c);
+      {/* 0.9.0 — EPSS status → centered jump palette. The status shows the
+          active surface (left-ellipsized so the most-specific state stays
+          visible) and IS the trigger; it's mode-independent (nav + review). */}
+      {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
         const sel = getSelection();
-        const SELS: React.CSSProperties = { flex: "1 1 0", minWidth: 0, width: 0, maxWidth: "100%", background: "rgba(255,255,255,0.10)", color: "white", fontSize: 11, borderRadius: 6, padding: "3px 5px", border: "1px solid rgba(255,255,255,0.15)", colorScheme: "dark" };
-        const go = (stateId: string): void => {
-          const url = applySelection(surfaceManifest, epic.id, ctx.id, scn.id, stateId);
-          if (url && typeof window !== "undefined") window.location.assign(url);
-        };
+        const label = sel?.label ?? "pick a surface";
         return (
-          <div data-slowcook-overlay-ui="1" style={{ flexBasis: "100%", width: "100%", marginTop: 6, display: "flex", flexDirection: "column", gap: 5 }}>
-            <div style={{ display: "flex", gap: 5 }}>
-              <select aria-label="Epic" disabled={disabled} value={epic.id} style={{ ...SELS, maxWidth: 96 }}
-                onChange={(e) => { setEpicId(e.target.value); setCtxId(""); setScnId(""); try { const u = new URL(window.location.href); u.searchParams.set("epic", e.target.value); window.history.replaceState({}, "", u); } catch { /* noop */ } }}>
-                {surfaceManifest.epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.label}</option>)}
-              </select>
-              <select aria-label="Context" disabled={disabled} value={ctx.id} style={SELS}
-                onChange={(e) => { const c = epic.contexts.find((x) => x.id === e.target.value)!; setCtxId(c.id); setScnId(c.scenarios[0]!.id); }}>
-                {Object.entries(groups).map(([g, cs]) => (
-                  <optgroup key={g} label={g}>
-                    {cs.map((c) => <option key={c.id} value={c.id}>{c.status === "anonymous" ? "👤 " : ""}{c.label}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: 5 }}>
-              <select aria-label="Scenario" disabled={disabled} value={scn.id} style={SELS} onChange={(e) => setScnId(e.target.value)}>
-                {ctx.scenarios.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-              <select aria-label="State" disabled={disabled} style={SELS}
-                value={sel?.contextId === ctx.id && sel?.scenarioId === scn.id ? sel?.stateId : ""}
-                onChange={(e) => { if (e.target.value) go(e.target.value); }}>
-                <option value="" disabled>Pick a state →</option>
-                {scn.states.map((st) => <option key={st.id} value={st.id}>{st.hard ? "⚡ " : ""}{st.becomes ? "➡ " : ""}{st.label}</option>)}
-              </select>
-            </div>
-          </div>
+          <button
+            type="button"
+            data-slowcook-overlay-ui="1"
+            data-testid="epss-status"
+            aria-label="Testing surface — tap to jump"
+            title={sel ? `${sel.label} — tap to jump to another surface/state` : "Jump to a surface / state"}
+            onClick={() => setPaletteOpen(true)}
+            style={{
+              marginLeft: 4, maxWidth: "min(46vw, 210px)", minWidth: 52, flexShrink: 1,
+              display: "inline-flex", alignItems: "center", gap: 3,
+              padding: "5px 1px", border: "none", borderRadius: 7,
+              background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.82)",
+              cursor: "pointer", font: "inherit", fontSize: 10.5, lineHeight: 1.15,
+              overflow: "hidden", whiteSpace: "nowrap",
+            }}
+          >
+            <span aria-hidden style={{ flexShrink: 0, padding: "0 1px" }}>🎛</span>
+            {/* left-ellipsis: rtl container clips the start; <bdi> keeps the text LTR */}
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl" }}>
+              <bdi style={{ direction: "ltr" }}>{label}</bdi>
+            </span>
+          </button>
         );
       })()}
+      {paletteOpen && surfaceManifest && (
+        <SurfacePalette
+          manifest={surfaceManifest}
+          onClose={() => setPaletteOpen(false)}
+          onPick={(epicId, contextId, scenarioId, stateId) => {
+            const url = applySelection(surfaceManifest, epicId, contextId, scenarioId, stateId);
+            setPaletteOpen(false);
+            if (url && typeof window !== "undefined") window.location.assign(url);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 0.9.0 — centered "jump" palette (browse-first: the full grouped list shows
+ * immediately; the filter is an accelerator, not required — so a mobile reviewer
+ * needn't summon the keyboard). Lists every state across all epics/contexts;
+ * tapping one jumps there (the caller's onPick resolves becomes/anonymous + nav).
+ */
+function SurfacePalette(props: {
+  manifest: Manifest;
+  onClose: () => void;
+  onPick: (epicId: string, contextId: string, scenarioId: string, stateId: string) => void;
+}): JSX.Element {
+  const { manifest, onClose, onPick } = props;
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const sel = getSelection();
+  interface Row { epicId: string; contextId: string; scenarioId: string; stateId: string; epicLabel: string; ctxLabel: string; scnLabel: string; stLabel: string; hard?: boolean; becomes?: boolean; q: string }
+  const rows: Row[] = [];
+  for (const epic of manifest.epics)
+    for (const ctx of epic.contexts)
+      for (const scn of ctx.scenarios)
+        for (const st of scn.states)
+          rows.push({ epicId: epic.id, contextId: ctx.id, scenarioId: scn.id, stateId: st.id, epicLabel: epic.label, ctxLabel: ctx.label, scnLabel: scn.label, stLabel: st.label, hard: st.hard, becomes: !!st.becomes, q: `${epic.label} ${ctx.label} ${scn.label} ${st.label}`.toLowerCase() });
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const matched = rows.filter((r) => terms.every((t) => r.q.includes(t)));
+  const groups: { key: string; rows: Row[] }[] = [];
+  for (const r of matched) {
+    const key = `${r.epicLabel} · ${r.ctxLabel}`;
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, rows: [] }; groups.push(g); }
+    g.rows.push(r);
+  }
+
+  return (
+    <div data-slowcook-overlay-ui="1" onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "9vh", pointerEvents: "auto", zIndex: 2147483647 }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Jump to a surface"
+        style={{ background: "#fff", color: "#111", borderRadius: 12, width: 380, maxWidth: "94vw", maxHeight: "78vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.35)", fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden" }}>
+        <div style={{ padding: "12px 14px 8px" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Jump to a surface / state</div>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter… (or just browse)" aria-label="Filter surfaces"
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #d0d7de", borderRadius: 8, fontSize: 16, color: "#111", background: "#fff" }} />
+        </div>
+        <div style={{ overflow: "auto", padding: "0 8px 8px" }}>
+          {matched.length === 0 && <div style={{ padding: 16, color: "#888", fontSize: 13 }}>No surface matches “{q}”.</div>}
+          {groups.map((g) => (
+            <div key={g.key} style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#8a8a8a", textTransform: "uppercase", letterSpacing: 0.3, padding: "8px 6px 3px" }}>{g.key}</div>
+              {g.rows.map((r) => {
+                const active = sel?.contextId === r.contextId && sel?.scenarioId === r.scenarioId && sel?.stateId === r.stateId;
+                return (
+                  <button key={r.epicId + r.contextId + r.scenarioId + r.stateId} type="button"
+                    onClick={() => onPick(r.epicId, r.contextId, r.scenarioId, r.stateId)}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px", border: "none", borderRadius: 8, background: active ? "rgba(59,175,160,0.14)" : "transparent", cursor: "pointer", font: "inherit", fontSize: 13, color: "#111" }}
+                    onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "#f3f4f6"; }}
+                    onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                    <span aria-hidden style={{ flexShrink: 0, width: 16, textAlign: "center" }}>{r.hard ? "⚡" : r.becomes ? "➡" : "·"}</span>
+                    <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span style={{ fontWeight: 600 }}>{r.stLabel}</span>
+                      <span style={{ color: "#999", fontSize: 11.5 }}>{"  ·  "}{r.scnLabel}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop: "1px solid #eee", padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "#999" }}>
+          <span>{matched.length} surface{matched.length === 1 ? "" : "s"}</span>
+          <button type="button" onClick={onClose} style={{ border: "1px solid #d0d7de", background: "#fff", borderRadius: 7, padding: "5px 12px", cursor: "pointer", font: "inherit", fontSize: 12, color: "#444" }}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }
