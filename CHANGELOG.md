@@ -6,6 +6,16 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.8.0 → 0.8.2 — free-nav comment mode, deterministic auth guidance, test hardening
+
+`@slowcook-ai/review-overlay` 0.8.0–0.8.2 (overlay-only). The 0.8.0/0.8.1 features came from a slowcook session dogfooding the overlay on the **delgoosh** SPA (a private, RTL, mobile-reviewed mock) and feeding fixes back upstream; 0.8.2 backfills the test coverage + this changelog entry.
+
+**0.8.0 — arm-to-pick free navigation in LCR comment mode.** Comment mode used to capture *every* page click into a composer, exitable only via Escape — so mobile reviewers (no Esc key) were locked out of navigating the mock. Now a review session navigates the app freely; the reviewer arms a single element-pick ("📍 Pin a comment") and only the *next* click is captured, after which it auto-disarms. Mobile-safe on-screen cancels at every layer (armed banner, composer Cancel, toolbar toggle); Escape steps back one layer at a time (composer → armed pick → mode) instead of nuking the whole mode. The page tint shows only while a pick is live.
+
+**0.8.1 — deterministic auth guidance + classic-PAT sign-in.** Being signed in via the GitHub device-flow OAuth app is *not* enough to comment on a private repo or an OAuth-restricted org — the app's token is blocked and only carries `public_repo`, so reviewers hit an opaque `403 …OAuth App access restrictions…` toast. Now `describeAuthError()` maps 401/403/404 + GitHub's message to a plain-English reason and fix (keyed off the org/repo); the sign-in dialog always offers a classic-PAT path with baked-in instructions and a prefilled "create a classic token (`repo` scope)" link; `signInWithPat()` validates the token and derives identity + write-access tier; write failures that are really auth route to the dialog (`reportFailure()`) instead of a dead-end toast. Plus a docs note: statically-hosted mocks must serve `index.html` as `Cache-Control: no-cache` or reviewers keep seeing a stale mock after each redeploy (content-hashed assets stay immutable).
+
+**0.8.2 — test hardening.** `describeAuthError` is now exported and unit-tested (7 cases incl. the OAuth-restriction dead-end, case-insensitive match, and the 401/404/fallback paths); a jsdom render test covers the 0.8.0 arm-to-pick contract end-to-end (unarmed click navigates, armed click captures + auto-disarms) — which also proves the 0.7.3 shadow-DOM portal still delivers React click events. 73 overlay tests green (was 65).
+
 ## review-overlay 0.7.3 — Shadow-DOM style firewall (fixes host-CSS bleed on RTL / hard-reset hosts)
 
 `@slowcook-ai/review-overlay` 0.7.3 (overlay-only; cli unchanged). Fixes a real bug found dogfooding the overlay on the **delgoosh** SPA (a Persian, RTL app): the floating disk "lost its shape" and couldn't be gripped/dragged, and buttons were unclickable.

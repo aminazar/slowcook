@@ -1087,7 +1087,7 @@ function HoverHighlight({ el }: { el: Element }): JSX.Element {
  * the HTTP status + GitHub's own message. Surfaced on every repo the overlay is
  * mounted on.
  */
-function describeAuthError(status: number | undefined, message: string | undefined, repo: RepoCoord): string {
+export function describeAuthError(status: number | undefined, message: string | undefined, repo: RepoCoord): string {
   const m = (message ?? "").toLowerCase();
   if (status === 403 && m.includes("oauth app access restrictions")) {
     return `Your "${repo.owner}" organization restricts third-party OAuth Apps, so the GitHub sign-in app is blocked from posting here — even though you're signed in. Use a classic personal access token with the \`repo\` scope instead: a PAT isn't an OAuth App, so the restriction doesn't apply.`;
