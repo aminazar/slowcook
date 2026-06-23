@@ -6,6 +6,16 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.7.3 — Shadow-DOM style firewall (fixes host-CSS bleed on RTL / hard-reset hosts)
+
+`@slowcook-ai/review-overlay` 0.7.3 (overlay-only; cli unchanged). Fixes a real bug found dogfooding the overlay on the **delgoosh** SPA (a Persian, RTL app): the floating disk "lost its shape" and couldn't be gripped/dragged, and buttons were unclickable.
+
+**Root cause — host CSS leaked *into* the overlay.** The overlay rendered straight into the host's DOM (no isolation boundary), so the host's *global* CSS bled onto it. Two delgoosh rules broke it: a universal reset `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}` collapsed the disk's internal geometry, and `body{direction:rtl}` mirrored the toolbar and inverted the disk's `right`-anchored drag math. It "worked in rewo" only because rewo is LTR with a benign reset — and because earlier `!important` patches had been written reactively against rewo's *specific* CSS. (No rewo code/styles were ever bundled into the overlay — verified; the leak is purely host→overlay.)
+
+**Fix.** The whole UI now mounts inside a **Shadow DOM** on a body-level host element (`createPortal` into an open `shadowRoot`). Selector-based host CSS (`*{}` resets, `button{}` styles) physically can't cross the boundary. Inherited properties (direction/font/color) still cross, so an in-root `:host{ all: initial; direction: ltr; unicode-bidi: isolate; … }` reset re-establishes them — note `all` deliberately skips `direction`/`unicode-bidi`, which is exactly what un-mirrors the toolbar on RTL hosts. The host element carries no transform/filter, so `position: fixed` children still resolve to the viewport; comment-mode still queries the host document directly (the shadow only encapsulates the overlay's *own* UI). +2 jsdom tests reproducing the RTL+reset host (65 overlay tests green).
+
+**Also closes #205** (signed-in reviewer badge overlapped the draggable toolbar, grip unreachable): that was a 0.6.0-only bug already fixed in **0.6.2** by folding the sign-in into the floating disk (the separate `ReviewerSignInBadge` is gone). delgoosh was pinned to the npm-stale 0.6.0; 0.7.3 carries both fixes. Consumers on 0.6.x should bump.
+
 ## 0.21.2 — trace-check coverage + persona-surface lints · review-overlay 0.7.2 (docs studio, persona pane, write-gate)
 
 `@slowcook-ai/cli` 0.21.2 · `@slowcook-ai/review-overlay` 0.7.2. (core/forge-github/llm-anthropic unchanged since 0.21.1.) Ships the two trace-check lints and the overlay 0.6.1→0.7.2 arc that had accumulated on the LCR-review branch under stale version numbers — npm's `cli@0.21.1` predated both lints, and `review-overlay` was still at 0.6.0.

@@ -24,6 +24,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, type JSX } from "react";
+import { createPortal } from "react-dom";
 import { extractSelector, resolveStoredSelector } from "../selector.js";
 import {
   buildPayload,
@@ -141,6 +142,20 @@ type Mode = "nav" | "comment" | "approve";
 const ACCENT = "#FF6B6B";
 const APPROVED_GREEN = "#22c55e";
 
+// 0.7.3 — the in-shadow-root CSS firewall. `all: initial` on :host severs
+// every inherited property the host page would otherwise leak in (font,
+// color, letter-spacing, text-transform…), then we re-establish a neutral
+// base. `direction`/`unicode-bidi` are the two properties `all` deliberately
+// skips, so they're set explicitly — this is what un-mirrors the toolbar on
+// RTL hosts. Selector-based host rules (the `*{}` reset, `button{}` styles)
+// can't cross the shadow boundary at all, so box-sizing/margin/padding are
+// already safe without listing them here.
+const SHADOW_RESET_CSS =
+  `:host{all:initial;direction:ltr;unicode-bidi:isolate;` +
+  `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;` +
+  `font-size:14px;line-height:1.4;color:#1a1a1a;}` +
+  `:host *,:host *::before,:host *::after{box-sizing:border-box;}`;
+
 export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.Element | null {
   // 0.5.1 — auto-detect props from process.env.NEXT_PUBLIC_SLOWCOOK_*.
   // Next inlines NEXT_PUBLIC_* at consumer build time, so this works
@@ -181,6 +196,31 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // "1 issue" warning consumers were seeing.
   const [mounted, setMounted] = useState<boolean>(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // 0.7.3 — Shadow-DOM style firewall. The overlay used to render straight
+  // into the host's DOM, so the host's *global* CSS bled in: a universal
+  // reset (`*{box-sizing;margin:0;padding:0}`) collapsed the disk's geometry,
+  // and an RTL host (`body{direction:rtl}`, e.g. a Persian app) mirrored the
+  // toolbar + inverted the grip's right-anchored drag math — the disk "lost
+  // its shape" and couldn't be grabbed. We now mount the whole UI inside a
+  // shadow root on a body-level host element, so selector-based host CSS
+  // (resets, button styles) physically can't reach in. Inherited properties
+  // (direction/font/color) still cross the boundary, so the in-root reset
+  // (SHADOW_RESET_CSS) re-establishes them — note `all: initial` does NOT
+  // cover `direction`/`unicode-bidi`, hence the explicit `direction: ltr`.
+  // The host element carries no transform/filter, so position:fixed children
+  // still resolve to the viewport. Comment-mode still queries the host
+  // document directly — the shadow only encapsulates the overlay's own UI.
+  const [shadowRoot, setShadowRoot] = useState<ShadowRoot | null>(null);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const host = document.createElement("div");
+    host.setAttribute("data-slowcook-overlay-host", "");
+    document.body.appendChild(host);
+    const root = host.attachShadow({ mode: "open" });
+    setShadowRoot(root);
+    return () => { host.remove(); };
+  }, []);
 
   // Hooks must run unconditionally — render the null AFTER all hooks
   // are declared. Bails early during SSR via the typeof window check.
@@ -746,8 +786,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // only scenarios mode requires a prNumber.
   if (!owner || !repo) return null;
   if (reviewMode !== "lcr" && !prNumber) return null;
+  if (!shadowRoot) return null; // 0.7.3 — wait for the shadow host to mount
 
-  return (
+  return createPortal(
+    <>
+      <style dangerouslySetInnerHTML={{ __html: SHADOW_RESET_CSS }} />
     <div
       data-slowcook-overlay-ui="1"
       style={{
@@ -907,10 +950,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       )}
       {feedback && <FeedbackToast text={feedback} onDismiss={() => setFeedback(null)} />}
     </div>
+    </>,
+    shadowRoot
   );
 }
 
-/**
 /**
  * 0.6.5 — green hover preview in comment mode. Outlines the element the cursor
  * is over (the one a click would attach the comment to) so the reviewer can see
