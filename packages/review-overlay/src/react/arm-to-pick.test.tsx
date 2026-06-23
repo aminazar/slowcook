@@ -79,9 +79,9 @@ describe("arm-to-pick free navigation (0.8.0)", () => {
     // Nav mode by default: no arm affordance yet.
     expect(buttons().find((b) => /Pin a comment/i.test(b.title))).toBeUndefined();
 
-    // Enter comment mode via the toolbar toggle ("💬 Review").
-    const toggle = buttons().find((b) => /Review/i.test(b.textContent ?? ""));
-    expect(toggle, "the Review/Reviewing mode toggle is present").toBeTruthy();
+    // Enter comment mode via the nav/rev toolbar toggle (reads "nav" in nav mode).
+    const toggle = buttons().find((b) => (b.textContent ?? "").trim() === "nav");
+    expect(toggle, "the nav/rev mode toggle is present").toBeTruthy();
     act(() => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 
     // Comment mode, NOT armed → the page is navigable; a page click is untouched.

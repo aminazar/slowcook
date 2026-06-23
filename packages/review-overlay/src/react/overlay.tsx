@@ -1358,10 +1358,10 @@ function ModeToggle(props: {
         // persona switcher + sign-in don't fit one row on portrait mobile).
         flexWrap: "wrap",
         justifyContent: "flex-end",
-        // 0.7.2 — cap to the viewport (not a fixed px) so it stays one row on
-        // desktop but wraps to two on portrait mobile when crowded (Comment mode
-        // adds 📋 + Sign-in on top of Docs + the persona switcher).
-        maxWidth: "94vw",
+        // 0.7.2/0.9.0 — cap to a nimble fixed width (not the whole viewport) so
+        // the pill stays compact on desktop too; buttons wrap and the EPSS router
+        // (review mode) fits two snug dropdown rows instead of sprawling wide.
+        maxWidth: "min(340px, 92vw)",
         gap: 4,
         rowGap: 5,
         // 0.4.2 — green-tinted background + green border when approved.
@@ -1422,15 +1422,11 @@ function ModeToggle(props: {
         active={mode === "comment"}
         onClick={() => onChangeSafe(mode === "comment" ? "nav" : "comment")}
         disabled={disabled}
-        label={
-          mode === "comment"
-            ? (isMobile ? "🧭" : "🧭 Reviewing")
-            : (isMobile ? "💬" : "💬 Review")
-        }
+        label={mode === "comment" ? "rev" : "nav"}
         title={
           mode === "comment"
-            ? "Reviewing — navigate freely; click to end the review"
-            : (newCount ? `Start reviewing — ${newCount} new update(s)` : "Start reviewing — navigate freely and pin comments")
+            ? "Review mode — navigate freely + pin comments; click to switch to nav"
+            : (newCount ? `Switch to review — ${newCount} new update(s)` : "Switch to review — pin comments + the testing-surface router")
         }
         accent
         badge={newCount}
@@ -1595,24 +1591,17 @@ function ModeToggle(props: {
           </button>
         )
       )}
-      {/* 0.9.0 — EPSS testing-surface router. In the SAME pill (one artifact):
-          a tiny PSS breadcrumb in nav mode; a 2×2 dropdown router in review
-          (comment) mode. Picking a state writes the selection + navigates. */}
-      {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
+      {/* 0.9.0 — EPSS testing-surface router. Shows ONLY in review (comment)
+          mode — nav mode stays a nimble pill. A 2×2 dropdown router (one
+          artifact, in the pill); picking a state writes the selection + navigates. */}
+      {mode === "comment" && surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
         const epic = surfaceManifest.epics.find((e) => e.id === epicId) ?? surfaceManifest.epics[0]!;
         const ctx = epic.contexts.find((c) => c.id === ctxId) ?? epic.contexts[0]!;
         const scn = ctx.scenarios.find((s) => s.id === scnId) ?? ctx.scenarios[0]!;
         const groups: Record<string, typeof epic.contexts> = {};
         for (const c of epic.contexts) (groups[c.group ?? "Other"] ??= []).push(c);
         const sel = getSelection();
-        const SELS: React.CSSProperties = { flex: "1 1 0", minWidth: 0, background: "rgba(255,255,255,0.10)", color: "white", fontSize: 11.5, borderRadius: 6, padding: "4px 6px", border: "1px solid rgba(255,255,255,0.15)", colorScheme: "dark" };
-        if (mode !== "comment") {
-          return (
-            <div data-slowcook-overlay-ui="1" style={{ flexBasis: "100%", width: "100%", marginTop: 4, fontSize: 10.5, color: "rgba(255,255,255,0.55)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title="Active testing surface (open Review to change)">
-              🎛 {sel ? sel.label : `${epic.label} · pick a surface in Review`}
-            </div>
-          );
-        }
+        const SELS: React.CSSProperties = { flex: "1 1 0", minWidth: 0, width: 0, maxWidth: "100%", background: "rgba(255,255,255,0.10)", color: "white", fontSize: 11, borderRadius: 6, padding: "3px 5px", border: "1px solid rgba(255,255,255,0.15)", colorScheme: "dark" };
         const go = (stateId: string): void => {
           const url = applySelection(surfaceManifest, epic.id, ctx.id, scn.id, stateId);
           if (url && typeof window !== "undefined") window.location.assign(url);
