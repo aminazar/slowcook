@@ -74,6 +74,23 @@ describe("BRAND_SYSTEM (sc#82 Phase 4)", () => {
     expect(out).toContain("day/dark toggle");
   });
 
+  it("requires a reusable logo.tsx with currentColor treatments + keep-the-mark-whole", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("logo.tsx");
+    expect(out).toContain("currentColor");
+    expect(out).toContain("Keep the mark whole");
+    // treatments change colour, not geometry
+    expect(out).toContain("identical across");
+  });
+
+  it("specifies an OPTIONAL cues.ts (sound + haptics) for app-like products that degrades gracefully", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("cues.ts");
+    expect(out).toContain("playCue");
+    expect(out).toContain("navigator.vibrate");
+    expect(out).toContain("ONLY if the product is app-like");
+  });
+
   it("instructs the agent to derive ghost from primary at coherent alpha", () => {
     const out = BRAND_SYSTEM("");
     expect(out).toContain("primary at 12% alpha");

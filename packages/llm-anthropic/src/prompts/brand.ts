@@ -178,6 +178,50 @@ figures in mono), and motion (a fade, a pulse, a shimmer). The brand must be
 **felt, not read** — this is the human-facing proof of the system. Drive its
 values from the same tokens so it stays in sync.
 
+### 5. \`mock/src/design-system/logo.tsx\` — the mark, as a reusable component
+
+A React component so every surface uses ONE logo, not ad-hoc copies. The mark
+itself is an inline SVG drawn with \`fill="currentColor"\` (and \`stroke="currentColor"\`
+ONLY on parts that are strokes, e.g. fine lines) so a single \`color\` drives the
+whole mark — that's what makes the treatments free.
+
+\`\`\`tsx
+export function Logo({ variant = "full", size = 28 }: {
+  variant?: "full" | "reversed" | "mono" | "bw";
+  size?: number;
+}) { /* one <svg> using currentColor; \`variant\` only sets the colour context */ }
+
+export function Wordmark({ size = 20 }: { size?: number }) {
+  /* the lockup: <Logo/> + the brand name, the fixed nav pairing */
+}
+\`\`\`
+
+If the consumer supplied a logo (a traced SVG from \`slowcook brand logo\`, or a
+path in the brief), base the mark on it; otherwise design a clean, simple mark or
+monogram from the brand name. The board renders the SAME mark.
+
+### 6. \`mock/src/design-system/cues.ts\` — sound + haptic cues (ONLY if the product is app-like)
+
+Emit this ONLY when the brief describes an app with events/feedback worth feeling
+(dashboards, trackers, anything with notifications/progress). Skip it for static
+marketing sites. A small, asset-free cue language:
+
+\`\`\`ts
+// each cue: a synthesized tone + a vibration pattern (no audio files)
+export const CUES = {
+  success:   { tone: [659, 880], type: "sine",     vibrate: [10] },
+  progress:  { tone: [523, 659, 784], type: "sine", vibrate: [10, 40, 10] },
+  attention: { tone: [440], type: "triangle",      vibrate: [20] },
+  warning:   { tone: [330, 277], type: "sawtooth", vibrate: [50, 30, 50] },
+  error:     { tone: [120], type: "square",        vibrate: [80] },
+} as const;
+export function playCue(name: keyof typeof CUES): void { /* WebAudio synth + navigator.vibrate(); both degrade to no-ops where unsupported */ }
+\`\`\`
+
+Name the cues for the product's real events when the brief implies them (e.g. a
+build dashboard: gate-approved / tests-green / needs-human / budget-low / halted).
+The board's "feel it" buttons call \`playCue\`.
+
 ## Rules
 
 ### 1. Match the brief
@@ -228,6 +272,18 @@ work* vs *human work*), give EACH its own NAMED colour token (\`--color-agent\`,
 \`--color-human\`, …) in \`theme.css\` + matching \`.sc-*\` chip classes. They are
 first-class brand semantics — never fold them into \`accent\` / \`success\`.
 
+### 8. Keep the mark whole
+
+Logo treatments only change COLOUR, never geometry — the SVG is identical across
+full/reversed/mono/bw (single \`color\` swap). Don't strip detail to "simplify" a
+mark (steam off a pot, etc.); a stripped mark reads as a different object.
+
+### 9. Cues degrade gracefully
+
+\`playCue\` synthesizes tones (WebAudio) — no audio files — and calls
+\`navigator.vibrate\` guarded (\`if (navigator.vibrate)\`); both must no-op silently
+where unsupported (desktop, iOS Safari). Cues are OPTIONAL output (Rule 6).
+
 ## Output format
 
 Output ONLY the XML-tagged file blocks below. No prose preamble, no postscript, no markdown headings outside blocks.
@@ -248,7 +304,13 @@ Output ONLY the XML-tagged file blocks below. No prose preamble, no postscript, 
 <file path="mock/src/design-system/brand-board.html">
 <!-- (self-contained felt brand board, day/dark toggle) -->
 </file>
+
+<file path="mock/src/design-system/logo.tsx">
+// (Logo + Wordmark — one mark, currentColor-driven treatments)
+</file>
 \`\`\`
+
+Plus \`<file path="mock/src/design-system/cues.ts">\` ONLY when the product is app-like (Rule 6).
 
 ## Self-check before emitting
 
@@ -260,7 +322,9 @@ Output ONLY the XML-tagged file blocks below. No prose preamble, no postscript, 
 6. \`makeGlobalCSS\` imports the Google Fonts URL from \`FONTS[lang].import\`.
 7. \`theme.css\` defines BOTH modes when the brief asks (Rule 6), and any "must read distinctly" ideas have their own \`--color-*\` tokens (Rule 7).
 8. \`brand-board.html\` is self-contained, has a day/dark toggle, and shows logo treatments + swatches + type + components + motion.
-9. All four files end with a trailing newline.
+9. \`logo.tsx\` exports \`Logo\` (currentColor mark, treatment variants) + \`Wordmark\`; the mark geometry is identical across treatments (Rule 8).
+10. If the product is app-like, \`cues.ts\` exports \`CUES\` + a graceful \`playCue\` (Rule 9), and the board's "feel it" buttons call it.
+11. Every emitted file ends with a trailing newline.
 
 If any check fails, fix before emitting.
 `;

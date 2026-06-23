@@ -202,11 +202,14 @@ export async function brand(argv: string[], _cliVersion: string): Promise<void> 
 
   // Pre-flight: refuse to overwrite without --refresh.
   const dsDir = join(args.cwd, "mock", "src", "design-system");
-  const exists =
-    existsSync(join(dsDir, "tokens.ts")) ||
-    existsSync(join(dsDir, "css.ts")) ||
-    existsSync(join(dsDir, "theme.css")) ||
-    existsSync(join(dsDir, "brand-board.html"));
+  const exists = [
+    "tokens.ts",
+    "css.ts",
+    "theme.css",
+    "brand-board.html",
+    "logo.tsx",
+    "cues.ts",
+  ].some((f) => existsSync(join(dsDir, f)));
   if (exists && !args.refresh && !args.dryRun) {
     console.error(
       `mock/src/design-system/ already has design-system files. Pass --refresh to overwrite.`,
@@ -234,7 +237,7 @@ export async function brand(argv: string[], _cliVersion: string): Promise<void> 
   }
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey! });
-  const userPrompt = `Generate the design-system foundation for this mock app from the brand brief in your system prompt. Emit ALL FOUR file blocks (\`tokens.ts\`, \`css.ts\`, \`theme.css\`, \`brand-board.html\`) under \`mock/src/design-system/\` per the Output format. theme.css MUST cover both modes if the brief asks; brand-board.html must be self-contained + felt. No prose preamble.`;
+  const userPrompt = `Generate the design-system foundation for this mock app from the brand brief in your system prompt. Emit the file blocks under \`mock/src/design-system/\` per the Output format: \`tokens.ts\`, \`css.ts\`, \`theme.css\`, \`brand-board.html\`, \`logo.tsx\` — plus \`cues.ts\` IF the product is app-like (Rule 6). theme.css MUST cover both modes if the brief asks; brand-board.html must be self-contained + felt. No prose preamble.`;
 
   // Stream: emitting four files (incl. a self-contained brand-board.html) can
   // exceed the SDK's non-streaming 10-minute guard at this token budget.
