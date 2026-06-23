@@ -67,6 +67,7 @@ import {
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
+import { loadManifest, activeEpicId, applySelection, getSelection, type Manifest } from "../testing-surfaces.js";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -129,6 +130,15 @@ export interface SlowcookReviewOverlayProps {
    * to `NEXT_PUBLIC_SLOWCOOK_SURFACES` (JSON). Empty hides the switcher.
    */
   surfaces?: ReviewSurface[];
+  /**
+   * 0.9.0 — URL of a `testing-surfaces.json` manifest (epic ▸ context ▸ scenario
+   * ▸ state). When set, the pill grows an EPSS router IN review mode (a 2×2
+   * dropdown) and shows a tiny PSS breadcrumb in nav mode. Picking a state writes
+   * the resolved selection to localStorage (`slowcook_test_surface`) for the
+   * mock's data-adaptor + navigates. Falls back to `NEXT_PUBLIC_SLOWCOOK_SURFACES_URL`.
+   * Empty disables the router.
+   */
+  testingSurfacesUrl?: string;
 }
 
 export interface ReviewSurface {
@@ -185,6 +195,13 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     try { const raw = process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES"]; return raw ? (JSON.parse(raw) as ReviewSurface[]) : []; }
     catch { return []; }
   })();
+  // 0.9.0 — EPSS testing-surface router manifest.
+  const testingSurfacesUrl: string =
+    props.testingSurfacesUrl ?? process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES_URL"] ?? "";
+  const [surfaceManifest, setSurfaceManifest] = useState<Manifest | null>(null);
+  useEffect(() => {
+    if (testingSurfacesUrl) loadManifest(testingSurfacesUrl).then(setSurfaceManifest).catch(() => { /* ignore */ });
+  }, [testingSurfacesUrl]);
 
   // 0.5.1 — hydration-mismatch fix. The overlay can't render during
   // SSR (no localStorage, no window.matchMedia, no DOM), so it returns
@@ -939,6 +956,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         docsEnabled={reviewMode === "lcr" && docPaths.length > 0}
         onDocsClick={() => setDocsPanelOpen(true)}
         surfaces={reviewMode === "lcr" ? surfaces : []}
+        surfaceManifest={surfaceManifest}
         onNavigate={(home) => {
           if (typeof window === "undefined") return;
           // Router-agnostic SPA nav: pushState + popstate so react-router (or any
@@ -1253,6 +1271,7 @@ function ModeToggle(props: {
   docsEnabled: boolean;
   onDocsClick: () => void;
   surfaces: ReviewSurface[];
+  surfaceManifest: Manifest | null;
   onNavigate: (home: string) => void;
   // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
   // not a separate fixed badge.
@@ -1261,13 +1280,21 @@ function ModeToggle(props: {
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
-  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, surfaceManifest, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
   const [pos, setPos] = useState<TogglePosition>({ top: 12, right: 12 });
   useEffect(() => { setPos(loadTogglePosition()); }, []);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
+
+  // 0.9.0 — EPSS router drill-down state (epic ▸ context ▸ scenario; state pick
+  // navigates). Seeded from the persisted selection.
+  const sel0 = getSelection();
+  const [epicId, setEpicId] = useState<string>(sel0?.epicId ?? "");
+  const [ctxId, setCtxId] = useState<string>(sel0?.contextId ?? "");
+  const [scnId, setScnId] = useState<string>(sel0?.scenarioId ?? "");
+  useEffect(() => { if (surfaceManifest && !epicId) setEpicId(activeEpicId(surfaceManifest)); }, [surfaceManifest, epicId]);
 
   // 0.6.3 — sign-out is a two-step confirm: the disk floats, so a single
   // mis-click shouldn't log you out. First click/tap on the identity chip arms
@@ -1568,6 +1595,58 @@ function ModeToggle(props: {
           </button>
         )
       )}
+      {/* 0.9.0 — EPSS testing-surface router. In the SAME pill (one artifact):
+          a tiny PSS breadcrumb in nav mode; a 2×2 dropdown router in review
+          (comment) mode. Picking a state writes the selection + navigates. */}
+      {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
+        const epic = surfaceManifest.epics.find((e) => e.id === epicId) ?? surfaceManifest.epics[0]!;
+        const ctx = epic.contexts.find((c) => c.id === ctxId) ?? epic.contexts[0]!;
+        const scn = ctx.scenarios.find((s) => s.id === scnId) ?? ctx.scenarios[0]!;
+        const groups: Record<string, typeof epic.contexts> = {};
+        for (const c of epic.contexts) (groups[c.group ?? "Other"] ??= []).push(c);
+        const sel = getSelection();
+        const SELS: React.CSSProperties = { flex: "1 1 0", minWidth: 0, background: "rgba(255,255,255,0.10)", color: "white", fontSize: 11.5, borderRadius: 6, padding: "4px 6px", border: "1px solid rgba(255,255,255,0.15)", colorScheme: "dark" };
+        if (mode !== "comment") {
+          return (
+            <div data-slowcook-overlay-ui="1" style={{ flexBasis: "100%", width: "100%", marginTop: 4, fontSize: 10.5, color: "rgba(255,255,255,0.55)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title="Active testing surface (open Review to change)">
+              🎛 {sel ? sel.label : `${epic.label} · pick a surface in Review`}
+            </div>
+          );
+        }
+        const go = (stateId: string): void => {
+          const url = applySelection(surfaceManifest, epic.id, ctx.id, scn.id, stateId);
+          if (url && typeof window !== "undefined") window.location.assign(url);
+        };
+        return (
+          <div data-slowcook-overlay-ui="1" style={{ flexBasis: "100%", width: "100%", marginTop: 6, display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ display: "flex", gap: 5 }}>
+              <select aria-label="Epic" disabled={disabled} value={epic.id} style={{ ...SELS, maxWidth: 96 }}
+                onChange={(e) => { setEpicId(e.target.value); setCtxId(""); setScnId(""); try { const u = new URL(window.location.href); u.searchParams.set("epic", e.target.value); window.history.replaceState({}, "", u); } catch { /* noop */ } }}>
+                {surfaceManifest.epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.label}</option>)}
+              </select>
+              <select aria-label="Context" disabled={disabled} value={ctx.id} style={SELS}
+                onChange={(e) => { const c = epic.contexts.find((x) => x.id === e.target.value)!; setCtxId(c.id); setScnId(c.scenarios[0]!.id); }}>
+                {Object.entries(groups).map(([g, cs]) => (
+                  <optgroup key={g} label={g}>
+                    {cs.map((c) => <option key={c.id} value={c.id}>{c.status === "anonymous" ? "👤 " : ""}{c.label}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 5 }}>
+              <select aria-label="Scenario" disabled={disabled} value={scn.id} style={SELS} onChange={(e) => setScnId(e.target.value)}>
+                {ctx.scenarios.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <select aria-label="State" disabled={disabled} style={SELS}
+                value={sel?.contextId === ctx.id && sel?.scenarioId === scn.id ? sel?.stateId : ""}
+                onChange={(e) => { if (e.target.value) go(e.target.value); }}>
+                <option value="" disabled>Pick a state →</option>
+                {scn.states.map((st) => <option key={st.id} value={st.id}>{st.hard ? "⚡ " : ""}{st.becomes ? "➡ " : ""}{st.label}</option>)}
+              </select>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

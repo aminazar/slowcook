@@ -6,6 +6,12 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.0 — EPSS testing-surface router in the pill
+
+`@slowcook-ai/review-overlay` 0.9.0 (overlay-only; additive). Reviewing a mock means reaching every UI state of every surface fast. A consumer can now point the overlay at a `testing-surfaces.json` manifest (new `testingSurfacesUrl` prop, or `NEXT_PUBLIC_SLOWCOOK_SURFACES_URL`) and the pill grows an **EPSS router** — **Epic ▸ Context ▸ Scenario ▸ State ▸ CTA** — so any action is ≤4 clicks. It lives **inside the pill (one artifact)**: a tiny PSS breadcrumb in nav mode, a 2×2 dropdown router in review (comment) mode (mobile-portrait friendly).
+
+The model generalises "persona" → an auth/identity **context** with `status` `anonymous` (no user — login/signup/OTP surfaces are first-class) or `authed` (carries `user`); a state's **`becomes`** flips the active context (login as *outcome*: anonymous → authed-as-X). Picking a state resolves the checkpoint and writes the selection to `localStorage["slowcook_test_surface"]` (+ a `slowcook-test-surface-change` event) for the mock's data-adaptor to read, then navigates. The overlay resolves two documented seed conventions — `profileIds` (via an epic `profiles` lookup, with `profileOverrides`) and `dateOffsetDays` (→ ISO, so mock dates never go stale); everything else in `seed` passes through opaque, so the manifest's data shape stays the consumer's own. Manifest shape + resolver (`resolveSelection`/`resolveSeed`, incl. `becomes` + anonymous) are unit-tested. Surfaced from the same delgoosh dogfood as 0.8.x.
+
 ## review-overlay 0.8.0 → 0.8.2 — free-nav comment mode, deterministic auth guidance, test hardening
 
 `@slowcook-ai/review-overlay` 0.8.0–0.8.2 (overlay-only). The 0.8.0/0.8.1 features came from a slowcook session dogfooding the overlay on the **delgoosh** SPA (a private, RTL, mobile-reviewed mock) and feeding fixes back upstream; 0.8.2 backfills the test coverage + this changelog entry.
