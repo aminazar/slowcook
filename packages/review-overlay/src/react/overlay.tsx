@@ -2,9 +2,10 @@
  * <SlowcookReviewOverlay /> — 0.16.0-α.6.
  *
  * Mounted into the consumer's mock-app root layout. Renders a floating
- * mode toggle (nav / comment / approve). In comment mode, clicks on
- * elements capture a selector + bbox + viewport metadata; the user
- * types prose and submits to the mockup PR via PAT.
+ * mode toggle (review / approve). 0.8.0 — in a review session the page
+ * navigates freely; the reviewer arms a single element-pick ("📍 Pin a
+ * comment") and the next click captures a selector + bbox + viewport
+ * metadata; the user types prose and submits to the mockup PR via PAT.
  *
  * Bundle weight is paid only when consumers mount it. The mock app
  * scaffolded by `slowcook init mock` includes a code-comment placeholder
@@ -229,6 +230,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // 0.6.5 — element under the cursor in comment mode (green hover preview).
   const [hoverEl, setHoverEl] = useState<Element | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  // 0.8.0 — free-nav: in comment mode the page navigates normally. The reviewer
+  // ARMS a single element-pick ("📍 Pin a comment"); only while armed does the
+  // overlay intercept the next click. After the pick (or cancel) it disarms, so
+  // navigation is never trapped — and there's an on-screen cancel for mobile
+  // (no Escape key). See the capture effect below.
+  const [armed, setArmed] = useState<boolean>(false);
   // 0.5.0 — comments-list panel state. Opened by the "📋" button in
   // the pill OR by clicking the count badge on the Comment toggle.
   // Surfaces ALL comments — including ones whose anchor element is
@@ -485,24 +492,31 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     };
   }, [reviewMode]);
 
-  // ESC exits comment/approve mode + closes composer.
+  // ESC steps back one layer at a time (graduated, 0.8.0): an open composer
+  // closes first, then an armed pick disarms, then comment/approve mode exits to
+  // nav. Mobile has no Escape — each of these layers also has an on-screen exit
+  // (composer Cancel, the armed banner, the toolbar toggle).
   useEffect(() => {
     if (typeof window === "undefined") return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setMode("nav");
-        setComposerOpen(false);
-        setTarget(null);
-      }
+      if (e.key !== "Escape") return;
+      if (composerOpen) { setComposerOpen(false); setTarget(null); setArmed(false); return; }
+      if (armed) { setArmed(false); return; }
+      if (mode !== "nav") setMode("nav");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [composerOpen, armed, mode]);
 
-  // Capture clicks at the document level when in comment/approve mode.
+  // Capture clicks at the document level ONLY while a pick is live:
+  //  - comment mode → only when the reviewer armed a pick (else clicks navigate);
+  //  - approve mode → the next click confirms approval (one-shot).
+  // 0.8.0 — this gate is the whole free-nav feature: when not capturing, page
+  // links/buttons work normally and the reviewer is never trapped.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (mode === "nav") { setHoverEl(null); return; }
+    const capturing = mode === "approve" || (mode === "comment" && armed);
+    if (!capturing) { setHoverEl(null); return; }
     const isOwnUi = (el: Element | null) =>
       !el ||
       (composerRef.current && composerRef.current.contains(el)) ||
@@ -516,6 +530,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         setTarget(el);
         setHoverEl(null);
         setComposerOpen(true);
+        setArmed(false); // one-shot — disarm so the page is navigable again
       } else if (mode === "approve") {
         void submitApproval();
       }
@@ -550,7 +565,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       document.removeEventListener("pointerdown", onDown, { capture: true });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, armed]);
 
   // 0.6.6 — entering Nav clears the whole comment surface: any open composer,
   // the comments-list panel, a general-note composer, an open pin popover, the
@@ -559,6 +574,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     if (mode !== "nav") return;
     setComposerOpen(false);
     setTarget(null);
+    setArmed(false);
     setGeneralComposerOpen(false);
     setListPanelOpen(false);
     setOpenCommentId(null);
@@ -818,24 +834,62 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         `font-size:11px !important;padding:4px 7px !important;line-height:1.15 !important;` +
         `color:#1a1a1a !important;background-color:#fff !important;font-weight:700 !important;}`
       }} />
-      {mode !== "nav" && (
+      {/* 0.8.0 — tint the page only while a pick is live (armed comment, or
+          approve). Free-nav comment mode with no armed pick stays untinted —
+          you're just navigating. */}
+      {(armed || mode === "approve") && (
         <div
           style={{
             position: "absolute",
             inset: 0,
             backgroundColor:
-              mode === "comment"
-                ? "rgba(255, 107, 107, 0.05)"
-                : "rgba(74, 222, 128, 0.05)",
+              mode === "approve"
+                ? "rgba(74, 222, 128, 0.05)"
+                : "rgba(255, 107, 107, 0.05)",
             pointerEvents: "none",
           }}
           aria-hidden="true"
         />
       )}
       {/* 0.6.5 — green hover preview of the click target in comment mode. */}
-      {mode === "comment" && !composerOpen && hoverEl && <HoverHighlight el={hoverEl} />}
+      {mode === "comment" && armed && !composerOpen && hoverEl && <HoverHighlight el={hoverEl} />}
+      {/* 0.8.0 — armed banner: the on-screen, mobile-safe cancel for a live pick.
+          Tap it (or Esc) to disarm and go back to navigating. */}
+      {mode === "comment" && armed && !composerOpen && (
+        <button
+          type="button"
+          data-slowcook-overlay-ui="1"
+          onClick={() => setArmed(false)}
+          style={{
+            position: "fixed",
+            top: 12,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 2147483647,
+            pointerEvents: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            maxWidth: "92vw",
+            padding: "8px 14px",
+            border: "1px solid rgba(255,255,255,0.16)",
+            borderRadius: 999,
+            background: "rgba(15, 15, 24, 0.94)",
+            color: "white",
+            font: "600 13px system-ui, -apple-system, sans-serif",
+            cursor: "pointer",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.35)",
+          }}
+        >
+          📍 Tap an element to comment on it
+          <span style={{ opacity: 0.7, fontWeight: 400 }}>· tap here / Esc to cancel</span>
+        </button>
+      )}
       <ModeToggle
         mode={mode}
+        armed={armed}
+        onArm={() => setArmed(true)}
+        onCancelArm={() => setArmed(false)}
         onChange={(m) => (m === "approve" ? onApproveClicked() : setMode(m))}
         disabled={submitting}
         isMobile={isMobile}
@@ -1056,6 +1110,9 @@ function saveTogglePosition(p: TogglePosition): void {
 
 function ModeToggle(props: {
   mode: Mode;
+  armed: boolean;
+  onArm: () => void;
+  onCancelArm: () => void;
   onChange: (m: Mode) => void;
   disabled: boolean;
   isMobile: boolean;
@@ -1074,7 +1131,7 @@ function ModeToggle(props: {
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
-  const { mode, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -1200,25 +1257,55 @@ function ModeToggle(props: {
           <circle cx="4.5" cy="12" r="1.1" fill="currentColor" />
         </svg>
       </div>
-      {/* 0.6.9 — single Nav/Comment toggle (was two buttons): off = navigate,
-          on (accent) = comment mode. */}
+      {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
+          a review session: the page still navigates freely; you arm a pick with
+          the "📍 Pin a comment" button below. (Was "Commenting" — but comment
+          mode no longer traps clicks, so it now reads "Reviewing".) */}
       <ToggleButton
         active={mode === "comment"}
         onClick={() => onChangeSafe(mode === "comment" ? "nav" : "comment")}
         disabled={disabled}
         label={
           mode === "comment"
-            ? (isMobile ? "💬" : "💬 Commenting")
-            : (isMobile ? "🧭" : "🧭 Navigating")
+            ? (isMobile ? "🧭" : "🧭 Reviewing")
+            : (isMobile ? "💬" : "💬 Review")
         }
         title={
           mode === "comment"
-            ? "Comment mode on — click to go back to navigating"
-            : (newCount ? `Click to comment — ${newCount} new update(s)` : "Click to comment on an element")
+            ? "Reviewing — navigate freely; click to end the review"
+            : (newCount ? `Start reviewing — ${newCount} new update(s)` : "Start reviewing — navigate freely and pin comments")
         }
         accent
         badge={newCount}
       />
+      {/* 0.8.0 — arm a single element-pick. While armed the next page tap selects
+          an element to comment on (then auto-disarms); tap again to cancel. */}
+      {mode === "comment" && (
+        <button
+          type="button"
+          onClick={() => (armed ? onCancelArm() : onArm())}
+          disabled={disabled}
+          title={armed ? "Cancel — tap an element, or cancel the pick" : "Pin a comment on an element"}
+          style={{
+            marginLeft: 4,
+            background: armed ? ACCENT : "rgba(255,255,255,0.06)",
+            color: "white",
+            border: armed ? `1px solid ${ACCENT}` : "1px solid transparent",
+            padding: "6px 10px",
+            borderRadius: 999,
+            cursor: disabled ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.6 : 1,
+            font: "inherit",
+            fontSize: 12,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {armed ? "✕ Cancel pick" : (isMobile ? "📍" : "📍 Pin a comment")}
+        </button>
+      )}
       {/* 0.6.8 — Approve moved into the Comments panel (under "+ Add note").
           The disk only shows the approved state now, never the action. */}
       {isApproved && (
