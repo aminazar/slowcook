@@ -6,6 +6,18 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.2 — more pill compaction + finish the dark-mode pass
+
+`@slowcook-ai/review-overlay` 0.9.2 (overlay-only; additive). Follow-on polish from the delgoosh dogfood:
+
+- **Compacter pill.** The "📍 Pin a comment" button is now an **icon-only 💭** (thought-bubble) toggle — ✕ while armed — instead of an icon+label, and the signed-in chip drops the **`applies`/`review` tier badge** (unexplained jargon; the write-access nuance still lives in the chip's `title`).
+- **Dark-mode legibility, finished.** Three overlay surfaces that were still hardcoded light/dark are now theme-aware via `prefers-color-scheme`:
+  - the **page badge** (route/story pill in the composer) was `#3a3a3a` — illegible on the dark composer; now themed.
+  - the **element-selector** line in the composer now uses the themed dim colour (was a flat `opacity:0.7`).
+  - the **comments side-panel** (`CommentsListPanel`) was hardcoded dark throughout (illegible header + chrome in light mode, off-theme in dark) — container, header, dividers, the already-applied toggle, comment cards, replies, and group headers all follow the system scheme now.
+
+No API changes.
+
 ## review-overlay 0.9.1 — EPSS pill polish + dark-mode comment composers
 
 `@slowcook-ai/review-overlay` 0.9.1 (overlay-only; additive). Seven fixes from the delgoosh dogfood of the 0.9.0 EPSS pill:

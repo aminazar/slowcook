@@ -1469,25 +1469,27 @@ function ModeToggle(props: {
           type="button"
           onClick={() => (armed ? onCancelArm() : onArm())}
           disabled={disabled}
-          title={armed ? "Cancel — tap an element, or cancel the pick" : "Pin a comment on an element"}
+          aria-label={armed ? "Cancel pick" : "Comment on an element"}
+          title={armed ? "Cancel — tap an element, or cancel the pick" : "Comment on an element"}
           style={{
             marginLeft: 4,
             background: armed ? ACCENT : T.sub,
             color: armed ? "white" : T.fg,
             border: armed ? `1px solid ${ACCENT}` : "1px solid transparent",
-            padding: "6px 10px",
+            // 0.9.2 — icon-only (compact): 💭 to arm a pick, ✕ to cancel.
+            padding: "5px 9px",
             borderRadius: 999,
             cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.6 : 1,
             font: "inherit",
-            fontSize: 12,
+            fontSize: 14,
+            lineHeight: 1,
             display: "inline-flex",
             alignItems: "center",
-            gap: 5,
-            whiteSpace: "nowrap",
+            justifyContent: "center",
           }}
         >
-          {armed ? "✕ Cancel pick" : (isMobile ? "📍" : "📍 Pin a comment")}
+          {armed ? "✕" : "💭"}
         </button>
       )}
       {/* 0.6.8 — Approve moved into the Comments panel (under "+ Add note").
@@ -1592,13 +1594,8 @@ function ModeToggle(props: {
                   ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
                   : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
                 @{identity.login}
-                {/* tier chip — write access applies; otherwise feedback to team */}
-                <span style={{
-                  fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, textTransform: "uppercase",
-                  padding: "1px 6px", borderRadius: 999,
-                  background: identity.canApply ? "rgba(34,197,94,0.22)" : "rgba(148,163,184,0.25)",
-                  color: identity.canApply ? "#4ade80" : "#cbd5e1",
-                }}>{identity.canApply ? "applies" : "review"}</span>
+                {/* 0.9.2 — dropped the applies/review tier chip: jargon nobody
+                    asked for; the write-access nuance lives in the sign-in title. */}
               </>
             )}
           </span>
@@ -1931,19 +1928,23 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
  * the comment is on (route + the story it declares, if any) before submitting.
  */
 function PageBadge(): JSX.Element | null {
+  // 0.9.2 — follow the system scheme. Was hardcoded #3a3a3a, which is illegible
+  // on the now dark-themed composer.
+  const dark = usePrefersDark();
   if (typeof window === "undefined") return null;
   const route = window.location.pathname + window.location.search;
   const story = readCurrentStory();
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%",
-      fontSize: 11.5, color: "#3a3a3a", background: "rgba(255,107,107,0.10)",
+      fontSize: 11.5, color: dark ? "#ffc2c2" : "#3a3a3a",
+      background: dark ? "rgba(255,107,107,0.16)" : "rgba(255,107,107,0.10)",
       border: "1px solid rgba(255,107,107,0.30)", borderRadius: 6,
       padding: "3px 9px", marginBottom: 8,
     }}>
       <span aria-hidden>📄</span>
       <span style={{ fontFamily: "ui-monospace, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{route}</span>
-      {story && <span style={{ fontWeight: 700, color: "#d6336c" }}>· story-{story}</span>}
+      {story && <span style={{ fontWeight: 700, color: dark ? "#ff9ec2" : "#d6336c" }}>· story-{story}</span>}
     </div>
   );
 }
@@ -2051,7 +2052,7 @@ function Composer(props: {
         <ComposerInputTheme S={S} />
         <div style={{ fontWeight: 600, marginBottom: 6 }}>Review comment</div>
         <PageBadge />
-        <div style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, opacity: 0.7, marginBottom: 8, wordBreak: "break-all" }}>
+        <div style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, color: S.fgDim, marginBottom: 8, wordBreak: "break-all" }}>
           {sel.selector}
         </div>
         <textarea
@@ -2603,6 +2604,11 @@ function CommentsListPanel(props: {
   const isResolved = (r: OverlayCommentRecord) => r.plateReply != null && isResolvedStatus(r.plateReply.status);
   const hiddenCount = records.filter(isResolved).length;
   const visible = showApplied ? records : records.filter((r) => !isResolved(r));
+  // 0.9.2 — the side panel was hardcoded dark (illegible header in light mode,
+  // off-theme in dark). Follow the system scheme like the composer/palette.
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
+  const cardBg = dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
   return (
     <div
       data-slowcook-overlay-ui="1"
@@ -2616,18 +2622,18 @@ function CommentsListPanel(props: {
         bottom: 0,
         width: 360,
         maxWidth: "90vw",
-        background: "rgba(15, 15, 24, 0.98)",
-        color: "white",
+        background: S.sheet,
+        color: S.fg,
         boxShadow: "-12px 0 40px rgba(0,0,0,0.45)",
         pointerEvents: "auto",
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
         display: "flex",
         flexDirection: "column",
-        borderLeft: "1px solid rgba(255,255,255,0.08)",
+        borderLeft: `1px solid ${S.border}`,
       }}
     >
-      <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontWeight: 600 }}>Comments ({visible.length})</div>
         <button
           type="button"
@@ -2636,7 +2642,7 @@ function CommentsListPanel(props: {
           style={{
             background: "transparent",
             border: "none",
-            color: "rgba(255,255,255,0.55)",
+            color: S.fgDim,
             cursor: "pointer",
             font: "inherit",
             fontSize: 18,
@@ -2647,7 +2653,7 @@ function CommentsListPanel(props: {
           ×
         </button>
       </div>
-      <div style={{ padding: 12, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
         <button
           type="button"
           onClick={onAddGeneral}
@@ -2688,7 +2694,7 @@ function CommentsListPanel(props: {
         <button
           type="button"
           onClick={onToggleApplied}
-          style={{ margin: "0 12px 8px", padding: "7px 10px", background: "transparent", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, cursor: "pointer", font: "inherit", fontSize: 12 }}
+          style={{ margin: "0 12px 8px", padding: "7px 10px", background: "transparent", color: S.fgDim, border: `1px solid ${S.inputBorder}`, borderRadius: 8, cursor: "pointer", font: "inherit", fontSize: 12 }}
         >
           {showApplied ? `Hide ${hiddenCount} already-applied` : `Show ${hiddenCount} already-applied`}
         </button>
@@ -2734,23 +2740,23 @@ function CommentsListPanel(props: {
               <div
                 key={r.commentId}
                 style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: `1px solid ${expanded ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)"}`,
-                  borderRadius: 8, padding: 10, marginBottom: 6, color: "white",
+                  background: cardBg,
+                  border: `1px solid ${expanded ? S.inputBorder : S.border}`,
+                  borderRadius: 8, padding: 10, marginBottom: 6, color: S.fg,
                 }}
               >
                 {/* Header — click toggles expand. */}
                 <button
                   type="button"
                   onClick={() => setExpandedId(expanded ? null : r.commentId)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", color: "white", font: "inherit", cursor: "pointer" }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", color: S.fg, font: "inherit", cursor: "pointer" }}
                 >
                   {/* Per-author identity disk (colour + initial), with the plate
                       status as a small corner badge — matches the on-page pins. */}
                   <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
                     <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 999, background: authorColor(r.author || "unknown").bg, color: "#fff", fontSize: 9, fontWeight: 800 }}>{authorInitial(r.author || "unknown")}</span>
                     {status && (
-                      <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: "1.5px solid rgba(15,15,24,1)", fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
+                      <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: `1.5px solid ${S.sheet}`, fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
                     )}
                   </span>
                   <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: anchorLabel.bg, color: anchorLabel.color }}>{anchorLabel.text}</span>
@@ -2759,7 +2765,7 @@ function CommentsListPanel(props: {
                 </button>
                 <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
                 {r.plateReply?.summary && (
-                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 11.5, lineHeight: 1.45, color: "rgba(255,255,255,0.82)", whiteSpace: "pre-wrap", ...clamp(4) }}>
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${S.border}`, fontSize: 11.5, lineHeight: 1.45, color: S.fgDim, whiteSpace: "pre-wrap", ...clamp(4) }}>
                     <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>{r.plateReply.summary}
                   </div>
                 )}
@@ -2772,7 +2778,7 @@ function CommentsListPanel(props: {
                     </button>
                   )}
                   {!expanded && (r.payload.prose.length > 120 || (r.plateReply?.summary?.length ?? 0) > 180) && (
-                    <button type="button" onClick={() => setExpandedId(r.commentId)} style={{ color: "rgba(255,255,255,0.6)", font: "inherit", fontSize: 11.5, cursor: "pointer", marginLeft: "auto" }}>Expand</button>
+                    <button type="button" onClick={() => setExpandedId(r.commentId)} style={{ color: S.fgDim, font: "inherit", fontSize: 11.5, cursor: "pointer", marginLeft: "auto" }}>Expand</button>
                   )}
                 </div>
               </div>
@@ -2782,7 +2788,7 @@ function CommentsListPanel(props: {
               .filter((g) => g.items.length > 0)
               .map((g) => (
                 <div key={g.label}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "rgba(255,255,255,0.42)", padding: "10px 6px 4px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: S.fgDim, padding: "10px 6px 4px" }}>
                     {g.label} · {g.items.length}
                   </div>
                   {g.items.map(renderRow)}
