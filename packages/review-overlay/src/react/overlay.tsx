@@ -67,6 +67,7 @@ import {
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
+import { loadManifest, applySelection, getSelection, selectionBreadcrumb, type Manifest } from "../testing-surfaces.js";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -129,6 +130,15 @@ export interface SlowcookReviewOverlayProps {
    * to `NEXT_PUBLIC_SLOWCOOK_SURFACES` (JSON). Empty hides the switcher.
    */
   surfaces?: ReviewSurface[];
+  /**
+   * 0.9.0 — URL of a `testing-surfaces.json` manifest (epic ▸ context ▸ scenario
+   * ▸ state). When set, the pill grows an EPSS router IN review mode (a 2×2
+   * dropdown) and shows a tiny PSS breadcrumb in nav mode. Picking a state writes
+   * the resolved selection to localStorage (`slowcook_test_surface`) for the
+   * mock's data-adaptor + navigates. Falls back to `NEXT_PUBLIC_SLOWCOOK_SURFACES_URL`.
+   * Empty disables the router.
+   */
+  testingSurfacesUrl?: string;
 }
 
 export interface ReviewSurface {
@@ -185,6 +195,13 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     try { const raw = process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES"]; return raw ? (JSON.parse(raw) as ReviewSurface[]) : []; }
     catch { return []; }
   })();
+  // 0.9.0 — EPSS testing-surface router manifest.
+  const testingSurfacesUrl: string =
+    props.testingSurfacesUrl ?? process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES_URL"] ?? "";
+  const [surfaceManifest, setSurfaceManifest] = useState<Manifest | null>(null);
+  useEffect(() => {
+    if (testingSurfacesUrl) loadManifest(testingSurfacesUrl).then(setSurfaceManifest).catch(() => { /* ignore */ });
+  }, [testingSurfacesUrl]);
 
   // 0.5.1 — hydration-mismatch fix. The overlay can't render during
   // SSR (no localStorage, no window.matchMedia, no DOM), so it returns
@@ -939,6 +956,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         docsEnabled={reviewMode === "lcr" && docPaths.length > 0}
         onDocsClick={() => setDocsPanelOpen(true)}
         surfaces={reviewMode === "lcr" ? surfaces : []}
+        surfaceManifest={surfaceManifest}
         onNavigate={(home) => {
           if (typeof window === "undefined") return;
           // Router-agnostic SPA nav: pushState + popstate so react-router (or any
@@ -1206,24 +1224,57 @@ function ReviewerLoginDialog({
  * Keys it on the active document's origin so different repos /
  * preview deploys don't share placement.
  */
-const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos";
+// 0.9.0 — LEFT-anchored (was right): the grip + logo + nav/rev pin to the left
+// edge and the EPSS status grows the pill rightward. Bumped key suffix so old
+// right-based saved positions don't mis-place the new left-anchored pill.
+// 0.9.0 — overlay artifacts follow the SYSTEM colour scheme (not the app's,
+// since the overlay lives in an isolated shadow root). Reactive to OS changes.
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState<boolean>(() => {
+    try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return true; }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia("(prefers-color-scheme: dark)"); } catch { return; }
+    const on = (): void => setDark(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return dark;
+}
+
+interface PillTheme { bg: string; border: string; fg: string; fgDim: string; sub: string; subBorder: string; shadow: string; ghBg: string; ghFg: string; }
+function pillTheme(dark: boolean): PillTheme {
+  return dark
+    ? { bg: "rgba(15,15,24,0.92)", border: "rgba(255,255,255,0.16)", fg: "white", fgDim: "rgba(255,255,255,0.55)", sub: "rgba(255,255,255,0.08)", subBorder: "rgba(255,255,255,0.15)", shadow: "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)", ghBg: "#ffffff", ghFg: "#24292f" }
+    : { bg: "rgba(255,255,255,0.96)", border: "rgba(0,0,0,0.12)", fg: "#1a1a1a", fgDim: "rgba(0,0,0,0.5)", sub: "rgba(0,0,0,0.05)", subBorder: "rgba(0,0,0,0.12)", shadow: "0 4px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7)", ghBg: "#24292f", ghFg: "#ffffff" };
+}
+
+interface SheetTheme { backdrop: string; sheet: string; fg: string; fgDim: string; header: string; input: string; inputBorder: string; border: string; rowActive: string; rowHover: string; }
+function sheetTheme(dark: boolean): SheetTheme {
+  return dark
+    ? { backdrop: "rgba(0,0,0,0.5)", sheet: "#1b1b22", fg: "#ececf0", fgDim: "#a0a0aa", header: "#8a8a96", input: "#26262f", inputBorder: "#3a3a46", border: "rgba(255,255,255,0.08)", rowActive: "rgba(59,175,160,0.22)", rowHover: "rgba(255,255,255,0.06)" }
+    : { backdrop: "rgba(0,0,0,0.4)", sheet: "#ffffff", fg: "#111111", fgDim: "#999999", header: "#8a8a8a", input: "#ffffff", inputBorder: "#d0d7de", border: "#eeeeee", rowActive: "rgba(59,175,160,0.14)", rowHover: "#f3f4f6" };
+}
+
+const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos.v2";
 
 interface TogglePosition {
   /** Absolute top in CSS px from viewport top. */
   top: number;
-  /** Absolute right in CSS px from viewport right. */
-  right: number;
+  /** Absolute left in CSS px from viewport left. */
+  left: number;
 }
 
 function loadTogglePosition(): TogglePosition {
-  const fallback: TogglePosition = { top: 12, right: 12 };
+  const fallback: TogglePosition = { top: 12, left: 12 };
   if (typeof window === "undefined") return fallback;
   try {
     const raw = window.localStorage.getItem(TOGGLE_POSITION_STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<TogglePosition>;
-    if (typeof parsed.top !== "number" || typeof parsed.right !== "number") return fallback;
-    return { top: parsed.top, right: parsed.right };
+    if (typeof parsed.top !== "number" || typeof parsed.left !== "number") return fallback;
+    return { top: parsed.top, left: parsed.left };
   } catch {
     return fallback;
   }
@@ -1253,6 +1304,7 @@ function ModeToggle(props: {
   docsEnabled: boolean;
   onDocsClick: () => void;
   surfaces: ReviewSurface[];
+  surfaceManifest: Manifest | null;
   onNavigate: (home: string) => void;
   // 0.6.2 — LCR sign-in lives IN the floating disk (self-styled, theme-proof),
   // not a separate fixed badge.
@@ -1261,13 +1313,20 @@ function ModeToggle(props: {
   onSignIn: () => void;
   onSignOut: () => void;
 }): JSX.Element {
-  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, surfaceManifest, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
-  const [pos, setPos] = useState<TogglePosition>({ top: 12, right: 12 });
+  const [pos, setPos] = useState<TogglePosition>({ top: 12, left: 12 });
   useEffect(() => { setPos(loadTogglePosition()); }, []);
-  const dragRef = useRef<{ startX: number; startY: number; startTop: number; startRight: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startTop: number; startLeft: number } | null>(null);
+
+  // 0.9.0 — EPSS jump palette open state. The tappable status (right of the
+  // pill) opens it; it lists matching states to jump to.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // 0.9.0 — follow the system colour scheme.
+  const dark = usePrefersDark();
+  const T = pillTheme(dark);
 
   // 0.6.3 — sign-out is a two-step confirm: the disk floats, so a single
   // mis-click shouldn't log you out. First click/tap on the identity chip arms
@@ -1295,7 +1354,7 @@ function ModeToggle(props: {
       startX: e.clientX,
       startY: e.clientY,
       startTop: pos.top,
-      startRight: pos.right,
+      startLeft: pos.left,
     };
   }, [pos]);
 
@@ -1305,8 +1364,10 @@ function ModeToggle(props: {
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
     const newTop = Math.max(0, dragRef.current.startTop + dy);
-    const newRight = Math.max(0, dragRef.current.startRight - dx);
-    setPos({ top: newTop, right: newRight });
+    // Allow a slightly-negative left so a clipped (grown-right) pill can be
+    // panned left to reveal its right side; the grip stays grabbable.
+    const newLeft = Math.max(-2000, dragRef.current.startLeft + dx);
+    setPos({ top: newTop, left: newLeft });
   }, []);
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -1323,41 +1384,35 @@ function ModeToggle(props: {
       style={{
         position: "absolute",
         top: pos.top,
-        right: pos.right,
+        left: pos.left,
         pointerEvents: "auto",
+        // 0.9.1 — row: a FULL-HEIGHT grip on the left, then a content column
+        // (button row + EPSS location line). alignItems:stretch makes the grip
+        // span the whole left border (not just the first row). Compact: a long
+        // EPSS status WRAPS onto more lines rather than widening the pill right.
         display: "flex",
-        alignItems: "center",
-        // 0.7.1 — wrap to multiple rows when crowded (Nav/Comment + 📋 + Docs +
-        // persona switcher + sign-in don't fit one row on portrait mobile).
-        flexWrap: "wrap",
-        justifyContent: "flex-end",
-        // 0.7.2 — cap to the viewport (not a fixed px) so it stays one row on
-        // desktop but wraps to two on portrait mobile when crowded (Comment mode
-        // adds 📋 + Sign-in on top of Docs + the persona switcher).
-        maxWidth: "94vw",
+        flexDirection: "row",
+        alignItems: "stretch",
+        maxWidth: "min(300px, 90vw)",
         gap: 4,
-        rowGap: 5,
-        // 0.4.2 — green-tinted background + green border when approved.
-        background: isApproved
-          ? "rgba(20, 83, 45, 0.92)"      // dark-green pill
-          : "rgba(15, 15, 24, 0.92)",     // default dark
+        // 0.4.2 — green-tinted when approved; else follows the system theme.
+        background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
         padding: "5px 6px",
         borderRadius: 16,
-        border: isApproved
-          ? `1px solid rgba(34, 197, 94, 0.55)`   // brighter green border
-          : "1px solid rgba(255, 255, 255, 0.16)",
+        border: isApproved ? `1px solid rgba(34, 197, 94, 0.55)` : `1px solid ${T.border}`,
         boxShadow: isApproved
           ? `0 4px 14px rgba(34, 197, 94, 0.30), inset 0 1px 0 rgba(255,255,255,0.06)`
-          : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+          : T.shadow,
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
-        color: "white",
+        color: T.fg,
         userSelect: "none",
       }}
     >
-      {/* Slowcook logo — slow-cook pot with steam. Scales with currentColor. */}
-      <SlowcookLogo />
-      {/* Grip handle for dragging. Pointer events only on this element. */}
+      {/* 0.9.1 — Grip on the LEFTMOST edge, FULL height: alignSelf stretch +
+          a tiled dot texture so it visually covers the ENTIRE left border,
+          however many lines the status wraps to. Drag to move; if a long status
+          grows the pill, the grip stays put so you can pan it left. */}
       <div
         role="button"
         aria-label="Drag overlay toggle"
@@ -1367,26 +1422,32 @@ function ModeToggle(props: {
         onPointerCancel={onPointerUp}
         title="Drag to move"
         style={{
-          width: 8,
-          height: 22,
-          marginRight: 2,
+          width: 11,
+          alignSelf: "stretch",
+          minHeight: 22,
           cursor: dragRef.current ? "grabbing" : "grab",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: 0.55,
+          opacity: 0.5,
           touchAction: "none",
+          flexShrink: 0,
+          borderRadius: 7,
+          backgroundImage: "radial-gradient(currentColor 1.05px, transparent 1.15px)",
+          backgroundSize: "5px 5px",
+          backgroundPosition: "center",
         }}
-      >
-        <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
-          <circle cx="1.5" cy="2"  r="1.1" fill="currentColor" />
-          <circle cx="4.5" cy="2"  r="1.1" fill="currentColor" />
-          <circle cx="1.5" cy="7"  r="1.1" fill="currentColor" />
-          <circle cx="4.5" cy="7"  r="1.1" fill="currentColor" />
-          <circle cx="1.5" cy="12" r="1.1" fill="currentColor" />
-          <circle cx="4.5" cy="12" r="1.1" fill="currentColor" />
-        </svg>
-      </div>
+        aria-hidden="false"
+      />
+      {/* Content column — the button row on top, the EPSS location line below.
+          alignItems:flex-start keeps each row content-width; flex:1 + minWidth:0
+          lets the status wrap within the (capped) pill width. */}
+      {/* 0.9.3 — the content column is `min-content` wide so the pill is exactly
+          as wide as the BUTTON ROW; the EPSS status then WRAPS within that width
+          instead of stretching the pill rightward. */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "min-content", minWidth: 0 }}>
+      {/* Top row — buttons on a single non-wrapping line; this row's width is what
+          the column (and pill) sizes to. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", gap: 4, whiteSpace: "nowrap" }}>
+      {/* Slowcook logo — pinned to the left of the button row. */}
+      <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
           a review session: the page still navigates freely; you arm a pick with
           the "📍 Pin a comment" button below. (Was "Commenting" — but comment
@@ -1395,17 +1456,14 @@ function ModeToggle(props: {
         active={mode === "comment"}
         onClick={() => onChangeSafe(mode === "comment" ? "nav" : "comment")}
         disabled={disabled}
-        label={
-          mode === "comment"
-            ? (isMobile ? "🧭" : "🧭 Reviewing")
-            : (isMobile ? "💬" : "💬 Review")
-        }
+        label={mode === "comment" ? "rev" : "nav"}
         title={
           mode === "comment"
-            ? "Reviewing — navigate freely; click to end the review"
-            : (newCount ? `Start reviewing — ${newCount} new update(s)` : "Start reviewing — navigate freely and pin comments")
+            ? "Review mode — navigate freely + pin comments; click to switch to nav"
+            : (newCount ? `Switch to review — ${newCount} new update(s)` : "Switch to review — pin comments + the testing-surface router")
         }
         accent
+        fg={T.fg}
         badge={newCount}
       />
       {/* 0.8.0 — arm a single element-pick. While armed the next page tap selects
@@ -1415,25 +1473,27 @@ function ModeToggle(props: {
           type="button"
           onClick={() => (armed ? onCancelArm() : onArm())}
           disabled={disabled}
-          title={armed ? "Cancel — tap an element, or cancel the pick" : "Pin a comment on an element"}
+          aria-label={armed ? "Cancel pick" : "Comment on an element"}
+          title={armed ? "Cancel — tap an element, or cancel the pick" : "Comment on an element"}
           style={{
             marginLeft: 4,
-            background: armed ? ACCENT : "rgba(255,255,255,0.06)",
-            color: "white",
+            background: armed ? ACCENT : T.sub,
+            color: armed ? "white" : T.fg,
             border: armed ? `1px solid ${ACCENT}` : "1px solid transparent",
-            padding: "6px 10px",
+            // 0.9.2 — icon-only (compact): 💭 to arm a pick, ✕ to cancel.
+            padding: "5px 9px",
             borderRadius: 999,
             cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.6 : 1,
             font: "inherit",
-            fontSize: 12,
+            fontSize: 14,
+            lineHeight: 1,
             display: "inline-flex",
             alignItems: "center",
-            gap: 5,
-            whiteSpace: "nowrap",
+            justifyContent: "center",
           }}
         >
-          {armed ? "✕ Cancel pick" : (isMobile ? "📍" : "📍 Pin a comment")}
+          {armed ? "✕" : "💭"}
         </button>
       )}
       {/* 0.6.8 — Approve moved into the Comments panel (under "+ Add note").
@@ -1461,8 +1521,8 @@ function ModeToggle(props: {
         title={`See all comments (${commentCount})`}
         style={{
           marginLeft: 4,
-          background: "rgba(255,255,255,0.06)",
-          color: "white",
+          background: T.sub,
+          color: T.fg,
           border: "none",
           padding: "6px 10px",
           borderRadius: 999,
@@ -1498,7 +1558,7 @@ function ModeToggle(props: {
           disabled={disabled}
           title="Review & edit the spec docs (textual review)"
           style={{
-            marginLeft: 4, background: "rgba(255,255,255,0.06)", color: "white",
+            marginLeft: 4, background: T.sub, color: T.fg,
             border: "none", padding: "6px 10px", borderRadius: 999,
             cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
             font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
@@ -1525,9 +1585,9 @@ function ModeToggle(props: {
             style={{
               marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
               padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
-              background: confirmLogout ? "rgba(255,107,107,0.25)" : "rgba(255,255,255,0.10)",
+              background: confirmLogout ? "rgba(255,107,107,0.25)" : T.sub,
               border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
-              color: "white", fontSize: 12, fontWeight: 600,
+              color: confirmLogout ? (dark ? "white" : "#a8071a") : T.fg, fontSize: 12, fontWeight: 600,
             }}
           >
             {confirmLogout ? (
@@ -1538,13 +1598,8 @@ function ModeToggle(props: {
                   ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
                   : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
                 @{identity.login}
-                {/* tier chip — write access applies; otherwise feedback to team */}
-                <span style={{
-                  fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, textTransform: "uppercase",
-                  padding: "1px 6px", borderRadius: 999,
-                  background: identity.canApply ? "rgba(34,197,94,0.22)" : "rgba(148,163,184,0.25)",
-                  color: identity.canApply ? "#4ade80" : "#cbd5e1",
-                }}>{identity.canApply ? "applies" : "review"}</span>
+                {/* 0.9.2 — dropped the applies/review tier chip: jargon nobody
+                    asked for; the write-access nuance lives in the sign-in title. */}
               </>
             )}
           </span>
@@ -1557,17 +1612,155 @@ function ModeToggle(props: {
             style={{
               marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
               padding: "6px 12px", borderRadius: 999, border: "none",
-              background: "white", color: "#24292f", cursor: disabled ? "not-allowed" : "pointer",
+              background: T.ghBg, color: T.ghFg, cursor: disabled ? "not-allowed" : "pointer",
               font: "inherit", fontSize: 12, fontWeight: 700,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="#24292f" aria-hidden="true">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill={T.ghFg} aria-hidden="true">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
             Sign in
           </button>
         )
       )}
+      </div>{/* /top row */}
+
+      {/* 0.9.1 — EPSS current location: always shown, small font, both modes.
+          Tapping it opens the jump palette (the dedicated 🎛 button was dropped).
+          The status WRAPS onto a few lines instead of widening the pill right. */}
+      {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
+        const sel = getSelection();
+        const crumb = sel ? selectionBreadcrumb(surfaceManifest, sel) : null;
+        return (
+          <button
+            type="button"
+            data-slowcook-overlay-ui="1"
+            data-testid="epss-status"
+            onClick={() => setPaletteOpen(true)}
+            title={crumb ? `${crumb} — tap to jump` : "No surface selected — tap to jump"}
+            style={{
+              width: "100%", maxWidth: "100%", display: "block", textAlign: "start",
+              padding: "0 2px 1px", margin: 0, border: "none", background: "transparent",
+              color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.25,
+              whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word",
+            }}
+          >
+            {crumb ?? "no surface selected"}
+          </button>
+        );
+      })()}
+      </div>{/* /content column */}
+      {paletteOpen && surfaceManifest && (
+        <SurfacePalette
+          manifest={surfaceManifest}
+          onClose={() => setPaletteOpen(false)}
+          onPick={(epicId, contextId, scenarioId, stateId) => {
+            const url = applySelection(surfaceManifest, epicId, contextId, scenarioId, stateId);
+            setPaletteOpen(false);
+            if (url && typeof window !== "undefined") window.location.assign(url);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 0.9.0 — centered "jump" palette (browse-first: the full grouped list shows
+ * Spotlight-style: a floating search bar that only reveals results once you've
+ * typed ≥ 3 characters (no big upfront list). Follows the system colour scheme.
+ * Tapping a result jumps there (the caller's onPick resolves becomes/anonymous + nav).
+ */
+const PALETTE_MIN_CHARS = 3;
+function SurfacePalette(props: {
+  manifest: Manifest;
+  onClose: () => void;
+  onPick: (epicId: string, contextId: string, scenarioId: string, stateId: string) => void;
+}): JSX.Element {
+  const { manifest, onClose, onPick } = props;
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const sel = getSelection();
+  interface Row { epicId: string; contextId: string; scenarioId: string; stateId: string; epicLabel: string; ctxLabel: string; scnLabel: string; stLabel: string; hard?: boolean; becomes?: boolean; q: string }
+  const query = q.trim();
+  const show = query.length >= PALETTE_MIN_CHARS; // Spotlight: results only after 3 chars
+  const groups: { key: string; rows: Row[] }[] = [];
+  let count = 0;
+  if (show) {
+    const rows: Row[] = [];
+    for (const epic of manifest.epics)
+      for (const ctx of epic.contexts)
+        for (const scn of ctx.scenarios)
+          for (const st of scn.states)
+            rows.push({ epicId: epic.id, contextId: ctx.id, scenarioId: scn.id, stateId: st.id, epicLabel: epic.label, ctxLabel: ctx.label, scnLabel: scn.label, stLabel: st.label, hard: st.hard, becomes: !!st.becomes, q: `${epic.label} ${ctx.label} ${scn.label} ${st.label}`.toLowerCase() });
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const matched = rows.filter((r) => terms.every((t) => r.q.includes(t)));
+    count = matched.length;
+    for (const r of matched) {
+      const key = `${r.epicLabel} · ${r.ctxLabel}`;
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, rows: [] }; groups.push(g); }
+      g.rows.push(r);
+    }
+  }
+
+  return (
+    <div data-slowcook-overlay-ui="1" onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: S.backdrop, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", pointerEvents: "auto", zIndex: 2147483647 }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Jump to a surface"
+        style={{ background: S.sheet, color: S.fg, borderRadius: 14, width: 440, maxWidth: "94vw", maxHeight: "72vh", display: "flex", flexDirection: "column", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", border: `1px solid ${S.border}`, fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden" }}>
+        {/* Spotlight bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px" }}>
+          <span aria-hidden style={{ fontSize: 16, opacity: 0.8 }}>🎛</span>
+          {/* The shadow-firewall pins generic overlay inputs to light (#fff) with
+              !important so a host's dark theme can't touch the comment box. This
+              palette follows the SYSTEM theme, so override it with a higher-
+              specificity (class) themed rule. */}
+          <style dangerouslySetInnerHTML={{ __html:
+            `[data-slowcook-overlay-ui] input.sc-ovl-palette-input{background-color:${S.input} !important;color:${S.fg} !important;-webkit-text-fill-color:${S.fg} !important;border-color:${S.inputBorder} !important;caret-color:${S.fg} !important;}` +
+            `[data-slowcook-overlay-ui] input.sc-ovl-palette-input::placeholder{color:${S.fgDim} !important;-webkit-text-fill-color:${S.fgDim} !important;}`
+          }} />
+          <input className="sc-ovl-palette-input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Jump to a surface / state…" aria-label="Search surfaces"
+            style={{ flex: 1, minWidth: 0, outline: "none", fontSize: 16, padding: "8px 10px", borderRadius: 8, borderStyle: "solid", borderWidth: 1, appearance: "none", WebkitAppearance: "none", colorScheme: dark ? "dark" : "light" }} />
+          {q && <button type="button" aria-label="Clear" onClick={() => setQ("")} style={{ border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
+        </div>
+        {query.length > 0 && !show && (
+          <div style={{ borderTop: `1px solid ${S.border}`, padding: "12px 16px", fontSize: 12.5, color: S.fgDim }}>Keep typing… ({PALETTE_MIN_CHARS}+ letters)</div>
+        )}
+        {show && (
+          <div style={{ borderTop: `1px solid ${S.border}`, overflow: "auto", padding: "4px 8px 8px" }}>
+            {count === 0 && <div style={{ padding: 16, color: S.fgDim, fontSize: 13 }}>No surface matches “{query}”.</div>}
+            {groups.map((g) => (
+              <div key={g.key} style={{ marginBottom: 4 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: S.header, textTransform: "uppercase", letterSpacing: 0.3, padding: "8px 6px 3px" }}>{g.key}</div>
+                {g.rows.map((r) => {
+                  const active = sel?.contextId === r.contextId && sel?.scenarioId === r.scenarioId && sel?.stateId === r.stateId;
+                  return (
+                    <button key={r.epicId + r.contextId + r.scenarioId + r.stateId} type="button"
+                      onClick={() => onPick(r.epicId, r.contextId, r.scenarioId, r.stateId)}
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px", border: "none", borderRadius: 8, background: active ? S.rowActive : "transparent", cursor: "pointer", font: "inherit", fontSize: 13, color: S.fg }}
+                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = S.rowHover; }}
+                      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                      <span aria-hidden style={{ flexShrink: 0, width: 16, textAlign: "center" }}>{r.hard ? "⚡" : r.becomes ? "➡" : "·"}</span>
+                      <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <span style={{ fontWeight: 600 }}>{r.stLabel}</span>
+                        <span style={{ color: S.fgDim, fontSize: 11.5 }}>{"  ·  "}{r.scnLabel}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1694,7 +1887,7 @@ function SlowcookLogo(): JSX.Element {
   );
 }
 
-function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean; badge?: number }): JSX.Element {
+function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean; badge?: number; fg?: string }): JSX.Element {
   const bg = props.active
     ? props.approve
       ? "#22c55e"
@@ -1711,7 +1904,8 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
       style={{
         position: "relative",
         background: bg,
-        color: "white",
+        // active state sits on a coloured bg → white; idle follows the theme.
+        color: props.active ? "white" : (props.fg ?? "white"),
         border: "none",
         padding: "6px 12px",
         borderRadius: 999,
@@ -1739,20 +1933,39 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
  * the comment is on (route + the story it declares, if any) before submitting.
  */
 function PageBadge(): JSX.Element | null {
+  // 0.9.2 — follow the system scheme. Was hardcoded #3a3a3a, which is illegible
+  // on the now dark-themed composer.
+  const dark = usePrefersDark();
   if (typeof window === "undefined") return null;
   const route = window.location.pathname + window.location.search;
   const story = readCurrentStory();
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%",
-      fontSize: 11.5, color: "#3a3a3a", background: "rgba(255,107,107,0.10)",
+      fontSize: 11.5, color: dark ? "#ffc2c2" : "#3a3a3a",
+      background: dark ? "rgba(255,107,107,0.16)" : "rgba(255,107,107,0.10)",
       border: "1px solid rgba(255,107,107,0.30)", borderRadius: 6,
       padding: "3px 9px", marginBottom: 8,
     }}>
       <span aria-hidden>📄</span>
       <span style={{ fontFamily: "ui-monospace, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{route}</span>
-      {story && <span style={{ fontWeight: 700, color: "#d6336c" }}>· story-{story}</span>}
+      {story && <span style={{ fontWeight: 700, color: dark ? "#ff9ec2" : "#d6336c" }}>· story-{story}</span>}
     </div>
+  );
+}
+
+/**
+ * 0.9.1 — themed override for composer textareas. The shadow-firewall pins every
+ * overlay input/textarea to light (#fff !important) so a host dark theme can't
+ * bleed onto the comment box; but the composer now follows the SYSTEM scheme, so
+ * re-theme its fields with a higher-specificity (element+class) !important rule.
+ */
+function ComposerInputTheme({ S }: { S: SheetTheme }): JSX.Element {
+  return (
+    <style dangerouslySetInnerHTML={{ __html:
+      `[data-slowcook-overlay-ui] textarea.sc-ovl-composer-input,[data-slowcook-overlay-ui] input.sc-ovl-composer-input{background-color:${S.input} !important;color:${S.fg} !important;-webkit-text-fill-color:${S.fg} !important;border-color:${S.inputBorder} !important;caret-color:${S.fg} !important;}` +
+      `[data-slowcook-overlay-ui] textarea.sc-ovl-composer-input::placeholder{color:${S.fgDim} !important;-webkit-text-fill-color:${S.fgDim} !important;}`
+    }} />
   );
 }
 
@@ -1766,6 +1979,10 @@ function Composer(props: {
   const [prose, setProse] = useState("");
   const sel = extractSelector(props.target);
   const rect = props.target.getBoundingClientRect();
+  // 0.9.1 — follow the SYSTEM colour scheme (the overlay is shadow-isolated from
+  // the app theme), matching the jump palette. Was hardcoded white.
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
 
   // Position popup near the target — Figma-style anchoring. Try below
   // the element first; fall back to above; clamp to viewport so it
@@ -1825,10 +2042,11 @@ function Composer(props: {
           width: POPUP_WIDTH,
           maxHeight,
           overflow: "auto",
-          background: "white",
-          color: "#1a1a1a",
+          background: S.sheet,
+          color: S.fg,
           borderRadius: 8,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
+          boxShadow: `0 12px 40px rgba(0,0,0,0.3)`,
+          border: `1px solid ${S.border}`,
           padding: 16,
           pointerEvents: "auto",
           fontFamily: "system-ui, -apple-system, sans-serif",
@@ -1836,12 +2054,14 @@ function Composer(props: {
           zIndex: 2147483647,
         }}
       >
+        <ComposerInputTheme S={S} />
         <div style={{ fontWeight: 600, marginBottom: 6 }}>Review comment</div>
         <PageBadge />
-        <div style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, opacity: 0.7, marginBottom: 8, wordBreak: "break-all" }}>
+        <div style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, color: S.fgDim, marginBottom: 8, wordBreak: "break-all" }}>
           {sel.selector}
         </div>
         <textarea
+          className="sc-ovl-composer-input"
           aria-label="Comment text"
           autoFocus
           value={prose}
@@ -1851,12 +2071,14 @@ function Composer(props: {
           style={{
             width: "100%",
             padding: 8,
-            border: "1px solid rgba(0,0,0,0.15)",
             borderRadius: 6,
+            borderStyle: "solid",
+            borderWidth: 1,
             font: "inherit",
             fontSize: 16, // 0.6.12 — ≥16px stops iOS Safari auto-zooming on focus
             resize: "vertical",
             boxSizing: "border-box",
+            colorScheme: dark ? "dark" : "light",
           }}
         />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
@@ -1866,7 +2088,8 @@ function Composer(props: {
             disabled={props.submitting}
             style={{
               background: "transparent",
-              border: "1px solid rgba(0,0,0,0.15)",
+              border: `1px solid ${S.inputBorder}`,
+              color: S.fg,
               padding: "6px 12px",
               borderRadius: 6,
               cursor: "pointer",
@@ -2386,6 +2609,14 @@ function CommentsListPanel(props: {
   const isResolved = (r: OverlayCommentRecord) => r.plateReply != null && isResolvedStatus(r.plateReply.status);
   const hiddenCount = records.filter(isResolved).length;
   const visible = showApplied ? records : records.filter((r) => !isResolved(r));
+  // 0.9.2 — the side panel was hardcoded dark (illegible header in light mode,
+  // off-theme in dark). Follow the system scheme like the composer/palette.
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
+  const cardBg = dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
+  // 0.9.4 — a distinct elevated header bar so the title reads as a header
+  // instead of blending into the panel body (both schemes).
+  const headerBg = dark ? "#23232e" : "#f4f5f7";
   return (
     <div
       data-slowcook-overlay-ui="1"
@@ -2399,18 +2630,18 @@ function CommentsListPanel(props: {
         bottom: 0,
         width: 360,
         maxWidth: "90vw",
-        background: "rgba(15, 15, 24, 0.98)",
-        color: "white",
+        background: S.sheet,
+        color: S.fg,
         boxShadow: "-12px 0 40px rgba(0,0,0,0.45)",
         pointerEvents: "auto",
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
         display: "flex",
         flexDirection: "column",
-        borderLeft: "1px solid rgba(255,255,255,0.08)",
+        borderLeft: `1px solid ${S.border}`,
       }}
     >
-      <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ padding: "14px 16px", background: headerBg, borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontWeight: 600 }}>Comments ({visible.length})</div>
         <button
           type="button"
@@ -2419,7 +2650,7 @@ function CommentsListPanel(props: {
           style={{
             background: "transparent",
             border: "none",
-            color: "rgba(255,255,255,0.55)",
+            color: S.fgDim,
             cursor: "pointer",
             font: "inherit",
             fontSize: 18,
@@ -2430,7 +2661,7 @@ function CommentsListPanel(props: {
           ×
         </button>
       </div>
-      <div style={{ padding: 12, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
         <button
           type="button"
           onClick={onAddGeneral}
@@ -2471,7 +2702,7 @@ function CommentsListPanel(props: {
         <button
           type="button"
           onClick={onToggleApplied}
-          style={{ margin: "0 12px 8px", padding: "7px 10px", background: "transparent", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, cursor: "pointer", font: "inherit", fontSize: 12 }}
+          style={{ margin: "0 12px 8px", padding: "7px 10px", background: "transparent", color: S.fgDim, border: `1px solid ${S.inputBorder}`, borderRadius: 8, cursor: "pointer", font: "inherit", fontSize: 12 }}
         >
           {showApplied ? `Hide ${hiddenCount} already-applied` : `Show ${hiddenCount} already-applied`}
         </button>
@@ -2517,23 +2748,23 @@ function CommentsListPanel(props: {
               <div
                 key={r.commentId}
                 style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: `1px solid ${expanded ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)"}`,
-                  borderRadius: 8, padding: 10, marginBottom: 6, color: "white",
+                  background: cardBg,
+                  border: `1px solid ${expanded ? S.inputBorder : S.border}`,
+                  borderRadius: 8, padding: 10, marginBottom: 6, color: S.fg,
                 }}
               >
                 {/* Header — click toggles expand. */}
                 <button
                   type="button"
                   onClick={() => setExpandedId(expanded ? null : r.commentId)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", color: "white", font: "inherit", cursor: "pointer" }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", color: S.fg, font: "inherit", cursor: "pointer" }}
                 >
                   {/* Per-author identity disk (colour + initial), with the plate
                       status as a small corner badge — matches the on-page pins. */}
                   <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
                     <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 999, background: authorColor(r.author || "unknown").bg, color: "#fff", fontSize: 9, fontWeight: 800 }}>{authorInitial(r.author || "unknown")}</span>
                     {status && (
-                      <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: "1.5px solid rgba(15,15,24,1)", fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
+                      <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: `1.5px solid ${S.sheet}`, fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
                     )}
                   </span>
                   <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: anchorLabel.bg, color: anchorLabel.color }}>{anchorLabel.text}</span>
@@ -2542,7 +2773,7 @@ function CommentsListPanel(props: {
                 </button>
                 <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
                 {r.plateReply?.summary && (
-                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 11.5, lineHeight: 1.45, color: "rgba(255,255,255,0.82)", whiteSpace: "pre-wrap", ...clamp(4) }}>
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${S.border}`, fontSize: 11.5, lineHeight: 1.45, color: S.fgDim, whiteSpace: "pre-wrap", ...clamp(4) }}>
                     <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>{r.plateReply.summary}
                   </div>
                 )}
@@ -2555,7 +2786,7 @@ function CommentsListPanel(props: {
                     </button>
                   )}
                   {!expanded && (r.payload.prose.length > 120 || (r.plateReply?.summary?.length ?? 0) > 180) && (
-                    <button type="button" onClick={() => setExpandedId(r.commentId)} style={{ color: "rgba(255,255,255,0.6)", font: "inherit", fontSize: 11.5, cursor: "pointer", marginLeft: "auto" }}>Expand</button>
+                    <button type="button" onClick={() => setExpandedId(r.commentId)} style={{ color: S.fgDim, font: "inherit", fontSize: 11.5, cursor: "pointer", marginLeft: "auto" }}>Expand</button>
                   )}
                 </div>
               </div>
@@ -2565,7 +2796,7 @@ function CommentsListPanel(props: {
               .filter((g) => g.items.length > 0)
               .map((g) => (
                 <div key={g.label}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "rgba(255,255,255,0.42)", padding: "10px 6px 4px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: S.fgDim, padding: "10px 6px 4px" }}>
                     {g.label} · {g.items.length}
                   </div>
                   {g.items.map(renderRow)}
@@ -2589,6 +2820,9 @@ function GeneralComposer(props: {
   submitting: boolean;
 }): JSX.Element {
   const [prose, setProse] = useState("");
+  // 0.9.1 — follow the SYSTEM colour scheme (was hardcoded white).
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
   return (
     <div
       data-slowcook-overlay-ui="1"
@@ -2602,22 +2836,24 @@ function GeneralComposer(props: {
         transform: "translate(-50%, -50%)",
         width: 360,
         maxWidth: "90vw",
-        background: "white",
-        color: "#1a1a1a",
+        background: S.sheet,
+        color: S.fg,
         borderRadius: 10,
         padding: 16,
-        boxShadow: "0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08)",
+        boxShadow: `0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px ${S.border}`,
         pointerEvents: "auto",
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
       }}
     >
+      <ComposerInputTheme S={S} />
       <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 14 }}>Add page note</div>
       <PageBadge />
       <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
         Comment about overall behavior — not anchored to a specific element.
       </div>
       <textarea
+        className="sc-ovl-composer-input"
         aria-label="Note text"
         autoFocus
         value={prose}
@@ -2627,12 +2863,14 @@ function GeneralComposer(props: {
         style={{
           width: "100%",
           padding: 8,
-          border: "1px solid rgba(0,0,0,0.15)",
           borderRadius: 6,
+          borderStyle: "solid",
+          borderWidth: 1,
           font: "inherit",
           fontSize: 16, // 0.6.12 — ≥16px stops iOS Safari auto-zooming on focus
           resize: "vertical",
           boxSizing: "border-box",
+          colorScheme: dark ? "dark" : "light",
         }}
       />
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
@@ -2642,12 +2880,12 @@ function GeneralComposer(props: {
           disabled={props.submitting}
           style={{
             background: "transparent",
-            border: "1px solid rgba(0,0,0,0.18)",
+            border: `1px solid ${S.inputBorder}`,
             padding: "6px 12px",
             borderRadius: 6,
             cursor: "pointer",
             font: "inherit",
-            color: "#1a1a1a",
+            color: S.fg,
           }}
         >
           Cancel

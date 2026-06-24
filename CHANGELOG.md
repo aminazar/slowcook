@@ -6,6 +6,50 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.4 — distinct comments-panel header bar
+
+`@slowcook-ai/review-overlay` 0.9.4 (overlay-only; additive). The comments side-panel header ("Comments (N)") was transparent over the panel body — correctly themed but blending in, so it read as a flat/unfinished header. It now has a **distinct elevated header bar** (`#23232e` dark / `#f4f5f7` light) with the divider below, so the title reads as a proper header in both schemes. No API changes.
+
+## review-overlay 0.9.3 — pill width = button row; EPSS breadcrumb always `›`
+
+`@slowcook-ai/review-overlay` 0.9.3 (overlay-only; additive). Two follow-ups from the delgoosh dogfood:
+
+- **The pill is now exactly as wide as its button row.** Previously a long EPSS status, even though it wrapped, still stretched the pill to its max width. The content column is now `min-content` (sized to the single-line button row) and the status **wraps within that width** — so a long surface label makes the pill *taller*, never wider.
+- **The EPSS status always shows the `›` hierarchy separator.** 0.9.1 changed the separator in the label builder, but selections persisted before that still displayed their baked `·` label. The status now **re-derives the breadcrumb from the manifest** by id at render time (`selectionBreadcrumb`), so old and new selections both read `Context › Scenario › State`; a `becomes`/unknown selection falls back to its stored label with any legacy `·` upgraded to `›`.
+
+No API changes (adds the exported `selectionBreadcrumb` helper).
+
+## review-overlay 0.9.2 — more pill compaction + finish the dark-mode pass
+
+`@slowcook-ai/review-overlay` 0.9.2 (overlay-only; additive). Follow-on polish from the delgoosh dogfood:
+
+- **Compacter pill.** The "📍 Pin a comment" button is now an **icon-only 💭** (thought-bubble) toggle — ✕ while armed — instead of an icon+label, and the signed-in chip drops the **`applies`/`review` tier badge** (unexplained jargon; the write-access nuance still lives in the chip's `title`).
+- **Dark-mode legibility, finished.** Three overlay surfaces that were still hardcoded light/dark are now theme-aware via `prefers-color-scheme`:
+  - the **page badge** (route/story pill in the composer) was `#3a3a3a` — illegible on the dark composer; now themed.
+  - the **element-selector** line in the composer now uses the themed dim colour (was a flat `opacity:0.7`).
+  - the **comments side-panel** (`CommentsListPanel`) was hardcoded dark throughout (illegible header + chrome in light mode, off-theme in dark) — container, header, dividers, the already-applied toggle, comment cards, replies, and group headers all follow the system scheme now.
+
+No API changes.
+
+## review-overlay 0.9.1 — EPSS pill polish + dark-mode comment composers
+
+`@slowcook-ai/review-overlay` 0.9.1 (overlay-only; additive). Seven fixes from the delgoosh dogfood of the 0.9.0 EPSS pill:
+
+- **Compact pill — the EPSS status wraps, it doesn't widen.** A long active-surface label used to grow the pill rightward (or ellipsize on one line); it now **wraps onto a few lines** inside a capped-width pill, so the pill stays as narrow as its button row.
+- **Hierarchy separator `·` → `›`.** The status reads `Context › Scenario › State`, making the Epic▸Context▸Scenario▸State hierarchy visible at a glance.
+- **Full-height drag grip.** The grip now spans the **entire left border** (a tiled dot texture via `align-self: stretch`), however many lines the status wraps to — previously it only covered the first row.
+- **Status *is* the jump trigger.** Removed the separate `🎛` palette button; tapping the always-visible EPSS status line opens the Spotlight jump palette (one affordance, less clutter).
+- **Comment composers follow the system light/dark scheme.** The element-anchored and general-note composers were hardcoded white (`#fff`/`#1a1a1a`) and ignored dark mode; they now theme via `prefers-color-scheme` like the jump palette, with a higher-specificity `.sc-ovl-composer-input` `!important` rule overriding the shadow-firewall's light-pin on the textarea.
+- **Visible Cancel button.** The composer Cancel buttons now carry **explicit themed text + border colours**, so they're legible in both schemes (they previously inherited and could vanish against the surface).
+
+No API changes. EPSS resolver/manifest semantics unchanged from 0.9.0.
+
+## review-overlay 0.9.0 — EPSS testing-surface router in the pill
+
+`@slowcook-ai/review-overlay` 0.9.0 (overlay-only; additive). Reviewing a mock means reaching every UI state of every surface fast. A consumer can now point the overlay at a `testing-surfaces.json` manifest (new `testingSurfacesUrl` prop, or `NEXT_PUBLIC_SLOWCOOK_SURFACES_URL`) and the pill grows an **EPSS router** — **Epic ▸ Context ▸ Scenario ▸ State ▸ CTA** — so any action is ≤4 clicks. It lives **inside the pill (one artifact)**. The pill is **left-anchored**: the drag **grip sits on the left edge** (so a long status that grows the pill off the right of the viewport is still recoverable — grab the grip, pan left), with the logo + a compact **nav/rev** toggle pinned beside it. The active surface shows as a **tappable status** (both nav and review modes — the jumper is independent of nav/rev), **left-ellipsized** so the most-specific state stays visible; tapping it opens a **centered, Spotlight-style jump palette** — a floating search that reveals results only once you've typed ≥3 characters (no big upfront list), grouped by epic·context with ⚡/➡ markers. All overlay artifacts (pill + palette) **follow the system light/dark colour scheme** (reactively, via `prefers-color-scheme` — independent of the app's own theme, since the overlay is shadow-isolated). Mobile-portrait friendly.
+
+The model generalises "persona" → an auth/identity **context** with `status` `anonymous` (no user — login/signup/OTP surfaces are first-class) or `authed` (carries `user`); a state's **`becomes`** flips the active context (login as *outcome*: anonymous → authed-as-X). Picking a state resolves the checkpoint and writes the selection to `localStorage["slowcook_test_surface"]` (+ a `slowcook-test-surface-change` event) for the mock's data-adaptor to read, then navigates. The overlay resolves two documented seed conventions — `profileIds` (via an epic `profiles` lookup, with `profileOverrides`) and `dateOffsetDays` (→ ISO, so mock dates never go stale); everything else in `seed` passes through opaque, so the manifest's data shape stays the consumer's own. Manifest shape + resolver (`resolveSelection`/`resolveSeed`, incl. `becomes` + anonymous) are unit-tested. Surfaced from the same delgoosh dogfood as 0.8.x.
+
 ## review-overlay 0.8.0 → 0.8.2 — free-nav comment mode, deterministic auth guidance, test hardening
 
 `@slowcook-ai/review-overlay` 0.8.0–0.8.2 (overlay-only). The 0.8.0/0.8.1 features came from a slowcook session dogfooding the overlay on the **delgoosh** SPA (a private, RTL, mobile-reviewed mock) and feeding fixes back upstream; 0.8.2 backfills the test coverage + this changelog entry.
