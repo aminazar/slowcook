@@ -1227,6 +1227,36 @@ function ReviewerLoginDialog({
 // 0.9.0 — LEFT-anchored (was right): the grip + logo + nav/rev pin to the left
 // edge and the EPSS status grows the pill rightward. Bumped key suffix so old
 // right-based saved positions don't mis-place the new left-anchored pill.
+// 0.9.0 — overlay artifacts follow the SYSTEM colour scheme (not the app's,
+// since the overlay lives in an isolated shadow root). Reactive to OS changes.
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState<boolean>(() => {
+    try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return true; }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia("(prefers-color-scheme: dark)"); } catch { return; }
+    const on = (): void => setDark(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return dark;
+}
+
+interface PillTheme { bg: string; border: string; fg: string; fgDim: string; sub: string; subBorder: string; shadow: string; ghBg: string; ghFg: string; }
+function pillTheme(dark: boolean): PillTheme {
+  return dark
+    ? { bg: "rgba(15,15,24,0.92)", border: "rgba(255,255,255,0.16)", fg: "white", fgDim: "rgba(255,255,255,0.55)", sub: "rgba(255,255,255,0.08)", subBorder: "rgba(255,255,255,0.15)", shadow: "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)", ghBg: "#ffffff", ghFg: "#24292f" }
+    : { bg: "rgba(255,255,255,0.96)", border: "rgba(0,0,0,0.12)", fg: "#1a1a1a", fgDim: "rgba(0,0,0,0.5)", sub: "rgba(0,0,0,0.05)", subBorder: "rgba(0,0,0,0.12)", shadow: "0 4px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7)", ghBg: "#24292f", ghFg: "#ffffff" };
+}
+
+interface SheetTheme { backdrop: string; sheet: string; fg: string; fgDim: string; header: string; input: string; inputBorder: string; border: string; rowActive: string; rowHover: string; }
+function sheetTheme(dark: boolean): SheetTheme {
+  return dark
+    ? { backdrop: "rgba(0,0,0,0.5)", sheet: "#1b1b22", fg: "#ececf0", fgDim: "#a0a0aa", header: "#8a8a96", input: "#26262f", inputBorder: "#3a3a46", border: "rgba(255,255,255,0.08)", rowActive: "rgba(59,175,160,0.22)", rowHover: "rgba(255,255,255,0.06)" }
+    : { backdrop: "rgba(0,0,0,0.4)", sheet: "#ffffff", fg: "#111111", fgDim: "#999999", header: "#8a8a8a", input: "#ffffff", inputBorder: "#d0d7de", border: "#eeeeee", rowActive: "rgba(59,175,160,0.14)", rowHover: "#f3f4f6" };
+}
+
 const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos.v2";
 
 interface TogglePosition {
@@ -1292,8 +1322,11 @@ function ModeToggle(props: {
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startLeft: number } | null>(null);
 
   // 0.9.0 — EPSS jump palette open state. The tappable status (right of the
-  // pill) opens it; it lists every state (browse-first) to jump to.
+  // pill) opens it; it lists matching states to jump to.
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // 0.9.0 — follow the system colour scheme.
+  const dark = usePrefersDark();
+  const T = pillTheme(dark);
 
   // 0.6.3 — sign-out is a two-step confirm: the disk floats, so a single
   // mis-click shouldn't log you out. First click/tap on the identity chip arms
@@ -1367,21 +1400,17 @@ function ModeToggle(props: {
         maxWidth: "min(340px, 92vw)",
         gap: 4,
         rowGap: 5,
-        // 0.4.2 — green-tinted background + green border when approved.
-        background: isApproved
-          ? "rgba(20, 83, 45, 0.92)"      // dark-green pill
-          : "rgba(15, 15, 24, 0.92)",     // default dark
+        // 0.4.2 — green-tinted when approved; else follows the system theme.
+        background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
         padding: "5px 6px",
         borderRadius: 16,
-        border: isApproved
-          ? `1px solid rgba(34, 197, 94, 0.55)`   // brighter green border
-          : "1px solid rgba(255, 255, 255, 0.16)",
+        border: isApproved ? `1px solid rgba(34, 197, 94, 0.55)` : `1px solid ${T.border}`,
         boxShadow: isApproved
           ? `0 4px 14px rgba(34, 197, 94, 0.30), inset 0 1px 0 rgba(255,255,255,0.06)`
-          : "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+          : T.shadow,
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
-        color: "white",
+        color: T.fg,
         userSelect: "none",
       }}
     >
@@ -1435,6 +1464,7 @@ function ModeToggle(props: {
             : (newCount ? `Switch to review — ${newCount} new update(s)` : "Switch to review — pin comments + the testing-surface router")
         }
         accent
+        fg={T.fg}
         badge={newCount}
       />
       {/* 0.8.0 — arm a single element-pick. While armed the next page tap selects
@@ -1447,8 +1477,8 @@ function ModeToggle(props: {
           title={armed ? "Cancel — tap an element, or cancel the pick" : "Pin a comment on an element"}
           style={{
             marginLeft: 4,
-            background: armed ? ACCENT : "rgba(255,255,255,0.06)",
-            color: "white",
+            background: armed ? ACCENT : T.sub,
+            color: armed ? "white" : T.fg,
             border: armed ? `1px solid ${ACCENT}` : "1px solid transparent",
             padding: "6px 10px",
             borderRadius: 999,
@@ -1490,8 +1520,8 @@ function ModeToggle(props: {
         title={`See all comments (${commentCount})`}
         style={{
           marginLeft: 4,
-          background: "rgba(255,255,255,0.06)",
-          color: "white",
+          background: T.sub,
+          color: T.fg,
           border: "none",
           padding: "6px 10px",
           borderRadius: 999,
@@ -1527,7 +1557,7 @@ function ModeToggle(props: {
           disabled={disabled}
           title="Review & edit the spec docs (textual review)"
           style={{
-            marginLeft: 4, background: "rgba(255,255,255,0.06)", color: "white",
+            marginLeft: 4, background: T.sub, color: T.fg,
             border: "none", padding: "6px 10px", borderRadius: 999,
             cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
             font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
@@ -1554,9 +1584,9 @@ function ModeToggle(props: {
             style={{
               marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
               padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
-              background: confirmLogout ? "rgba(255,107,107,0.25)" : "rgba(255,255,255,0.10)",
+              background: confirmLogout ? "rgba(255,107,107,0.25)" : T.sub,
               border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
-              color: "white", fontSize: 12, fontWeight: 600,
+              color: confirmLogout ? (dark ? "white" : "#a8071a") : T.fg, fontSize: 12, fontWeight: 600,
             }}
           >
             {confirmLogout ? (
@@ -1586,11 +1616,11 @@ function ModeToggle(props: {
             style={{
               marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
               padding: "6px 12px", borderRadius: 999, border: "none",
-              background: "white", color: "#24292f", cursor: disabled ? "not-allowed" : "pointer",
+              background: T.ghBg, color: T.ghFg, cursor: disabled ? "not-allowed" : "pointer",
               font: "inherit", fontSize: 12, fontWeight: 700,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="#24292f" aria-hidden="true">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill={T.ghFg} aria-hidden="true">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
             Sign in
@@ -1615,7 +1645,7 @@ function ModeToggle(props: {
               marginLeft: 4, maxWidth: "min(46vw, 210px)", minWidth: 52, flexShrink: 1,
               display: "inline-flex", alignItems: "center", gap: 3,
               padding: "5px 1px", border: "none", borderRadius: 7,
-              background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.82)",
+              background: T.sub, color: T.fg,
               cursor: "pointer", font: "inherit", fontSize: 10.5, lineHeight: 1.15,
               overflow: "hidden", whiteSpace: "nowrap",
             }}
@@ -1645,16 +1675,19 @@ function ModeToggle(props: {
 
 /**
  * 0.9.0 — centered "jump" palette (browse-first: the full grouped list shows
- * immediately; the filter is an accelerator, not required — so a mobile reviewer
- * needn't summon the keyboard). Lists every state across all epics/contexts;
- * tapping one jumps there (the caller's onPick resolves becomes/anonymous + nav).
+ * Spotlight-style: a floating search bar that only reveals results once you've
+ * typed ≥ 3 characters (no big upfront list). Follows the system colour scheme.
+ * Tapping a result jumps there (the caller's onPick resolves becomes/anonymous + nav).
  */
+const PALETTE_MIN_CHARS = 3;
 function SurfacePalette(props: {
   manifest: Manifest;
   onClose: () => void;
   onPick: (epicId: string, contextId: string, scenarioId: string, stateId: string) => void;
 }): JSX.Element {
   const { manifest, onClose, onPick } = props;
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
   const [q, setQ] = useState("");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -1664,60 +1697,69 @@ function SurfacePalette(props: {
 
   const sel = getSelection();
   interface Row { epicId: string; contextId: string; scenarioId: string; stateId: string; epicLabel: string; ctxLabel: string; scnLabel: string; stLabel: string; hard?: boolean; becomes?: boolean; q: string }
-  const rows: Row[] = [];
-  for (const epic of manifest.epics)
-    for (const ctx of epic.contexts)
-      for (const scn of ctx.scenarios)
-        for (const st of scn.states)
-          rows.push({ epicId: epic.id, contextId: ctx.id, scenarioId: scn.id, stateId: st.id, epicLabel: epic.label, ctxLabel: ctx.label, scnLabel: scn.label, stLabel: st.label, hard: st.hard, becomes: !!st.becomes, q: `${epic.label} ${ctx.label} ${scn.label} ${st.label}`.toLowerCase() });
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const matched = rows.filter((r) => terms.every((t) => r.q.includes(t)));
+  const query = q.trim();
+  const show = query.length >= PALETTE_MIN_CHARS; // Spotlight: results only after 3 chars
   const groups: { key: string; rows: Row[] }[] = [];
-  for (const r of matched) {
-    const key = `${r.epicLabel} · ${r.ctxLabel}`;
-    let g = groups.find((x) => x.key === key);
-    if (!g) { g = { key, rows: [] }; groups.push(g); }
-    g.rows.push(r);
+  let count = 0;
+  if (show) {
+    const rows: Row[] = [];
+    for (const epic of manifest.epics)
+      for (const ctx of epic.contexts)
+        for (const scn of ctx.scenarios)
+          for (const st of scn.states)
+            rows.push({ epicId: epic.id, contextId: ctx.id, scenarioId: scn.id, stateId: st.id, epicLabel: epic.label, ctxLabel: ctx.label, scnLabel: scn.label, stLabel: st.label, hard: st.hard, becomes: !!st.becomes, q: `${epic.label} ${ctx.label} ${scn.label} ${st.label}`.toLowerCase() });
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const matched = rows.filter((r) => terms.every((t) => r.q.includes(t)));
+    count = matched.length;
+    for (const r of matched) {
+      const key = `${r.epicLabel} · ${r.ctxLabel}`;
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, rows: [] }; groups.push(g); }
+      g.rows.push(r);
+    }
   }
 
   return (
     <div data-slowcook-overlay-ui="1" onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "9vh", pointerEvents: "auto", zIndex: 2147483647 }}>
+      style={{ position: "fixed", inset: 0, background: S.backdrop, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", pointerEvents: "auto", zIndex: 2147483647 }}>
       <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Jump to a surface"
-        style={{ background: "#fff", color: "#111", borderRadius: 12, width: 380, maxWidth: "94vw", maxHeight: "78vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.35)", fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden" }}>
-        <div style={{ padding: "12px 14px 8px" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Jump to a surface / state</div>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter… (or just browse)" aria-label="Filter surfaces"
-            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #d0d7de", borderRadius: 8, fontSize: 16, color: "#111", background: "#fff" }} />
+        style={{ background: S.sheet, color: S.fg, borderRadius: 14, width: 440, maxWidth: "94vw", maxHeight: "72vh", display: "flex", flexDirection: "column", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", border: `1px solid ${S.border}`, fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden" }}>
+        {/* Spotlight bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px" }}>
+          <span aria-hidden style={{ fontSize: 16, opacity: 0.8 }}>🎛</span>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Jump to a surface / state…" aria-label="Search surfaces"
+            style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: S.fg, fontSize: 17, padding: 0 }} />
+          {q && <button type="button" aria-label="Clear" onClick={() => setQ("")} style={{ border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
         </div>
-        <div style={{ overflow: "auto", padding: "0 8px 8px" }}>
-          {matched.length === 0 && <div style={{ padding: 16, color: "#888", fontSize: 13 }}>No surface matches “{q}”.</div>}
-          {groups.map((g) => (
-            <div key={g.key} style={{ marginBottom: 4 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#8a8a8a", textTransform: "uppercase", letterSpacing: 0.3, padding: "8px 6px 3px" }}>{g.key}</div>
-              {g.rows.map((r) => {
-                const active = sel?.contextId === r.contextId && sel?.scenarioId === r.scenarioId && sel?.stateId === r.stateId;
-                return (
-                  <button key={r.epicId + r.contextId + r.scenarioId + r.stateId} type="button"
-                    onClick={() => onPick(r.epicId, r.contextId, r.scenarioId, r.stateId)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px", border: "none", borderRadius: 8, background: active ? "rgba(59,175,160,0.14)" : "transparent", cursor: "pointer", font: "inherit", fontSize: 13, color: "#111" }}
-                    onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "#f3f4f6"; }}
-                    onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}>
-                    <span aria-hidden style={{ flexShrink: 0, width: 16, textAlign: "center" }}>{r.hard ? "⚡" : r.becomes ? "➡" : "·"}</span>
-                    <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      <span style={{ fontWeight: 600 }}>{r.stLabel}</span>
-                      <span style={{ color: "#999", fontSize: 11.5 }}>{"  ·  "}{r.scnLabel}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-        <div style={{ borderTop: "1px solid #eee", padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "#999" }}>
-          <span>{matched.length} surface{matched.length === 1 ? "" : "s"}</span>
-          <button type="button" onClick={onClose} style={{ border: "1px solid #d0d7de", background: "#fff", borderRadius: 7, padding: "5px 12px", cursor: "pointer", font: "inherit", fontSize: 12, color: "#444" }}>Close</button>
-        </div>
+        {query.length > 0 && !show && (
+          <div style={{ borderTop: `1px solid ${S.border}`, padding: "12px 16px", fontSize: 12.5, color: S.fgDim }}>Keep typing… ({PALETTE_MIN_CHARS}+ letters)</div>
+        )}
+        {show && (
+          <div style={{ borderTop: `1px solid ${S.border}`, overflow: "auto", padding: "4px 8px 8px" }}>
+            {count === 0 && <div style={{ padding: 16, color: S.fgDim, fontSize: 13 }}>No surface matches “{query}”.</div>}
+            {groups.map((g) => (
+              <div key={g.key} style={{ marginBottom: 4 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: S.header, textTransform: "uppercase", letterSpacing: 0.3, padding: "8px 6px 3px" }}>{g.key}</div>
+                {g.rows.map((r) => {
+                  const active = sel?.contextId === r.contextId && sel?.scenarioId === r.scenarioId && sel?.stateId === r.stateId;
+                  return (
+                    <button key={r.epicId + r.contextId + r.scenarioId + r.stateId} type="button"
+                      onClick={() => onPick(r.epicId, r.contextId, r.scenarioId, r.stateId)}
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px", border: "none", borderRadius: 8, background: active ? S.rowActive : "transparent", cursor: "pointer", font: "inherit", fontSize: 13, color: S.fg }}
+                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = S.rowHover; }}
+                      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                      <span aria-hidden style={{ flexShrink: 0, width: 16, textAlign: "center" }}>{r.hard ? "⚡" : r.becomes ? "➡" : "·"}</span>
+                      <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <span style={{ fontWeight: 600 }}>{r.stLabel}</span>
+                        <span style={{ color: S.fgDim, fontSize: 11.5 }}>{"  ·  "}{r.scnLabel}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1845,7 +1887,7 @@ function SlowcookLogo(): JSX.Element {
   );
 }
 
-function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean; badge?: number }): JSX.Element {
+function ToggleButton(props: { active: boolean; onClick: () => void; disabled: boolean; label: string; title?: string; accent?: boolean; approve?: boolean; badge?: number; fg?: string }): JSX.Element {
   const bg = props.active
     ? props.approve
       ? "#22c55e"
@@ -1862,7 +1904,8 @@ function ToggleButton(props: { active: boolean; onClick: () => void; disabled: b
       style={{
         position: "relative",
         background: bg,
-        color: "white",
+        // active state sits on a coloured bg → white; idle follows the theme.
+        color: props.active ? "white" : (props.fg ?? "white"),
         border: "none",
         padding: "6px 12px",
         borderRadius: 999,
