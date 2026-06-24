@@ -1386,20 +1386,14 @@ function ModeToggle(props: {
         top: pos.top,
         left: pos.left,
         pointerEvents: "auto",
+        // 0.9.0 — column: a button row on top, the EPSS location line below.
+        // alignItems:flex-start keeps each row CONTENT-width, so the pill is
+        // exactly as wide as its widest row (no futile right gap). Left-anchored.
         display: "flex",
-        alignItems: "center",
-        // 0.7.1 — wrap to multiple rows when crowded (Nav/Comment + 📋 + Docs +
-        // sign-in + EPSS status don't fit one row on portrait mobile).
-        flexWrap: "wrap",
-        // 0.9.0 — left-anchored: grip + logo + nav/rev pin to the left edge; the
-        // EPSS status grows the pill rightward.
-        justifyContent: "flex-start",
-        // 0.7.2/0.9.0 — cap to a nimble fixed width (not the whole viewport) so
-        // the pill stays compact on desktop too; buttons wrap and the EPSS router
-        // (review mode) fits two snug dropdown rows instead of sprawling wide.
+        flexDirection: "column",
+        alignItems: "flex-start",
         maxWidth: "min(340px, 92vw)",
-        gap: 4,
-        rowGap: 5,
+        gap: 3,
         // 0.4.2 — green-tinted when approved; else follows the system theme.
         background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
         padding: "5px 6px",
@@ -1414,6 +1408,8 @@ function ModeToggle(props: {
         userSelect: "none",
       }}
     >
+      {/* Top row — the buttons (wraps on crowded mobile). Content-width. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5, maxWidth: "100%" }}>
       {/* 0.9.0 — Grip on the LEFTMOST edge (doubles as left padding). If a long
           EPSS status grows the pill off the right of the viewport, the grip
           stays put so you can drag the pill left to reveal the rest. */}
@@ -1629,31 +1625,45 @@ function ModeToggle(props: {
       )}
       {/* 0.9.0 — EPSS status → centered jump palette. The status shows the
           active surface (left-ellipsized so the most-specific state stays
-          visible) and IS the trigger; it's mode-independent (nav + review). */}
+          a jump palette; the current location shows on the bottom line below. */}
+      {surfaceManifest && surfaceManifest.epics.length > 0 && (
+        <button
+          type="button"
+          data-slowcook-overlay-ui="1"
+          data-testid="epss-jump"
+          aria-label="Jump to a surface / state"
+          title="Jump to a surface / state"
+          onClick={() => setPaletteOpen(true)}
+          style={{
+            marginLeft: 4, flexShrink: 0,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 28, height: 24, padding: 0, border: "none", borderRadius: 8,
+            background: T.sub, color: T.fg, cursor: "pointer", font: "inherit", fontSize: 13,
+          }}
+        >🎛</button>
+      )}
+      </div>{/* /top row */}
+
+      {/* 0.9.0 — EPSS current location: always shown, small font, both modes
+          (tappable too). Left-ellipsized so the most-specific state stays visible. */}
       {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
         const sel = getSelection();
-        const label = sel?.label ?? "pick a surface";
         return (
           <button
             type="button"
             data-slowcook-overlay-ui="1"
             data-testid="epss-status"
-            aria-label="Testing surface — tap to jump"
-            title={sel ? `${sel.label} — tap to jump to another surface/state` : "Jump to a surface / state"}
             onClick={() => setPaletteOpen(true)}
+            title={sel ? sel.label : "No surface selected — tap to jump"}
             style={{
-              marginLeft: 4, maxWidth: "min(46vw, 210px)", minWidth: 52, flexShrink: 1,
-              display: "inline-flex", alignItems: "center", gap: 3,
-              padding: "5px 1px", border: "none", borderRadius: 7,
-              background: T.sub, color: T.fg,
-              cursor: "pointer", font: "inherit", fontSize: 10.5, lineHeight: 1.15,
+              maxWidth: "100%", display: "flex", alignItems: "center", gap: 3,
+              padding: "0 4px 1px", margin: 0, border: "none", background: "transparent",
+              color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.2,
               overflow: "hidden", whiteSpace: "nowrap",
             }}
           >
-            <span aria-hidden style={{ flexShrink: 0, padding: "0 1px" }}>🎛</span>
-            {/* left-ellipsis: rtl container clips the start; <bdi> keeps the text LTR */}
             <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl" }}>
-              <bdi style={{ direction: "ltr" }}>{label}</bdi>
+              <bdi style={{ direction: "ltr" }}>{sel ? sel.label : "no surface selected"}</bdi>
             </span>
           </button>
         );
