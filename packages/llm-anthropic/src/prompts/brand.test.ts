@@ -44,10 +44,68 @@ describe("BRAND_SYSTEM (sc#82 Phase 4)", () => {
     expect(out).toContain("dir = lang === 'fa'");
   });
 
-  it("specifies file paths for both emitted files", () => {
+  it("specifies file paths for all four emitted files", () => {
     const out = BRAND_SYSTEM("");
     expect(out).toContain("mock/src/design-system/tokens.ts");
     expect(out).toContain("mock/src/design-system/css.ts");
+    expect(out).toContain("mock/src/design-system/theme.css");
+    expect(out).toContain("mock/src/design-system/brand-board.html");
+  });
+
+  it("requires a dual-mode Tailwind theme.css", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain('@import "tailwindcss"');
+    expect(out).toContain("[data-theme]");
+    expect(out).toContain("@theme");
+    // dual mode is not optional when the brief asks
+    expect(out).toContain("Dual mode is not optional");
+  });
+
+  it("requires first-class tokens for 'must read distinctly' domain semantics", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("Domain semantics get first-class tokens");
+    expect(out).toContain("--color-agent");
+  });
+
+  it("requires a felt, self-contained brand board with a day/dark toggle", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("brand-board.html");
+    expect(out).toContain("felt, not read");
+    expect(out).toContain("day/dark toggle");
+  });
+
+  it("requires the board to be COMPLETE — every token, Tailwind-organized", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("every token the theme defines");
+    expect(out).toContain("the way Tailwind organizes a theme");
+    // each token category gets a section
+    for (const cat of ["Colour", "Typography", "Spacing", "Radius", "Shadow", "Components", "Motion"]) {
+      expect(out).toContain(cat);
+    }
+  });
+
+  it("requires a reusable logo.tsx with currentColor treatments + keep-the-mark-whole", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("logo.tsx");
+    expect(out).toContain("currentColor");
+    expect(out).toContain("Keep the mark whole");
+    // treatments change colour, not geometry
+    expect(out).toContain("identical across");
+  });
+
+  it("specifies an OPTIONAL cues.ts (sound + haptics) for app-like products that degrades gracefully", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("cues.ts");
+    expect(out).toContain("playCue");
+    expect(out).toContain("navigator.vibrate");
+    expect(out).toContain("ONLY if the product is app-like");
+  });
+
+  it("requires the board to INLINE the cue player (it can't import cues.ts) — never punt", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("CANNOT import");
+    expect(out).toContain("inline a self-contained copy");
+    expect(out).toContain("incomplete for review");
   });
 
   it("instructs the agent to derive ghost from primary at coherent alpha", () => {

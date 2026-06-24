@@ -31,7 +31,7 @@ import { BRAND_SYSTEM, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { parseVibeOutput, writeVibeFiles } from "../vibe/emit.js";
 
 const DEFAULT_MODEL = "claude-opus-4-7";
-const MAX_TOKENS = 8192;
+const MAX_TOKENS = 32000; // 4 files incl. a self-contained brand-board.html
 
 const BrandConfigSchema = z.object({
   schema_version: z.literal(1),
@@ -201,12 +201,18 @@ export async function brand(argv: string[], _cliVersion: string): Promise<void> 
   }
 
   // Pre-flight: refuse to overwrite without --refresh.
-  const tokensPath = join(args.cwd, "mock", "src", "design-system", "tokens.ts");
-  const cssPath = join(args.cwd, "mock", "src", "design-system", "css.ts");
-  const exists = existsSync(tokensPath) || existsSync(cssPath);
+  const dsDir = join(args.cwd, "mock", "src", "design-system");
+  const exists = [
+    "tokens.ts",
+    "css.ts",
+    "theme.css",
+    "brand-board.html",
+    "logo.tsx",
+    "cues.ts",
+  ].some((f) => existsSync(join(dsDir, f)));
   if (exists && !args.refresh && !args.dryRun) {
     console.error(
-      `mock/src/design-system/{tokens.ts,css.ts} already exist. Pass --refresh to overwrite.`,
+      `mock/src/design-system/ already has design-system files. Pass --refresh to overwrite.`,
     );
     process.exit(2);
   }
@@ -231,14 +237,18 @@ export async function brand(argv: string[], _cliVersion: string): Promise<void> 
   }
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey! });
-  const userPrompt = `Generate the design-system foundation for this mock app from the brand brief in your system prompt. Emit the two file blocks (\`mock/src/design-system/tokens.ts\` + \`mock/src/design-system/css.ts\`) per the Output format. No prose preamble.`;
+  const userPrompt = `Generate the design-system foundation for this mock app from the brand brief in your system prompt. Emit the file blocks under \`mock/src/design-system/\` per the Output format: \`tokens.ts\`, \`css.ts\`, \`theme.css\`, \`brand-board.html\`, \`logo.tsx\` — plus \`cues.ts\` IF the product is app-like (Rule 6). theme.css MUST cover both modes if the brief asks; brand-board.html must be self-contained + felt. No prose preamble.`;
 
-  const response = await anthropic.messages.create({
-    model: args.model,
-    max_tokens: MAX_TOKENS,
-    system: BRAND_SYSTEM(projectContext),
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  // Stream: emitting four files (incl. a self-contained brand-board.html) can
+  // exceed the SDK's non-streaming 10-minute guard at this token budget.
+  const response = await anthropic.messages
+    .stream({
+      model: args.model,
+      max_tokens: MAX_TOKENS,
+      system: BRAND_SYSTEM(projectContext),
+      messages: [{ role: "user", content: userPrompt }],
+    })
+    .finalMessage();
 
   let spendUsd = 0;
   try {
