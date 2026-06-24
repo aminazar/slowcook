@@ -67,7 +67,7 @@ import {
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
-import { loadManifest, applySelection, getSelection, type Manifest } from "../testing-surfaces.js";
+import { loadManifest, applySelection, getSelection, selectionBreadcrumb, type Manifest } from "../testing-surfaces.js";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -1439,9 +1439,13 @@ function ModeToggle(props: {
       {/* Content column — the button row on top, the EPSS location line below.
           alignItems:flex-start keeps each row content-width; flex:1 + minWidth:0
           lets the status wrap within the (capped) pill width. */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, flex: 1, minWidth: 0 }}>
-      {/* Top row — the buttons (wraps on crowded mobile). Content-width. */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5, maxWidth: "100%" }}>
+      {/* 0.9.3 — the content column is `min-content` wide so the pill is exactly
+          as wide as the BUTTON ROW; the EPSS status then WRAPS within that width
+          instead of stretching the pill rightward. */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "min-content", minWidth: 0 }}>
+      {/* Top row — buttons on a single non-wrapping line; this row's width is what
+          the column (and pill) sizes to. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", gap: 4, whiteSpace: "nowrap" }}>
       {/* Slowcook logo — pinned to the left of the button row. */}
       <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
@@ -1626,21 +1630,22 @@ function ModeToggle(props: {
           The status WRAPS onto a few lines instead of widening the pill right. */}
       {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
         const sel = getSelection();
+        const crumb = sel ? selectionBreadcrumb(surfaceManifest, sel) : null;
         return (
           <button
             type="button"
             data-slowcook-overlay-ui="1"
             data-testid="epss-status"
             onClick={() => setPaletteOpen(true)}
-            title={sel ? `${sel.label} — tap to jump` : "No surface selected — tap to jump"}
+            title={crumb ? `${crumb} — tap to jump` : "No surface selected — tap to jump"}
             style={{
-              maxWidth: "100%", display: "block", textAlign: "start",
+              width: "100%", maxWidth: "100%", display: "block", textAlign: "start",
               padding: "0 2px 1px", margin: 0, border: "none", background: "transparent",
               color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.25,
               whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word",
             }}
           >
-            {sel ? sel.label : "no surface selected"}
+            {crumb ?? "no surface selected"}
           </button>
         );
       })()}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSelection, resolveSeed, type Manifest } from "./testing-surfaces.js";
+import { resolveSelection, resolveSeed, selectionBreadcrumb, type Manifest } from "./testing-surfaces.js";
 
 const M: Manifest = {
   epics: [
@@ -83,5 +83,17 @@ describe("resolveSelection", () => {
   });
   it("unknown ids → null", () => {
     expect(resolveSelection(M, "payment", "pf", "cancel", "nope")).toBeNull();
+  });
+});
+
+describe("selectionBreadcrumb", () => {
+  it("re-derives a `›` breadcrumb from the manifest by id", () => {
+    const sel = resolveSelection(M, "payment", "pf", "cancel", "has")!.selection;
+    expect(selectionBreadcrumb(M, sel)).toBe("Patient › Cancel › Has upcoming");
+  });
+  it("upgrades a legacy `·` stored label when the manifest lookup misses", () => {
+    const legacy = { epicId: "x", contextId: "x", scenarioId: "x", stateId: "x", status: "authed" as const, route: "/", base: "/p/" as const, label: "Therapist · Bond · No-show penalty", user: null, seed: {}, fixtures: {} };
+    expect(selectionBreadcrumb(M, legacy)).toBe("Therapist › Bond › No-show penalty");
+    expect(selectionBreadcrumb(null, legacy)).toBe("Therapist › Bond › No-show penalty");
   });
 });

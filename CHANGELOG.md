@@ -6,6 +6,15 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.3 — pill width = button row; EPSS breadcrumb always `›`
+
+`@slowcook-ai/review-overlay` 0.9.3 (overlay-only; additive). Two follow-ups from the delgoosh dogfood:
+
+- **The pill is now exactly as wide as its button row.** Previously a long EPSS status, even though it wrapped, still stretched the pill to its max width. The content column is now `min-content` (sized to the single-line button row) and the status **wraps within that width** — so a long surface label makes the pill *taller*, never wider.
+- **The EPSS status always shows the `›` hierarchy separator.** 0.9.1 changed the separator in the label builder, but selections persisted before that still displayed their baked `·` label. The status now **re-derives the breadcrumb from the manifest** by id at render time (`selectionBreadcrumb`), so old and new selections both read `Context › Scenario › State`; a `becomes`/unknown selection falls back to its stored label with any legacy `·` upgraded to `›`.
+
+No API changes (adds the exported `selectionBreadcrumb` helper).
+
 ## review-overlay 0.9.2 — more pill compaction + finish the dark-mode pass
 
 `@slowcook-ai/review-overlay` 0.9.2 (overlay-only; additive). Follow-on polish from the delgoosh dogfood:

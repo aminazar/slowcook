@@ -121,6 +121,22 @@ export function getSelection(): ResolvedSelection | null {
   }
 }
 
+/**
+ * Display breadcrumb for the active selection, using the `›` hierarchy
+ * separator. Re-derived from the manifest by id so it's always current —
+ * selections persisted before the `·`→`›` change still render correctly
+ * (and a `becomes`/unknown selection falls back to its stored label, with any
+ * legacy `·` separators upgraded to `›`).
+ */
+export function selectionBreadcrumb(m: Manifest | null, sel: ResolvedSelection): string {
+  const epic = m?.epics.find((e) => e.id === sel.epicId);
+  const ctx = epic?.contexts.find((c) => c.id === sel.contextId);
+  const scn = ctx?.scenarios.find((s) => s.id === sel.scenarioId);
+  const st = scn?.states.find((s) => s.id === sel.stateId);
+  if (ctx && scn && st) return `${ctx.label.split(" · ")[0]} › ${scn.label} › ${st.label}`;
+  return (sel.label || "").replace(/ · /g, " › ");
+}
+
 /** Pure resolver — manifest + ids → the selection to persist + the target URL (handles `becomes`). */
 export function resolveSelection(
   m: Manifest, epicId: string, contextId: string, scenarioId: string, stateId: string,
