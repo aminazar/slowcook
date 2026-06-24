@@ -23,6 +23,7 @@ import {
 import { runPlate, type PlateContext } from "./agent.js";
 import { writeVibeFiles } from "../vibe/emit.js";
 import { classifyComment, type Classification } from "./classify.js";
+import { routeHint } from "./route-hint.js";
 import type { PlateFeedback } from "./prompts.js";
 
 const APPROVED_LABEL = "slowcook-mockup-approved";
@@ -461,10 +462,13 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
       const anchorPreview = el
         ? `selector \`${el.selector}\` (${el.tag}${el.text_hint ? ` · "${el.text_hint}"` : ""})`
         : "general note (no element anchor)";
+      // 0.6.0 — LCR free-nav: surface the route the comment was left on so
+      // the agent amends the component that renders THAT page, not a guess
+      // from the element selector alone. (See ./route-hint.ts.)
       return {
         author: o.raw.author,
         body:
-          `[${o.classification}] ${anchorPreview}:\n\n` +
+          `[${o.classification}]${routeHint(o.payload)} ${anchorPreview}:\n\n` +
           o.payload.prose +
           `\n\n_(Plate classifier: ${o.rationale})_`,
         createdAt: o.raw.createdAt,

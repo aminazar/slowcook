@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect } from "vitest";
-import { extractSelector } from "./selector.js";
+import { extractSelector, resolveStoredSelector } from "./selector.js";
 
 function root(html: string): HTMLElement {
   document.body.innerHTML = html;
@@ -96,6 +96,52 @@ describe("extractSelector — strategy order", () => {
     // span has no id/testid/role/classes — xpath fallback
     expect(r.strategy).toBe("xpath");
     expect(r.selector).toMatch(/^\/html\/body\//);
+  });
+
+  it("xpath has no double-body and round-trips back to the same element", () => {
+    const body = root('<div><section><span>x</span></section></div>');
+    const span = body.querySelector("span")!;
+    const r = extractSelector(span);
+    expect(r.strategy).toBe("xpath");
+    // regression: the prefix is `/html/body/`, never `/html/body/body/`
+    expect(r.selector).not.toMatch(/\/html\/body\/body\//);
+    const resolved = resolveStoredSelector(document, r.selector, r.fallbackSelector);
+    expect(resolved?.element).toBe(span);
+  });
+});
+
+describe("resolveStoredSelector — xpath + legacy tolerance", () => {
+  it("resolves a well-formed xpath via document.evaluate", () => {
+    const body = root('<div><p>a</p><p id="want">b</p></div>');
+    const target = body.querySelector("#want")!;
+    const resolved = resolveStoredSelector(document, "/html/body/div/p[2]", null);
+    expect(resolved?.element).toBe(target);
+  });
+
+  it("tolerates the legacy /html/body/body/… double-body", () => {
+    const body = root('<div><span>x</span></div>');
+    const span = body.querySelector("span")!;
+    // an old capture stored before the byXPath fix
+    const resolved = resolveStoredSelector(document, "/html/body/body/div/span", null);
+    expect(resolved?.element).toBe(span);
+  });
+
+  it("resolves CSS selectors unchanged", () => {
+    const body = root('<button data-testid="save">Save</button>');
+    const resolved = resolveStoredSelector(document, '[data-testid="save"]', null);
+    expect(resolved?.element).toBe(body.firstElementChild);
+  });
+
+  it("returns null when neither primary nor fallback resolve", () => {
+    root('<div>nothing</div>');
+    expect(resolveStoredSelector(document, "/html/body/div/span[9]", "#missing")).toBeNull();
+  });
+
+  it("falls back to the secondary selector when primary misses", () => {
+    const body = root('<button data-testid="real">x</button>');
+    const resolved = resolveStoredSelector(document, "/html/body/div/nope", '[data-testid="real"]');
+    expect(resolved?.element).toBe(body.firstElementChild);
+    expect(resolved?.usedFallback).toBe(true);
   });
 });
 

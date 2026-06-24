@@ -162,6 +162,110 @@ export async function fetchOverlayComments(args: FetchArgs): Promise<OverlayComm
 }
 
 /**
+ * 0.6.4 — LCR mode retrieval. In lcr mode a comment IS a `lcr-review` issue
+ * (not a PR comment), so the pin layer + comments list must read the repo's
+ * issues, not a PR's comments. Lists `lcr-review` issues (open + closed),
+ * decodes each one's hidden payload, and maps the issue STATE onto the
+ * reply-status the list-panel filter understands: a CLOSED issue is treated as
+ * resolved/applied (hidden behind "show already-applied"); an OPEN one shows.
+ * A `needs-clarification` label keeps it visible (status stays unresolved).
+ *
+ * Requires a token with read access (the signed-in reviewer's token; the repo
+ * is typically private). Returns [] on any error so the overlay degrades to its
+ * cached state.
+ */
+export interface FetchLcrArgs extends RepoCoord {
+  token: string;
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}
+export async function fetchLcrIssues(args: FetchLcrArgs): Promise<OverlayCommentRecord[]> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues?labels=lcr-review&state=all&per_page=100`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      headers: {
+        Authorization: `Bearer ${args.token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  const issues = (await res.json()) as Array<{
+    number: number;
+    user: { login: string } | null;
+    body: string | null;
+    created_at: string;
+    html_url: string;
+    state: "open" | "closed";
+    labels: Array<{ name: string }>;
+    comments: number;
+    comments_url: string;
+    pull_request?: unknown;
+  }>;
+  const headers = {
+    Authorization: `Bearer ${args.token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+
+  const out: OverlayCommentRecord[] = [];
+  for (const it of issues) {
+    if (it.pull_request) continue; // the /issues endpoint also returns PRs
+    const payload = parseReviewComment(it.body ?? "");
+    if (!payload) continue;
+    const needsClarification = it.labels?.some((l) => l.name === "needs-clarification");
+    const resolved = it.state === "closed" && !needsClarification;
+    // closed → applied (hidden behind the toggle); open → needs-clarification
+    // (always visible — it still wants the reviewer's attention).
+    const status: PlateReplyEntry["status"] = resolved ? "applied" : "needs-clarification";
+
+    // 0.6.7 — pull the latest reply so the answer shows IN the overlay (pin
+    // popover + list), not only on GitHub. Maintainer/fixer comments are the
+    // reply channel; the issue body is the original note.
+    let reply: { body: string; htmlUrl: string } | null = null;
+    if (it.comments > 0) {
+      try {
+        const cres = await fetchImpl(`${it.comments_url}?per_page=100`, { headers });
+        if (cres.ok) {
+          const cs = (await cres.json()) as Array<{ body: string | null; html_url: string }>;
+          const last = cs[cs.length - 1];
+          if (last?.body) reply = { body: cleanReplyBody(last.body), htmlUrl: last.html_url };
+        }
+      } catch { /* keep going without a reply */ }
+    }
+
+    const plateReply: PlateReplyEntry | null =
+      reply ? { to_comment_id: it.number, status, summary: reply.body }
+      : resolved ? { to_comment_id: it.number, status: "applied", summary: "Resolved — issue closed." }
+      : needsClarification ? { to_comment_id: it.number, status: "needs-clarification", summary: "Awaiting your clarification." }
+      : null;
+
+    out.push({
+      commentId: it.number,
+      author: it.user?.login ?? "unknown",
+      createdAt: it.created_at,
+      htmlUrl: it.html_url,
+      payload,
+      plateReply,
+      plateCommentUrl: reply?.htmlUrl,
+    });
+  }
+  return out;
+}
+
+/** Strip hidden payload/plate markers + trim a reply body for the overlay. */
+function cleanReplyBody(body: string): string {
+  const cut = (body.split("<!--")[0] ?? "").trim();
+  return cut.length > 500 ? cut.slice(0, 500) + "…" : cut;
+}
+
+/**
  * localStorage cache for the comment list — lets the pin layer render
  * instantly on refresh without waiting for the network round-trip.
  * Background-refresh fires after, updating with any newer state.
@@ -494,4 +598,135 @@ export async function submitComment(args: SubmitArgs): Promise<SubmitResult> {
   }
   const j = (await res.json()) as { id: number; html_url: string };
   return { ok: true, commentId: j.id, htmlUrl: j.html_url };
+}
+
+export interface CreateIssueArgs extends RepoCoord {
+  pat: string;
+  title: string;
+  body: string;
+  labels?: string[];
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * 0.6.0 — open a standalone issue (LCR review). Distinct from submitComment
+ * (which comments on a PR): an LCR review note is about a story/route of the
+ * living spec, so it becomes its own `vibe`-labelled issue. Returns the same
+ * SubmitResult shape (commentId = issue number).
+ */
+export async function createIssue(args: CreateIssueArgs): Promise<SubmitResult> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ title: args.title, body: args.body, labels: args.labels ?? [] }),
+    });
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const j = (await res.json()) as { message?: string };
+      detail = j.message ?? "";
+    } catch { /* non-JSON body */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  }
+  const j = (await res.json()) as { number: number; html_url: string };
+  return { ok: true, commentId: j.number, htmlUrl: j.html_url };
+}
+
+// ── Docs studio (0.7.0) — the textual half of review. Read + commit the spine
+//    markdown docs on the working branch via the GitHub Contents API, so a
+//    scope-change edit lands as a real commit that `refine` picks up. ──────────
+
+/** UTF-8-safe base64 (the docs carry emoji/unicode). */
+function b64decodeUtf8(b64: string): string {
+  const bin = atob(b64.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+function b64encodeUtf8(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+export interface DocFile { path: string; content: string; sha: string }
+
+/** Read one markdown doc at a ref (branch). `pat` optional for public repos. */
+export async function fetchDocFile(args: RepoCoord & {
+  path: string; ref: string; pat?: string; apiBase?: string; fetchImpl?: typeof fetch;
+}): Promise<{ ok: true; file: DocFile } | { ok: false; status: number; message: string }> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/contents/${args.path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(args.ref)}`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      headers: {
+        ...(args.pat ? { Authorization: `Bearer ${args.pat}` } : {}),
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = ((await res.json()) as { message?: string }).message ?? ""; } catch { /* */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  }
+  const j = (await res.json()) as { content?: string; sha: string; encoding?: string };
+  const content = j.content && j.encoding === "base64" ? b64decodeUtf8(j.content) : (j.content ?? "");
+  return { ok: true, file: { path: args.path, content, sha: j.sha } };
+}
+
+/** Commit an edited doc to a branch (the "scope change"). Requires write access. */
+export async function commitDocFile(args: RepoCoord & {
+  path: string; content: string; sha: string; branch: string; message: string;
+  pat: string; apiBase?: string; fetchImpl?: typeof fetch;
+}): Promise<{ ok: true; htmlUrl?: string; commit?: string } | { ok: false; status: number; message: string }> {
+  const fetchImpl = args.fetchImpl ?? globalThis.fetch;
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const url = `${apiBase}/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/contents/${args.path.split("/").map(encodeURIComponent).join("/")}`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${args.pat}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({
+        message: args.message,
+        content: b64encodeUtf8(args.content),
+        sha: args.sha,
+        branch: args.branch,
+      }),
+    });
+  } catch (e) {
+    return { ok: false, status: 0, message: `network error: ${(e as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = ((await res.json()) as { message?: string }).message ?? ""; } catch { /* */ }
+    return { ok: false, status: res.status, message: detail || res.statusText };
+  }
+  const j = (await res.json()) as { commit?: { html_url?: string; sha?: string } };
+  return { ok: true, htmlUrl: j.commit?.html_url, commit: j.commit?.sha };
 }

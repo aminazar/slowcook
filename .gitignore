@@ -20,3 +20,7 @@ coverage/
 # artifacts and shouldn't be committed.
 /packages/cli/REPORTING.md
 /packages/cli/AGENTS.md
+
+# local OAuth-app credentials — never commit (client secret lives here; device flow doesn't even use it)
+github-slowcook-app-secret.txt
+*-app-secret.txt

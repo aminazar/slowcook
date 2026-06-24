@@ -6,6 +6,64 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.8.0 → 0.8.2 — free-nav comment mode, deterministic auth guidance, test hardening
+
+`@slowcook-ai/review-overlay` 0.8.0–0.8.2 (overlay-only). The 0.8.0/0.8.1 features came from a slowcook session dogfooding the overlay on the **delgoosh** SPA (a private, RTL, mobile-reviewed mock) and feeding fixes back upstream; 0.8.2 backfills the test coverage + this changelog entry.
+
+**0.8.0 — arm-to-pick free navigation in LCR comment mode.** Comment mode used to capture *every* page click into a composer, exitable only via Escape — so mobile reviewers (no Esc key) were locked out of navigating the mock. Now a review session navigates the app freely; the reviewer arms a single element-pick ("📍 Pin a comment") and only the *next* click is captured, after which it auto-disarms. Mobile-safe on-screen cancels at every layer (armed banner, composer Cancel, toolbar toggle); Escape steps back one layer at a time (composer → armed pick → mode) instead of nuking the whole mode. The page tint shows only while a pick is live.
+
+**0.8.1 — deterministic auth guidance + classic-PAT sign-in.** Being signed in via the GitHub device-flow OAuth app is *not* enough to comment on a private repo or an OAuth-restricted org — the app's token is blocked and only carries `public_repo`, so reviewers hit an opaque `403 …OAuth App access restrictions…` toast. Now `describeAuthError()` maps 401/403/404 + GitHub's message to a plain-English reason and fix (keyed off the org/repo); the sign-in dialog always offers a classic-PAT path with baked-in instructions and a prefilled "create a classic token (`repo` scope)" link; `signInWithPat()` validates the token and derives identity + write-access tier; write failures that are really auth route to the dialog (`reportFailure()`) instead of a dead-end toast. Plus a docs note: statically-hosted mocks must serve `index.html` as `Cache-Control: no-cache` or reviewers keep seeing a stale mock after each redeploy (content-hashed assets stay immutable).
+
+**0.8.2 — test hardening.** `describeAuthError` is now exported and unit-tested (7 cases incl. the OAuth-restriction dead-end, case-insensitive match, and the 401/404/fallback paths); a jsdom render test covers the 0.8.0 arm-to-pick contract end-to-end (unarmed click navigates, armed click captures + auto-disarms) — which also proves the 0.7.3 shadow-DOM portal still delivers React click events. 73 overlay tests green (was 65).
+
+## review-overlay 0.7.3 — Shadow-DOM style firewall (fixes host-CSS bleed on RTL / hard-reset hosts)
+
+`@slowcook-ai/review-overlay` 0.7.3 (overlay-only; cli unchanged). Fixes a real bug found dogfooding the overlay on the **delgoosh** SPA (a Persian, RTL app): the floating disk "lost its shape" and couldn't be gripped/dragged, and buttons were unclickable.
+
+**Root cause — host CSS leaked *into* the overlay.** The overlay rendered straight into the host's DOM (no isolation boundary), so the host's *global* CSS bled onto it. Two delgoosh rules broke it: a universal reset `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}` collapsed the disk's internal geometry, and `body{direction:rtl}` mirrored the toolbar and inverted the disk's `right`-anchored drag math. It "worked in rewo" only because rewo is LTR with a benign reset — and because earlier `!important` patches had been written reactively against rewo's *specific* CSS. (No rewo code/styles were ever bundled into the overlay — verified; the leak is purely host→overlay.)
+
+**Fix.** The whole UI now mounts inside a **Shadow DOM** on a body-level host element (`createPortal` into an open `shadowRoot`). Selector-based host CSS (`*{}` resets, `button{}` styles) physically can't cross the boundary. Inherited properties (direction/font/color) still cross, so an in-root `:host{ all: initial; direction: ltr; unicode-bidi: isolate; … }` reset re-establishes them — note `all` deliberately skips `direction`/`unicode-bidi`, which is exactly what un-mirrors the toolbar on RTL hosts. The host element carries no transform/filter, so `position: fixed` children still resolve to the viewport; comment-mode still queries the host document directly (the shadow only encapsulates the overlay's *own* UI). +2 jsdom tests reproducing the RTL+reset host (65 overlay tests green).
+
+**Also closes #205** (signed-in reviewer badge overlapped the draggable toolbar, grip unreachable): that was a 0.6.0-only bug already fixed in **0.6.2** by folding the sign-in into the floating disk (the separate `ReviewerSignInBadge` is gone). delgoosh was pinned to the npm-stale 0.6.0; 0.7.3 carries both fixes. Consumers on 0.6.x should bump.
+
+## 0.21.2 — trace-check coverage + persona-surface lints · review-overlay 0.7.2 (docs studio, persona pane, write-gate)
+
+`@slowcook-ai/cli` 0.21.2 · `@slowcook-ai/review-overlay` 0.7.2. (core/forge-github/llm-anthropic unchanged since 0.21.1.) Ships the two trace-check lints and the overlay 0.6.1→0.7.2 arc that had accumulated on the LCR-review branch under stale version numbers — npm's `cli@0.21.1` predated both lints, and `review-overlay` was still at 0.6.0.
+
+**`trace check` — two new lints:**
+- `--coverage` — the inverse of provenance: reports stories/requirements with no LCR mock surface. Opt-in hard-fail (backend-only stories legitimately have no surface, so it's off by default).
+- **persona-surface lint** (always-on hard fail): every spec's `persona` + `surfaces[].route` must resolve to a real mock router path (`/u/:handle` matches `/u/you`). Catches a promised-but-unbuilt surface.
+
+**review-overlay 0.6.1 → 0.7.2** (LCR multi-person review polish):
+- **0.7.0 Docs studio** — a 📄 mode that fetches/commits the spine markdown (PRD/stories/etc.) via the Contents API on the branch, so a reviewer's doc edit is itself a scope change.
+- **0.6.18 write-access apply-gate** — `GET /repos` `permissions.push` decides `vibe` auto-apply vs `community-review` held-for-PM; requires a GitHub login (no anon).
+- **0.7.1** persona switcher moves out of the mock into the pane (`surfaces` prop + `SurfaceSwitcher`, pushState nav); login-dialog z-index above the Docs panel.
+- **0.7.2** compact pane select (beats host `select{16px!important}`) + pane flex-wraps to 2 rows on portrait mobile.
+- **0.6.16/0.6.17** sticky pins, scroll-lock, page/element split, style-isolation; per-author pin identity + hide resolved pins.
+
+## 0.21.1 — fix: publish llm-anthropic 0.18.0 (MENU_SYSTEM)
+
+`@slowcook-ai/cli` 0.21.1 · `@slowcook-ai/llm-anthropic` 0.18.0. The GUCDI `menu` command imports `MENU_SYSTEM`/`MenuStoryDraft` from llm-anthropic, but llm-anthropic was never republished after they were added — so cli 0.21.0 (pinning `^0.17.0`) crashed at load with `does not provide an export named 'MENU_SYSTEM'`. Bump llm-anthropic to 0.18.0 (with the menu prompt) and republish cli so it pins `^0.18.0`.
+
+## 0.21.0 — multi-person LCR review (free-nav + GitHub identity + contextualised issues) · GUCDI commands
+
+`@slowcook-ai/cli` 0.21.0 · `@slowcook-ai/core` 0.15.0 · `@slowcook-ai/forge-github` 0.14.0 · `@slowcook-ai/review-overlay` 0.6.0. (Also the first release carrying the GUCDI greenfield commands — `menu`, `trace check`, `greenfield status`, `brand logo` — that landed on main after 0.20.0.)
+
+Pairs with the GUCDI LCR shape: a mock is now a full navigable app, so review lets a human roam every route and comment anywhere, not pick a scenario — and several reviewers can each sign in as themselves.
+
+**Multi-person LCR review** (review-overlay 0.6.0 + the new reviewer-identity seam):
+- `reviewMode: "scenarios" | "lcr"` (env `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`). In `lcr` mode the overlay shows on every route (incl. `/`), captures each comment's `pathname`/`route_query`/`route_story`, and files a standalone `[LCR] story-NNN` issue labelled `lcr-review`+`vibe` instead of a PR comment.
+- **Reviewer identity** — core `ForgeReviewerAuth` seam + forge-github `GitHubReviewerAuth` (OAuth device flow). run-mock in lcr mode hosts a device-flow auth-helper (`--expose` for a remote box); the overlay's "Sign in with GitHub" posts each comment as that reviewer's own account. Ships a default shared OAuth client-id (overridable via `.brewing/mock.yaml` `review_oauth_client_id`/`review_oauth_scope`).
+- **Lifecycle** — applied/declined/noop comments hide behind a "show already-applied" toggle; the new `needs-clarification` status stays visible.
+- `useStoryMarker`/`readCurrentStory` — an LCR page self-reports its story at runtime (`data-slowcook-story`) so the issue is tagged with the exact requirement.
+
+On `feat/plate-lcr-free-nav`.
+
+- **`@slowcook-ai/review-overlay` 0.6.0** — new `reviewMode: "scenarios" | "lcr"` prop (env `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`, default `scenarios`). In `lcr` mode the overlay no longer hides on the `/` route (an LCR's home is a first-class surface) and every comment payload now carries `pathname` + `route_query` (the route it was left on), rendered as a `**Route:**` line. Back-compat: scenario-mode payloads omit the fields; the parser ignores extras.
+- **plate** reads `payload.pathname` (falling back to parsing `url`) and prefixes each comment fed to the amendment agent with `` on route `/x` `` (new pure `plate/route-hint.ts`), so it amends the component rendering THAT page instead of guessing from the selector alone.
+- **run-mock** reads `review_mode` from `.brewing/mock.yaml` and passes it through as `NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE`. New `review_mode` field on the mock-shape config (default `scenarios`; GUCDI mocks set `lcr`).
+- Remaining for a full Vite LCR demo: the Vite mock template must mount `<SlowcookReviewOverlay reviewMode="lcr" />` (today only the Next.js template mounts the overlay), and the consumer must pin review-overlay 0.6.0 — both land once 0.6.0 publishes.
+
 ## 0.20.0 — anti-drift + HITL-halt pipeline: fidelity eye, role gates, dense extraction (sc#173 #12–#14)
 
 Cut 2026-06-07. `@slowcook-ai/cli` 0.20.0 · `@slowcook-ai/gates` 0.11.0 · `@slowcook-ai/llm-anthropic` 0.17.0 · `@slowcook-ai/forge-github` 0.13.0. (Also folds the unpublished 0.19.7 `slowcook serve` fixes, which never reached npm.)

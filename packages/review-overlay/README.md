@@ -53,6 +53,37 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 The `enabled` gate keeps the overlay out of production-style builds. Slowcook's preview-deploy workflow (0.16-α.5) sets `NEXT_PUBLIC_SLOWCOOK_REVIEW=1` plus the owner/repo/PR env vars when it builds the mock for a `slowcook-mockup` PR.
 
+## Hosting the built mock — cache headers (required)
+
+When you serve a **statically built** mock (Vite/Next export rsynced to a box, an
+S3 bucket, etc.), the HTML shell **must not be hard-cached**, or reviewers keep
+seeing a stale mock after every redeploy and your overlay fixes never reach them.
+
+Rule of thumb:
+
+- **`index.html` (and any app shell / chooser) → `Cache-Control: no-cache`** so the
+  browser revalidates each load and picks up the newest build immediately.
+- **Content-hashed assets (`/assets/*.js`, `*.css`) → long, immutable cache** —
+  their filename changes every build, so caching them is safe.
+
+nginx example (mirrors the delgoosh mock at `mock.delgoosh.com`):
+
+```nginx
+# hashed build assets are immutable — a new build emits new filenames
+location ~* /assets/ {
+  expires 30d;
+  add_header Cache-Control "public, max-age=2592000, immutable";
+}
+# app shell — always revalidate so a redeploy is seen on the next load
+location = /index.html { add_header Cache-Control "no-cache"; }
+location / { try_files $uri $uri/ /index.html; }   # SPA fallback
+```
+
+> If a CDN (Cloudflare, etc.) fronts the host, it may apply its own Browser-Cache-TTL
+> to cacheable responses — harmless for hashed assets, but make sure the shell stays
+> `no-cache` (don't let the CDN cache `index.html`). `slowcook run-mock` already serves
+> with no-store dev headers; this note is for **self-hosted static deploys**.
+
 ## How a comment lands in the PR
 
 1. PM clicks the floating toggle → **💬 Comment**.

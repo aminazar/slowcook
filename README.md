@@ -11,6 +11,8 @@
 
 ## Status
 
+**0.21.2** (2026-06-22) — **GUCDI greenfield + multi-person LCR review.** The greenfield design-first flow (`slowcook menu` PRD→stories · `trace check` provenance + `--coverage` + persona-surface lints · `greenfield status` · `brand logo` tracer) turns a PRD into a navigable **Living Coded Requirement** mock before any backend. Review of that mock is now multi-person: the **review-overlay** (`0.7.2`) lets a human roam every route, comment anywhere, sign in as themselves (GitHub device-flow identity), edit the spine docs in a **Docs studio**, and switch personas in the pane; comments file as contextualised `[LCR] story-NNN` issues labelled `lcr-review`+`vibe`. A write-access apply-gate decides `vibe` auto-apply vs PM-held. Validated end-to-end dogfooding the rewo mock on a hosted box.
+
 **0.20.0 stable** (cut 2026-06-07) — the **anti-drift + HITL-halt pipeline** (designs #8/#9/#10, from the delgoosh design-react dogfood). The fidelity **eye** (`slowcook eye` — renders mock vs brewed across the viewport×scheme matrix, grades visual drift by computed-style/color/box, exits 1); **HITL role gates** (`slowcook gate check` — a stage advances only once a *human* in the required role approves on the PR; bot/agent reviews never satisfy a gate); **dense mock-style extraction** (recon pins each element's full className set, brewed ⊇ mock, instead of a 17-token allowlist). Specs declare `fidelity.modes`; the eye enforces them; brew is measured against them. Details in [`docs/plans/0.20-design-discussions.md`](./docs/plans/0.20-design-discussions.md).
 
 **0.19.5** (2026-06-01) — post-0.19.0 hardening batch. Five point releases over the 0.19.1 → 0.19.5 arc landed the post-emit refine lint chain (`validateEntityFieldReferences`, `validateComponentReuseShape`, `validateRouteCollisions`, `validatePlateDtoColumns`), `slowcook check spec` for PR-amendment safety, `slowcook cost log` for non-Actions agents, the chef DTO-rename surface grep, the brew dual-path + mirror-stories prompt tightening, and managed-block additions (`upsert-agent-docs`) for multi-agent choreography, no-import-stub, doc-audience, and combined-PR patterns. All four 0.20 design discussions are locked + documented in [`docs/plans/0.20-design-discussions.md`](./docs/plans/0.20-design-discussions.md): per-framework backend-adapter packages, `slowcook mirror` codegen, story-ID tombstones, recipe-emitted `brew_strategy`.
@@ -19,13 +21,15 @@ The 0.19.0 foundation — `.brewing/repo-knowledge/{auto,curated}/` deterministi
 
 | Package | Version | Brings |
 |---|---|---|
-| `@slowcook-ai/cli` | `0.20.0` (latest) | `slowcook eye` + `slowcook gate` commands · dense recon containment · spec `fidelity.modes` · now depends on `@slowcook-ai/gates` + `@playwright/test` |
-| `@slowcook-ai/gates` | `0.11.0` (latest) | fidelity engine: `diffSnapshots` / `captureSnapshot` / `gradeFidelity` / `runFidelityGate` (visual mock-vs-brewed diff) |
-| `@slowcook-ai/llm-anthropic` | `0.17.0` (latest) | brew plate-mode contract (verbatim presentation, data-wiring-only edits) + refine emits `fidelity.modes` |
-| `@slowcook-ai/forge-github` | `0.13.0` (latest) | `slowcook-eye` / `slowcook-eye-cleanup` / `slowcook-gate` workflows |
+| `@slowcook-ai/cli` | `0.21.2` (latest) | GUCDI commands (`menu` · `trace check` w/ `--coverage` + persona-surface lints · `greenfield status` · `brand logo`) · LCR free-nav review wiring · on top of `0.20.0`'s `eye` + `gate` |
+| `@slowcook-ai/review-overlay` | `0.7.2` (latest) | multi-person LCR review: GitHub device-flow identity, contextualised `[LCR]` issues, Docs studio, persona pane, write-access apply-gate, sticky pins |
+| `@slowcook-ai/core` | `0.15.0` (latest) | spine schema on `Spec` (`prd_ref` / `data_contract` / `open_questions` / `fidelity`) + `ForgeReviewerAuth` seam |
+| `@slowcook-ai/forge-github` | `0.14.0` (latest) | `GitHubReviewerAuth` (device flow) · `slowcook-trace` workflow · `slowcook-eye` / `slowcook-gate` |
+| `@slowcook-ai/llm-anthropic` | `0.18.0` (latest) | `MENU_SYSTEM` / `MenuStoryDraft` (PRD→stories prompt) + plate-mode contract |
+| `@slowcook-ai/gates` | `0.11.0` (latest) | fidelity engine: `diffSnapshots` / `captureSnapshot` / `gradeFidelity` / `runFidelityGate` |
 | `@slowcook-ai/stack-ts` | `0.9.9` (latest) | (no changes since 0.19.0) |
 
-**Adopting:** `npm install @slowcook-ai/cli@0.20.0`. Pin in your `.brewing/slowcook-cli-version`. First-run consumers get the full knowledge-layer bedrock automatically via `slowcook init`.
+**Adopting:** `npm install @slowcook-ai/cli@0.21.2`. Pin in your `.brewing/slowcook-cli-version`. First-run consumers get the full knowledge-layer bedrock automatically via `slowcook init`.
 
 **Milestone 2026-05-27 — knowledge layer + chef-on-brew-halt loop closed (cli α.51 → α.65):** Eleven alphas shipped over two days. Highlights: chef stops hallucinating spec fields (α.51); brew `legacy` renamed to `freehand` with navigator default-on (α.52); chef-drift parse-tolerant (α.53); chef owns test infrastructure incl. vitest.config + package.json devDeps (α.54); navigator gets scope + hallucination discipline (α.55); chef-on-brew-halt loop fully wired: halt artifact → enrichment from iteration_diffs → checkout brew_branch → push fix as PR (α.56-α.60); refine sees NestJS/TypeORM backend digest (α.61); ten disk-cached repo-knowledge digests + curated git-history-mined files (α.62-α.63); AGENTS.md managed block (α.64); init wires the whole bedrock automatically (α.65). Empirical wins from dogfood consumers: chef wrote a real layout component (not className-padded regex bait); refine cited exact mock file paths + brand-token vocabulary + cross-story context — zero hallucinations vs the α.61 baseline that invented routes.
 

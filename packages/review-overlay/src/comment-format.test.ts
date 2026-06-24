@@ -3,6 +3,10 @@ import {
   formatReviewComment,
   parseReviewComment,
   buildPayload,
+  formatLcrIssue,
+  LCR_REVIEW_LABEL,
+  VIBE_LABEL,
+  COMMUNITY_LABEL,
   PAYLOAD_MARKER,
 } from "./comment-format.js";
 import type { ExtractedSelector } from "./selector.js";
@@ -66,6 +70,44 @@ describe("buildPayload", () => {
       userAgent: "x",
     });
     expect(p.story_id).toBeNull();
+  });
+
+  // 0.6.0 — LCR free-nav: the comment carries the route it was left on.
+  it("captures pathname + route_query when supplied (LCR mode)", () => {
+    const p = buildPayload({
+      overlayVersion: "0.6.0",
+      storyId: "rewo-lcr",
+      url: "http://localhost:3100/r/webb-deep-field?clean=1",
+      pathname: "/r/webb-deep-field",
+      routeQuery: "?clean=1",
+      prose: "Bucket order looks off here.",
+      viewport: sampleViewport,
+      userAgent: "x",
+    });
+    expect(p.pathname).toBe("/r/webb-deep-field");
+    expect(p.route_query).toBe("?clean=1");
+    // round-trips through the markdown body + survives the parser
+    const body = formatReviewComment({ payload: p });
+    expect(body).toContain("**Route:** `/r/webb-deep-field?clean=1`");
+    const back = parseReviewComment(body);
+    expect(back?.pathname).toBe("/r/webb-deep-field");
+    expect(back?.route_query).toBe("?clean=1");
+  });
+
+  it("omits route fields when not supplied (scenarios mode / back-compat)", () => {
+    const p = buildPayload({
+      overlayVersion: "0.6.0",
+      storyId: "017",
+      url: "http://localhost:3100/",
+      prose: "x",
+      selector: sampleSelector,
+      bbox: { x: 0, y: 0, w: 0, h: 0 },
+      viewport: sampleViewport,
+      userAgent: "x",
+    });
+    expect(p.pathname).toBeUndefined();
+    expect(p.route_query).toBeUndefined();
+    expect(formatReviewComment({ payload: p })).not.toContain("**Route:**");
   });
 });
 
@@ -155,5 +197,50 @@ trailing prose
     const p = parseReviewComment(body);
     expect(p).not.toBeNull();
     expect(p!.element.selector).toBe("#a");
+  });
+});
+
+describe("formatLcrIssue", () => {
+  const base = {
+    overlayVersion: "0.6.0", storyId: "rewo-lcr",
+    url: "http://localhost:3100/r/webb-deep-field",
+    pathname: "/r/webb-deep-field", routeStory: "104",
+    viewport: sampleViewport, userAgent: "x",
+  };
+  it("titles + labels by story, embeds route + payload, carries vibe label", () => {
+    const p = buildPayload({ ...base, prose: "The fascinate bucket should lead." });
+    const issue = formatLcrIssue({ payload: p });
+    expect(issue.title).toContain("[LCR]");
+    expect(issue.title).toContain("story-104");
+    expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL, "story-104"]);
+    expect(issue.body).toContain("**Story / requirement:** `story-104`");
+    expect(issue.body).toContain("**Route:** `/r/webb-deep-field`");
+    // round-trips: the hidden payload survives for plate/vibe to parse
+    expect(parseReviewComment(issue.body)?.route_story).toBe("104");
+  });
+  it("falls back to route in the title when no story is declared", () => {
+    const p = buildPayload({ ...base, routeStory: undefined, prose: "x" });
+    const issue = formatLcrIssue({ payload: p });
+    expect(issue.title).toContain("/r/webb-deep-field");
+    expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL]); // no story label
+  });
+  it("write-access reviewers (canApply) get the vibe label", () => {
+    const p = buildPayload({ ...base, prose: "x" });
+    const issue = formatLcrIssue({ payload: p, canApply: true });
+    expect(issue.labels).toContain(VIBE_LABEL);
+    expect(issue.labels).not.toContain(COMMUNITY_LABEL);
+    expect(issue.body).toContain("for vibe to apply");
+  });
+  it("non-write reviewers (canApply false) get community-review, never vibe", () => {
+    const p = buildPayload({ ...base, prose: "x" });
+    const issue = formatLcrIssue({ payload: p, canApply: false });
+    expect(issue.labels).toContain(COMMUNITY_LABEL);
+    expect(issue.labels).not.toContain(VIBE_LABEL);
+    expect(issue.labels).toEqual([LCR_REVIEW_LABEL, COMMUNITY_LABEL, "story-104"]);
+    expect(issue.body).toContain("without repo write access");
+  });
+  it("defaults to applied (vibe) when canApply is omitted (back-compat)", () => {
+    const p = buildPayload({ ...base, prose: "x" });
+    expect(formatLcrIssue({ payload: p }).labels).toContain(VIBE_LABEL);
   });
 });

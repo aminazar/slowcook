@@ -132,7 +132,15 @@ function byTagClasses(el: Element): string | null {
 function byXPath(el: Element): string {
   const parts: string[] = [];
   let node: Element | null = el;
-  while (node && node.nodeType === 1 && node.tagName.toLowerCase() !== "html") {
+  // Stop at <body> (and <html>): the `/html/body/` prefix below already
+  // accounts for them. Including <body> here produced a `/html/body/body/…`
+  // double-body that no resolver could match.
+  while (
+    node &&
+    node.nodeType === 1 &&
+    node.tagName.toLowerCase() !== "html" &&
+    node.tagName.toLowerCase() !== "body"
+  ) {
     const parent: Element | null = node.parentElement;
     if (!parent) break;
     const tag = node.tagName.toLowerCase();
@@ -247,24 +255,55 @@ function cssEscapeAttr(s: string): string {
  * Wraps both querySelector calls in try/catch so a malformed stored
  * selector doesn't blow up the pin pass.
  */
+/** An XPath selector starts with `/` or `(/` — CSS selectors never do. */
+function looksLikeXPath(sel: string): boolean {
+  const s = sel.trimStart();
+  return s.startsWith("/") || s.startsWith("(/");
+}
+
+/**
+ * Resolve one stored selector — CSS via querySelector, XPath via
+ * document.evaluate. querySelector THROWS on an XPath string, which is why
+ * xpath-strategy comments never used to resolve (they all fell through to
+ * "drifted" and froze at their capture bbox).
+ *
+ * Also tolerates the legacy `/html/body/body/…` double-body that older
+ * captures emitted, so previously-filed comments resolve too.
+ */
+function resolveOne(doc: Document, sel: string): Element | null {
+  if (looksLikeXPath(sel)) {
+    const candidates = [sel];
+    if (sel.includes("/html/body/body/")) {
+      candidates.push(sel.replace("/html/body/body/", "/html/body/"));
+    }
+    for (const xp of candidates) {
+      try {
+        const r = doc.evaluate(xp, doc, null, /* FIRST_ORDERED_NODE_TYPE */ 9, null);
+        const node = r.singleNodeValue;
+        if (node && node.nodeType === 1) return node as Element;
+      } catch {
+        /* malformed xpath — try the next candidate */
+      }
+    }
+    return null;
+  }
+  try {
+    return doc.querySelector(sel);
+  } catch {
+    return null;
+  }
+}
+
 export function resolveStoredSelector(
   doc: Document,
   selector: string,
   fallbackSelector: string | null
 ): { element: Element; usedFallback: boolean } | null {
-  try {
-    const primary = doc.querySelector(selector);
-    if (primary) return { element: primary, usedFallback: false };
-  } catch {
-    /* malformed selector — try fallback */
-  }
+  const primary = resolveOne(doc, selector);
+  if (primary) return { element: primary, usedFallback: false };
   if (fallbackSelector) {
-    try {
-      const fb = doc.querySelector(fallbackSelector);
-      if (fb) return { element: fb, usedFallback: true };
-    } catch {
-      /* malformed fallback too */
-    }
+    const fb = resolveOne(doc, fallbackSelector);
+    if (fb) return { element: fb, usedFallback: true };
   }
   return null;
 }

@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/forge-github",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "GitHub ForgeAdapter implementation for slowcook",
   "license": "MIT",
   "author": "aminazar",
@@ -13,7 +13,15 @@
   "bugs": {
     "url": "https://github.com/aminazar/slowcook/issues"
   },
-  "keywords": ["slowcook", "github", "forge", "adapter", "tdd", "ai", "agents"],
+  "keywords": [
+    "slowcook",
+    "github",
+    "forge",
+    "adapter",
+    "tdd",
+    "ai",
+    "agents"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +31,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run --passWithNoTests",

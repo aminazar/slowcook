@@ -28,6 +28,24 @@ export interface ReviewCommentPayload {
   slowcook_overlay_version: string;
   story_id: string | null;
   url: string;
+  /**
+   * 0.6.0 — the route the comment was left on, split out from `url` for
+   * convenience. In LCR review mode the reviewer roams the mock's own
+   * router (e.g. `/r/webb-deep-field`, `/discover`), so plate keys
+   * amendments by route, not by a single per-PR story_id. Optional for
+   * back-compat: older payloads (and scenario-mode comments) omit it,
+   * and consumers can recover it from `url` when absent.
+   */
+  pathname?: string;
+  /** 0.6.0 — the query string at comment time (e.g. `?clean=1`), if any. */
+  route_query?: string;
+  /**
+   * 0.6.0 — the story/requirement the commented route belongs to, when the LCR
+   * declares it at runtime (data-slowcook-story). Lets an LCR review comment
+   * become a contextualised issue tagged with the exact requirement; absent
+   * when the LCR doesn't self-report (vibe can still derive it from the route).
+   */
+  route_story?: string;
   timestamp: string;
   prose: string;
   /**
@@ -62,10 +80,20 @@ export const PAYLOAD_MARKER = "slowcook:review-overlay";
 export const PLATE_REPLY_MARKER = "slowcook:plate-reply";
 
 export type PlateReplyStatus =
-  | "applied"        // plate amended the mock per the comment
-  | "declined"       // plate read the comment but chose not to amend (cosmetic-but-already-fine)
-  | "spec-altering"  // plate escalated; PM must confirm a spec change
-  | "noop";          // plate considered, no diff produced (re-emit yielded byte-identical files)
+  | "applied"            // plate/vibe amended the mock per the comment
+  | "declined"           // read the comment but chose not to amend (cosmetic-but-already-fine)
+  | "spec-altering"      // escalated; PM must confirm a spec change
+  | "needs-clarification" // 0.6.0 — couldn't act on it; asked the reviewer to clarify
+  | "noop";              // considered, no diff produced (re-emit yielded byte-identical files)
+
+/**
+ * 0.6.0 — which reply statuses are "resolved" (the comment can be hidden behind
+ * the overlay's "show applied" toggle). `needs-clarification` is intentionally
+ * NOT resolved: it stays visible so the reviewer sees the question and answers.
+ */
+export function isResolvedStatus(s: PlateReplyStatus): boolean {
+  return s === "applied" || s === "declined" || s === "noop";
+}
 
 export interface PlateReplyEntry {
   /** GitHub comment id of the overlay comment this reply addresses. */
@@ -161,6 +189,9 @@ export function formatReviewComment(args: FormatArgs): string {
   lines.push(
     `**Viewport:** ${payload.viewport.width}×${payload.viewport.height} ${payload.viewport.colorScheme} (dpr ${payload.viewport.dpr})`
   );
+  if (payload.pathname) {
+    lines.push(`**Route:** \`${payload.pathname}${payload.route_query ?? ""}\``);
+  }
   lines.push(`**URL:** ${payload.url}`);
   lines.push("");
 
@@ -224,10 +255,81 @@ function isReviewCommentPayload(v: unknown): v is ReviewCommentPayload {
   );
 }
 
+/**
+ * 0.6.0 — LCR contextualised issue. In LCR review a comment isn't about one PR;
+ * it's about a route → a story/requirement of the living spec. So an LCR comment
+ * becomes a standalone issue that says (a) it's about the LCR, (b) which story,
+ * (c) carries the `vibe` label so vibe picks it up + applies the fix to the mock.
+ */
+export const LCR_REVIEW_LABEL = "lcr-review";
+export const VIBE_LABEL = "vibe";
+// Comments from reviewers WITHOUT repo write access carry this label instead of
+// `vibe`. The apply pipeline only acts on `vibe`, so these are never auto-applied
+// — they're gathered for the team/PM to triage (and promote to `vibe` if wanted).
+export const COMMUNITY_LABEL = "community-review";
+
+export interface LcrIssue {
+  title: string;
+  body: string;
+  labels: string[];
+}
+
+/** Build the title/body/labels for an LCR review issue (pure).
+ *  `canApply` (default true) reflects the reviewer's repo write access: when
+ *  false the issue is labelled `community-review` (held for the team) rather
+ *  than `vibe` (auto-applied). */
+export function formatLcrIssue(args: {
+  payload: ReviewCommentPayload;
+  screenshotDataUrl?: string;
+  canApply?: boolean;
+}): LcrIssue {
+  const canApply = args.canApply !== false;
+  const { payload } = args;
+  const route = payload.pathname ? `${payload.pathname}${payload.route_query ?? ""}` : undefined;
+  const story = payload.route_story;
+  const oneLine = payload.prose.replace(/\s+/g, " ").trim().slice(0, 60);
+  const titleBits = ["[LCR]"];
+  if (story) titleBits.push(`story-${story.replace(/^story-/, "")}`);
+  else if (route) titleBits.push(route);
+  titleBits.push(`— ${oneLine}${payload.prose.length > 60 ? "…" : ""}`);
+
+  const lines: string[] = [];
+  lines.push(`**Living Coded Requirement review note**`);
+  lines.push("");
+  if (story) lines.push(`**Story / requirement:** \`story-${story.replace(/^story-/, "")}\``);
+  if (route) lines.push(`**Route:** \`${route}\``);
+  if (payload.element) {
+    lines.push(`**Element:** \`${payload.element.selector}\` (${payload.element.tag}${payload.element.text_hint ? ` · "${payload.element.text_hint}"` : ""})`);
+  }
+  lines.push(`**Viewport:** ${payload.viewport.width}×${payload.viewport.height} ${payload.viewport.colorScheme}`);
+  lines.push("");
+  lines.push(`> ${payload.prose.split("\n").join("\n> ")}`);
+  lines.push("");
+  if (args.screenshotDataUrl) { lines.push(`![screenshot](${args.screenshotDataUrl})`); lines.push(""); }
+  lines.push(canApply
+    ? `_Filed from the LCR review overlay — labelled \`${VIBE_LABEL}\` for vibe to apply to the mock._`
+    : `_Filed from the LCR review overlay by a reviewer without repo write access — labelled \`${COMMUNITY_LABEL}\` and gathered for the team to review (not auto-applied)._`);
+  lines.push("");
+  lines.push("<!--");
+  lines.push(PAYLOAD_MARKER);
+  lines.push(JSON.stringify(payload));
+  lines.push("-->");
+
+  const labels = [LCR_REVIEW_LABEL, canApply ? VIBE_LABEL : COMMUNITY_LABEL];
+  if (story) labels.push(`story-${story.replace(/^story-/, "")}`);
+  return { title: titleBits.join(" "), body: lines.join("\n"), labels };
+}
+
 export function buildPayload(args: {
   overlayVersion: string;
   storyId: string | null;
   url: string;
+  /** 0.6.0 — current route path (window.location.pathname). */
+  pathname?: string;
+  /** 0.6.0 — current query string (window.location.search). */
+  routeQuery?: string;
+  /** 0.6.0 — story the route belongs to (LCR runtime self-report). */
+  routeStory?: string;
   prose: string;
   /**
    * 0.5.0 — selector + bbox are now optional. Pass both for
@@ -253,6 +355,9 @@ export function buildPayload(args: {
     slowcook_overlay_version: args.overlayVersion,
     story_id: args.storyId,
     url: args.url,
+    ...(args.pathname ? { pathname: args.pathname } : {}),
+    ...(args.routeQuery ? { route_query: args.routeQuery } : {}),
+    ...(args.routeStory ? { route_story: args.routeStory } : {}),
     timestamp: new Date().toISOString(),
     prose: args.prose,
     element,

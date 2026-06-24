@@ -73,6 +73,83 @@ export function parseLcrProvenance(source: string): LcrProvenance[] {
   return out;
 }
 
+/**
+ * COVERAGE — the inverse of provenance. Provenance asks "does every surface
+ * trace UP to a story?"; coverage asks "does every story trace DOWN to a
+ * surface?". A story with zero LCR surfaces is either a real gap (a persona /
+ * requirement the mock forgot to build) or a legitimately surface-less backend
+ * story (DB schema, CI). The lint can't tell those apart on its own, so it
+ * REPORTS uncovered stories and only FAILS when the caller opts in
+ * (`--coverage`), or when a spec marks itself surface-bearing (future
+ * `expects_surface`). This is the dogfood fix for "the mock covered only one
+ * persona" — every story now gets checked for a home.
+ */
+export interface CoverageResult {
+  /** story ids (story-NNN) that no LCR file references. */
+  uncovered: string[];
+  coveredCount: number;
+  totalStories: number;
+  ok: boolean;
+}
+
+export function checkCoverage(input: { specs: SpecNode[]; lcrNodes: LcrNode[] }): CoverageResult {
+  const referenced = new Set<string>();
+  for (const n of input.lcrNodes) {
+    for (const p of n.provenance) {
+      if (p.kind === "story") referenced.add(p.id);
+    }
+  }
+  const uncovered: string[] = [];
+  for (const s of input.specs) {
+    const id = `story-${s.storyId}`;
+    if (!referenced.has(id)) uncovered.push(id);
+  }
+  return {
+    uncovered,
+    coveredCount: input.specs.length - uncovered.length,
+    totalStories: input.specs.length,
+    ok: uncovered.length === 0,
+  };
+}
+
+// ── Persona/surface trace (0.21.x) — the SAME forward+inverse rules, applied to
+//    the persona surfaces. A spec's `surfaces[].route` is a PROMISE that the mock
+//    exposes that route; the lint checks each promise resolves to a real router
+//    path (forward), and that a declared persona actually has a resolvable home
+//    (so a persona can't be all-dangling). This is the persona analogue of
+//    dangling-lcr-story + coverage. ─────────────────────────────────────────────
+export interface SpecSurface { storyId: string; persona: string; route: string; home?: boolean }
+
+/** A concrete surface route is satisfied by a router path when every segment
+ *  matches — a param segment (`:slug`) matches anything. e.g. `/u/:handle`
+ *  satisfies `/u/you`. */
+export function routeSatisfies(routerPath: string, surfaceRoute: string): boolean {
+  const a = routerPath.split("/").filter(Boolean);
+  const b = surfaceRoute.split("/").filter(Boolean);
+  if (a.length !== b.length) return false;
+  return a.every((seg, i) => seg.startsWith(":") || seg === b[i]);
+}
+
+export interface SurfaceResult {
+  /** declared surfaces whose route resolves to no real router path. */
+  dangling: SpecSurface[];
+  /** personas whose declared home route doesn't resolve (an unreachable persona). */
+  unreachablePersonas: string[];
+  surfaceCount: number;
+  ok: boolean;
+}
+
+export function checkSurfaces(input: { surfaces: SpecSurface[]; routes: string[] }): SurfaceResult {
+  const resolves = (route: string) => input.routes.some((r) => routeSatisfies(r, route));
+  const dangling = input.surfaces.filter((s) => !resolves(s.route));
+  const homeByPersona = new Map<string, boolean>();
+  for (const s of input.surfaces) {
+    if (s.home) homeByPersona.set(s.persona, resolves(s.route) || homeByPersona.get(s.persona) === true);
+  }
+  const unreachablePersonas = [...homeByPersona.entries()].filter(([, ok]) => !ok).map(([p]) => p);
+  return { dangling, unreachablePersonas, surfaceCount: input.surfaces.length, ok: dangling.length === 0 && unreachablePersonas.length === 0 };
+}
+
 export function checkTrace(input: {
   specs: SpecNode[];
   /** PRD initiative anchors. Empty = no PRD (brownfield) → prd-ref checks skipped. */
