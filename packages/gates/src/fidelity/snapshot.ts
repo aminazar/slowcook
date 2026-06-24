@@ -19,6 +19,12 @@ export interface SnapshotContext {
   /** Color scheme the page was rendered under. */
   scheme: "light" | "dark";
   /**
+   * design §6 — locale/direction the page was rendered under (e.g. "fa"/"en").
+   * Absent on single-locale runs; present so the report distinguishes the
+   * RTL/LTR cells of the viewport×scheme×locale matrix.
+   */
+  locale?: string;
+  /**
    * Behavioural step label for stepped (event-sequence) captures, e.g.
    * "after:click [data-testid=submit]". Absent for static captures.
    */
