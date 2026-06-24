@@ -8,12 +8,12 @@
  *
  *   slowcook menu [--prd docs/PRD.md] [--cwd .] [--model <id>] [--dry-run]
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { AnthropicClient, MENU_SYSTEM, type MenuStoryDraft } from "@slowcook-ai/llm-anthropic";
 import { parsePrdInitiatives } from "./prd.js";
 import { assembleStories } from "./assemble.js";
-import { writeSpec, nextStoryId } from "../refine/spec-yaml.js";
+import { writeSpec, nextStoryId, normalizeScenarioArrays } from "../refine/spec-yaml.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 
@@ -29,8 +29,12 @@ export function extractStories(text: string): MenuStoryDraft[] {
   const start = body.indexOf("{");
   const end = body.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("no JSON object found");
-  const parsed = JSON.parse(body.slice(start, end + 1)) as { stories?: MenuStoryDraft[] };
-  return parsed.stories ?? [];
+  const parsed = JSON.parse(body.slice(start, end + 1)) as { stories?: unknown[] };
+  // Normalise each story the same way refine does (e.g. {given,when,then} →
+  // string), so menu's specs conform to the Spec schema like refine's do.
+  return (parsed.stories ?? []).map(
+    (s) => normalizeScenarioArrays(s as Record<string, unknown>) as unknown as MenuStoryDraft,
+  );
 }
 
 export async function menu(argv: string[], cliVersion: string): Promise<void> {
@@ -66,19 +70,42 @@ export async function menu(argv: string[], cliVersion: string): Promise<void> {
   const userMsg =
     `PRD initiative anchors (cite exactly one per story as prd_anchor): ${initiatives.map((i) => i.anchor).join(", ")}\n\n` +
     `--- PRD ---\n${prdText}`;
-  const resp = await llm.complete({
-    system: MENU_SYSTEM,
-    messages: [{ role: "user", content: userMsg }],
-    model,
-    maxTokens: 16384,
-    cacheSystem: true,
-  });
-
-  let drafts: MenuStoryDraft[];
-  try {
-    drafts = extractStories(resp.text);
-  } catch (e) {
-    console.error(`menu: could not parse agent output as JSON — ${String(e instanceof Error ? e.message : e)}`);
+  // Retry on parse failure: the agent's large JSON is occasionally malformed
+  // (non-deterministic) — a fresh attempt usually succeeds. Stream so big
+  // outputs aren't truncated.
+  let drafts: MenuStoryDraft[] | undefined;
+  let lastErr: unknown;
+  let lastText = "";
+  const ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= ATTEMPTS && !drafts; attempt++) {
+    const resp = await llm.complete({
+      system: MENU_SYSTEM,
+      messages: [{ role: "user", content: userMsg }],
+      model,
+      maxTokens: 64000,
+      cacheSystem: true,
+      stream: true,
+    });
+    lastText = resp.text;
+    try {
+      drafts = extractStories(resp.text);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < ATTEMPTS) {
+        console.warn(`menu: attempt ${attempt}/${ATTEMPTS} — JSON parse failed (${e instanceof Error ? e.message : e}); retrying...`);
+      }
+    }
+  }
+  if (!drafts) {
+    // Dump the raw output so the failure is debuggable, not a silent mystery.
+    let dumpPath = "";
+    try {
+      mkdirSync(resolve(cwd, ".brewing"), { recursive: true });
+      dumpPath = resolve(cwd, ".brewing", "menu-raw.txt");
+      writeFileSync(dumpPath, lastText, "utf8");
+    } catch { /* best-effort */ }
+    console.error(`menu: could not parse agent output as JSON after ${ATTEMPTS} attempts — ${String(lastErr instanceof Error ? lastErr.message : lastErr)}`);
+    if (dumpPath) console.error(`menu: raw agent output written to ${relative(cwd, dumpPath)} (${lastText.length} chars)`);
     process.exit(70);
   }
   if (drafts.length === 0) {

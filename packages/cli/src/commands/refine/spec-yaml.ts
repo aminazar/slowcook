@@ -246,6 +246,33 @@ export function writeSpec(repoRoot: string, spec: Spec): string {
   return path;
 }
 
+/**
+ * Coerce "helpfully structured" array entries back to strings, matching the
+ * Spec schema (acceptance_scenarios et al. are `string[]`). Agents — menu AND
+ * refine — emit a {given,when,then} BDD object for an entry even when told to
+ * emit strings; normalise at ingestion. Shared so both producers agree.
+ * Non-breaking: well-formed string entries pass through unchanged.
+ */
+export function normalizeScenarioArrays<T extends Record<string, unknown>>(doc: T): T {
+  if (!doc || typeof doc !== "object") return doc;
+  const out = { ...doc } as Record<string, unknown>;
+  for (const key of ["acceptance_scenarios", "preconditions", "invariants", "non_goals"]) {
+    const val = out[key];
+    if (!Array.isArray(val)) continue;
+    out[key] = val.map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object") {
+        const o = entry as Record<string, unknown>;
+        const given = o.given ?? o.Given, when = o.when ?? o.When, then = o.then ?? o.Then;
+        if (typeof given === "string" && typeof when === "string" && typeof then === "string")
+          return `Given ${given}, When ${when}, Then ${then}`;
+      }
+      return `[NORMALIZED_OBJECT] ${JSON.stringify(entry)}`;
+    });
+  }
+  return out as T;
+}
+
 export function listActiveSpecs(repoRoot: string): Spec[] {
   const dir = join(repoRoot, SPECS_DIR);
   if (!existsSync(dir)) return [];
@@ -258,8 +285,10 @@ export function listActiveSpecs(repoRoot: string): Spec[] {
     try {
       const s = readSpec(repoRoot, id);
       if (s.status === "active") specs.push(s);
-    } catch {
-      // ignore invalid specs; surface them elsewhere
+    } catch (e) {
+      // (c) Don't silently swallow — a dropped spec that looks like "0 stories"
+      // is a lie that costs hours. Surface it so the operator sees the real cause.
+      console.warn(`  ⚠ skipping invalid spec ${f}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   return specs;
