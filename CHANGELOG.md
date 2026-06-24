@@ -6,6 +6,19 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.1 — EPSS pill polish + dark-mode comment composers
+
+`@slowcook-ai/review-overlay` 0.9.1 (overlay-only; additive). Seven fixes from the delgoosh dogfood of the 0.9.0 EPSS pill:
+
+- **Compact pill — the EPSS status wraps, it doesn't widen.** A long active-surface label used to grow the pill rightward (or ellipsize on one line); it now **wraps onto a few lines** inside a capped-width pill, so the pill stays as narrow as its button row.
+- **Hierarchy separator `·` → `›`.** The status reads `Context › Scenario › State`, making the Epic▸Context▸Scenario▸State hierarchy visible at a glance.
+- **Full-height drag grip.** The grip now spans the **entire left border** (a tiled dot texture via `align-self: stretch`), however many lines the status wraps to — previously it only covered the first row.
+- **Status *is* the jump trigger.** Removed the separate `🎛` palette button; tapping the always-visible EPSS status line opens the Spotlight jump palette (one affordance, less clutter).
+- **Comment composers follow the system light/dark scheme.** The element-anchored and general-note composers were hardcoded white (`#fff`/`#1a1a1a`) and ignored dark mode; they now theme via `prefers-color-scheme` like the jump palette, with a higher-specificity `.sc-ovl-composer-input` `!important` rule overriding the shadow-firewall's light-pin on the textarea.
+- **Visible Cancel button.** The composer Cancel buttons now carry **explicit themed text + border colours**, so they're legible in both schemes (they previously inherited and could vanish against the surface).
+
+No API changes. EPSS resolver/manifest semantics unchanged from 0.9.0.
+
 ## review-overlay 0.9.0 — EPSS testing-surface router in the pill
 
 `@slowcook-ai/review-overlay` 0.9.0 (overlay-only; additive). Reviewing a mock means reaching every UI state of every surface fast. A consumer can now point the overlay at a `testing-surfaces.json` manifest (new `testingSurfacesUrl` prop, or `NEXT_PUBLIC_SLOWCOOK_SURFACES_URL`) and the pill grows an **EPSS router** — **Epic ▸ Context ▸ Scenario ▸ State ▸ CTA** — so any action is ≤4 clicks. It lives **inside the pill (one artifact)**. The pill is **left-anchored**: the drag **grip sits on the left edge** (so a long status that grows the pill off the right of the viewport is still recoverable — grab the grip, pan left), with the logo + a compact **nav/rev** toggle pinned beside it. The active surface shows as a **tappable status** (both nav and review modes — the jumper is independent of nav/rev), **left-ellipsized** so the most-specific state stays visible; tapping it opens a **centered, Spotlight-style jump palette** — a floating search that reveals results only once you've typed ≥3 characters (no big upfront list), grouped by epic·context with ⚡/➡ markers. All overlay artifacts (pill + palette) **follow the system light/dark colour scheme** (reactively, via `prefers-color-scheme` — independent of the app's own theme, since the overlay is shadow-isolated). Mobile-portrait friendly.

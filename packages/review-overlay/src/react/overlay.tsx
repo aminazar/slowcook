@@ -1386,14 +1386,15 @@ function ModeToggle(props: {
         top: pos.top,
         left: pos.left,
         pointerEvents: "auto",
-        // 0.9.0 — column: a button row on top, the EPSS location line below.
-        // alignItems:flex-start keeps each row CONTENT-width, so the pill is
-        // exactly as wide as its widest row (no futile right gap). Left-anchored.
+        // 0.9.1 — row: a FULL-HEIGHT grip on the left, then a content column
+        // (button row + EPSS location line). alignItems:stretch makes the grip
+        // span the whole left border (not just the first row). Compact: a long
+        // EPSS status WRAPS onto more lines rather than widening the pill right.
         display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        maxWidth: "min(340px, 92vw)",
-        gap: 3,
+        flexDirection: "row",
+        alignItems: "stretch",
+        maxWidth: "min(300px, 90vw)",
+        gap: 4,
         // 0.4.2 — green-tinted when approved; else follows the system theme.
         background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
         padding: "5px 6px",
@@ -1408,11 +1409,10 @@ function ModeToggle(props: {
         userSelect: "none",
       }}
     >
-      {/* Top row — the buttons (wraps on crowded mobile). Content-width. */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5, maxWidth: "100%" }}>
-      {/* 0.9.0 — Grip on the LEFTMOST edge (doubles as left padding). If a long
-          EPSS status grows the pill off the right of the viewport, the grip
-          stays put so you can drag the pill left to reveal the rest. */}
+      {/* 0.9.1 — Grip on the LEFTMOST edge, FULL height: alignSelf stretch +
+          a tiled dot texture so it visually covers the ENTIRE left border,
+          however many lines the status wraps to. Drag to move; if a long status
+          grows the pill, the grip stays put so you can pan it left. */}
       <div
         role="button"
         aria-label="Drag overlay toggle"
@@ -1422,28 +1422,27 @@ function ModeToggle(props: {
         onPointerCancel={onPointerUp}
         title="Drag to move"
         style={{
-          width: 8,
-          height: 22,
-          marginRight: 1,
+          width: 11,
+          alignSelf: "stretch",
+          minHeight: 22,
           cursor: dragRef.current ? "grabbing" : "grab",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: 0.55,
+          opacity: 0.5,
           touchAction: "none",
           flexShrink: 0,
+          borderRadius: 7,
+          backgroundImage: "radial-gradient(currentColor 1.05px, transparent 1.15px)",
+          backgroundSize: "5px 5px",
+          backgroundPosition: "center",
         }}
-      >
-        <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
-          <circle cx="1.5" cy="2"  r="1.1" fill="currentColor" />
-          <circle cx="4.5" cy="2"  r="1.1" fill="currentColor" />
-          <circle cx="1.5" cy="7"  r="1.1" fill="currentColor" />
-          <circle cx="4.5" cy="7"  r="1.1" fill="currentColor" />
-          <circle cx="1.5" cy="12" r="1.1" fill="currentColor" />
-          <circle cx="4.5" cy="12" r="1.1" fill="currentColor" />
-        </svg>
-      </div>
-      {/* Slowcook logo — pinned next to the grip on the left. */}
+        aria-hidden="false"
+      />
+      {/* Content column — the button row on top, the EPSS location line below.
+          alignItems:flex-start keeps each row content-width; flex:1 + minWidth:0
+          lets the status wrap within the (capped) pill width. */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, flex: 1, minWidth: 0 }}>
+      {/* Top row — the buttons (wraps on crowded mobile). Content-width. */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5, maxWidth: "100%" }}>
+      {/* Slowcook logo — pinned to the left of the button row. */}
       <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
           a review session: the page still navigates freely; you arm a pick with
@@ -1623,29 +1622,11 @@ function ModeToggle(props: {
           </button>
         )
       )}
-      {/* 0.9.0 — EPSS status → centered jump palette. The status shows the
-          active surface (left-ellipsized so the most-specific state stays
-          a jump palette; the current location shows on the bottom line below. */}
-      {surfaceManifest && surfaceManifest.epics.length > 0 && (
-        <button
-          type="button"
-          data-slowcook-overlay-ui="1"
-          data-testid="epss-jump"
-          aria-label="Jump to a surface / state"
-          title="Jump to a surface / state"
-          onClick={() => setPaletteOpen(true)}
-          style={{
-            marginLeft: 4, flexShrink: 0,
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: 28, height: 24, padding: 0, border: "none", borderRadius: 8,
-            background: T.sub, color: T.fg, cursor: "pointer", font: "inherit", fontSize: 13,
-          }}
-        >🎛</button>
-      )}
       </div>{/* /top row */}
 
-      {/* 0.9.0 — EPSS current location: always shown, small font, both modes
-          (tappable too). Left-ellipsized so the most-specific state stays visible. */}
+      {/* 0.9.1 — EPSS current location: always shown, small font, both modes.
+          Tapping it opens the jump palette (the dedicated 🎛 button was dropped).
+          The status WRAPS onto a few lines instead of widening the pill right. */}
       {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
         const sel = getSelection();
         return (
@@ -1654,20 +1635,19 @@ function ModeToggle(props: {
             data-slowcook-overlay-ui="1"
             data-testid="epss-status"
             onClick={() => setPaletteOpen(true)}
-            title={sel ? sel.label : "No surface selected — tap to jump"}
+            title={sel ? `${sel.label} — tap to jump` : "No surface selected — tap to jump"}
             style={{
-              maxWidth: "100%", display: "flex", alignItems: "center", gap: 3,
-              padding: "0 4px 1px", margin: 0, border: "none", background: "transparent",
-              color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.2,
-              overflow: "hidden", whiteSpace: "nowrap",
+              maxWidth: "100%", display: "block", textAlign: "start",
+              padding: "0 2px 1px", margin: 0, border: "none", background: "transparent",
+              color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.25,
+              whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word",
             }}
           >
-            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl" }}>
-              <bdi style={{ direction: "ltr" }}>{sel ? sel.label : "no surface selected"}</bdi>
-            </span>
+            {sel ? sel.label : "no surface selected"}
           </button>
         );
       })()}
+      </div>{/* /content column */}
       {paletteOpen && surfaceManifest && (
         <SurfacePalette
           manifest={surfaceManifest}
@@ -1968,6 +1948,21 @@ function PageBadge(): JSX.Element | null {
   );
 }
 
+/**
+ * 0.9.1 — themed override for composer textareas. The shadow-firewall pins every
+ * overlay input/textarea to light (#fff !important) so a host dark theme can't
+ * bleed onto the comment box; but the composer now follows the SYSTEM scheme, so
+ * re-theme its fields with a higher-specificity (element+class) !important rule.
+ */
+function ComposerInputTheme({ S }: { S: SheetTheme }): JSX.Element {
+  return (
+    <style dangerouslySetInnerHTML={{ __html:
+      `[data-slowcook-overlay-ui] textarea.sc-ovl-composer-input,[data-slowcook-overlay-ui] input.sc-ovl-composer-input{background-color:${S.input} !important;color:${S.fg} !important;-webkit-text-fill-color:${S.fg} !important;border-color:${S.inputBorder} !important;caret-color:${S.fg} !important;}` +
+      `[data-slowcook-overlay-ui] textarea.sc-ovl-composer-input::placeholder{color:${S.fgDim} !important;-webkit-text-fill-color:${S.fgDim} !important;}`
+    }} />
+  );
+}
+
 function Composer(props: {
   target: Element;
   onCancel: () => void;
@@ -1978,6 +1973,10 @@ function Composer(props: {
   const [prose, setProse] = useState("");
   const sel = extractSelector(props.target);
   const rect = props.target.getBoundingClientRect();
+  // 0.9.1 — follow the SYSTEM colour scheme (the overlay is shadow-isolated from
+  // the app theme), matching the jump palette. Was hardcoded white.
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
 
   // Position popup near the target — Figma-style anchoring. Try below
   // the element first; fall back to above; clamp to viewport so it
@@ -2037,10 +2036,11 @@ function Composer(props: {
           width: POPUP_WIDTH,
           maxHeight,
           overflow: "auto",
-          background: "white",
-          color: "#1a1a1a",
+          background: S.sheet,
+          color: S.fg,
           borderRadius: 8,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
+          boxShadow: `0 12px 40px rgba(0,0,0,0.3)`,
+          border: `1px solid ${S.border}`,
           padding: 16,
           pointerEvents: "auto",
           fontFamily: "system-ui, -apple-system, sans-serif",
@@ -2048,12 +2048,14 @@ function Composer(props: {
           zIndex: 2147483647,
         }}
       >
+        <ComposerInputTheme S={S} />
         <div style={{ fontWeight: 600, marginBottom: 6 }}>Review comment</div>
         <PageBadge />
         <div style={{ fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, opacity: 0.7, marginBottom: 8, wordBreak: "break-all" }}>
           {sel.selector}
         </div>
         <textarea
+          className="sc-ovl-composer-input"
           aria-label="Comment text"
           autoFocus
           value={prose}
@@ -2063,12 +2065,14 @@ function Composer(props: {
           style={{
             width: "100%",
             padding: 8,
-            border: "1px solid rgba(0,0,0,0.15)",
             borderRadius: 6,
+            borderStyle: "solid",
+            borderWidth: 1,
             font: "inherit",
             fontSize: 16, // 0.6.12 — ≥16px stops iOS Safari auto-zooming on focus
             resize: "vertical",
             boxSizing: "border-box",
+            colorScheme: dark ? "dark" : "light",
           }}
         />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
@@ -2078,7 +2082,8 @@ function Composer(props: {
             disabled={props.submitting}
             style={{
               background: "transparent",
-              border: "1px solid rgba(0,0,0,0.15)",
+              border: `1px solid ${S.inputBorder}`,
+              color: S.fg,
               padding: "6px 12px",
               borderRadius: 6,
               cursor: "pointer",
@@ -2801,6 +2806,9 @@ function GeneralComposer(props: {
   submitting: boolean;
 }): JSX.Element {
   const [prose, setProse] = useState("");
+  // 0.9.1 — follow the SYSTEM colour scheme (was hardcoded white).
+  const dark = usePrefersDark();
+  const S = sheetTheme(dark);
   return (
     <div
       data-slowcook-overlay-ui="1"
@@ -2814,22 +2822,24 @@ function GeneralComposer(props: {
         transform: "translate(-50%, -50%)",
         width: 360,
         maxWidth: "90vw",
-        background: "white",
-        color: "#1a1a1a",
+        background: S.sheet,
+        color: S.fg,
         borderRadius: 10,
         padding: 16,
-        boxShadow: "0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08)",
+        boxShadow: `0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px ${S.border}`,
         pointerEvents: "auto",
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
       }}
     >
+      <ComposerInputTheme S={S} />
       <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 14 }}>Add page note</div>
       <PageBadge />
       <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
         Comment about overall behavior — not anchored to a specific element.
       </div>
       <textarea
+        className="sc-ovl-composer-input"
         aria-label="Note text"
         autoFocus
         value={prose}
@@ -2839,12 +2849,14 @@ function GeneralComposer(props: {
         style={{
           width: "100%",
           padding: 8,
-          border: "1px solid rgba(0,0,0,0.15)",
           borderRadius: 6,
+          borderStyle: "solid",
+          borderWidth: 1,
           font: "inherit",
           fontSize: 16, // 0.6.12 — ≥16px stops iOS Safari auto-zooming on focus
           resize: "vertical",
           boxSizing: "border-box",
+          colorScheme: dark ? "dark" : "light",
         }}
       />
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
@@ -2854,12 +2866,12 @@ function GeneralComposer(props: {
           disabled={props.submitting}
           style={{
             background: "transparent",
-            border: "1px solid rgba(0,0,0,0.18)",
+            border: `1px solid ${S.inputBorder}`,
             padding: "6px 12px",
             borderRadius: 6,
             cursor: "pointer",
             font: "inherit",
-            color: "#1a1a1a",
+            color: S.fg,
           }}
         >
           Cancel

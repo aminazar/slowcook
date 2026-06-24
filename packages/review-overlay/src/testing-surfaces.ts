@@ -152,7 +152,7 @@ export function resolveSelection(
     selection: {
       epicId, contextId, scenarioId, stateId,
       status: context.status, route: scenario.route, base: context.base,
-      label: `${short(context.label)} · ${scenario.label} · ${state.label}`,
+      label: `${short(context.label)} › ${scenario.label} › ${state.label}`,
       user: context.status === "authed" ? (context.user ?? null) : null,
       seed: resolveSeed(state.seed, profiles),
       fixtures: (state.fixtures as Record<string, unknown> | undefined) ?? {},

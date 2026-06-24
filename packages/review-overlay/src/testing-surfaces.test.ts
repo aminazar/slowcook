@@ -76,6 +76,11 @@ describe("resolveSelection", () => {
     expect(r.url).toBe("/t/therapist/accounting");
     expect(r.selection.seed).toEqual({ fee: 20 });
   });
+  it("label uses the `›` hierarchy separator (context › scenario › state)", () => {
+    const r = resolveSelection(M, "payment", "pf", "cancel", "has")!;
+    expect(r.selection.label).toBe("Patient › Cancel › Has upcoming");
+    expect(r.selection.label).not.toContain(" · ");
+  });
   it("unknown ids → null", () => {
     expect(resolveSelection(M, "payment", "pf", "cancel", "nope")).toBeNull();
   });
