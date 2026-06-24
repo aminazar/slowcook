@@ -1727,8 +1727,16 @@ function SurfacePalette(props: {
         {/* Spotlight bar */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px" }}>
           <span aria-hidden style={{ fontSize: 16, opacity: 0.8 }}>🎛</span>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Jump to a surface / state…" aria-label="Search surfaces"
-            style={{ flex: 1, minWidth: 0, border: `1px solid ${S.inputBorder}`, outline: "none", background: S.input, color: S.fg, fontSize: 16, padding: "8px 10px", borderRadius: 8, appearance: "none", WebkitAppearance: "none", colorScheme: dark ? "dark" : "light" }} />
+          {/* The shadow-firewall pins generic overlay inputs to light (#fff) with
+              !important so a host's dark theme can't touch the comment box. This
+              palette follows the SYSTEM theme, so override it with a higher-
+              specificity (class) themed rule. */}
+          <style dangerouslySetInnerHTML={{ __html:
+            `[data-slowcook-overlay-ui] input.sc-ovl-palette-input{background-color:${S.input} !important;color:${S.fg} !important;-webkit-text-fill-color:${S.fg} !important;border-color:${S.inputBorder} !important;caret-color:${S.fg} !important;}` +
+            `[data-slowcook-overlay-ui] input.sc-ovl-palette-input::placeholder{color:${S.fgDim} !important;-webkit-text-fill-color:${S.fgDim} !important;}`
+          }} />
+          <input className="sc-ovl-palette-input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Jump to a surface / state…" aria-label="Search surfaces"
+            style={{ flex: 1, minWidth: 0, outline: "none", fontSize: 16, padding: "8px 10px", borderRadius: 8, borderStyle: "solid", borderWidth: 1, appearance: "none", WebkitAppearance: "none", colorScheme: dark ? "dark" : "light" }} />
           {q && <button type="button" aria-label="Clear" onClick={() => setQ("")} style={{ border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
         </div>
         {query.length > 0 && !show && (
