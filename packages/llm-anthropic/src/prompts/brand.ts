@@ -171,12 +171,27 @@ for back-compat.
 ### 4. \`mock/src/design-system/brand-board.html\` — the brand, FELT
 
 A self-contained HTML file (inline \`<style>\` + a little JS, no build) with a
-**day/dark toggle** that SHOWS, live: the logo in a few treatments (full-colour,
-reversed, **monochrome**, **black & white**), colour swatches with their values,
-type specimens, the component kit (buttons, badges, the domain chips, money/number
-figures in mono), and motion (a fade, a pulse, a shimmer). The brand must be
-**felt, not read** — this is the human-facing proof of the system. Drive its
-values from the same tokens so it stays in sync.
+**day/dark toggle**. The brand must be **felt, not read** — but it must also be
+**COMPLETE**: it is the human-facing contract for \`theme.css\`, so it must touch
+**every token the theme defines**, nothing undocumented.
+
+Organize it the way Tailwind organizes a theme — one section per token category,
+in this order — and render EVERY entry:
+
+- **Logo** — full-colour, reversed, **monochrome**, **black & white** (from the same mark as \`logo.tsx\`).
+- **Colour** — a swatch for EVERY \`--color-*\` token (brand, the domain accents, semantic, surfaces, text) with its name + value; show each work-type/semantic colour exercised as background, text, and border.
+- **Typography** — every font (\`--font-*\`): a heading specimen, body, and a mono line (money/tokens/commands).
+- **Spacing** — the spacing scale, rendered as bars.
+- **Radius** — every \`--radius-*\` on sample boxes.
+- **Shadow** — every shadow token on cards.
+- **Components** — every \`.sc-*\` class in the \`@layer components\` (each button variant, card, the domain chips, badges, money) shown live.
+- **Motion** — the animations (a fade, a pulse, a shimmer), actually moving.
+- **Cues** (if \`cues.ts\` exists) — a "feel it" button per cue that calls \`playCue\`.
+
+Drive every value from the same tokens so the board and \`theme.css\` can never
+drift — if a token exists, it appears on the board; if it's on the board, it's a
+real token. (This board is also the surface a human designer reviews — completeness
+matters: an undocumented token is an unreviewable decision.)
 
 ### 5. \`mock/src/design-system/logo.tsx\` — the mark, as a reusable component
 
@@ -321,7 +336,7 @@ Plus \`<file path="mock/src/design-system/cues.ts">\` ONLY when the product is a
 5. \`SHADOW\` colours are coherent with \`primary\` / \`accent\` (not random greys).
 6. \`makeGlobalCSS\` imports the Google Fonts URL from \`FONTS[lang].import\`.
 7. \`theme.css\` defines BOTH modes when the brief asks (Rule 6), and any "must read distinctly" ideas have their own \`--color-*\` tokens (Rule 7).
-8. \`brand-board.html\` is self-contained, has a day/dark toggle, and shows logo treatments + swatches + type + components + motion.
+8. \`brand-board.html\` is self-contained, has a day/dark toggle, and is COMPLETE — a section per token category (Colour/Type/Spacing/Radius/Shadow/Components/Motion/Cues) rendering EVERY token theme.css defines (every \`--color-*\`, every \`.sc-*\`), nothing undocumented.
 9. \`logo.tsx\` exports \`Logo\` (currentColor mark, treatment variants) + \`Wordmark\`; the mark geometry is identical across treatments (Rule 8).
 10. If the product is app-like, \`cues.ts\` exports \`CUES\` + a graceful \`playCue\` (Rule 9), and the board's "feel it" buttons call it.
 11. Every emitted file ends with a trailing newline.

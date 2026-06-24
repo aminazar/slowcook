@@ -74,6 +74,16 @@ describe("BRAND_SYSTEM (sc#82 Phase 4)", () => {
     expect(out).toContain("day/dark toggle");
   });
 
+  it("requires the board to be COMPLETE — every token, Tailwind-organized", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("every token the theme defines");
+    expect(out).toContain("the way Tailwind organizes a theme");
+    // each token category gets a section
+    for (const cat of ["Colour", "Typography", "Spacing", "Radius", "Shadow", "Components", "Motion"]) {
+      expect(out).toContain(cat);
+    }
+  });
+
   it("requires a reusable logo.tsx with currentColor treatments + keep-the-mark-whole", () => {
     const out = BRAND_SYSTEM("");
     expect(out).toContain("logo.tsx");
