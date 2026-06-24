@@ -1728,7 +1728,7 @@ function SurfacePalette(props: {
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px" }}>
           <span aria-hidden style={{ fontSize: 16, opacity: 0.8 }}>🎛</span>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Jump to a surface / state…" aria-label="Search surfaces"
-            style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: S.fg, fontSize: 17, padding: 0 }} />
+            style={{ flex: 1, minWidth: 0, border: `1px solid ${S.inputBorder}`, outline: "none", background: S.input, color: S.fg, fontSize: 16, padding: "8px 10px", borderRadius: 8, appearance: "none", WebkitAppearance: "none", colorScheme: dark ? "dark" : "light" }} />
           {q && <button type="button" aria-label="Clear" onClick={() => setQ("")} style={{ border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
         </div>
         {query.length > 0 && !show && (
