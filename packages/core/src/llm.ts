@@ -41,6 +41,12 @@ export interface LlmRequest {
   model: string;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Stream the response and assemble the final message. Required for large
+   * outputs: the SDK refuses a non-streaming request whose `maxTokens` could
+   * take >10 min. Rate-limit headers are not captured when streaming.
+   */
+  stream?: boolean;
 }
 
 export interface LlmUsage {

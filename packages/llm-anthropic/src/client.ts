@@ -108,16 +108,27 @@ export class AnthropicClient implements LlmClient {
     // 0.19.0-α.32 (sc#68) — wrap in try/catch so a 402 from the SDK is
     // re-thrown as the typed `LlmCreditExhaustedError`; other errors
     // pass through unchanged.
-    let result: Awaited<ReturnType<ReturnType<typeof this.client.messages.create>["withResponse"]>>;
+    const params =
+      args.temperature !== undefined
+        ? { ...base, temperature: args.temperature }
+        : base;
+    let response: Anthropic.Messages.Message;
+    let rateLimits: LlmRateLimits | undefined;
     try {
-      result = await this.client.messages
-        .create(
-          args.temperature !== undefined
-            ? { ...base, temperature: args.temperature }
-            : base
-        )
-        .withResponse();
+      if (args.stream) {
+        // Large outputs (e.g. menu over a big PRD) can exceed the SDK's
+        // non-streaming 10-min guard; stream + assemble the final message.
+        // Rate-limit headers aren't surfaced on the stream, so leave them unset.
+        response = await this.client.messages.stream(params).finalMessage();
+        rateLimits = undefined;
+      } else {
+        // 0.19.0-α.31 — withResponse() so we can read `anthropic-ratelimit-*`.
+        const result = await this.client.messages.create(params).withResponse();
+        response = result.data as Anthropic.Messages.Message;
+        rateLimits = extractRateLimits(result.response.headers);
+      }
     } catch (err) {
+      // 0.19.0-α.32 — re-throw a 402 as the typed LlmCreditExhaustedError.
       if (isAnthropicCreditExhausted(err)) {
         const e = err as { status?: number; message?: string };
         throw new LlmCreditExhaustedError({
@@ -129,11 +140,6 @@ export class AnthropicClient implements LlmClient {
       }
       throw err;
     }
-    // We never pass `stream: true`, so `.data` is always a Message, but
-    // the SDK's create() return type is a union with Stream<…>. Narrow
-    // explicitly so the rest of this function keeps the simpler types.
-    const response = result.data as Anthropic.Messages.Message;
-    const rateLimits = extractRateLimits(result.response.headers);
 
     const first = response.content[0];
     if (!first || first.type !== "text") {
