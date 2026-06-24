@@ -67,7 +67,7 @@ import {
 } from "../reviewer-session.js";
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
-import { loadManifest, applySelection, getSelection, selectionBreadcrumb, type Manifest } from "../testing-surfaces.js";
+import { loadManifest, applySelection, getSelection, liveSurfaceLabel, activeHint, type Manifest } from "../testing-surfaces.js";
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -1243,6 +1243,32 @@ function usePrefersDark(): boolean {
   return dark;
 }
 
+// 0.9.5 — track the live pathname so the EPSS status reflects where the reviewer
+// ACTUALLY is, reactively. react-router (and most SPA routers) navigate via
+// history.pushState without firing popstate, so patch it to notify us; popstate +
+// a low-freq poll are belt-and-braces.
+function useCurrentPath(): string {
+  const [path, setPath] = useState<string>(() => { try { return window.location.pathname; } catch { return "/"; } });
+  useEffect(() => {
+    const update = () => { try { setPath(window.location.pathname); } catch { /* ssr */ } };
+    window.addEventListener("popstate", update);
+    window.addEventListener("hashchange", update);
+    const origPush = history.pushState; const origReplace = history.replaceState;
+    try {
+      history.pushState = function (this: History, ...a: Parameters<History["pushState"]>) { const r = origPush.apply(this, a); update(); return r; };
+      history.replaceState = function (this: History, ...a: Parameters<History["replaceState"]>) { const r = origReplace.apply(this, a); update(); return r; };
+    } catch { /* history not patchable */ }
+    const iv = setInterval(update, 700);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.removeEventListener("hashchange", update);
+      try { history.pushState = origPush; history.replaceState = origReplace; } catch { /* */ }
+      clearInterval(iv);
+    };
+  }, []);
+  return path;
+}
+
 interface PillTheme { bg: string; border: string; fg: string; fgDim: string; sub: string; subBorder: string; shadow: string; ghBg: string; ghFg: string; }
 function pillTheme(dark: boolean): PillTheme {
   return dark
@@ -1327,6 +1353,8 @@ function ModeToggle(props: {
   // 0.9.0 — follow the system colour scheme.
   const dark = usePrefersDark();
   const T = pillTheme(dark);
+  // 0.9.5 — live pathname so the EPSS status tracks navigation.
+  const currentPath = useCurrentPath();
 
   // 0.6.3 — sign-out is a two-step confirm: the disk floats, so a single
   // mis-click shouldn't log you out. First click/tap on the identity chip arms
@@ -1393,7 +1421,12 @@ function ModeToggle(props: {
         display: "flex",
         flexDirection: "row",
         alignItems: "stretch",
-        maxWidth: "min(300px, 90vw)",
+        // 0.9.5 — cap at the viewport, not a fixed 300px: the content column is
+        // min-content (= button-row width), so the pill is already only as wide
+        // as its buttons; a hard 300px cap clipped the signed-in identity chip
+        // OUTSIDE the pill border. 94vw keeps a wide (signed-in) row inside the
+        // pill; on a truly tiny viewport the grip still pans it left.
+        maxWidth: "min(560px, 94vw)",
         gap: 4,
         // 0.4.2 — green-tinted when approved; else follows the system theme.
         background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
@@ -1625,28 +1658,47 @@ function ModeToggle(props: {
       )}
       </div>{/* /top row */}
 
-      {/* 0.9.1 — EPSS current location: always shown, small font, both modes.
-          Tapping it opens the jump palette (the dedicated 🎛 button was dropped).
-          The status WRAPS onto a few lines instead of widening the pill right. */}
+      {/* 0.9.1/0.9.5 — EPSS current location: always shown, small font, both
+          modes. 0.9.5 — it's now LIVE: reflects the surface the reviewer is
+          actually on (reactive to navigation), not just the last pick. Tapping
+          it opens the jump palette. Wraps instead of widening the pill. */}
       {surfaceManifest && surfaceManifest.epics.length > 0 && (() => {
         const sel = getSelection();
-        const crumb = sel ? selectionBreadcrumb(surfaceManifest, sel) : null;
+        const crumb = liveSurfaceLabel(surfaceManifest, sel, currentPath);
+        const hint = activeHint(surfaceManifest, sel, currentPath);
         return (
-          <button
-            type="button"
-            data-slowcook-overlay-ui="1"
-            data-testid="epss-status"
-            onClick={() => setPaletteOpen(true)}
-            title={crumb ? `${crumb} — tap to jump` : "No surface selected — tap to jump"}
-            style={{
-              width: "100%", maxWidth: "100%", display: "block", textAlign: "start",
-              padding: "0 2px 1px", margin: 0, border: "none", background: "transparent",
-              color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.25,
-              whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word",
-            }}
-          >
-            {crumb ?? "no surface selected"}
-          </button>
+          <>
+            <button
+              type="button"
+              data-slowcook-overlay-ui="1"
+              data-testid="epss-status"
+              onClick={() => setPaletteOpen(true)}
+              title={crumb ? `${crumb} — tap to jump` : "No surface selected — tap to jump"}
+              style={{
+                width: "100%", maxWidth: "100%", display: "block", textAlign: "start",
+                padding: "0 2px 1px", margin: 0, border: "none", background: "transparent",
+                color: T.fgDim, cursor: "pointer", font: "inherit", fontSize: 9.5, lineHeight: 1.25,
+                whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word",
+              }}
+            >
+              {crumb ?? "no surface selected"}
+            </button>
+            {/* 0.9.5 — on an anonymous (login/OTP) surface, a distinct-colour hint
+                telling the reviewer HOW to enter (test OTP / email / masterkey). */}
+            {hint && (
+              <div
+                data-slowcook-overlay-ui="1"
+                data-testid="epss-hint"
+                style={{
+                  width: "100%", maxWidth: "100%", padding: "1px 2px 0", margin: 0,
+                  color: dark ? "#ffd27a" : "#a8660a", font: "inherit", fontSize: 9.5,
+                  lineHeight: 1.25, whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word",
+                }}
+              >
+                🔑 {hint}
+              </div>
+            )}
+          </>
         );
       })()}
       </div>{/* /content column */}

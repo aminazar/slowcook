@@ -6,6 +6,16 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.5 — live EPSS status, login hints, signed-in pill no longer clips
+
+`@slowcook-ai/review-overlay` 0.9.5 (overlay-only; additive). Three fixes from the delgoosh dogfood:
+
+- **The EPSS status is now LIVE** — it reflects the surface the reviewer is *actually* on (reactive to navigation), not just the last picked surface. It tracks SPA navigation (`history.pushState`/`replaceState` patched to notify, plus `popstate`/`hashchange` and a low-frequency poll). When the live path matches the selection it shows the full `Context › Scenario › State`; navigate away and it shows the live `Context › Scenario`; off-manifest it shows `Identity › /path`. New helpers `findSurfaceByPath` / `liveSurfaceLabel`.
+- **Login/OTP "how to enter" hint.** An anonymous context can now carry a `hint` (manifest field); on its login/OTP surface the pill shows it in a **distinct colour** (🔑, amber) under the status, telling the reviewer how to sign in (test OTP / email / masterkey, or "use the jumper"). New helper `activeHint`.
+- **Signed-in pill no longer clips.** With the 0.9.3 `min-content` column, a wide signed-in button row (the `@user` identity chip) overflowed *outside* the pill border because the width was hard-capped at 300px. The cap is now `min(560px, 94vw)` — the pill sizes to its button row and keeps the chip inside; the grip still pans it on a tiny viewport.
+
+No breaking changes (adds `ManifestContext.hint` + the three helpers).
+
 ## review-overlay 0.9.4 — distinct comments-panel header bar
 
 `@slowcook-ai/review-overlay` 0.9.4 (overlay-only; additive). The comments side-panel header ("Comments (N)") was transparent over the panel body — correctly themed but blending in, so it read as a flat/unfinished header. It now has a **distinct elevated header bar** (`#23232e` dark / `#f4f5f7` light) with the divider below, so the title reads as a proper header in both schemes. No API changes.
