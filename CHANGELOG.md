@@ -6,6 +6,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.4 — distinct comments-panel header bar
+
+`@slowcook-ai/review-overlay` 0.9.4 (overlay-only; additive). The comments side-panel header ("Comments (N)") was transparent over the panel body — correctly themed but blending in, so it read as a flat/unfinished header. It now has a **distinct elevated header bar** (`#23232e` dark / `#f4f5f7` light) with the divider below, so the title reads as a proper header in both schemes. No API changes.
+
 ## review-overlay 0.9.3 — pill width = button row; EPSS breadcrumb always `›`
 
 `@slowcook-ai/review-overlay` 0.9.3 (overlay-only; additive). Two follow-ups from the delgoosh dogfood:

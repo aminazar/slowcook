@@ -2614,6 +2614,9 @@ function CommentsListPanel(props: {
   const dark = usePrefersDark();
   const S = sheetTheme(dark);
   const cardBg = dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
+  // 0.9.4 — a distinct elevated header bar so the title reads as a header
+  // instead of blending into the panel body (both schemes).
+  const headerBg = dark ? "#23232e" : "#f4f5f7";
   return (
     <div
       data-slowcook-overlay-ui="1"
@@ -2638,7 +2641,7 @@ function CommentsListPanel(props: {
         borderLeft: `1px solid ${S.border}`,
       }}
     >
-      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ padding: "14px 16px", background: headerBg, borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontWeight: 600 }}>Comments ({visible.length})</div>
         <button
           type="button"
