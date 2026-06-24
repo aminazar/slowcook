@@ -101,6 +101,13 @@ describe("BRAND_SYSTEM (sc#82 Phase 4)", () => {
     expect(out).toContain("ONLY if the product is app-like");
   });
 
+  it("requires the board to INLINE the cue player (it can't import cues.ts) — never punt", () => {
+    const out = BRAND_SYSTEM("");
+    expect(out).toContain("CANNOT import");
+    expect(out).toContain("inline a self-contained copy");
+    expect(out).toContain("incomplete for review");
+  });
+
   it("instructs the agent to derive ghost from primary at coherent alpha", () => {
     const out = BRAND_SYSTEM("");
     expect(out).toContain("primary at 12% alpha");

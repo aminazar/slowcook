@@ -186,7 +186,7 @@ in this order — and render EVERY entry:
 - **Shadow** — every shadow token on cards.
 - **Components** — every \`.sc-*\` class in the \`@layer components\` (each button variant, card, the domain chips, badges, money) shown live.
 - **Motion** — the animations (a fade, a pulse, a shimmer), actually moving.
-- **Cues** (if \`cues.ts\` exists) — a "feel it" button per cue that calls \`playCue\`.
+- **Cues** (if \`cues.ts\` exists) — a "feel it" button per cue that ACTUALLY plays. The board is a standalone HTML file and CANNOT import \`cues.ts\`, so **inline a self-contained copy** of the cue player (the WebAudio synth + guarded \`navigator.vibrate\`) in the board's own \`<script>\`. NEVER punt with "see cues.ts" / "in the app build" — an undemoable cue section makes the board incomplete for review.
 
 Drive every value from the same tokens so the board and \`theme.css\` can never
 drift — if a token exists, it appears on the board; if it's on the board, it's a
@@ -235,7 +235,7 @@ export function playCue(name: keyof typeof CUES): void { /* WebAudio synth + nav
 
 Name the cues for the product's real events when the brief implies them (e.g. a
 build dashboard: gate-approved / tests-green / needs-human / budget-low / halted).
-The board's "feel it" buttons call \`playCue\`.
+The board demos these with feel-it buttons, but — since it can't import \`cues.ts\` — it INLINES its own copy of the player (never references \`cues.ts\`).
 
 ## Rules
 
@@ -338,7 +338,7 @@ Plus \`<file path="mock/src/design-system/cues.ts">\` ONLY when the product is a
 7. \`theme.css\` defines BOTH modes when the brief asks (Rule 6), and any "must read distinctly" ideas have their own \`--color-*\` tokens (Rule 7).
 8. \`brand-board.html\` is self-contained, has a day/dark toggle, and is COMPLETE — a section per token category (Colour/Type/Spacing/Radius/Shadow/Components/Motion/Cues) rendering EVERY token theme.css defines (every \`--color-*\`, every \`.sc-*\`), nothing undocumented.
 9. \`logo.tsx\` exports \`Logo\` (currentColor mark, treatment variants) + \`Wordmark\`; the mark geometry is identical across treatments (Rule 8).
-10. If the product is app-like, \`cues.ts\` exports \`CUES\` + a graceful \`playCue\` (Rule 9), and the board's "feel it" buttons call it.
+10. If the product is app-like, \`cues.ts\` exports \`CUES\` + a graceful \`playCue\` (Rule 9), and the board demos every cue with feel-it buttons that play via an INLINE self-contained player (the board can't import \`cues.ts\` — never punt to "see cues.ts").
 11. Every emitted file ends with a trailing newline.
 
 If any check fails, fix before emitting.
