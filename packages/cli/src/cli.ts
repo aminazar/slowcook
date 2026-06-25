@@ -42,6 +42,7 @@ import { eye } from "./commands/eye/index.js";
 import { gate } from "./commands/gate/index.js";
 import { menu } from "./commands/menu/index.js";
 import { trace } from "./commands/trace/index.js";
+import { reconcile } from "./commands/reconcile/index.js";
 import { greenfield } from "./commands/greenfield/index.js";
 import { renderHelp, renderCommandHelp, renderReadmeBlock } from "./help.js";
 
@@ -294,7 +295,13 @@ async function main(): Promise<void> {
     case "trace":
       // GUCDI — provenance-completeness lint over the spine (the keystone):
       // every node has a why ∈ {requirement|convention|craft}; orphans fail.
+      // Also: check|stamp|impact for PRD↔spec freshness/interdependency.
       await trace(args.slice(1), VERSION);
+      return;
+    case "reconcile":
+      // GUCDI — PRD↔spec interdependency (LLM): propose a corrected spec when a
+      // PRD section it anchors to has changed. Propose-not-apply, one hop.
+      await reconcile(args.slice(1), VERSION);
       return;
     case "greenfield":
       // GUCDI — scope-completeness dashboard: PRD → stories → brand → LCR →

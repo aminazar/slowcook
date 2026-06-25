@@ -171,8 +171,14 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "trace",
-    usage: "slowcook trace check [--prd <path>] [--cwd <dir>] [--coverage]",
-    description: "GUCDI traceability lint over the spine. Provenance (forward): every spec/LCR node has a why (requirement/convention/craft); orphans + dangling refs fail; craft is reported. Coverage (inverse): reports stories with no LCR surface; --coverage makes them a hard failure (for UI milestones). Persona surfaces: each spec's declared persona surface route must resolve to a real mock router path (a promised surface the mock doesn't expose fails). Brownfield-safe (never demands a PRD).",
+    usage: "slowcook trace <check|stamp|impact> [--prd <path>] [--cwd <dir>] [--coverage] [--strict] [--since <ref>] [--anchors a,b]",
+    description: "GUCDI traceability lint over the spine. check: provenance (forward — every spec/LCR node has a why; orphans/dangling fail), coverage (inverse — stories with no LCR surface; --coverage to fail), persona surfaces (declared routes resolve), and freshness (specs whose PRD section changed since stamping; --strict to fail). stamp: baseline each spec's PRD-anchor fingerprint (prd_ref.sha). impact: which stories a PRD change touches (--since <ref> diffs the PRD; or --anchors a,b). Brownfield-safe (never demands a PRD).",
+    group: "checks",
+  },
+  {
+    name: "reconcile",
+    usage: "slowcook reconcile --story <id> [--prd <path>] [--cwd <dir>] [--apply] [--dry-run] [--model <id>]",
+    description: "PRD↔spec interdependency (LLM). When a PRD section a spec anchors to has changed (see `trace impact`/`trace check`), propose a minimum-diff corrected spec: enumerate which invariants/scenarios/actors/api now contradict the PRD, and report one-hop cross-impact as notes. Propose-not-apply by default (writes specs/story-<id>.reconcile.yaml); --apply accepts it (schema-validated) and re-stamps freshness.",
     group: "checks",
   },
   {
