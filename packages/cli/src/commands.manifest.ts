@@ -71,7 +71,7 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   {
     name: "vibe",
     usage: "slowcook vibe (plan | schema [--stdout] | seed [--dry-run] | app [--force] | --spec <id> [--owner <login>] [--dry-run]) [--cwd <path>]",
-    description: "Design-first mock generator. `vibe plan`/`schema`/`seed` build the whole-app LCR data adaptor (deterministic data model + Drizzle schema + real sql.js SQLite + LLM seed/queries). `vibe app` (deterministic) scaffolds the runnable, navigable LCR: Vite app + router (every surface reachable) + persona shell + a stub page per route, sets review_mode: lcr. `vibe --spec <id>` (legacy per-story) emits a React mockup PR.",
+    description: "Design-first mock generator. `vibe plan`/`schema`/`seed` build the whole-app LCR data adaptor (deterministic data model + Drizzle schema + real sql.js SQLite + LLM seed/queries). `vibe app` (deterministic) scaffolds the runnable, navigable LCR: Vite app + router (every surface reachable, BrowserRouter) + the slowcook review-overlay (persona switch + EPSS epic/persona/scenario/state router, from a generated testing-surfaces.json) + a stub page per route; sets review_mode: lcr. `vibe --spec <id>` (legacy per-story) emits a React mockup PR.",
     group: "pipeline",
   },
   {

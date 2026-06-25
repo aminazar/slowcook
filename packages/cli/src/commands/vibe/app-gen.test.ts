@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateLcrApp, routeToName, mockYaml } from "./app-gen.js";
+import { generateLcrApp, routeToName, mockYaml, epssManifestJson } from "./app-gen.js";
 import type { LcrPlan } from "./lcr-plan.js";
 
 const plan: LcrPlan = {
@@ -29,52 +29,79 @@ describe("routeToName", () => {
 });
 
 describe("generateLcrApp", () => {
-  const files = generateLcrApp(plan, { projectName: "dash" });
+  const files = generateLcrApp(plan, { projectName: "dash", owner: "slowcook-dev", repo: "dash" });
   const byPath = new Map(files.map((f) => [f.path, f.content]));
 
-  it("emits the Vite scaffold + shell + one page per UNIQUE route", () => {
-    for (const p of ["package.json", "vite.config.ts", "index.html", "tsconfig.json", "src/main.tsx", "src/index.css", "src/App.tsx", "src/shell/Shell.tsx", "src/shell/personas.ts", "src/shell/useStoryMarker.ts"]) {
+  it("emits the Vite scaffold + minimal shell + EPSS manifest + one page per UNIQUE route", () => {
+    for (const p of ["package.json", "vite.config.ts", "src/main.tsx", "src/App.tsx", "src/shell/Shell.tsx", "src/review-surfaces.ts", "src/shell/useStoryMarker.ts", "public/testing-surfaces.json"]) {
       expect(byPath.has(p), `missing ${p}`).toBe(true);
     }
-    // 3 unique routes → 3 pages (the /admin/workers dup merges)
+    expect(byPath.has("src/shell/personas.ts")).toBe(false); // personas live in the overlay now
     const pages = files.filter((f) => f.path.startsWith("src/pages/"));
     expect(pages).toHaveLength(3);
-    expect(byPath.has("src/pages/AdminWorkersPage.tsx")).toBe(true);
   });
 
-  it("App.tsx routes every surface + redirects / to the home route", () => {
+  it("mounts the review-overlay (LCR mode) with surfaces + the EPSS manifest, NOT a mock switcher", () => {
     const app = byPath.get("src/App.tsx")!;
-    expect(app).toContain('<Route path="/projects" element={<ProjectsPage />} />');
-    expect(app).toContain('<Route path="/admin/workers" element={<AdminWorkersPage />} />');
-    expect(app).toContain('<Navigate to="/projects" replace />'); // home
-    expect(app).toContain("HashRouter");
+    expect(app).toContain('import { SlowcookReviewOverlay } from "@slowcook-ai/review-overlay/react"');
+    expect(app).toContain('reviewMode="lcr"');
+    expect(app).toContain("enabled");
+    expect(app).toContain("surfaces={REVIEW_SURFACES}");
+    expect(app).toContain('testingSurfacesUrl="/testing-surfaces.json"');
+    expect(app).toContain('owner="slowcook-dev"');
+    // BrowserRouter (overlay navigates via pushState/pathname), not HashRouter
+    expect(app).toContain("BrowserRouter");
+    expect(app).not.toContain("HashRouter");
+    // the Shell carries no persona switcher
+    const shell = byPath.get("src/shell/Shell.tsx")!;
+    expect(shell).not.toMatch(/Viewing as|setPersona|persona switcher/i);
   });
 
-  it("each page sets the @story marker + lists its personas/states", () => {
+  it("review-surfaces = one 'Viewing as' entry per persona → its home route", () => {
+    const surfaces = byPath.get("src/review-surfaces.ts")!;
+    expect(surfaces).toContain('"label": "founder"');
+    expect(surfaces).toContain('"home": "/projects"');
+    expect(surfaces).toContain('"label": "operator"');
+  });
+
+  it("EPSS manifest = epic ▸ context(persona) ▸ scenario(route) ▸ state", () => {
+    const m = JSON.parse(byPath.get("public/testing-surfaces.json")!);
+    expect(m.epics).toHaveLength(1);
+    const ctxIds = m.epics[0].contexts.map((c: { id: string }) => c.id).sort();
+    expect(ctxIds).toEqual(["founder", "operator"]);
+    const operator = m.epics[0].contexts.find((c: { id: string }) => c.id === "operator");
+    expect(operator.scenarios[0].route).toBe("/admin/workers");
+    // both states from the merged dup route
+    expect(operator.scenarios[0].states.map((s: { id: string }) => s.id).sort()).toEqual(["empty", "populated"]);
+  });
+
+  it("each page still sets the @story marker for overlay comment attribution", () => {
     const page = byPath.get("src/pages/AdminWorkersPage.tsx")!;
     expect(page).toContain("// @story story-017");
     expect(page).toContain('useStoryMarker("017")');
-    expect(page).toContain("persona: operator");
-    expect(page).toContain("populated, empty"); // both states merged from the dup route
   });
 
-  it("the persona registry derives home + routes per persona", () => {
-    const personas = byPath.get("src/shell/personas.ts")!;
-    expect(personas).toContain('"id": "founder"');
-    expect(personas).toContain('"home": "/projects"');
-    expect(personas).toContain('"chrome": "admin"');
-  });
-
-  it("package.json carries the real-SQLite deps", () => {
+  it("package.json carries the overlay + real-SQLite deps", () => {
     const pkg = JSON.parse(byPath.get("package.json")!);
+    expect(pkg.dependencies["@slowcook-ai/review-overlay"]).toBeTruthy();
     expect(pkg.dependencies["drizzle-orm"]).toBeTruthy();
     expect(pkg.dependencies["sql.js"]).toBeTruthy();
-    expect(pkg.devDependencies["@tailwindcss/vite"]).toBeTruthy();
   });
 
   it("mockYaml declares the whole-app LCR shape", () => {
     expect(mockYaml()).toMatch(/schema_version: 1/);
     expect(mockYaml()).toMatch(/review_mode: lcr/);
-    expect(mockYaml()).toMatch(/router_file: mock\/src\/App\.tsx/);
+  });
+});
+
+describe("epssManifestJson", () => {
+  it("falls back to a 'default' state when a surface declares none", () => {
+    const m = JSON.parse(
+      epssManifestJson(
+        { ...plan, surfaces: [{ route: "/x", persona: "p", storyId: "1", home: true, states: [] }], personas: [{ id: "p", fromStories: ["1"] }] },
+        "proj"
+      )
+    );
+    expect(m.epics[0].contexts[0].scenarios[0].states).toEqual([{ id: "default", label: "default" }]);
   });
 });
