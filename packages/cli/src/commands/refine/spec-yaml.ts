@@ -153,6 +153,24 @@ const SpecSchema = z.object({
   // Dimension-value tokens (light|dark|mobile|desktop); the eye expands them to
   // the (declared-or-full) product. Absent = eye uses its full default matrix.
   fidelity: z.object({ modes: z.array(z.string()) }).optional(),
+  // GUCDI — the primary persona this story serves in the whole-app LCR, and the
+  // UI surfaces (routes) it contributes. `menu` emits these; the LCR plan
+  // compiles them into the app's persona registry + navigation, and the
+  // persona-surface trace lint checks each route resolves to a real router path.
+  persona: z
+    .object({ id: z.string(), label: z.string().optional(), chrome: z.enum(["member", "public", "admin"]).optional() })
+    .optional(),
+  surfaces: z
+    .array(
+      z.object({
+        route: z.string(),
+        name: z.string().optional(),
+        persona: z.string().optional(),
+        home: z.boolean().optional(),
+        states: z.array(z.string()).optional(),
+      })
+    )
+    .optional(),
   // GUCDI — provenance anchor to a PRD initiative (greenfield only). OPTIONAL:
   // brownfield specs trace via source_issue instead, and `trace check` NEVER
   // demands a prd_ref (provenance is the union {issue|prd|convention|craft}).

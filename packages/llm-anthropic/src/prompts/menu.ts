@@ -21,6 +21,15 @@ export interface MenuStoryDraft {
     api?: { method: string; path: string; note?: string }[];
   };
   ui_behavior?: Record<string, string>;
+  /** GUCDI — the primary persona this story serves in the whole-app LCR.
+   *  `chrome` picks the shell: member sidebar / public nav / admin toolbar.
+   *  Omit for backend-only stories (no UI surface). */
+  persona?: { id: string; label?: string; chrome?: "member" | "public" | "admin" };
+  /** GUCDI — the UI surfaces (routes) this story contributes to the one
+   *  clickable LCR app. `home: true` is the persona's landing route; `states`
+   *  lists the data states the surface must render (empty/populated/error/edge).
+   *  Empty/omitted = backend-only story. */
+  surfaces?: { route: string; name?: string; persona?: string; home?: boolean; states?: string[] }[];
   /** Dimension tokens: light|dark|mobile|desktop and locale:<code>. */
   fidelity_modes: string[];
   acceptance_scenarios: string[];
@@ -48,6 +57,8 @@ Each \`<story>\`:
 - \`invariants\` — rules that must always hold.
 - \`data_contract\` — **REQUIRED and load-bearing.** The real data this story needs: \`{ entities: [{ name, fields: [{ name, type }], relations? }], api?: [{ method, path, note? }] }\`. The LCR bakes a real SQLite+ORM store from these, and the backend INHERITS them (mock→prod is a data-source swap), so shape them like real entities — relations, types, no flat fakes.
 - \`ui_behavior\` — optional map keyed by mode, e.g. { "desktop_light": "...", "mobile_dark": "..." }.
+- \`persona\` — **REQUIRED for any story with a UI surface.** The single primary persona this story serves: \`{ id, label?, chrome }\` where \`chrome\` ∈ \`member|public|admin\` (member sidebar / public/marketing nav / admin toolbar). Use ONE concrete persona id (e.g. \`founder\`, \`operator\`, \`worker\`) — never a slash-joined blob like "PM / Designer / QA". OMIT for backend-only stories (schema/CI/audit with no screen).
+- \`surfaces\` — **REQUIRED for any story with a UI surface.** The routes this story adds to the ONE clickable whole-app LCR (every surface reachable, no auth walls): \`[{ route, name?, persona?, home?, states }]\`. \`route\` is the production route shape (e.g. \`/operator/workers\`, \`/u/:handle\`); \`home: true\` marks the persona's landing route; \`states\` lists the data states the surface must render — choose from \`empty|populated|loading|error|edge\` so the mock can be densely populated AND show every meaningful case. OMIT for backend-only stories. The LCR is one app: reuse a route across stories rather than inventing near-duplicates.
 - \`fidelity_modes\` — which modes matter for this story's design, as tokens from \`light|dark|mobile|desktop\` plus \`locale:<code>\` (e.g. ["light","dark","mobile","locale:fa"]). Declare dark/mobile/RTL only when the design is genuinely mode-specific.
 - \`acceptance_scenarios\` — Given/When/Then; at least three (happy · validation/error · edge) per story.
 - \`non_goals\` — what this story explicitly defers.
