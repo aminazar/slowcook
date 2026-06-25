@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compileDrizzleSchema, mapType, snake, tableVar, parseRelation } from "./schema-gen.js";
+import { compileDrizzleSchema, compileSqliteDdl, sqliteType, mapType, snake, tableVar, parseRelation } from "./schema-gen.js";
 import type { PlanEntity } from "./lcr-plan.js";
 
 describe("schema-gen helpers", () => {
@@ -98,5 +98,36 @@ describe("compileDrizzleSchema", () => {
     ]);
     expect(orphan).not.toContain(".references(");
     expect(orphan).toContain('ghost_id: text("ghost_id").notNull(),');
+  });
+});
+
+describe("compileSqliteDdl", () => {
+  it("maps types to SQLite affinities + emits PK, NOT NULL, enum CHECK, FK", () => {
+    const ddl = compileSqliteDdl([
+      { name: "Member", fields: [{ name: "id", type: "uuid", fromStories: ["1"] }], relations: [], fromStories: ["1"] },
+      {
+        name: "OperatorAuditLog",
+        fields: [
+          { name: "id", type: "uuid", fromStories: ["17"] },
+          { name: "operator_id", type: "uuid", fromStories: ["17"] },
+          { name: "action_type", type: "enum(certified|decertified)", fromStories: ["17"] },
+          { name: "amount", type: "float", fromStories: ["17"] },
+          { name: "note", type: "text|null", fromStories: ["17"] },
+          { name: "created_at", type: "timestamp", fromStories: ["17"] },
+        ],
+        relations: ["OperatorAuditLog.operator_id → Member.id"],
+        fromStories: ["17"],
+      },
+    ]);
+    expect(sqliteType("uuid")).toBe("TEXT");
+    expect(sqliteType("timestamp")).toBe("INTEGER");
+    expect(sqliteType("float")).toBe("REAL");
+    expect(ddl).toContain("CREATE TABLE member (");
+    expect(ddl).toContain("id TEXT PRIMARY KEY");
+    expect(ddl).toContain("operator_id TEXT NOT NULL REFERENCES member(id)");
+    expect(ddl).toContain("action_type TEXT NOT NULL CHECK (action_type IN ('certified', 'decertified'))");
+    expect(ddl).toContain("amount REAL NOT NULL");
+    expect(ddl).toContain("note TEXT,"); // nullable: no NOT NULL
+    expect(ddl).toContain("created_at INTEGER NOT NULL");
   });
 });
