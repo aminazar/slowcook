@@ -55,10 +55,22 @@ targeting the `lcr` mode that already exists downstream.
 (specs predate menu-emits-surfaces → re-run `menu`). The data-model + conflict
 detection is immediately useful and is the schema-pass input.
 
+## Landed (schema pass — deterministic)
+
+- **`slowcook vibe schema`** (`vibe/schema-gen.ts`, pure + 10 tests): the plan's
+  data model → an `@story`-annotated Drizzle schema (SQLite-portable). Because the
+  `data_contract` types are structured, the schema is **deterministic** — no LLM,
+  no drift. Type map (uuid/string→text, timestamp→integer timestamp-mode,
+  enum(...)→text+enum, float→real, `|null`→nullable), FK thunks from relations,
+  `id`→primaryKey (never an FK — drops inverse relations). Conflicts block.
+  **This draws the boundary: structure → deterministic; content/judgment → LLM.**
+- **Dogfood (dash):** 37 tables · 292 columns, 0 PK-as-FK, no dangling FK targets,
+  valid syntax. Caught + fixed a real inverse-relation bug (`project.id` was being
+  made an FK to its child).
+
 ## Next slices
 
-- Schema pass: `lcr-plan.json` → Drizzle schema (LLM, `@story`-annotated).
-- Seed + adaptor pass: dense seed + typed query layer covering the state matrix.
+- Seed + adaptor pass (LLM): dense seed + typed query layer covering the state matrix.
 - Surface passes + shell assembly: one clickable app targeting `lcr` mode.
 - Re-derive dash specs (menu) so the route map populates; then `vibe plan` shows
   the full persona/route map, not just the data model.

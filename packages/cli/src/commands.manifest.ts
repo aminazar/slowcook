@@ -70,8 +70,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "vibe",
-    usage: "slowcook vibe (plan [--cwd <path>] | --spec <id> [--cwd <path>] [--owner <login>] [--repo <name>] [--dry-run])",
-    description: "Design-first mockup generator. `vibe plan` (deterministic, no LLM): compile all specs into the whole-app LCR plan — unified data model (entities merged + cross-story conflicts), persona/route map, coverage — written to .brewing/lcr-plan.json. `vibe --spec <id>` (legacy per-story): emit a runnable React mockup PR from spec + brownfield context.",
+    usage: "slowcook vibe (plan | schema [--out <path>] [--stdout] | --spec <id> [--owner <login>] [--repo <name>] [--dry-run]) [--cwd <path>]",
+    description: "Design-first mockup generator. `vibe plan` (deterministic): compile all specs into the whole-app LCR plan — unified data model (entities merged + cross-story conflicts), persona/route map, coverage — to .brewing/lcr-plan.json. `vibe schema` (deterministic): generate the LCR data adaptor's @story-annotated Drizzle schema from that data model (data_contract types → columns; conflicts block). `vibe --spec <id>` (legacy per-story): emit a runnable React mockup PR.",
     group: "pipeline",
   },
   {
