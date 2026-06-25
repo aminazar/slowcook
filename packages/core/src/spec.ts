@@ -172,6 +172,20 @@ export interface Spec {
     entities?: { name: string; fields?: { name: string; type: string }[]; relations?: string[] }[];
     api?: { method: string; path: string; note?: string }[];
   };
+  /**
+   * GUCDI — the primary persona this story serves in the whole-app LCR. `chrome`
+   * selects the shell variant (member sidebar / public nav / admin toolbar).
+   * `menu` emits this; the LCR plan compiles it into the app's persona registry.
+   */
+  persona?: { id: string; label?: string; chrome?: "member" | "public" | "admin" };
+  /**
+   * GUCDI — the UI surfaces this story contributes to the LCR. Each is a route
+   * the whole-app mock must expose (every surface reachable, no auth walls).
+   * `home: true` marks a persona's landing route; `states` lists the meaningful
+   * data states the surface must render (empty / populated / error / edge).
+   * The persona-surface trace lint checks each route resolves to a real router path.
+   */
+  surfaces?: { route: string; name?: string; persona?: string; home?: boolean; states?: string[] }[];
   /** GUCDI — open questions; addressable must resolve before the scope is "complete". */
   open_questions?: { addressable: string[]; deferred: string[] };
 
