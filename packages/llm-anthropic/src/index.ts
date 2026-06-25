@@ -27,6 +27,7 @@ export {
   type SiftTurnPromptArgs,
 } from "./prompts/sift.js";
 export { TESTGEN_SYSTEM } from "./prompts/testgen.js";
+export { SEED_SYSTEM, ADAPTOR_SYSTEM } from "./prompts/seed.js";
 export { BRAND_SYSTEM } from "./prompts/brand.js";
 export { MENU_SYSTEM, type MenuStoryDraft } from "./prompts/menu.js";
 export {

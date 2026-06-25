@@ -68,9 +68,31 @@ detection is immediately useful and is the schema-pass input.
   valid syntax. Caught + fixed a real inverse-relation bug (`project.id` was being
   made an FK to its child).
 
+## Landed (seed + adaptor pass)
+
+Decision: the LCR uses a **real in-browser SQLite** (sql.js + Drizzle), per the
+gucdi keystone — so the mock's query layer runs real SQL and mock→prod is a
+data-source swap, not a rewrite.
+
+- **Deterministic runtime** (`vibe seed`, no LLM): `schema.ts` (Drizzle) + `ddl.ts`
+  (CREATE TABLE, enum CHECKs, FK REFERENCES) + `db.ts` (sql.js boot → materialise →
+  seed). `compileSqliteDdl` + `dbBootstrapTs` in schema-gen.ts (+ tests).
+- **LLM passes** (`SEED_SYSTEM`, `ADAPTOR_SYSTEM`): `seed.ts` (dense,
+  state-covering, referentially-consistent inserts) + `queries.ts` (typed
+  `DataSource` adaptor, shaped by acceptance scenarios, invariants enforced in the
+  query shape).
+- **Boundary held:** structure (schema/ddl/db) → deterministic; content (seed,
+  domain queries) → LLM.
+
+**Dogfood (dash):** deterministic runtime generated for all 37 tables and
+**validated against real sql.js** — 37 tables created, FK joins work, enum CHECK +
+FK constraints enforced. The LLM seed/queries run was **blocked on Anthropic
+credit** (key exhausted); the passes are wired and ready once credit is restored.
+
 ## Next slices
 
-- Seed + adaptor pass (LLM): dense seed + typed query layer covering the state matrix.
+- Surface passes (LLM): each route renders via `data` from `queries.ts`; assemble
+  the one clickable app + router + persona/state switcher → `review_mode: lcr`.
 - Surface passes + shell assembly: one clickable app targeting `lcr` mode.
 - Re-derive dash specs (menu) so the route map populates; then `vibe plan` shows
   the full persona/route map, not just the data model.
