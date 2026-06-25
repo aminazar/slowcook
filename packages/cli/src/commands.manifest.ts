@@ -70,8 +70,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "vibe",
-    usage: "slowcook vibe (plan | schema [--stdout] | seed [--dry-run] [--model <id>] | --spec <id> [--owner <login>] [--repo <name>] [--dry-run]) [--cwd <path>]",
-    description: "Design-first mockup generator. `vibe plan` (deterministic): compile all specs into the whole-app LCR plan (unified data model + conflicts, persona/route map, coverage) → .brewing/lcr-plan.json. `vibe schema` (deterministic): @story-annotated Drizzle schema from the data model. `vibe seed` (deterministic runtime + LLM): writes schema/ddl/db (a real in-browser sql.js SQLite) + LLM seed.ts (dense, state-covering data) + queries.ts (typed query adaptor / mock→prod swap seam). `vibe --spec <id>` (legacy per-story): emit a React mockup PR.",
+    usage: "slowcook vibe (plan | schema [--stdout] | seed [--dry-run] | app [--force] | --spec <id> [--owner <login>] [--dry-run]) [--cwd <path>]",
+    description: "Design-first mock generator. `vibe plan`/`schema`/`seed` build the whole-app LCR data adaptor (deterministic data model + Drizzle schema + real sql.js SQLite + LLM seed/queries). `vibe app` (deterministic) scaffolds the runnable, navigable LCR: Vite app + router (every surface reachable) + persona shell + a stub page per route, sets review_mode: lcr. `vibe --spec <id>` (legacy per-story) emits a React mockup PR.",
     group: "pipeline",
   },
   {
