@@ -1745,6 +1745,9 @@ function SurfacePalette(props: {
   const dark = usePrefersDark();
   const S = sheetTheme(dark);
   const [q, setQ] = useState("");
+  // 0.9.7 — "list all" affordance: the ☰ button reveals the full grouped list
+  // without the ≥3-char spotlight gate (an empty query matches every row).
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -1754,7 +1757,8 @@ function SurfacePalette(props: {
   const sel = getSelection();
   interface Row { epicId: string; contextId: string; scenarioId: string; stateId: string; epicLabel: string; ctxLabel: string; scnLabel: string; stLabel: string; hard?: boolean; becomes?: boolean; q: string }
   const query = q.trim();
-  const show = query.length >= PALETTE_MIN_CHARS; // Spotlight: results only after 3 chars
+  // Spotlight: results after ≥3 chars — OR show everything when "list all" is on.
+  const show = showAll || query.length >= PALETTE_MIN_CHARS;
   const groups: { key: string; rows: Row[] }[] = [];
   let count = 0;
   if (show) {
@@ -1794,9 +1798,15 @@ function SurfacePalette(props: {
           <input className="sc-ovl-palette-input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Jump to a surface / state…" aria-label="Search surfaces"
             style={{ flex: 1, minWidth: 0, outline: "none", fontSize: 16, padding: "8px 10px", borderRadius: 8, borderStyle: "solid", borderWidth: 1, appearance: "none", WebkitAppearance: "none", colorScheme: dark ? "dark" : "light" }} />
           {q && <button type="button" aria-label="Clear" onClick={() => setQ("")} style={{ border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
+          <button type="button" aria-label="List all surfaces" title="List all surfaces" aria-pressed={showAll}
+            onClick={() => setShowAll((v) => !v)}
+            style={{ flexShrink: 0, border: `1px solid ${S.inputBorder}`, background: showAll ? S.rowActive : "transparent", color: S.fg, cursor: "pointer", fontSize: 12.5, fontWeight: 600, lineHeight: 1, borderRadius: 8, padding: "7px 10px" }}>☰ All</button>
         </div>
         {query.length > 0 && !show && (
-          <div style={{ borderTop: `1px solid ${S.border}`, padding: "12px 16px", fontSize: 12.5, color: S.fgDim }}>Keep typing… ({PALETTE_MIN_CHARS}+ letters)</div>
+          <div style={{ borderTop: `1px solid ${S.border}`, padding: "12px 16px", fontSize: 12.5, color: S.fgDim }}>Keep typing… ({PALETTE_MIN_CHARS}+ letters) — or tap <b>☰ All</b> to list everything.</div>
+        )}
+        {!show && query.length === 0 && (
+          <div style={{ borderTop: `1px solid ${S.border}`, padding: "12px 16px", fontSize: 12.5, color: S.fgDim }}>Type to search, or tap <b>☰ All</b> to list every surface.</div>
         )}
         {show && (
           <div style={{ borderTop: `1px solid ${S.border}`, overflow: "auto", padding: "4px 8px 8px" }}>
