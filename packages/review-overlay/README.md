@@ -84,6 +84,47 @@ location / { try_files $uri $uri/ /index.html; }   # SPA fallback
 > `no-cache` (don't let the CDN cache `index.html`). `slowcook run-mock` already serves
 > with no-store dev headers; this note is for **self-hosted static deploys**.
 
+### Live vite **dev**-server mocks behind a CDN — the `?v=` immutable trap
+
+If you serve a **running vite dev server** for review (e.g. `vite --base=/p/`
+proxied through nginx + Cloudflare, as the delgoosh box does) instead of a static
+build, there's a sharper version of the same trap. Vite serves its **optimized
+dependency bundles** at
+
+```
+/node_modules/.vite/deps/<dep>.js?v=<hash>
+```
+
+with `Cache-Control: max-age=31536000, immutable`. The `?v=<hash>` *looks* like a
+content hash but **is not** — vite derives it from the lockfile + config and
+**reuses the same `?v` across re-optimizes**, even when a dependency's built
+output changed (e.g. you rebuilt the overlay and reinstalled it in place at the
+same version). A CDN in front caches that URL **immutably for a year** and keeps
+serving the **old** bundle to every reviewer no matter how often you redeploy —
+and a hard refresh won't help, because the stale copy lives at the **CDN edge**,
+not the browser.
+
+**Symptom:** the box origin serves the new overlay
+(`curl http://127.0.0.1:<vite-port>/…/.vite/deps/<dep>.js` shows the new code) but
+reviewers still see the old pill/UX through the public URL, with
+`cf-cache-status: HIT`.
+
+**Fix:** strip vite's `immutable` and force `no-store` on the dev proxy locations
+so the CDN never caches dev bundles:
+
+```nginx
+location /p/ {                        # …and /t/, and any other dev SPA
+  proxy_pass http://127.0.0.1:5181;
+  proxy_hide_header Cache-Control;
+  add_header Cache-Control "no-store" always;
+  # …proxy_set_header Upgrade / Connection for HMR, etc.
+}
+```
+
+After adding this, **purge the CDN once** (or publish a new version so the `?v`
+changes) to evict any already-poisoned `immutable` entry — `no-store` only
+prevents *future* caching, it can't drop a pre-existing immutable hit.
+
 ## How a comment lands in the PR
 
 1. PM clicks the floating toggle → **💬 Comment**.

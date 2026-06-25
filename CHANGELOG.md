@@ -6,6 +6,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay — docs: vite dev-server mocks behind a CDN (the `?v=` immutable trap)
+
+Docs-only (no code/version change). README `Hosting the built mock` section gains a subsection for the **live vite dev-server** case: vite serves optimized dep bundles (`/node_modules/.vite/deps/*.js?v=<hash>`) as `immutable`, but reuses the `?v` across re-optimizes — so a CDN (Cloudflare) caches a redeployed-but-same-version dep bundle immutably and serves the **stale** overlay to reviewers forever (`cf-cache-status: HIT`), even though the origin serves the new code. Documents the symptom and the fix (`proxy_hide_header Cache-Control; add_header Cache-Control "no-store"` on the dev proxy locations, + a one-time CDN purge to evict the already-poisoned entry). Surfaced by the delgoosh dogfood.
+
 ## review-overlay 0.9.5 — live EPSS status, login hints, signed-in pill no longer clips
 
 `@slowcook-ai/review-overlay` 0.9.5 (overlay-only; additive). Three fixes from the delgoosh dogfood:
