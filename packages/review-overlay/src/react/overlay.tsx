@@ -167,37 +167,49 @@ const SHADOW_RESET_CSS =
   `font-size:14px;line-height:1.4;color:#1a1a1a;}` +
   `:host *,:host *::before,:host *::after{box-sizing:border-box;}`;
 
+/**
+ * Safe NEXT_PUBLIC_* reader. Props are the PRIMARY config; these env vars are an
+ * optional fallback for Next.js consumers (which inline NEXT_PUBLIC_* at build).
+ * The overlay is framework-agnostic — Vite/React/plain-browser mocks have no
+ * `process`, so the read is guarded (never throws "process is not defined"); they
+ * pass config via props instead. 0.9.6.
+ */
+function env(key: string): string | undefined {
+  try {
+    return typeof process !== "undefined" && process.env ? process.env[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.Element | null {
-  // 0.5.1 — auto-detect props from process.env.NEXT_PUBLIC_SLOWCOOK_*.
-  // Next inlines NEXT_PUBLIC_* at consumer build time, so this works
-  // even though the overlay package itself doesn't have access to the
-  // consumer's env at compile time. Consumers can pass props
-  // explicitly to override.
-  const owner = props.owner ?? process.env["NEXT_PUBLIC_SLOWCOOK_OWNER"] ?? "";
-  const repo = props.repo ?? process.env["NEXT_PUBLIC_SLOWCOOK_REPO"] ?? "";
-  const prNumber = props.prNumber ?? parseInt(process.env["NEXT_PUBLIC_SLOWCOOK_PR_NUMBER"] ?? "0", 10);
-  const storyId = props.storyId ?? process.env["NEXT_PUBLIC_SLOWCOOK_STORY_ID"] ?? null;
-  const enabled = props.enabled ?? (process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW"] === "1");
+  // 0.5.1 — optional auto-detect from NEXT_PUBLIC_SLOWCOOK_* (Next.js consumers).
+  // Framework-agnostic via env() (0.9.6); non-Next mocks pass props explicitly.
+  const owner = props.owner ?? env("NEXT_PUBLIC_SLOWCOOK_OWNER") ?? "";
+  const repo = props.repo ?? env("NEXT_PUBLIC_SLOWCOOK_REPO") ?? "";
+  const prNumber = props.prNumber ?? parseInt(env("NEXT_PUBLIC_SLOWCOOK_PR_NUMBER") ?? "0", 10);
+  const storyId = props.storyId ?? env("NEXT_PUBLIC_SLOWCOOK_STORY_ID") ?? null;
+  const enabled = props.enabled ?? (env("NEXT_PUBLIC_SLOWCOOK_REVIEW") === "1");
   const reviewMode: "scenarios" | "lcr" =
     props.reviewMode ??
-    (process.env["NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE"] === "lcr" ? "lcr" : "scenarios");
+    (env("NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE") === "lcr" ? "lcr" : "scenarios");
   // 0.6.0 — LCR multi-person review: box-hosted device-flow helper base URL.
-  const authBase = props.authBase ?? process.env["NEXT_PUBLIC_SLOWCOOK_AUTH_BASE"] ?? "";
+  const authBase = props.authBase ?? env("NEXT_PUBLIC_SLOWCOOK_AUTH_BASE") ?? "";
   const overlayVersion = props.overlayVersion ?? "0.6.0";
   const repoCoord: RepoCoord = { owner, repo };
   // 0.7.0 — docs studio config.
   const docPaths: string[] = props.docPaths ??
-    (process.env["NEXT_PUBLIC_SLOWCOOK_DOC_PATHS"]?.split(",").map((s) => s.trim()).filter(Boolean)) ??
+    (env("NEXT_PUBLIC_SLOWCOOK_DOC_PATHS")?.split(",").map((s) => s.trim()).filter(Boolean)) ??
     ["docs/PRD.md", "docs/ROADMAP.md", "docs/USER_STORIES.md", "docs/ARCHITECTURE.md"];
-  const branchProp = props.branch ?? process.env["NEXT_PUBLIC_SLOWCOOK_BRANCH"] ?? "";
+  const branchProp = props.branch ?? env("NEXT_PUBLIC_SLOWCOOK_BRANCH") ?? "";
   // 0.7.1 — review surfaces (persona switcher lives in the pane, not the mock).
   const surfaces: ReviewSurface[] = props.surfaces ?? (() => {
-    try { const raw = process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES"]; return raw ? (JSON.parse(raw) as ReviewSurface[]) : []; }
+    try { const raw = env("NEXT_PUBLIC_SLOWCOOK_SURFACES"); return raw ? (JSON.parse(raw) as ReviewSurface[]) : []; }
     catch { return []; }
   })();
   // 0.9.0 — EPSS testing-surface router manifest.
   const testingSurfacesUrl: string =
-    props.testingSurfacesUrl ?? process.env["NEXT_PUBLIC_SLOWCOOK_SURFACES_URL"] ?? "";
+    props.testingSurfacesUrl ?? env("NEXT_PUBLIC_SLOWCOOK_SURFACES_URL") ?? "";
   const [surfaceManifest, setSurfaceManifest] = useState<Manifest | null>(null);
   useEffect(() => {
     if (testingSurfacesUrl) loadManifest(testingSurfacesUrl).then(setSurfaceManifest).catch(() => { /* ignore */ });

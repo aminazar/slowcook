@@ -122,9 +122,6 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   optimizeDeps: { exclude: ["sql.js"] },
-  // The review-overlay (written for Next.js) reads process.env.NEXT_PUBLIC_* as
-  // fallbacks; Vite has no \`process\` in the browser, so shim it to an empty object.
-  define: { "process.env": {} },
 });
 `;
 }
