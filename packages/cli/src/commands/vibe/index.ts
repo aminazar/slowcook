@@ -17,7 +17,9 @@ import { join, resolve } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { runVibe, type VibeContext } from "./agent.js";
 import { listActiveSpecs } from "../refine/spec-yaml.js";
-import { compileLcrPlan, type PlanSpecInput } from "./lcr-plan.js";
+import { compileLcrPlan, type PlanSpecInput, type LcrPlan } from "./lcr-plan.js";
+import { compileDrizzleSchema } from "./schema-gen.js";
+import { loadMockShapeConfig } from "../../lib/mock-shape.js";
 
 interface VibeArgs {
   specId: string;
@@ -295,6 +297,9 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   // whole-app LCR plan (data model + route/persona map + coverage). The spine
   // the schema/seed/surface generation passes hang off.
   if (argv[0] === "plan") return runPlan(argv.slice(1));
+  // `slowcook vibe schema` — deterministic, no LLM. Generate the LCR data
+  // adaptor's Drizzle schema from the plan's data model (the first gen pass).
+  if (argv[0] === "schema") return runSchema(argv.slice(1));
 
   const args = parseArgs(argv);
 
@@ -512,14 +517,10 @@ function buildPrBody(
  * print it (data model + persona/route map + coverage). Writes the machine form
  * to `.brewing/lcr-plan.json` for the generation passes. Deterministic, no LLM.
  */
-async function runPlan(argv: string[]): Promise<void> {
-  const cwd = resolve(argFlag(argv, "--cwd") ?? ".");
+/** Compile the LCR plan from the repo's active specs (shared by plan + schema). */
+function loadPlan(cwd: string): LcrPlan | null {
   const specs = listActiveSpecs(cwd);
-  if (specs.length === 0) {
-    console.error("vibe plan: no active specs under specs/ — run `menu` first.");
-    process.exit(1);
-  }
-
+  if (specs.length === 0) return null;
   const planSpecs: PlanSpecInput[] = specs.map((s) => ({
     storyId: s.story_id,
     entities: (s.data_contract?.entities ?? []).map((e) => ({
@@ -531,11 +532,20 @@ async function runPlan(argv: string[]): Promise<void> {
     persona: s.persona,
     surfaces: s.surfaces,
   }));
+  return compileLcrPlan(planSpecs);
+}
 
-  const plan = compileLcrPlan(planSpecs);
+async function runPlan(argv: string[]): Promise<void> {
+  const cwd = resolve(argFlag(argv, "--cwd") ?? ".");
+  const plan = loadPlan(cwd);
+  if (!plan) {
+    console.error("vibe plan: no active specs under specs/ — run `menu` first.");
+    process.exit(1);
+  }
+  const specCount = plan.stories.length;
 
   const fieldCount = plan.entities.reduce((n, e) => n + e.fields.length, 0);
-  console.log(`vibe plan — whole-app LCR from ${specs.length} specs\n`);
+  console.log(`vibe plan — whole-app LCR from ${specCount} specs\n`);
   console.log(`  data model:  ${plan.entities.length} entities · ${fieldCount} fields · ${plan.conflicts.length} conflict(s)`);
   console.log(`  personas:    ${plan.personas.length}  (${plan.personas.map((p) => p.id).join(", ") || "—"})`);
   console.log(`  surfaces:    ${plan.surfaces.length} route(s) across ${new Set(plan.surfaces.map((s) => s.route)).size} unique path(s)`);
@@ -577,4 +587,47 @@ async function runPlan(argv: string[]): Promise<void> {
 function argFlag(argv: string[], flag: string): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
+}
+
+/**
+ * `slowcook vibe schema` — generate the LCR data adaptor's Drizzle schema from the
+ * plan's data model. Deterministic (the data_contract types map mechanically to
+ * Drizzle columns); the seed + surfaces passes (LLM) build on it. Writes to the
+ * mock's data-layer dir (default `mock/src/lib/schema.ts`).
+ */
+async function runSchema(argv: string[]): Promise<void> {
+  const cwd = resolve(argFlag(argv, "--cwd") ?? ".");
+  const plan = loadPlan(cwd);
+  if (!plan) {
+    console.error("vibe schema: no active specs under specs/ — run `menu` first.");
+    process.exit(1);
+  }
+  if (plan.entities.length === 0) {
+    console.error("vibe schema: the plan has no entities (specs carry no data_contract). Nothing to generate.");
+    process.exit(1);
+  }
+  if (plan.conflicts.length > 0) {
+    console.error(`vibe schema: ${plan.conflicts.length} data-model conflict(s) — resolve before schema-gen (run \`vibe plan\`):`);
+    for (const c of plan.conflicts) {
+      console.error(`    ✗ ${c.entity}.${c.field}: ${c.types.map((t) => t.type).join(" vs ")}`);
+    }
+    process.exit(1);
+  }
+
+  const schema = compileDrizzleSchema(plan.entities);
+
+  const mock = loadMockShapeConfig(cwd);
+  const rel = argFlag(argv, "--out") ?? join(mock.mock_root, "src/lib/schema.ts");
+  const fieldCount = plan.entities.reduce((n, e) => n + e.fields.length, 0);
+
+  if (argFlag(argv, "--stdout") !== undefined || argv.includes("--stdout")) {
+    process.stdout.write(schema);
+    return;
+  }
+
+  const outAbs = resolve(cwd, rel);
+  mkdirSync(join(outAbs, ".."), { recursive: true });
+  writeFileSync(outAbs, schema);
+  console.log(`vibe schema — ${plan.entities.length} tables · ${fieldCount} columns → ${rel}`);
+  console.log(`  deterministic (data_contract → Drizzle). Next: \`vibe seed\` (dense data) + surface passes.`);
 }
