@@ -744,7 +744,8 @@ async function runApp(argv: string[]): Promise<void> {
   const force = argv.includes("--force");
 
   const projectName = basename(cwd) || "app";
-  const files = generateLcrApp(plan, { projectName });
+  const ownerRepo = detectOwnerRepo(cwd);
+  const files = generateLcrApp(plan, { projectName, owner: ownerRepo?.owner, repo: ownerRepo?.repo });
 
   let wrote = 0;
   let skipped = 0;
