@@ -174,7 +174,16 @@ const SpecSchema = z.object({
   // GUCDI — provenance anchor to a PRD initiative (greenfield only). OPTIONAL:
   // brownfield specs trace via source_issue instead, and `trace check` NEVER
   // demands a prd_ref (provenance is the union {issue|prd|convention|craft}).
-  prd_ref: z.object({ file: z.string(), anchor: z.string() }).optional(),
+  prd_ref: z
+    .object({
+      file: z.string(),
+      anchor: z.string(),
+      /** Fingerprint of the anchor's PRD body at stamp time (`trace stamp`).
+       *  Lets `trace check` detect when the PRD section moved out from under the
+       *  spec. Absent = never stamped. See trace/check.ts `anchorHash`. */
+      sha: z.string().optional(),
+    })
+    .optional(),
   // GUCDI — the data contract this story needs, baked into the LCR's SQLite+ORM
   // schema and inherited by the backend (mock→prod becomes a data-source swap).
   data_contract: z
