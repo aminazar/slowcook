@@ -89,13 +89,30 @@ data-source swap, not a rewrite.
 FK constraints enforced. The LLM seed/queries run was **blocked on Anthropic
 credit** (key exhausted); the passes are wired and ready once credit is restored.
 
-## Next slices
+## Landed (app scaffold — deterministic) + greenfield fix
 
-- Surface passes (LLM): each route renders via `data` from `queries.ts`; assemble
-  the one clickable app + router + persona/state switcher → `review_mode: lcr`.
-- Surface passes + shell assembly: one clickable app targeting `lcr` mode.
-- Re-derive dash specs (menu) so the route map populates; then `vibe plan` shows
-  the full persona/route map, not just the data model.
+- **`slowcook vibe app`** (`vibe/app-gen.ts`, pure + 7 tests): from the plan,
+  scaffold the **runnable, navigable** LCR — Vite + Tailwind-v4 app, `App.tsx`
+  router (every surface a route, no auth walls, HashRouter), persona shell
+  (chrome-aware nav + persona/theme switcher), and a **stub page per route** (sets
+  the `@story` marker, lists personas/states). Sets `.brewing/mock.yaml`
+  (`review_mode: lcr`). The LLM `vibe surfaces` pass fills page bodies.
+- **`greenfield status` rewritten** for whole-app LCR: coverage is staged (data
+  model → schema → adaptor → app → surfaces), not per-story `@story` markers; the
+  next-action ladder routes through `vibe schema`/`seed`/`app`/`surfaces`.
+- **schema-gen fix:** circular/mutual FKs annotate `(): AnySQLiteColumn` (the
+  documented Drizzle fix) so the generated schema typechecks.
+
+**Dogfood (dash):** `vibe app` → 27 routes · 8 personas · 38 files;
+`greenfield status` → `LCR (whole-app) ✓ — schema ✓ · adaptor ✓ · app ✓ · 32/32`;
+the mock **builds** (`tsc -b && vite build`, 71 modules) and **runs** (navigable
+shell + persona switcher + per-route stub pages). Left: the LLM page bodies + dense
+seed (`vibe seed` + `vibe surfaces`), blocked on credit.
+
+## Next slice
+
+- `vibe surfaces` (LLM): replace each stub page body with the designed UI rendering
+  via `queries.ts`; + the real dense `vibe seed` run. Both need credit.
 
 ## Migration (don't break downstream at once)
 

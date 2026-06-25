@@ -1,14 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { computeGreenfieldStatus, type GreenfieldInput } from "./status.js";
+import { computeGreenfieldStatus, type GreenfieldInput, type GreenfieldLcr } from "./status.js";
+
+const builtLcr: GreenfieldLcr = {
+  surfacesDeclared: 2,
+  entities: 5,
+  conflicts: 0,
+  schemaPresent: true,
+  dataAdaptorPresent: true,
+  appPresent: true,
+  surfacesBuilt: 2,
+};
 
 const base: GreenfieldInput = {
   prdInitiatives: 3,
   specs: [
-    { storyId: "001", anchored: true, addressableQuestions: 0, hasLcr: true },
-    { storyId: "002", anchored: true, addressableQuestions: 0, hasLcr: true },
+    { storyId: "001", anchored: true, addressableQuestions: 0 },
+    { storyId: "002", anchored: true, addressableQuestions: 0 },
   ],
   brandPresent: true,
   traceViolations: 0,
+  lcr: builtLcr,
 };
 
 describe("computeGreenfieldStatus", () => {
@@ -34,27 +45,41 @@ describe("computeGreenfieldStatus", () => {
     const s = computeGreenfieldStatus({
       ...base,
       brandPresent: false,
-      specs: [{ storyId: "001", anchored: false, addressableQuestions: 0, hasLcr: false }],
+      specs: [{ storyId: "001", anchored: false, addressableQuestions: 0 }],
     });
     expect(s.nextAction).toMatch(/provenance gap/i);
   });
 
-  it("points at the next un-vibed story", () => {
-    const s = computeGreenfieldStatus({
-      ...base,
-      specs: [
-        { storyId: "001", anchored: true, addressableQuestions: 0, hasLcr: true },
-        { storyId: "007", anchored: true, addressableQuestions: 0, hasLcr: false },
-      ],
-    });
-    expect(s.nextAction).toMatch(/Vibe story-007/);
-    expect(s.stages.find((st) => st.name === "LCR (vibe×eye)")!.detail).toBe("1/2 stories vibed");
+  it("walks the whole-app LCR ladder: schema → adaptor → app → surfaces", () => {
+    const noSchema = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, schemaPresent: false, dataAdaptorPresent: false, appPresent: false, surfacesBuilt: 0 } });
+    expect(noSchema.nextAction).toMatch(/vibe schema/);
+
+    const noAdaptor = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, dataAdaptorPresent: false, appPresent: false, surfacesBuilt: 0 } });
+    expect(noAdaptor.nextAction).toMatch(/vibe seed/);
+
+    const noApp = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, appPresent: false, surfacesBuilt: 0 } });
+    expect(noApp.nextAction).toMatch(/vibe app/);
+
+    const partial = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, surfacesBuilt: 1 } });
+    expect(partial.nextAction).toMatch(/1\/2 surfaces built/);
+    expect(partial.stages.find((st) => st.name === "LCR (whole-app)")!.done).toBe(false);
+  });
+
+  it("blocks the LCR on data-model conflicts before schema-gen", () => {
+    const s = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, conflicts: 2, schemaPresent: false, appPresent: false, surfacesBuilt: 0 } });
+    expect(s.nextAction).toMatch(/2 data-model conflict/);
+  });
+
+  it("LCR detail shows the staged build state", () => {
+    const s = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, appPresent: false, surfacesBuilt: 0 } });
+    expect(s.stages.find((st) => st.name === "LCR (whole-app)")!.detail).toMatch(/schema ✓ · adaptor ✓ · app ✗ · 0\/2 surfaces/);
   });
 
   it("blocks scope-complete on addressable open questions even when everything else is done", () => {
     const s = computeGreenfieldStatus({
       ...base,
-      specs: [{ storyId: "001", anchored: true, addressableQuestions: 2, hasLcr: true }],
+      specs: [{ storyId: "001", anchored: true, addressableQuestions: 2 }],
+      lcr: { ...builtLcr, surfacesDeclared: 1, surfacesBuilt: 1 },
     });
     expect(s.scopeComplete).toBe(false);
     expect(s.nextAction).toMatch(/2 addressable open question/);

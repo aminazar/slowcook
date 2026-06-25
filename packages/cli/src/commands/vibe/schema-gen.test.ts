@@ -67,7 +67,7 @@ describe("compileDrizzleSchema", () => {
   });
 
   it("resolves a relation to a typed .references() thunk", () => {
-    expect(out).toContain('operator_id: text("operator_id").references(() => member.id).notNull(),');
+    expect(out).toContain('operator_id: text("operator_id").references((): AnySQLiteColumn => member.id).notNull(),');
   });
 
   it("keeps a `|null` field nullable (no .notNull())", () => {
@@ -79,7 +79,7 @@ describe("compileDrizzleSchema", () => {
     expect(out).toContain('action_type: text("action_type", { enum: ["worker_certified", "worker_decertified"] }).notNull(),');
     expect(out).toContain("export type OperatorAuditLog = typeof operatorAuditLog.$inferSelect;");
     expect(out).toContain("export type NewMember = typeof member.$inferInsert;");
-    expect(out).toContain('import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";');
+    expect(out).toContain('import { integer, sqliteTable, text, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";');
   });
 
   it("never makes the `id` primary key a foreign key (drops the inverse relation)", () => {
@@ -89,7 +89,7 @@ describe("compileDrizzleSchema", () => {
     ]);
     expect(inverse).toContain('id: text("id").primaryKey(),'); // project.id is a clean PK, no FK
     expect(inverse).not.toContain("references(() => wallet");
-    expect(inverse).toContain('project_id: text("project_id").references(() => project.id).notNull(),'); // FK on the child
+    expect(inverse).toContain('project_id: text("project_id").references((): AnySQLiteColumn => project.id).notNull(),'); // FK on the child
   });
 
   it("skips .references() when the target entity isn't in the model", () => {

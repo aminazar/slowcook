@@ -13,8 +13,16 @@ import { join, relative, resolve } from "node:path";
 import { listActiveSpecs } from "../refine/spec-yaml.js";
 import { loadMockShapeConfig } from "../../lib/mock-shape.js";
 import { parsePrdInitiatives } from "../menu/prd.js";
-import { checkTrace, parseLcrProvenance, type LcrNode, type SpecNode } from "../trace/check.js";
+import { checkTrace, parseLcrProvenance, routeSatisfies, type LcrNode, type SpecNode } from "../trace/check.js";
 import { computeGreenfieldStatus, type GreenfieldSpecFact } from "./status.js";
+import { compileLcrPlan, type PlanSpecInput } from "../vibe/lcr-plan.js";
+
+/** Concrete route paths declared in a react-router file (path="..."). */
+function readRouterPaths(file: string): string[] {
+  if (!existsSync(file)) return [];
+  const src = readFileSync(file, "utf8");
+  return [...src.matchAll(/path\s*=\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]!).filter((p) => p && p !== "*");
+}
 
 function val(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -56,10 +64,6 @@ export async function greenfield(argv: string[], _cliVersion: string): Promise<v
     file: relative(cwd, f).replace(/\\/g, "/"),
     provenance: parseLcrProvenance(readFileSync(f, "utf8")),
   }));
-  const referenced = new Set(
-    lcrNodes.flatMap((n) => n.provenance.filter((p): p is { kind: "story"; id: string } => p.kind === "story").map((p) => p.id)),
-  );
-
   const brandPresent = existsSync(resolve(cwd, mock.design_system_dir, "tokens.ts"));
 
   const specNodes: SpecNode[] = specs.map((s) => ({ storyId: s.story_id, prdAnchor: s.prd_ref?.anchor, sourceIssue: s.source_issue }));
@@ -69,14 +73,38 @@ export async function greenfield(argv: string[], _cliVersion: string): Promise<v
     storyId: s.story_id,
     anchored: Boolean(s.prd_ref?.anchor || s.source_issue),
     addressableQuestions: s.open_questions?.addressable?.length ?? 0,
-    hasLcr: referenced.has(`story-${s.story_id}`),
   }));
+
+  // Whole-app LCR facts: the plan (data model + declared surfaces) + what's built
+  // in the mock (schema / data adaptor / app router) + how many surfaces resolve.
+  const planSpecs: PlanSpecInput[] = specs.map((s) => ({
+    storyId: s.story_id,
+    entities: (s.data_contract?.entities ?? []).map((e) => ({ name: e.name, fields: (e.fields ?? []).map((f) => ({ name: f.name, type: f.type })), relations: e.relations })),
+    actors: (s.actors ?? []).map((a) => ({ name: a.name })),
+    persona: s.persona,
+    surfaces: s.surfaces,
+  }));
+  const plan = compileLcrPlan(planSpecs);
+  const libDir = resolve(cwd, mock.mock_root, "src/lib");
+  const routerFile = mock.router_file ? resolve(cwd, mock.router_file) : resolve(cwd, mock.mock_root, "src/App.tsx");
+  const appPresent = existsSync(routerFile);
+  const routes = appPresent ? readRouterPaths(routerFile) : [];
+  const surfacesBuilt = plan.surfaces.filter((s) => routes.some((r) => routeSatisfies(r, s.route))).length;
 
   const status = computeGreenfieldStatus({
     prdInitiatives: prdInitiatives.length,
     specs: specFacts,
     brandPresent,
     traceViolations,
+    lcr: {
+      surfacesDeclared: plan.surfaces.length,
+      entities: plan.entities.length,
+      conflicts: plan.conflicts.length,
+      schemaPresent: existsSync(join(libDir, "schema.ts")),
+      dataAdaptorPresent: existsSync(join(libDir, "db.ts")),
+      appPresent,
+      surfacesBuilt,
+    },
   });
 
   console.log("slowcook greenfield — scope status\n");

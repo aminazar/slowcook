@@ -19,7 +19,9 @@ import { runVibe, type VibeContext } from "./agent.js";
 import { listActiveSpecs } from "../refine/spec-yaml.js";
 import { compileLcrPlan, type PlanSpecInput, type LcrPlan } from "./lcr-plan.js";
 import { compileDrizzleSchema, compileSqliteDdl, dbBootstrapTs } from "./schema-gen.js";
+import { generateLcrApp, mockYaml } from "./app-gen.js";
 import { loadMockShapeConfig } from "../../lib/mock-shape.js";
+import { basename } from "node:path";
 import { AnthropicClient, SEED_SYSTEM, ADAPTOR_SYSTEM, formatCostFooter } from "@slowcook-ai/llm-anthropic";
 
 interface VibeArgs {
@@ -305,6 +307,10 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   // (ddl.ts + db.ts: real in-browser SQLite) + LLM seed.ts (dense data) +
   // LLM queries.ts (the typed query adaptor / mock→prod swap seam).
   if (argv[0] === "seed") return runSeed(argv.slice(1));
+  // `slowcook vibe app` — deterministic, no LLM. Scaffold the runnable, navigable
+  // LCR app (Vite + router + persona shell + a stub page per route) from the plan,
+  // and set review_mode: lcr. The LLM `vibe surfaces` pass fills the page bodies.
+  if (argv[0] === "app") return runApp(argv.slice(1));
 
   const args = parseArgs(argv);
 
@@ -715,4 +721,53 @@ async function runSeed(argv: string[]): Promise<void> {
   console.log("\n" + formatCostFooter(totalUsd, []));
   console.log(`\n  data adaptor complete: ${mock.mock_root}/src/lib/{schema,ddl,db,seed,queries}.ts`);
   console.log(`  deps the mock needs: drizzle-orm, sql.js. Next: surface passes render via \`data\` from queries.ts.`);
+}
+
+/**
+ * `slowcook vibe app` — scaffold the runnable, navigable whole-app LCR from the
+ * plan: the Vite/Tailwind app + router (every surface reachable) + persona shell
+ * + a stub page per route (sets the @story marker). Deterministic — the LLM
+ * `vibe surfaces` pass fills page bodies. Also sets `.brewing/mock.yaml`
+ * (review_mode: lcr). Does NOT overwrite the data adaptor (schema/ddl/db/seed/
+ * queries) — run `vibe seed` first.
+ */
+async function runApp(argv: string[]): Promise<void> {
+  const cwd = resolve(argFlag(argv, "--cwd") ?? ".");
+  const plan = loadPlan(cwd);
+  if (!plan) { console.error("vibe app: no active specs — run `menu` first."); process.exit(1); }
+  if (plan.surfaces.length === 0) {
+    console.error("vibe app: the plan has no surfaces — re-run `menu` so specs declare persona + surfaces.");
+    process.exit(1);
+  }
+  const mock = loadMockShapeConfig(cwd);
+  const mockRoot = resolve(cwd, mock.mock_root);
+  const force = argv.includes("--force");
+
+  const projectName = basename(cwd) || "app";
+  const files = generateLcrApp(plan, { projectName });
+
+  let wrote = 0;
+  let skipped = 0;
+  for (const f of files) {
+    const abs = join(mockRoot, f.path);
+    if (existsSync(abs) && !force) { skipped++; continue; }
+    mkdirSync(join(abs, ".."), { recursive: true });
+    writeFileSync(abs, f.content);
+    wrote++;
+  }
+
+  // .brewing/mock.yaml — declare the LCR shape (idempotent unless --force).
+  const mockYamlPath = resolve(cwd, ".brewing", "mock.yaml");
+  if (!existsSync(mockYamlPath) || force) {
+    mkdirSync(resolve(cwd, ".brewing"), { recursive: true });
+    writeFileSync(mockYamlPath, mockYaml());
+  }
+
+  const routes = new Set(plan.surfaces.map((s) => s.route)).size;
+  console.log(`vibe app — scaffolded the LCR: ${routes} route(s) · ${plan.personas.length} personas · ${wrote} file(s) written${skipped ? `, ${skipped} kept (use --force to overwrite)` : ""}`);
+  console.log(`  review_mode: lcr set in .brewing/mock.yaml`);
+  if (!existsSync(join(mockRoot, "src/lib/db.ts"))) {
+    console.log(`  ⚠ no data adaptor yet — run \`slowcook vibe seed\` so pages can read real data.`);
+  }
+  console.log(`  next: \`cd ${mock.mock_root} && npm install && npm run dev\` to click through the skeleton; then \`slowcook vibe surfaces\` to fill the page bodies.`);
 }
