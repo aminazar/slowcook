@@ -9,13 +9,69 @@
  *
  * Pure lint in ./check.ts; this is the IO shell.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, relative, resolve } from "node:path";
 import YAML from "yaml";
 import { listActiveSpecs, SPECS_DIR } from "../refine/spec-yaml.js";
 import { loadMockShapeConfig } from "../../lib/mock-shape.js";
-import { parsePrdInitiatives } from "../menu/prd.js";
-import { checkTrace, checkCoverage, checkSurfaces, parseLcrProvenance, type LcrNode, type SpecNode, type SpecSurface } from "./check.js";
+import { parsePrdInitiatives, type PrdInitiative } from "../menu/prd.js";
+import {
+  checkTrace,
+  checkCoverage,
+  checkSurfaces,
+  checkFreshness,
+  computeImpact,
+  diffPrdStates,
+  anchorHash,
+  parseLcrProvenance,
+  type LcrNode,
+  type SpecNode,
+  type SpecSurface,
+  type SpecLink,
+  type PrdAnchorState,
+} from "./check.js";
+
+/** Specs → their PRD link facts (anchor + recorded fingerprint). */
+function loadSpecLinks(cwd: string): SpecLink[] {
+  return listActiveSpecs(cwd).map((s) => ({
+    storyId: s.story_id,
+    prdAnchor: s.prd_ref?.anchor,
+    prdSha: s.prd_ref?.sha,
+  }));
+}
+
+/** Parse a PRD markdown string → current anchor fingerprints. */
+function prdAnchorStates(md: string): PrdAnchorState[] {
+  return parsePrdInitiatives(md).map((i: PrdInitiative) => ({ anchor: i.anchor, hash: anchorHash(i.body) }));
+}
+
+/** Insert/replace `sha:` inside a spec's `prd_ref:` block, preserving the file's
+ *  formatting (targeted line edit, not a YAML round-trip that would reflow the
+ *  hand-tweaked spec). Returns the new text, or the original if there's no
+ *  prd_ref/anchor to stamp. */
+export function setPrdSha(text: string, hash: string): string {
+  const lines = text.split(/\r?\n/);
+  const i = lines.findIndex((l) => /^\s*prd_ref:\s*$/.test(l));
+  if (i < 0) return text;
+  const baseIndent = lines[i]!.match(/^\s*/)![0]!.length;
+  let anchorIdx = -1;
+  let shaIdx = -1;
+  let childIndent = "  ";
+  for (let j = i + 1; j < lines.length; j++) {
+    const l = lines[j]!;
+    if (l.trim() === "") continue;
+    const indent = l.match(/^\s*/)![0]!.length;
+    if (indent <= baseIndent) break; // left the prd_ref block
+    childIndent = l.match(/^\s*/)![0]!;
+    if (/^\s*anchor:/.test(l)) anchorIdx = j;
+    if (/^\s*sha:/.test(l)) shaIdx = j;
+  }
+  if (shaIdx >= 0) lines[shaIdx] = `${childIndent}sha: ${hash}`;
+  else if (anchorIdx >= 0) lines.splice(anchorIdx + 1, 0, `${childIndent}sha: ${hash}`);
+  else return text;
+  return lines.join("\n");
+}
 
 /** Read persona-surface declarations from the spec YAMLs (the `persona` +
  *  `surfaces` blocks the generator compiles into the mock). */
@@ -64,13 +120,20 @@ function walkTsx(dir: string, exclude: Set<string>): string[] {
 }
 
 export async function trace(argv: string[], _cliVersion: string): Promise<void> {
-  if (argv[0] !== "check") {
-    console.error("usage: slowcook trace check [--prd <path>] [--cwd <dir>] [--coverage]");
+  const sub = argv[0];
+  if (sub === "stamp") return runStamp(argv.slice(1));
+  if (sub === "impact") return runImpact(argv.slice(1));
+  if (sub !== "check") {
+    console.error("usage: slowcook trace <check|stamp|impact> [--prd <path>] [--cwd <dir>]");
+    console.error("  check   provenance + coverage + surface + freshness lints   [--coverage] [--strict]");
+    console.error("  stamp   record each spec's PRD-anchor fingerprint (prd_ref.sha)");
+    console.error("  impact  which stories a PRD change touches   [--since <gitref>] [--anchors a,b]");
     process.exit(64);
   }
   const rest = argv.slice(1);
   const cwd = resolve(val(rest, "--cwd") ?? ".");
   const enforceCoverage = has(rest, "--coverage"); // make uncovered stories a hard failure
+  const strict = has(rest, "--strict"); // make stale specs a hard failure too
 
   // 1. Specs → requirement-provenance facts.
   const specNodes: SpecNode[] = listActiveSpecs(cwd).map((s) => ({
@@ -79,10 +142,14 @@ export async function trace(argv: string[], _cliVersion: string): Promise<void> 
     sourceIssue: s.source_issue,
   }));
 
-  // 2. PRD anchors (optional — absent = brownfield).
+  // 2. PRD anchors + fingerprints (optional — absent = brownfield).
   const prdRel = val(rest, "--prd") ?? "docs/PRD.md";
   const prdAbs = resolve(cwd, prdRel);
-  const prdAnchors = existsSync(prdAbs) ? parsePrdInitiatives(readFileSync(prdAbs, "utf8")).map((i) => i.anchor) : [];
+  const prdStates = existsSync(prdAbs) ? prdAnchorStates(readFileSync(prdAbs, "utf8")) : [];
+  const prdAnchors = prdStates.map((s) => s.anchor);
+
+  // 2b. Freshness — has any spec's PRD anchor moved since it was stamped?
+  const freshness = checkFreshness({ specs: loadSpecLinks(cwd), anchors: prdStates });
 
   // 3. LCR nodes — mock screens + components (excluding the design system, which
   //    is convention/brand provenance, not story-specific).
@@ -145,10 +212,31 @@ export async function trace(argv: string[], _cliVersion: string): Promise<void> 
     }
   }
 
+  // Freshness (PRD↔spec): which specs were refined against a PRD section that has
+  // since changed. Advisory by default (a section hash also moves on cosmetic
+  // reflow); --strict makes it a hard failure. Unstamped specs are reported as a
+  // hint to run `trace stamp`, never as stale.
+  if (prdStates.length > 0) {
+    if (freshness.stale.length === 0 && freshness.unstamped.length === 0) {
+      console.log(`\n  freshness: ${freshness.freshCount} spec(s) match their PRD anchor — none stale.`);
+    } else {
+      if (freshness.stale.length) {
+        const stream = strict ? console.error : console.log;
+        stream(`\n  freshness: ${freshness.stale.length} spec(s) STALE — their PRD section changed since stamping${strict ? " (FAIL — --strict)" : " (review / run reconcile)"}:`);
+        for (const s of freshness.stale) stream(`    ⚠ story-${s.storyId} ← §${s.anchor} (PRD moved)`);
+      }
+      if (freshness.unstamped.length) {
+        console.log(`\n  freshness: ${freshness.unstamped.length} spec(s) unstamped — run \`slowcook trace stamp\` to baseline:`);
+        for (const s of freshness.unstamped) console.log(`    · story-${s.storyId} ← §${s.anchor}`);
+      }
+    }
+  }
+
   const provenanceOk = result.ok;
   const coverageOk = !enforceCoverage || coverage.ok;
   const surfacesOk = surfaceRes.ok;
-  if (provenanceOk && coverageOk && surfacesOk) {
+  const freshnessOk = !strict || freshness.stale.length === 0;
+  if (provenanceOk && coverageOk && surfacesOk && freshnessOk) {
     console.log("\ntrace check: PASS ✓ — every node has honest provenance" + (enforceCoverage ? ", every story has a surface," : "") + " and every persona surface resolves.");
     return;
   }
@@ -162,5 +250,79 @@ export async function trace(argv: string[], _cliVersion: string): Promise<void> 
   if (enforceCoverage && !coverage.ok) {
     console.error(`\ntrace check: FAIL ✗ — ${coverage.uncovered.length} story(ies) with no surface (--coverage).`);
   }
+  if (strict && freshness.stale.length) {
+    console.error(`\ntrace check: FAIL ✗ — ${freshness.stale.length} stale spec(s) vs the PRD (--strict).`);
+  }
   process.exit(1);
+}
+
+/** `slowcook trace stamp` — record each spec's PRD-anchor fingerprint into
+ *  `prd_ref.sha`, baselining freshness. Run after a PRD↔spec set is agreed. */
+async function runStamp(rest: string[]): Promise<void> {
+  const cwd = resolve(val(rest, "--cwd") ?? ".");
+  const prdRel = val(rest, "--prd") ?? "docs/PRD.md";
+  const prdAbs = resolve(cwd, prdRel);
+  if (!existsSync(prdAbs)) {
+    console.error(`trace stamp: no PRD at ${prdRel} — nothing to fingerprint.`);
+    process.exit(64);
+  }
+  const byAnchor = new Map(prdAnchorStates(readFileSync(prdAbs, "utf8")).map((s) => [s.anchor, s.hash]));
+  const specsDir = resolve(cwd, SPECS_DIR);
+  let stamped = 0;
+  let skipped = 0;
+  for (const spec of listActiveSpecs(cwd)) {
+    const anchor = spec.prd_ref?.anchor;
+    if (!anchor) { skipped++; continue; }
+    const hash = byAnchor.get(anchor);
+    if (hash === undefined) { console.log(`  · story-${spec.story_id}: anchor §${anchor} not in PRD — skipped`); skipped++; continue; }
+    const file = join(specsDir, `story-${spec.story_id}.yaml`);
+    const before = readFileSync(file, "utf8");
+    const after = setPrdSha(before, hash);
+    if (after !== before) { writeFileSync(file, after); stamped++; }
+  }
+  console.log(`trace stamp: ${stamped} spec(s) stamped${skipped ? `, ${skipped} skipped (no prd_ref / unknown anchor)` : ""}.`);
+}
+
+/** `slowcook trace impact` — which stories does a PRD change touch? Changed
+ *  anchors come from `--anchors a,b` or `--since <gitref>` (diff the PRD between
+ *  that revision and the working tree). Read-only. */
+async function runImpact(rest: string[]): Promise<void> {
+  const cwd = resolve(val(rest, "--cwd") ?? ".");
+  const prdRel = val(rest, "--prd") ?? "docs/PRD.md";
+  const prdAbs = resolve(cwd, prdRel);
+  const specs = loadSpecLinks(cwd);
+
+  let changedAnchors: string[];
+  const explicit = val(rest, "--anchors");
+  const since = val(rest, "--since");
+  if (explicit) {
+    changedAnchors = explicit.split(",").map((a) => a.trim()).filter(Boolean);
+  } else if (since) {
+    if (!existsSync(prdAbs)) { console.error(`trace impact: no PRD at ${prdRel}.`); process.exit(64); }
+    let beforeMd: string;
+    try {
+      beforeMd = execFileSync("git", ["show", `${since}:${prdRel}`], { cwd, encoding: "utf8" });
+    } catch {
+      console.error(`trace impact: couldn't read ${prdRel} at '${since}' (bad ref or path?).`);
+      process.exit(1);
+    }
+    const afterMd = readFileSync(prdAbs, "utf8");
+    const d = diffPrdStates(prdAnchorStates(beforeMd), prdAnchorStates(afterMd));
+    changedAnchors = d.changed;
+    const extra = [...d.added.map((a) => `+§${a}`), ...d.removed.map((a) => `-§${a}`)];
+    console.log(`trace impact: PRD diff ${since}..worktree — ${d.changed.length} changed${extra.length ? `, ${extra.join(" ")}` : ""}.`);
+  } else {
+    console.error("trace impact: pass --since <gitref> or --anchors a,b");
+    process.exit(64);
+  }
+
+  const { affected } = computeImpact({ specs, changedAnchors });
+  if (changedAnchors.length === 0) { console.log("  no PRD anchors changed — no stories impacted."); return; }
+  console.log(`  changed anchors: ${changedAnchors.map((a) => `§${a}`).join(", ")}`);
+  if (affected.length === 0) { console.log("  no stories link the changed anchors."); return; }
+  const byAnchor = new Map<string, string[]>();
+  for (const a of affected) (byAnchor.get(a.anchor) ?? byAnchor.set(a.anchor, []).get(a.anchor)!).push(`story-${a.storyId}`);
+  console.log(`\n  ${affected.length} story(ies) impacted:`);
+  for (const [anchor, stories] of byAnchor) console.log(`    §${anchor} → ${stories.join(", ")}`);
+  console.log(`\n  next: \`slowcook reconcile --story <id>\` proposes the per-story edits (one hop, review before apply).`);
 }
