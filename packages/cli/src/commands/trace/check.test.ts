@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { checkTrace, checkCoverage, checkSurfaces, routeSatisfies, parseLcrProvenance, type SpecNode, type LcrNode, type SpecSurface } from "./check.js";
+import {
+  checkTrace,
+  checkCoverage,
+  checkSurfaces,
+  routeSatisfies,
+  parseLcrProvenance,
+  normalizeAnchorBody,
+  contentHash,
+  anchorHash,
+  checkFreshness,
+  computeImpact,
+  diffPrdStates,
+  type SpecNode,
+  type LcrNode,
+  type SpecSurface,
+} from "./check.js";
 
 describe("parseLcrProvenance", () => {
   it("recognizes @story / story-N / @convention / @craft forms", () => {
@@ -129,5 +144,83 @@ describe("checkSurfaces — persona surfaces resolve to real routes", () => {
   });
   it("is empty-safe", () => {
     expect(checkSurfaces({ surfaces: [], routes: [] })).toMatchObject({ ok: true, dangling: [] });
+  });
+});
+
+describe("PRD↔spec interdependency", () => {
+  describe("content fingerprint", () => {
+    it("normalizeAnchorBody ignores trailing ws + blank-line runs", () => {
+      expect(normalizeAnchorBody("a   \n\n\n\nb  ")).toBe("a\n\nb");
+    });
+    it("anchorHash is stable under cosmetic reflow but moves on a semantic edit", () => {
+      const a = "The operator certifies workers.\n\nAggregates only.";
+      const cosmetic = "The operator certifies workers.   \n\n\nAggregates only.\n\n";
+      const semantic = "The operator certifies agencies.\n\nAggregates only.";
+      expect(anchorHash(a)).toBe(anchorHash(cosmetic));
+      expect(anchorHash(a)).not.toBe(anchorHash(semantic));
+    });
+    it("contentHash is 16-hex and deterministic", () => {
+      expect(contentHash("x")).toMatch(/^[0-9a-f]{16}$/);
+      expect(contentHash("hello")).toBe(contentHash("hello"));
+    });
+  });
+
+  describe("checkFreshness", () => {
+    const anchors = [
+      { anchor: "personas-operator", hash: "aaaa" },
+      { anchor: "wallet", hash: "bbbb" },
+    ];
+    it("flags a spec whose recorded sha no longer matches (PRD moved)", () => {
+      const r = checkFreshness({
+        specs: [{ storyId: "019", prdAnchor: "personas-operator", prdSha: "OLD" }],
+        anchors,
+      });
+      expect(r.stale).toEqual([{ storyId: "019", anchor: "personas-operator", recorded: "OLD", current: "aaaa" }]);
+      expect(r.freshCount).toBe(0);
+    });
+    it("counts a matching spec as fresh, not stale", () => {
+      const r = checkFreshness({ specs: [{ storyId: "007", prdAnchor: "wallet", prdSha: "bbbb" }], anchors });
+      expect(r.stale).toHaveLength(0);
+      expect(r.freshCount).toBe(1);
+    });
+    it("reports unstamped specs separately (unknown freshness, not stale)", () => {
+      const r = checkFreshness({ specs: [{ storyId: "019", prdAnchor: "personas-operator" }], anchors });
+      expect(r.stale).toHaveLength(0);
+      expect(r.unstamped).toEqual([{ storyId: "019", anchor: "personas-operator" }]);
+    });
+    it("skips specs with no anchor and anchors absent from the PRD", () => {
+      const r = checkFreshness({
+        specs: [{ storyId: "100" }, { storyId: "101", prdAnchor: "ghost", prdSha: "x" }],
+        anchors,
+      });
+      expect(r.stale).toHaveLength(0);
+      expect(r.unstamped).toHaveLength(0);
+    });
+  });
+
+  describe("computeImpact", () => {
+    const specs = [
+      { storyId: "002", prdAnchor: "personas-members" },
+      { storyId: "019", prdAnchor: "personas-operator" },
+      { storyId: "007", prdAnchor: "wallet" },
+    ];
+    it("returns the stories that link a changed anchor", () => {
+      const { affected } = computeImpact({ specs, changedAnchors: ["personas-operator", "wallet"] });
+      expect(affected).toEqual([
+        { storyId: "019", anchor: "personas-operator" },
+        { storyId: "007", anchor: "wallet" },
+      ]);
+    });
+    it("is empty when nothing relevant changed", () => {
+      expect(computeImpact({ specs, changedAnchors: ["forecast"] }).affected).toHaveLength(0);
+    });
+  });
+
+  describe("diffPrdStates", () => {
+    it("classifies changed / added / removed anchors", () => {
+      const before = [{ anchor: "a", hash: "1" }, { anchor: "b", hash: "2" }, { anchor: "gone", hash: "9" }];
+      const after = [{ anchor: "a", hash: "1" }, { anchor: "b", hash: "CHANGED" }, { anchor: "new", hash: "5" }];
+      expect(diffPrdStates(before, after)).toEqual({ changed: ["b"], added: ["new"], removed: ["gone"] });
+    });
   });
 });

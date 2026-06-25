@@ -53,9 +53,9 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook recipe [--spec <id>] [--all] [--cwd <path>]
   ```
-- **`vibe`** — Design-first mockup generator. Emits a runnable React mockup PR from spec + brownfield context.
+- **`vibe`** — Design-first mockup generator. `vibe plan` (deterministic): compile all specs into the whole-app LCR plan (unified data model + conflicts, persona/route map, coverage) → .brewing/lcr-plan.json. `vibe schema` (deterministic): @story-annotated Drizzle schema from the data model. `vibe seed` (deterministic runtime + LLM): writes schema/ddl/db (a real in-browser sql.js SQLite) + LLM seed.ts (dense, state-covering data) + queries.ts (typed query adaptor / mock→prod swap seam). `vibe --spec <id>` (legacy per-story): emit a React mockup PR.
   ```
-  slowcook vibe --spec <id> [--cwd <path>] [--owner <login>] [--repo <name>] [--dry-run]
+  slowcook vibe (plan | schema [--stdout] | seed [--dry-run] [--model <id>] | --spec <id> [--owner <login>] [--repo <name>] [--dry-run]) [--cwd <path>]
   ```
 - **`plate`** — Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
   ```
@@ -100,9 +100,13 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook recon [--story <id>] [--cwd <path>] [--reuse-scan] [--stub-scan] [--exclude <glob>]
   ```
-- **`trace`** — GUCDI provenance-completeness lint over the spine: every spec/LCR node has a why (requirement/convention/craft); orphans + dangling refs fail; craft is reported. Brownfield-safe (never demands a PRD).
+- **`trace`** — GUCDI traceability lint over the spine. check: provenance (forward — every spec/LCR node has a why; orphans/dangling fail), coverage (inverse — stories with no LCR surface; --coverage to fail), persona surfaces (declared routes resolve), and freshness (specs whose PRD section changed since stamping; --strict to fail). stamp: baseline each spec's PRD-anchor fingerprint (prd_ref.sha). impact: which stories a PRD change touches (--since <ref> diffs the PRD; or --anchors a,b). Brownfield-safe (never demands a PRD).
   ```
-  slowcook trace check [--prd <path>] [--cwd <dir>]
+  slowcook trace <check|stamp|impact> [--prd <path>] [--cwd <dir>] [--coverage] [--strict] [--since <ref>] [--anchors a,b]
+  ```
+- **`reconcile`** — PRD↔spec interdependency (LLM). When a PRD section a spec anchors to has changed (see `trace impact`/`trace check`), propose a minimum-diff corrected spec: enumerate which invariants/scenarios/actors/api now contradict the PRD, and report one-hop cross-impact as notes. Propose-not-apply by default (writes specs/story-<id>.reconcile.yaml); --apply accepts it (schema-validated) and re-stamps freshness.
+  ```
+  slowcook reconcile --story <id> [--prd <path>] [--cwd <dir>] [--apply] [--dry-run] [--model <id>]
   ```
 - **`eye`** — Fidelity eye (design #8). Renders mock + brewed URLs across the viewport×scheme matrix, grades visual drift, screenshots, exits 1 on drift.
   ```

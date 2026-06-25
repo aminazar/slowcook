@@ -163,7 +163,7 @@ export interface Spec {
    * GUCDI — provenance anchor to a PRD initiative (greenfield only; optional).
    * Brownfield traces via `source_issue`. `trace check` never demands this.
    */
-  prd_ref?: { file: string; anchor: string };
+  prd_ref?: { file: string; anchor: string; sha?: string };
   /**
    * GUCDI — the data contract this story needs, baked into the LCR's SQLite+ORM
    * schema and inherited by the backend (mock→prod becomes a data-source swap).
