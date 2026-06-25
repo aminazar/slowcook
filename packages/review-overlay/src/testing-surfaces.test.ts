@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSelection, resolveSeed, selectionBreadcrumb, type Manifest } from "./testing-surfaces.js";
+import { resolveSelection, resolveSeed, selectionBreadcrumb, findSurfaceByPath, liveSurfaceLabel, activeHint, type Manifest } from "./testing-surfaces.js";
 
 const M: Manifest = {
   epics: [
@@ -9,6 +9,7 @@ const M: Manifest = {
       contexts: [
         {
           id: "guest", label: "Guest (logged out)", group: "Logged out", base: "/p/", status: "anonymous",
+          hint: "Mock: any phone, OTP 000000",
           scenarios: [
             { id: "login", label: "Log in", route: "/login", states: [
               { id: "form", label: "Login form" },
@@ -95,5 +96,35 @@ describe("selectionBreadcrumb", () => {
     const legacy = { epicId: "x", contextId: "x", scenarioId: "x", stateId: "x", status: "authed" as const, route: "/", base: "/p/" as const, label: "Therapist · Bond · No-show penalty", user: null, seed: {}, fixtures: {} };
     expect(selectionBreadcrumb(M, legacy)).toBe("Therapist › Bond › No-show penalty");
     expect(selectionBreadcrumb(null, legacy)).toBe("Therapist › Bond › No-show penalty");
+  });
+});
+
+describe("live surface (reactive status)", () => {
+  it("findSurfaceByPath matches base+route (base-aware), else null", () => {
+    expect(findSurfaceByPath(M, "/p/login")?.scn.id).toBe("login");
+    expect(findSurfaceByPath(M, "/p/patient/wallet")?.ctx.id).toBe("pf");
+    expect(findSurfaceByPath(M, "/t/therapist/accounting")?.ctx.id).toBe("ti");
+    expect(findSurfaceByPath(M, "/p/nope")).toBeNull();
+  });
+  it("shows the full breadcrumb when the live path matches the selection", () => {
+    const sel = resolveSelection(M, "payment", "pf", "cancel", "has")!.selection;
+    expect(liveSurfaceLabel(M, sel, "/p/patient/wallet")).toBe("Patient › Cancel › Has upcoming");
+  });
+  it("tracks navigation away to a different surface (identity › live scenario, no state)", () => {
+    const sel = resolveSelection(M, "payment", "pf", "cancel", "has")!.selection;
+    expect(liveSurfaceLabel(M, sel, "/t/therapist/accounting")).toBe("Therapist › Payout");
+  });
+  it("with no selection, labels the live surface; unknown path → null", () => {
+    expect(liveSurfaceLabel(M, null, "/p/login")).toBe("Guest (logged out) › Log in");
+    expect(liveSurfaceLabel(M, null, "/p/nope")).toBeNull();
+  });
+});
+
+describe("activeHint (login/OTP how-to-enter)", () => {
+  it("returns the anonymous context hint on its login surface", () => {
+    expect(activeHint(M, null, "/p/login")).toBe("Mock: any phone, OTP 000000");
+  });
+  it("no hint on an authed surface", () => {
+    expect(activeHint(M, null, "/p/patient/wallet")).toBeNull();
   });
 });

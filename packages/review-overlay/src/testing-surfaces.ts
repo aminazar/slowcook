@@ -42,6 +42,9 @@ export interface ManifestContext {
   base: string;
   status: "anonymous" | "authed";
   user?: Record<string, unknown>;
+  /** Reviewer hint for anonymous surfaces — how to "enter" (e.g. test OTP /
+   *  email / masterkey). Shown in the pill, in a distinct colour, on login/OTP. */
+  hint?: string;
   scenarios: ManifestScenario[];
 }
 export interface Epic {
@@ -135,6 +138,49 @@ export function selectionBreadcrumb(m: Manifest | null, sel: ResolvedSelection):
   const st = scn?.states.find((s) => s.id === sel.stateId);
   if (ctx && scn && st) return `${ctx.label.split(" · ")[0]} › ${scn.label} › ${st.label}`;
   return (sel.label || "").replace(/ · /g, " › ");
+}
+
+/** Base-aware full path of a surface (context base + scenario route). */
+function surfacePath(base: string, route: string): string {
+  return (`${base.replace(/\/$/, "")}${route}`).replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
+}
+
+/** The context+scenario whose route matches the live pathname (base-aware), or null. */
+export function findSurfaceByPath(m: Manifest | null, pathname: string): { ctx: ManifestContext; scn: ManifestScenario } | null {
+  if (!m) return null;
+  const p = (pathname || "/").replace(/\/$/, "") || "/";
+  for (const epic of m.epics)
+    for (const ctx of epic.contexts)
+      for (const scn of ctx.scenarios)
+        if (surfacePath(ctx.base, scn.route) === p) return { ctx, scn };
+  return null;
+}
+
+/**
+ * LIVE status breadcrumb — reflects where the reviewer ACTUALLY is (reactive to
+ * navigation), not just the last picked surface. If the current path matches the
+ * selected scenario, show the full selection breadcrumb (with state); else show
+ * the matched surface (identity › scenario); else identity › raw-path.
+ */
+export function liveSurfaceLabel(m: Manifest | null, sel: ResolvedSelection | null, pathname: string): string | null {
+  const hit = findSurfaceByPath(m, pathname);
+  if (hit) {
+    if (sel && sel.contextId === hit.ctx.id && sel.route === hit.scn.route) return selectionBreadcrumb(m, sel);
+    return `${hit.ctx.label.split(" · ")[0]} › ${hit.scn.label}`;
+  }
+  if (sel) {
+    const id = selectionBreadcrumb(m, sel).split(" › ")[0];
+    return `${id} › ${(pathname || "/").replace(/\/$/, "") || "/"}`;
+  }
+  return null;
+}
+
+/** Reviewer "how to enter" hint for the active anonymous surface, if authored. */
+export function activeHint(m: Manifest | null, sel: ResolvedSelection | null, pathname: string): string | null {
+  const hit = findSurfaceByPath(m, pathname);
+  const ctx = hit?.ctx
+    ?? (sel && m ? m.epics.flatMap((e) => e.contexts).find((c) => c.id === sel.contextId) ?? null : null);
+  return ctx && ctx.status === "anonymous" && ctx.hint ? ctx.hint : null;
 }
 
 /** Pure resolver — manifest + ids → the selection to persist + the target URL (handles `becomes`). */
