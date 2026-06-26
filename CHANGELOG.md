@@ -6,6 +6,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.9 — generic `accessory` pill slot
+
+`@slowcook-ai/review-overlay` 0.9.9 (overlay-only; additive). Adds `accessory?: ReactNode` to `SlowcookReviewOverlay` — consumer-provided content rendered INSIDE the floating pill (always visible, both nav + comment modes), after the surface switcher. The overlay stays generic: it owns the pill chrome; the consumer owns the slot. Used by dash for its premium work-session timer, so there's a single pill rather than a second floating control. No behaviour change when the prop is omitted.
+
 ## review-overlay 0.9.8 — every comment carries full context (EPSS + lang + device)
 
 `@slowcook-ai/review-overlay` 0.9.8 (overlay-only; additive). LCR review comments now carry the FULL review context so plate (and humans) never guess the conditions a comment was filed under:
