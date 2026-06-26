@@ -6,6 +6,16 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## 0.22.0 — EPSS test matrix from semantics, not routes
+
+`cli 0.22.0` · `core 0.16.0` · `llm-anthropic 0.19.0`
+
+- **EPSS rebuilt from acceptance_scenarios.** The whole-app LCR's review manifest (`testing-surfaces.json`) was deriving one "scenario" per URL route — meaningless noise. It now models **Epic · Persona · Scenario · State** semantically: a **Scenario** is the acceptance-scenario's "When" (a task), a **State** is its "Given" (the precondition), the **route** is just where the test starts (an attribute, reused across scenarios). `compileLcrPlan` emits an `EpssScenario[]`; `parseGwt` splits the Gherkin triple.
+- **Foundations home for universal states.** The UI-Stack universal states (loading/empty/error) are no longer repeated per page — they collapse into one **Foundations** epic + `/_foundations` showcase of the shared `<Async>` primitive. `vibe app` folds the `<Async>`/`useAsync`/`useSurfaceState` conventions + the Foundations page into the generated scaffold.
+- **`epic` on the spine.** `Spec.epic` (core) is a product theme grouping scenarios across personas; `menu` emits it (`MenuStoryDraft.epic`); `vibe` derives a fallback from the `prd_ref` anchor when absent.
+- **Pages render data-driven** — the EPSS State seeds the *data* via the adaptor; pages branch on `data.length` + `<Async>`, never on the state id.
+- Model documented for agents in [`docs/EPSS.md`](./docs/EPSS.md) (linked from `AGENTS.md`).
+
 ## review-overlay 0.9.7
 
 - EPSS jump palette: a **☰ All** button lists every surface (epic/persona/scenario/state) without the ≥3-char spotlight gate — an empty query matches all rows. Browsing the full route set no longer requires guessing search terms.
