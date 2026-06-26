@@ -33,6 +33,7 @@ import {
   formatLcrIssue,
   type ViewportInfo,
   type ReviewCommentPayload,
+  type SurfaceContext,
 } from "../comment-format.js";
 import {
   loadPat,
@@ -68,6 +69,21 @@ import {
 import { isResolvedStatus } from "../comment-format.js";
 import { readCurrentStory } from "./use-story-marker.js";
 import { loadManifest, applySelection, getSelection, liveSurfaceLabel, activeHint, type Manifest } from "../testing-surfaces.js";
+
+/**
+ * Collect the full review CONTEXT so EVERY comment — element-anchored or
+ * page-level (general) — carries the EPSS state + crumb and the UI language.
+ * colorScheme (dark/light) + viewport size (mobile/desktop) ride along in
+ * `viewport`. Lets plate act without guessing the conditions.
+ */
+function collectReviewContext(manifest: Manifest | null): { surface: SurfaceContext | null; lang: string | undefined } {
+  const s = getSelection();
+  const surface: SurfaceContext | null = s
+    ? { epicId: s.epicId, contextId: s.contextId, scenarioId: s.scenarioId, stateId: s.stateId, crumb: liveSurfaceLabel(manifest, s, window.location.pathname) ?? "" }
+    : null;
+  const lang = (typeof document !== "undefined" && document.documentElement.lang) || undefined;
+  return { surface, lang };
+}
 
 export interface SlowcookReviewOverlayProps {
   /**
@@ -748,6 +764,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
             : "light",
           dpr: window.devicePixelRatio || 1,
         };
+        const ctx = collectReviewContext(surfaceManifest);
         const payload = buildPayload({
           overlayVersion,
           storyId,
@@ -760,6 +777,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           bbox: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
           viewport,
           userAgent: navigator.userAgent,
+          surface: ctx.surface,
+          lang: ctx.lang,
         });
         const { res: result, kind } = await postPayload(payload, pat);
         if (result.ok) {
@@ -818,6 +837,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
             : "light",
           dpr: window.devicePixelRatio || 1,
         };
+        const ctx = collectReviewContext(surfaceManifest);
         const payload = buildPayload({
           overlayVersion,
           storyId,
@@ -828,7 +848,10 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           prose,
           viewport,
           userAgent: navigator.userAgent,
-          // No selector + no bbox → general comment.
+          // No selector + no bbox → general (page-level) comment — still carries
+          // the full surface + lang context.
+          surface: ctx.surface,
+          lang: ctx.lang,
         });
         const { res: result, kind } = await postPayload(payload, pat);
         if (result.ok) {
