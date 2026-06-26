@@ -6,6 +6,15 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.9.8 — every comment carries full context (EPSS + lang + device)
+
+`@slowcook-ai/review-overlay` 0.9.8 (overlay-only; additive). LCR review comments now carry the FULL review context so plate (and humans) never guess the conditions a comment was filed under:
+- **EPSS state** — the active `epic ▸ context ▸ scenario ▸ state` selection + human breadcrumb (new `surface` field; rendered as `**State (EPSS):** Patient › Consider a therapist › Chosen one`). Previously only the route was recorded, so two comments on different states that share a route were indistinguishable — the state lives in `localStorage` (`slowcook_test_surface`), not the URL.
+- **Language** — new `lang` (e.g. `fa`/`en`) from `document.documentElement.lang`.
+- **Device + theme** — `viewport` already carried `colorScheme`; the rendered line now also labels mobile/desktop explicitly via new `viewportMode(width)`.
+
+Applies to BOTH element-anchored and general (page-level) comments. New `SurfaceContext` type + optional `surface`/`lang` on `ReviewCommentPayload` (back-compat: omitted when absent, parser unchanged).
+
 ## 0.22.0 — EPSS test matrix from semantics, not routes
 
 `cli 0.22.0` · `core 0.16.0` · `llm-anthropic 0.19.0`
