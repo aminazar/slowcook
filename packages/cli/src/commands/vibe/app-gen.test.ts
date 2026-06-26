@@ -20,11 +20,11 @@ const plan: LcrPlan = {
 };
 
 describe("routeToName", () => {
-  it("PascalCases route segments, drops params, handles root", () => {
+  it("PascalCases segments, keeps params as By<Param>, handles root", () => {
     expect(routeToName("/admin/workers")).toBe("AdminWorkersPage");
-    expect(routeToName("/projects/:projectId/wallet")).toBe("ProjectsWalletPage");
+    expect(routeToName("/projects/:projectId/wallet")).toBe("ProjectsByProjectIdWalletPage");
     expect(routeToName("/")).toBe("HomePage");
-    expect(routeToName("/review/:guestToken")).toBe("ReviewPage");
+    expect(routeToName("/review/:guestToken")).toBe("ReviewByGuestTokenPage");
   });
 });
 
