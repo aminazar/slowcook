@@ -24,7 +24,7 @@
 
 "use client";
 
-import { useEffect, useState, useRef, useCallback, type JSX } from "react";
+import { useEffect, useState, useRef, useCallback, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { extractSelector, resolveStoredSelector } from "../selector.js";
 import {
@@ -155,6 +155,14 @@ export interface SlowcookReviewOverlayProps {
    * Empty disables the router.
    */
   testingSurfacesUrl?: string;
+  /**
+   * Pill extension slot — arbitrary consumer-provided content rendered INSIDE the
+   * floating pill, always visible (both nav + comment modes). The overlay stays
+   * generic: it owns the pill chrome; the consumer owns what goes in the slot. dash
+   * uses it for the premium work-session timer, so there's a single pill rather than
+   * a second floating control. Keep slot content compact (it shares the pill's row).
+   */
+  accessory?: ReactNode;
 }
 
 export interface ReviewSurface {
@@ -1003,6 +1011,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         identity={reviewerIdentity}
         onSignIn={() => openLogin()}
         onSignOut={signOut}
+        accessory={props.accessory}
       />
       {/* 0.3.0 — Figma-style pin layer for previously-left comments.
           Only visible in Comment mode (Nav stays clean). 0.5.0 —
@@ -1373,8 +1382,9 @@ function ModeToggle(props: {
   identity: StoredReviewerIdentity | null;
   onSignIn: () => void;
   onSignOut: () => void;
+  accessory?: ReactNode;
 }): JSX.Element {
-  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, surfaceManifest, onNavigate, reviewMode, identity, onSignIn, onSignOut } = props;
+  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, surfaceManifest, onNavigate, reviewMode, identity, onSignIn, onSignOut, accessory } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -1638,6 +1648,9 @@ function ModeToggle(props: {
       {/* 0.7.1 — "Viewing as" surface switcher. A REVIEW affordance (a real user
           is one role), so it lives in the pane, not the mock. */}
       {surfaces.length > 0 && <SurfaceSwitcher surfaces={surfaces} onNavigate={onNavigate} disabled={disabled} />}
+      {/* Pill extension slot — consumer-provided, always visible (e.g. dash's
+          work-session timer). The overlay owns the pill; the consumer owns the slot. */}
+      {accessory}
       {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
           explicit (white-on-dark) so the app's dark/light theme can't touch it.
           0.6.11 — only in Comment mode. */}
