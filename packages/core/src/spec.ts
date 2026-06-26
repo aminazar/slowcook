@@ -177,6 +177,12 @@ export interface Spec {
    * selects the shell variant (member sidebar / public nav / admin toolbar).
    * `menu` emits this; the LCR plan compiles it into the app's persona registry.
    */
+  /**
+   * GUCDI — the product THEME this story belongs to (an Epic in the EPSS test
+   * matrix). Groups acceptance-scenario test cases across personas. Absent = the
+   * LCR derives a label from the prd_ref anchor.
+   */
+  epic?: string;
   persona?: { id: string; label?: string; chrome?: "member" | "public" | "admin" };
   /**
    * GUCDI — the UI surfaces this story contributes to the LCR. Each is a route

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compileLcrPlan, type PlanSpecInput } from "./lcr-plan.js";
+import { compileLcrPlan, parseGwt, type PlanSpecInput } from "./lcr-plan.js";
 
 describe("compileLcrPlan — data model", () => {
   it("merges the same entity across stories, unioning fields + tracking provenance", () => {
@@ -73,6 +73,58 @@ describe("compileLcrPlan — personas + surfaces", () => {
   });
 
   it("is empty-safe", () => {
-    expect(compileLcrPlan([])).toEqual({ entities: [], conflicts: [], personas: [], surfaces: [], stories: [], uncoveredStories: [] });
+    expect(compileLcrPlan([])).toEqual({ entities: [], conflicts: [], personas: [], surfaces: [], stories: [], uncoveredStories: [], epss: [] });
+  });
+});
+
+describe("parseGwt", () => {
+  it("splits a Given/When/Then scenario into its three clauses, trimming trailing punctuation", () => {
+    expect(parseGwt("Given a guest on /signin, When they request a code, Then an OtpCode is sent.")).toEqual({
+      given: "a guest on /signin",
+      when: "they request a code",
+      then: "an OtpCode is sent",
+    });
+  });
+  it("returns null for a non-Gherkin scenario", () => {
+    expect(parseGwt("the wallet should never go negative")).toBeNull();
+  });
+});
+
+describe("compileLcrPlan — EPSS test matrix", () => {
+  it("builds an EPSS case per acceptance_scenario: epic + persona + scenario(When) + state(Given) + route(start)", () => {
+    const specs: PlanSpecInput[] = [
+      {
+        storyId: "025",
+        entities: [],
+        epic: "Authentication",
+        persona: { id: "guest" },
+        surfaces: [{ route: "/signin", home: true }],
+        acceptanceScenarios: [
+          "Given a guest on /signin, When they request a code, Then a code is sent",
+          "Given a guest who requested a code, When they enter it correctly, Then they are signed in",
+        ],
+      },
+    ];
+    const plan = compileLcrPlan(specs);
+    expect(plan.epss).toHaveLength(2);
+    expect(plan.epss[0]).toEqual({
+      epic: "Authentication",
+      persona: "guest",
+      scenario: "they request a code",
+      state: "a guest on /signin",
+      then: "a code is sent",
+      route: "/signin",
+      storyId: "025",
+    });
+    // the route is the START surface (home), shared across both scenarios — it is an
+    // attribute, not the scenario's identity.
+    expect(plan.epss.map((e) => e.route)).toEqual(["/signin", "/signin"]);
+  });
+
+  it("skips backend-only stories (no surface → no EPSS test case)", () => {
+    const plan = compileLcrPlan([
+      { storyId: "030", entities: [], epic: "Audit", acceptanceScenarios: ["Given x, When y, Then z"] },
+    ]);
+    expect(plan.epss).toHaveLength(0);
   });
 });

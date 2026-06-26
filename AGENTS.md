@@ -232,6 +232,11 @@ non-negotiable defaults unless the user specifically overrides.
 ## What to read next
 
 - [README.md](./README.md) — the marketing overview + status table
+- [docs/EPSS.md](./docs/EPSS.md) — **the Epic·Persona·Scenario·State model.**
+  Read before emitting/consuming `testing-surfaces.json`, writing `epic` or
+  `acceptance_scenarios` on a spec, or generating the LCR review matrix. Defines
+  why a scenario is a task (not a route) and why universal states (loading/error)
+  get one Foundations home instead of a per-page repeat.
 - [REPORTING.md](./REPORTING.md) — how to file a slowcook bug
 - [docs/plans/](./docs/plans/) — the roadmap / design docs (if a story
   references one, read it before running the agent)
