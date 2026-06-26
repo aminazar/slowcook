@@ -6,6 +6,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## docs(EPSS) — design is a state source (the inverse of state→data)
+
+Docs-only. `docs/EPSS.md` gains a section: the design runs the *other* direction — **affordances → requirements, affordance-variants → States** (the complement of "state drives the data, not a layout flag"). A rich component is a state-discovery surface; **a "drifted from design" review is a dropped requirement, not a cosmetic nit.** `AGENTS.md`'s EPSS pointer gets the one-line directive. Provenance: a chosen-therapist card whose dropped "next session / change-disabled" affordances turned out to encode the one-therapist-per-care-profile rule.
+
 ## review-overlay 0.9.9 — generic `accessory` pill slot
 
 `@slowcook-ai/review-overlay` 0.9.9 (overlay-only; additive). Adds `accessory?: ReactNode` to `SlowcookReviewOverlay` — consumer-provided content rendered INSIDE the floating pill (always visible, both nav + comment modes), after the surface switcher. The overlay stays generic: it owns the pill chrome; the consumer owns the slot. Used by dash for its premium work-session timer, so there's a single pill rather than a second floating control. No behaviour change when the prop is omitted.
