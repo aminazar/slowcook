@@ -236,7 +236,10 @@ non-negotiable defaults unless the user specifically overrides.
   Read before emitting/consuming `testing-surfaces.json`, writing `epic` or
   `acceptance_scenarios` on a spec, or generating the LCR review matrix. Defines
   why a scenario is a task (not a route) and why universal states (loading/error)
-  get one Foundations home instead of a per-page repeat.
+  get one Foundations home instead of a per-page repeat. **Design drives state:**
+  when building or reviewing a mock, treat each affordance as a requirement and each
+  affordance-variant as a State; never simplify a component without recording what you
+  dropped — a "drifted from design" comment is a dropped requirement, not a cosmetic nit.
 - [REPORTING.md](./REPORTING.md) — how to file a slowcook bug
 - [docs/plans/](./docs/plans/) — the roadmap / design docs (if a story
   references one, read it before running the agent)

@@ -158,6 +158,30 @@ also why the *same* mock seeding can later seed the real product's test setup.
 > state token, the manifest carries the Given prose as the State label and pages stay
 > data-driven. Don't reintroduce `state === "<token>"` layout branches.
 
+## Design is a state source — the inverse
+
+The rule above runs data → render. The complement, discovered the hard way while
+building a mock: **the design runs the other direction — affordances → requirements,
+and variants of an affordance → States.** The mock isn't an *illustration* of the
+spec; in slowcook it **is** the spec. So:
+
+- **Every affordance a design shows is a requirement** — a "Next session" block, a
+  "Change therapist" button, a status badge, a disabled control. Not decoration.
+- **Every way an affordance changes with the data is a State** (a Given): present vs
+  absent, enabled vs disabled, booked vs unbooked, this-value vs that-value. A rich
+  component is therefore a **state-discovery surface** — read its variants *backwards*
+  into the EPSS matrix, including States the written spec never enumerated.
+- **Simplifying a design silently drops requirements *and* States.** A "lite"
+  reproduction loses behaviours, not just pixels.
+
+Consequence for the loop: a **"drifted from design" review comment is a dropped
+requirement, not a cosmetic nit.** The fix recovers the affordance **and** the
+behaviour/state it encoded. When `vibe` reproduces (or a port adapts) a component, it
+must carry the *full* affordance set and ask of each piece "what State/behaviour does
+this imply?" — then add those States to the matrix. (Provenance: a chosen-therapist
+card whose dropped "next session / change-disabled" affordances turned out to encode
+the one-therapist-per-care-profile rule.)
+
 ## How it's encoded
 
 - **Spec (`specs/story-*.yaml`):** `epic` (theme), `persona`, `surfaces[]` (routes +
