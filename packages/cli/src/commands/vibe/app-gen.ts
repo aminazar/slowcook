@@ -240,7 +240,9 @@ export function epssManifestJson(plan: LcrPlan, projectName: string): string {
     const order: string[] = [];
     for (const s of ps) {
       if (!statesByRoute.has(s.route)) { statesByRoute.set(s.route, new Set()); order.push(s.route); }
-      for (const st of s.states.length ? s.states : ["default"]) statesByRoute.get(s.route)!.add(st);
+      // loading/error are universal (the page handles them generically), so they're
+      // never declared; a surface with no declared data-states defaults to `populated`.
+      for (const st of s.states.length ? s.states : ["populated"]) statesByRoute.get(s.route)!.add(st);
     }
     const scenarios = order.map((route) => ({
       id: routeSlug(route),
@@ -248,7 +250,12 @@ export function epssManifestJson(plan: LcrPlan, projectName: string): string {
       route,
       states: [...statesByRoute.get(route)!].map((st) => ({ id: st, label: st })),
     }));
-    return { id: p.id, label: p.id, base: home, scenarios };
+    // base is EMPTY — scenarios carry the FULL route, and the overlay composes the
+    // nav URL as `base + route`. A non-empty base (e.g. the persona home) would
+    // double the prefix (`/projects` + `/projects` → `/projects/projects`) and the
+    // EPSS palette nav would 404. (`home` is still used by REVIEW_SURFACES below.)
+    void home;
+    return { id: p.id, label: p.id, base: "", scenarios };
   });
   const manifest = {
     activeEpicDefault: "app",

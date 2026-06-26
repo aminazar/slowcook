@@ -95,13 +95,13 @@ describe("generateLcrApp", () => {
 });
 
 describe("epssManifestJson", () => {
-  it("falls back to a 'default' state when a surface declares none", () => {
+  it("defaults a stateless surface to 'populated'", () => {
     const m = JSON.parse(
       epssManifestJson(
         { ...plan, surfaces: [{ route: "/x", persona: "p", storyId: "1", home: true, states: [] }], personas: [{ id: "p", fromStories: ["1"] }] },
         "proj"
       )
     );
-    expect(m.epics[0].contexts[0].scenarios[0].states).toEqual([{ id: "default", label: "default" }]);
+    expect(m.epics[0].contexts[0].scenarios[0].states).toEqual([{ id: "populated", label: "populated" }]);
   });
 });
