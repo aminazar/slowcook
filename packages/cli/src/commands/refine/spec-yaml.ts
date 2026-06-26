@@ -157,6 +157,11 @@ const SpecSchema = z.object({
   // UI surfaces (routes) it contributes. `menu` emits these; the LCR plan
   // compiles them into the app's persona registry + navigation, and the
   // persona-surface trace lint checks each route resolves to a real router path.
+  // GUCDI — the product THEME this story belongs to (an Epic in the EPSS test
+  // matrix). Groups acceptance-scenario test cases across personas — e.g. "Founder
+  // onboarding" spanning founder + operator. Absent = the LCR derives a label from
+  // the prd_ref anchor.
+  epic: z.string().optional(),
   persona: z
     .object({ id: z.string(), label: z.string().optional(), chrome: z.enum(["member", "public", "admin"]).optional() })
     .optional(),

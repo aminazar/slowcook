@@ -8,6 +8,9 @@
  * router + comment capture). Personas live in the overlay's EPSS manifest, NOT in
  * the mock's chrome. No LLM: the skeleton is deterministic; the LLM `vibe surfaces`
  * pass later fills each stub's body. See docs/plans/vibe-whole-mock-lcr.md.
+ * The EPSS manifest model (epic·persona·scenario·state, Foundations home for the
+ * universal UI-Stack states) is defined in docs/EPSS.md — read it before changing
+ * `epssManifestJson`.
  */
 import type { LcrPlan } from "./lcr-plan.js";
 
@@ -74,10 +77,13 @@ function routeEntries(plan: LcrPlan): RouteEntry[] {
 }
 
 const j = JSON.stringify;
-/** Slug a route into an id segment for the EPSS manifest. */
-function routeSlug(route: string): string {
-  return route.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "home";
+/** Slug arbitrary text into a stable id segment for the EPSS manifest. */
+function textSlug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "x";
 }
+
+/** The Foundations showcase route — the ONE home for the universal UI-Stack states. */
+const FOUNDATIONS_ROUTE = "/_foundations";
 
 function packageJson(name: string): string {
   return (
@@ -214,6 +220,147 @@ export function useStoryMarker(storyId: string): void {
 `;
 }
 
+/** lib/use-async.ts — the async producer hook feeding the shared <Async>. */
+function useAsyncTs(): string {
+  return `import { useEffect, useState } from "react";
+
+export type Async<T> =
+  | { loading: true }
+  | { loading: false; error: Error }
+  | { loading: false; data: T };
+
+/** Run an async producer on mount + when deps change; expose loading / error /
+ *  data as a discriminated union consumed by <Async>. */
+export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): Async<T> {
+  const [state, setState] = useState<Async<T>>({ loading: true });
+  useEffect(() => {
+    let live = true;
+    setState({ loading: true });
+    fn().then(
+      (data) => { if (live) setState({ loading: false, data }); },
+      (e) => { if (live) setState({ loading: false, error: e instanceof Error ? e : new Error(String(e)) }); }
+    );
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return state;
+}
+`;
+}
+
+/** shell/async.tsx — the ONE-OFF loading/error presentation (the UI-Stack universal
+ *  states). Every data page wraps its body in <Async>; the spinner, error styling +
+ *  animations live in exactly one place. Pages write only the success UI + their
+ *  MEANINGFUL data/business states. Showcased once via the Foundations EPSS entry. */
+function asyncTsx(): string {
+  return `import type { ReactNode } from "react";
+import type { Async as AsyncResult } from "../lib/use-async";
+
+const KEYFRAMES = "@keyframes sc-spin{to{transform:rotate(360deg)}}@keyframes sc-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}";
+
+export function Spinner({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 28, color: "var(--color-text-dim)", fontSize: 13.5 }}>
+      <style>{KEYFRAMES}</style>
+      <span style={{ width: 18, height: 18, borderRadius: 999, border: "2px solid var(--color-border)", borderTopColor: "var(--color-brand)", animation: "sc-spin .7s linear infinite", display: "inline-block" }} />
+      {label}
+    </div>
+  );
+}
+
+export function ErrorState({ message }: { message: string }) {
+  return (
+    <div style={{ animation: "sc-fade .2s ease", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-card)", padding: 18, color: "var(--color-danger)", fontSize: 13.5, background: "color-mix(in srgb, var(--color-danger) 8%, transparent)" }}>
+      <style>{KEYFRAMES}</style>
+      <b>Something went wrong.</b> {message}
+    </div>
+  );
+}
+
+/** Wrap an async result: shared Spinner while loading, shared ErrorState on
+ *  failure, render children with the data on success. */
+export function Async<T>({ value, children }: { value: AsyncResult<T>; children: (data: T) => ReactNode }) {
+  if (value.loading) return <Spinner />;
+  if ("error" in value) return <ErrorState message={value.error.message} />;
+  return <>{children(value.data)}</>;
+}
+`;
+}
+
+/** lib/surface.ts — EPSS state binding. The review-overlay writes the selected
+ *  epic/persona/scenario/STATE to localStorage; a page reads the active state to
+ *  vary its data. (OSS gap: the overlay should export this hook directly.) */
+function surfaceTs(): string {
+  return `// EPSS state binding — the review-overlay writes the selected state to
+// localStorage; a page reads it to vary its data (empty / low-balance / …). This is
+// the seam that makes the EPSS state-switcher actually drive the mock.
+import { useSyncExternalStore } from "react";
+
+const KEY = "slowcook_test_surface";
+const EVENT = "slowcook-test-surface-change";
+
+function read(): string | null {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    return (JSON.parse(raw) as { stateId?: string }).stateId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function subscribe(cb: () => void): () => void {
+  window.addEventListener(EVENT, cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    window.removeEventListener(EVENT, cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
+/** The EPSS-selected state for the current surface, or \`fallback\` when none is
+ *  picked yet. */
+export function useSurfaceState(fallback = "populated"): string {
+  return useSyncExternalStore(subscribe, read, () => null) ?? fallback;
+}
+`;
+}
+
+/** pages/FoundationsPage.tsx — the ONE home for the universal UI-Stack states. The
+ *  Foundations EPSS entry points here; picking loading/empty/error in the palette
+ *  previews the shared presentation, so it's reviewable once, never per page. */
+function foundationsPageTsx(): string {
+  return `import { useStoryMarker } from "../shell/useStoryMarker";
+import { useSurfaceState } from "../lib/surface";
+import { Spinner, ErrorState } from "../shell/async";
+
+// @story foundations — universal UI-Stack states, shown once.
+export function FoundationsPage() {
+  useStoryMarker("foundations");
+  const state = useSurfaceState("loading");
+  return (
+    <section>
+      <h1 style={{ marginTop: 0 }}>Presentation primitives</h1>
+      <p style={{ opacity: 0.7, maxWidth: 560 }}>
+        The universal UI-Stack states — <b>loading</b>, <b>empty</b>, <b>error</b> — rendered
+        once by the shared <code>&lt;Async&gt;</code> primitive. Every data page reuses these
+        instead of redeclaring them. Pick a state in the EPSS palette to preview it.
+      </p>
+      <div style={{ marginTop: 16, padding: 16, border: "1px solid var(--color-border)", borderRadius: 8 }}>
+        {state === "error" ? (
+          <ErrorState message="The data source could not be reached." />
+        ) : state === "empty" ? (
+          <div style={{ padding: 28, textAlign: "center", opacity: 0.7, fontSize: 13.5 }}>Nothing here yet.</div>
+        ) : (
+          <Spinner />
+        )}
+      </div>
+    </section>
+  );
+}
+`;
+}
+
 /** The `surfaces` prop for the overlay's "Viewing as" persona switcher — named
  *  entry points the reviewer hops between (one per persona → its home route). */
 function reviewSurfacesTs(plan: LcrPlan): string {
@@ -228,32 +375,71 @@ export const REVIEW_SURFACES = ${j(surfaces, null, 2)};
 `;
 }
 
-/** The EPSS testing-surfaces.json manifest: epic ▸ context(persona) ▸ scenario
- *  (surface/route) ▸ state. The overlay renders this as the EPSS router and writes
- *  the resolved selection to localStorage for the mock's data adaptor. */
+interface MfState { id: string; label: string; expect?: string }
+interface MfScenario { id: string; label: string; route: string; states: MfState[] }
+interface MfContext { id: string; label: string; base: string; scenarios: MfScenario[] }
+interface MfEpic { id: string; label: string; contexts: MfContext[] }
+
+/** The EPSS testing-surfaces.json manifest. Each acceptance_scenario is a test
+ *  CASE: it starts at `route` in a precondition State (the Gherkin "Given") and
+ *  walks a Scenario (the "When") to an expected outcome (the "Then"). Grouped
+ *  epic ▸ context(persona) ▸ scenario(When) ▸ state(Given). The route is just
+ *  where the test starts — NOT the scenario's identity (one route can back many
+ *  scenarios). The universal UI-Stack states (loading/empty/error) are NOT
+ *  repeated per page; they get ONE "Foundations" home that demos the shared
+ *  <Async> primitive. The overlay renders this as the EPSS router and writes the
+ *  selection to localStorage for the data adaptor. URL = base + route, so base is
+ *  "" (scenarios carry absolute routes). */
 export function epssManifestJson(plan: LcrPlan, projectName: string): string {
-  const contexts = plan.personas.map((p) => {
-    const ps = plan.surfaces.filter((s) => s.persona === p.id);
-    const home = ps.find((s) => s.home)?.route ?? ps[0]?.route ?? "/";
-    // one scenario per unique route; union the declared states across surfaces.
-    const statesByRoute = new Map<string, Set<string>>();
-    const order: string[] = [];
-    for (const s of ps) {
-      if (!statesByRoute.has(s.route)) { statesByRoute.set(s.route, new Set()); order.push(s.route); }
-      for (const st of s.states.length ? s.states : ["default"]) statesByRoute.get(s.route)!.add(st);
-    }
-    const scenarios = order.map((route) => ({
-      id: routeSlug(route),
-      label: route,
-      route,
-      states: [...statesByRoute.get(route)!].map((st) => ({ id: st, label: st })),
-    }));
-    return { id: p.id, label: p.id, base: home, scenarios };
+  // epic -> persona -> scenario(When) -> states(Given), preserving first-seen order.
+  const epics = new Map<string, Map<string, Map<string, MfScenario>>>();
+  const epicOrder: string[] = [];
+  for (const t of plan.epss ?? []) {
+    if (!epics.has(t.epic)) { epics.set(t.epic, new Map()); epicOrder.push(t.epic); }
+    const personas = epics.get(t.epic)!;
+    if (!personas.has(t.persona)) personas.set(t.persona, new Map());
+    const scenarios = personas.get(t.persona)!;
+    let sc = scenarios.get(t.scenario);
+    if (!sc) { sc = { id: textSlug(t.scenario), label: t.scenario, route: t.route, states: [] }; scenarios.set(t.scenario, sc); }
+    const stId = textSlug(t.state);
+    if (!sc.states.some((s) => s.id === stId)) sc.states.push({ id: stId, label: t.state, ...(t.then ? { expect: t.then } : {}) });
+  }
+  const epicArr: MfEpic[] = epicOrder.map((epic) => ({
+    id: textSlug(epic),
+    label: epic,
+    contexts: [...epics.get(epic)!.entries()].map(([persona, scenarios]) => ({
+      id: textSlug(persona),
+      label: persona,
+      base: "",
+      scenarios: [...scenarios.values()].map((sc) => ({
+        ...sc,
+        states: sc.states.length ? sc.states : [{ id: "default", label: "default" }],
+      })),
+    })),
+  }));
+  // Foundations — the universal UI-Stack states get ONE reviewable home (the shared
+  // <Async> primitive showcase) instead of being repeated as a state on every page.
+  epicArr.push({
+    id: "foundations",
+    label: "Foundations",
+    contexts: [{
+      id: "presentation",
+      label: "Presentation",
+      base: "",
+      scenarios: [{
+        id: "async-states",
+        label: "Loading, empty & error presentation",
+        route: FOUNDATIONS_ROUTE,
+        states: [
+          { id: "loading", label: "Loading" },
+          { id: "empty", label: "Empty" },
+          { id: "error", label: "Error" },
+        ],
+      }],
+    }],
   });
-  const manifest = {
-    activeEpicDefault: "app",
-    epics: [{ id: "app", label: projectName, contexts }],
-  };
+  void projectName; // epics carry their own labels now; project name unused
+  const manifest = { activeEpicDefault: epicArr[0]?.id ?? "foundations", epics: epicArr };
   return j(manifest, null, 2) + "\n";
 }
 
@@ -306,6 +492,7 @@ function appTsx(entries: RouteEntry[], owner: string, repo: string): string {
 import { SlowcookReviewOverlay } from "@slowcook-ai/review-overlay/react";
 import { Shell } from "./shell/Shell";
 import { REVIEW_SURFACES } from "./review-surfaces";
+import { FoundationsPage } from "./pages/FoundationsPage";
 ${imports}
 
 // LCR app — generated by \`slowcook vibe app\`. Every declared surface is a route;
@@ -320,6 +507,7 @@ export function App() {
       <Routes>
         <Route element={<Shell />}>
 ${routes}
+          <Route path=${j(FOUNDATIONS_ROUTE)} element={<FoundationsPage />} />
           <Route path="/" element={<Navigate to=${j(homeRoute)} replace />} />
         </Route>
       </Routes>
@@ -367,6 +555,10 @@ export function generateLcrApp(plan: LcrPlan, opts: { projectName: string; owner
     { path: "src/review-surfaces.ts", content: reviewSurfacesTs(plan) },
     { path: "src/shell/useStoryMarker.ts", content: useStoryMarker() },
     { path: "src/shell/Shell.tsx", content: shellTsx() },
+    { path: "src/shell/async.tsx", content: asyncTsx() },
+    { path: "src/lib/use-async.ts", content: useAsyncTs() },
+    { path: "src/lib/surface.ts", content: surfaceTs() },
+    { path: "src/pages/FoundationsPage.tsx", content: foundationsPageTsx() },
     { path: "src/App.tsx", content: appTsx(entries, owner, repo) },
     { path: "public/testing-surfaces.json", content: epssManifestJson(plan, opts.projectName) },
   ];

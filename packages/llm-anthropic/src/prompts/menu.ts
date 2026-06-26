@@ -6,6 +6,8 @@
  * SQLite+ORM mock bakes in and the backend later inherits).
  *
  * See docs/plans/gucdi-greenfield.md. Single-shot, like brand/vibe.
+ * EPSS model (epic/persona/scenario/state, and why universal states are shared):
+ * docs/EPSS.md.
  */
 
 /** The structured story shape menu emits (one element of `{stories: [...]}`). */
@@ -13,6 +15,11 @@ export interface MenuStoryDraft {
   title: string;
   /** Must be one of the PRD initiative anchors provided in the user message. */
   prd_anchor: string;
+  /** The product THEME this story belongs to — an Epic in the EPSS test matrix.
+   *  A short human phrase that groups acceptance-scenario test cases across
+   *  personas (e.g. "Founder onboarding", "Worker certification"). NOT a PRD
+   *  section name. */
+  epic: string;
   estimate: "small" | "medium" | "large";
   actors: { name: string; notes?: string }[];
   invariants: string[];
@@ -52,13 +59,14 @@ A SINGLE JSON object, no prose, no markdown fences:
 Each \`<story>\`:
 - \`title\` — one clear capability (no conjunctions; a single approvable slice).
 - \`prd_anchor\` — one anchor from the provided list.
+- \`epic\` — the product **theme** this story belongs to: a short human phrase (e.g. "Founder onboarding", "Worker certification", "Billing & vouchers"). This is the EPSS **Epic** — it groups the story's acceptance-scenario test cases with sibling stories ACROSS personas (a founder story and an operator story can share one epic). Reuse the SAME epic phrase across related stories; it is NOT a PRD section heading and NOT one-per-story.
 - \`estimate\` — "small" | "medium" | "large".
 - \`actors\` — [{ name, notes? }].
 - \`invariants\` — rules that must always hold.
 - \`data_contract\` — **REQUIRED and load-bearing.** The real data this story needs: \`{ entities: [{ name, fields: [{ name, type }], relations? }], api?: [{ method, path, note? }] }\`. The LCR bakes a real SQLite+ORM store from these, and the backend INHERITS them (mock→prod is a data-source swap), so shape them like real entities — relations, types, no flat fakes.
 - \`ui_behavior\` — optional map keyed by mode, e.g. { "desktop_light": "...", "mobile_dark": "..." }.
 - \`persona\` — **REQUIRED for any story with a UI surface.** The single primary persona this story serves: \`{ id, label?, chrome }\` where \`chrome\` ∈ \`member|public|admin\` (member sidebar / public/marketing nav / admin toolbar). Use ONE concrete persona id (e.g. \`founder\`, \`operator\`, \`worker\`) — never a slash-joined blob like "PM / Designer / QA". OMIT for backend-only stories (schema/CI/audit with no screen).
-- \`surfaces\` — **REQUIRED for any story with a UI surface.** The routes this story adds to the ONE clickable whole-app LCR (every surface reachable, no auth walls): \`[{ route, name?, persona?, home?, states }]\`. \`route\` is the production route shape (e.g. \`/operator/workers\`, \`/u/:handle\`); \`home: true\` marks the persona's landing route; \`states\` lists the data states the surface must render — choose from \`empty|populated|loading|error|edge\` so the mock can be densely populated AND show every meaningful case. OMIT for backend-only stories. The LCR is one app: reuse a route across stories rather than inventing near-duplicates.
+- \`surfaces\` — **REQUIRED for any story with a UI surface.** The routes this story adds to the ONE clickable whole-app LCR (every surface reachable, no auth walls): \`[{ route, name?, persona?, home?, states }]\`. \`route\` is the production route shape (e.g. \`/operator/workers\`, \`/u/:handle\`); \`home: true\` marks the persona's landing route; \`states\` lists ONLY the **conditions that genuinely change the UI or what the user can DO** — \`empty\` vs \`populated\`, or a **business condition** like \`insufficient-funds\` (the action is blocked + a specific error shown), \`expired-voucher\`, \`mark-below-threshold\`. Do **NOT** list \`loading\` or \`error\` — those are universal *presentation* rendered by one shared primitive, never per-surface. One or two states is usually enough (none → defaults to \`populated\`); don't pad. OMIT \`surfaces\` for backend-only stories. The LCR is one app: reuse a route across stories rather than inventing near-duplicates.
 - \`fidelity_modes\` — which modes matter for this story's design, as tokens from \`light|dark|mobile|desktop\` plus \`locale:<code>\` (e.g. ["light","dark","mobile","locale:fa"]). Declare dark/mobile/RTL only when the design is genuinely mode-specific.
 - \`acceptance_scenarios\` — Given/When/Then; at least three (happy · validation/error · edge) per story.
 - \`non_goals\` — what this story explicitly defers.

@@ -542,8 +542,22 @@ function loadPlan(cwd: string): LcrPlan | null {
     actors: (s.actors ?? []).map((a) => ({ name: a.name })),
     persona: s.persona,
     surfaces: s.surfaces,
+    epic: s.epic ?? readableAnchor(s.prd_ref?.anchor),
+    title: s.title,
+    acceptanceScenarios: s.acceptance_scenarios,
   }));
   return compileLcrPlan(planSpecs);
+}
+
+/** Derive a readable Epic label from a PRD anchor slug when the spec has no
+ *  explicit `epic` — strips the common heading prefixes and title-cases the rest.
+ *  "surface-founder-onboarding" → "Founder Onboarding". Falls back to "General". */
+function readableAnchor(anchor?: string): string {
+  if (!anchor) return "General";
+  const stripped = anchor.replace(/^(surfaces?|personas?|sections?|epic)-/i, "");
+  const words = stripped.split(/[-_]+/).filter(Boolean);
+  if (!words.length) return "General";
+  return words.map((w) => w[0]!.toUpperCase() + w.slice(1)).join(" ");
 }
 
 async function runPlan(argv: string[]): Promise<void> {
