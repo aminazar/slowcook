@@ -4,6 +4,9 @@
 
 export type SpecStatus = "draft" | "active" | "superseded";
 
+/** T-shirt size for the budgeting `effort` block (relative sizing per dimension). */
+export type EffortSize = "xs" | "s" | "m" | "l" | "xl";
+
 export type RelationshipKind = "overlap" | "related" | "superseded";
 
 export interface Actor {
@@ -183,6 +186,31 @@ export interface Spec {
    * LCR derives a label from the prd_ref anchor.
    */
   epic?: string;
+  /**
+   * Budgeting — the agent's earliest (post-`menu`) RELATIVE effort estimate. The
+   * LLM is poor at absolute hours but decent at relative sizing + naming drivers,
+   * so it sizes each dimension t-shirt-style and flags the qualitative cost/risk
+   * drivers that aren't countable from the spec; a calibrated deterministic model
+   * (`slowcook estimate`) converts this + the countable drivers into a 3-point
+   * dual-currency (tokens + manhours) estimate. `confidence` sets the cone band
+   * width; `risk` adds variance. See dash docs/BUDGETING-AND-ROADMAP.md.
+   */
+  effort?: {
+    /** relative size of design (plate/vibe) work. */
+    design: EffortSize;
+    /** relative size of implementation (build) work. */
+    build: EffortSize;
+    /** relative size of test + manual QA work. */
+    qa: EffortSize;
+    /** qualitative cost/risk drivers the LLM identifies (not countable). */
+    drivers: string[];
+    /** delivery risk → variance + rework likelihood. */
+    risk: "low" | "medium" | "high";
+    /** 0–1, the agent's confidence in this sizing → cone band width. */
+    confidence: number;
+    /** one line: why this size (auditability). */
+    rationale?: string;
+  };
   persona?: { id: string; label?: string; chrome?: "member" | "public" | "admin" };
   /**
    * GUCDI — the UI surfaces this story contributes to the LCR. Each is a route

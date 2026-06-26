@@ -56,6 +56,12 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "pipeline",
   },
   {
+    name: "estimate",
+    usage: "slowcook estimate [--cwd <dir>] [--by-epic] [--json] [--iterations <n>]",
+    description: "Budgeting: 3-point dual-currency (manhours + tokens) estimate per story from countable drivers + the menu `effort` block, rolled up to portfolio p50/p85/p95 via Monte-Carlo.",
+    group: "pipeline",
+  },
+  {
     name: "refine",
     usage: "slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]",
     description: "Drive a GitHub issue through a clarifying-question loop until a frozen spec PR is emitted.",

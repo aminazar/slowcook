@@ -41,6 +41,7 @@ import { brand } from "./commands/brand/index.js";
 import { eye } from "./commands/eye/index.js";
 import { gate } from "./commands/gate/index.js";
 import { menu } from "./commands/menu/index.js";
+import { runEstimate } from "./commands/estimate/index.js";
 import { trace } from "./commands/trace/index.js";
 import { reconcile } from "./commands/reconcile/index.js";
 import { greenfield } from "./commands/greenfield/index.js";
@@ -291,6 +292,12 @@ async function main(): Promise<void> {
       // GUCDI — decompose a PRD into a comprehensive, anchored, data-contracted
       // story set under specs/. The greenfield entry point.
       await menu(args.slice(1), VERSION);
+      return;
+    case "estimate":
+      // Budgeting — the post-menu cone point: 3-point dual-currency (manhours +
+      // tokens) per story from countable drivers ⊕ the LLM `effort` block, rolled
+      // up to portfolio percentiles via Monte-Carlo. dash consumes this.
+      await runEstimate(args.slice(1));
       return;
     case "trace":
       // GUCDI — provenance-completeness lint over the spine (the keystone):

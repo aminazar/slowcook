@@ -45,6 +45,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook greenfield status [--prd <path>] [--cwd <dir>]
   ```
+- **`estimate`** — Budgeting: 3-point dual-currency (manhours + tokens) estimate per story from countable drivers + the menu `effort` block, rolled up to portfolio p50/p85/p95 via Monte-Carlo.
+  ```
+  slowcook estimate [--cwd <dir>] [--by-epic] [--json] [--iterations <n>]
+  ```
 - **`refine`** — Drive a GitHub issue through a clarifying-question loop until a frozen spec PR is emitted.
   ```
   slowcook refine --issue <number> [--cwd <path>] [--owner <login>] [--repo <name>]

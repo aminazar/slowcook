@@ -60,6 +60,7 @@ export function assembleStories(drafts: MenuStoryDraft[], opts: AssembleOptions)
     if (d.ui_behavior && Object.keys(d.ui_behavior).length > 0) spec.ui_behavior = d.ui_behavior;
     if (d.fidelity_modes && d.fidelity_modes.length > 0) spec.fidelity = { modes: d.fidelity_modes };
     if (d.epic) spec.epic = d.epic;
+    if (d.effort) spec.effort = d.effort;
     if (d.persona) spec.persona = d.persona;
     if (d.surfaces && d.surfaces.length > 0) spec.surfaces = d.surfaces;
     return spec;

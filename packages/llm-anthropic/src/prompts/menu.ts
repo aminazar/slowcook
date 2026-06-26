@@ -28,6 +28,18 @@ export interface MenuStoryDraft {
     api?: { method: string; path: string; note?: string }[];
   };
   ui_behavior?: Record<string, string>;
+  /** Budgeting — the agent's earliest RELATIVE effort estimate (the cone's first
+   *  point). Sizes each dimension t-shirt-style + names the qualitative drivers a
+   *  calibrated model can't count; `confidence` sets the band, `risk` the variance. */
+  effort: {
+    design: "xs" | "s" | "m" | "l" | "xl";
+    build: "xs" | "s" | "m" | "l" | "xl";
+    qa: "xs" | "s" | "m" | "l" | "xl";
+    drivers: string[];
+    risk: "low" | "medium" | "high";
+    confidence: number;
+    rationale?: string;
+  };
   /** GUCDI — the primary persona this story serves in the whole-app LCR.
    *  `chrome` picks the shell: member sidebar / public nav / admin toolbar.
    *  Omit for backend-only stories (no UI surface). */
@@ -68,6 +80,12 @@ Each \`<story>\`:
 - \`persona\` — **REQUIRED for any story with a UI surface.** The single primary persona this story serves: \`{ id, label?, chrome }\` where \`chrome\` ∈ \`member|public|admin\` (member sidebar / public/marketing nav / admin toolbar). Use ONE concrete persona id (e.g. \`founder\`, \`operator\`, \`worker\`) — never a slash-joined blob like "PM / Designer / QA". OMIT for backend-only stories (schema/CI/audit with no screen).
 - \`surfaces\` — **REQUIRED for any story with a UI surface.** The routes this story adds to the ONE clickable whole-app LCR (every surface reachable, no auth walls): \`[{ route, name?, persona?, home?, states }]\`. \`route\` is the production route shape (e.g. \`/operator/workers\`, \`/u/:handle\`); \`home: true\` marks the persona's landing route; \`states\` lists ONLY the **conditions that genuinely change the UI or what the user can DO** — \`empty\` vs \`populated\`, or a **business condition** like \`insufficient-funds\` (the action is blocked + a specific error shown), \`expired-voucher\`, \`mark-below-threshold\`. Do **NOT** list \`loading\` or \`error\` — those are universal *presentation* rendered by one shared primitive, never per-surface. One or two states is usually enough (none → defaults to \`populated\`); don't pad. OMIT \`surfaces\` for backend-only stories. The LCR is one app: reuse a route across stories rather than inventing near-duplicates.
 - \`fidelity_modes\` — which modes matter for this story's design, as tokens from \`light|dark|mobile|desktop\` plus \`locale:<code>\` (e.g. ["light","dark","mobile","locale:fa"]). Declare dark/mobile/RTL only when the design is genuinely mode-specific.
+- \`effort\` — the **earliest budget estimate** (the cone of uncertainty's first point). You are unreliable at absolute hours, so size **relatively** and flag what a counting model can't see:
+  - \`design\` / \`build\` / \`qa\` — t-shirt size (\`xs|s|m|l|xl\`) for, respectively, the design (plate/vibe) work, the implementation work, and the test + manual-QA work. Size by the story's intrinsic complexity, NOT its importance.
+  - \`drivers\` — qualitative cost/risk factors you can read from the PRD that aren't countable from the spec's structure. Use short kebab tags from: \`external-integration\` (3rd-party API/webhook), \`novel-algorithm\`, \`stateful-flow\` (multi-step), \`multi-persona\`, \`data-migration\`, \`realtime\`, \`compliance\`, \`concurrency\`, \`ambiguous-requirements\`. Only include ones that genuinely apply; omit the rest. \`[]\` is valid for a plain CRUD story.
+  - \`risk\` — \`low|medium|high\` delivery risk (likelihood of rework / wide variance). High when requirements are ambiguous, many invariants interact, or it integrates externally.
+  - \`confidence\` — 0–1, how confident you are in the sizing. Lower confidence widens the forecast band. Be honest: a story with open questions should be ≤0.6.
+  - \`rationale\` — one line on why (auditability). Do NOT invent hours or dollar amounts — the deterministic estimator converts your relative sizing using calibrated coefficients.
 - \`acceptance_scenarios\` — Given/When/Then; at least three (happy · validation/error · edge) per story.
 - \`non_goals\` — what this story explicitly defers.
 - \`open_questions\` — \`{ addressable: [...], deferred: [...] }\`. **addressable** = questions you could answer but the PRD left ambiguous (must be resolved before the scope is "complete"); **deferred** = genuinely undecidable now (parked, re-enter on a future amendment). NEVER silently drop a question — surface it.

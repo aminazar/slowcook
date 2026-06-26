@@ -162,6 +162,18 @@ const SpecSchema = z.object({
   // onboarding" spanning founder + operator. Absent = the LCR derives a label from
   // the prd_ref anchor.
   epic: z.string().optional(),
+  // Budgeting — the agent's earliest relative effort estimate (post-menu cone point).
+  effort: z
+    .object({
+      design: z.enum(["xs", "s", "m", "l", "xl"]),
+      build: z.enum(["xs", "s", "m", "l", "xl"]),
+      qa: z.enum(["xs", "s", "m", "l", "xl"]),
+      drivers: z.array(z.string()),
+      risk: z.enum(["low", "medium", "high"]),
+      confidence: z.number(),
+      rationale: z.string().optional(),
+    })
+    .optional(),
   persona: z
     .object({ id: z.string(), label: z.string().optional(), chrome: z.enum(["member", "public", "admin"]).optional() })
     .optional(),
