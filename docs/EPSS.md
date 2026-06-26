@@ -131,6 +131,33 @@ that carry no design or test judgement. One Foundations home covers it.
 
 ---
 
+## State drives the data, not a layout flag
+
+A subtle but load-bearing rule discovered while building the mock: **a page should
+render whatever the data adaptor returns — it must not branch its layout on the EPSS
+state id.** The State selects the *data* (via the adaptor seeding the precondition);
+the page reacts to the *data*, not to the token.
+
+Concretely:
+- `empty` vs `populated` → the page branches on `rows.length === 0`, not on
+  `state === "empty"`. The adaptor returns no rows for the empty precondition.
+- `below-threshold`, `insufficient-funds` → the page reflects the *values* in the
+  data (a mark under the threshold, a balance under the floor), not a flag.
+- `loading` / `error` → the shared `<Async>` handles them off the async result.
+
+Why: the Gherkin "Given" is prose, and the spec's `surfaces[].states` are coarse
+generic tokens (`empty`/`populated`/`edge`) — neither is a stable code identifier a
+page can switch on without breaking when wording changes. Coupling layout to the
+state id is brittle; rendering the data is robust and is what a real product does.
+The seam that makes a State real is therefore the **data adaptor** (`vibe seed` /
+`lib/queries`): it reads the selected state and produces the matching rows. That is
+also why the *same* mock seeding can later seed the real product's test setup.
+
+> Open OSS gap: there is no explicit link from an `acceptance_scenario` to the
+> `surfaces[].states` token it exercises. Until `menu` tags each scenario with its
+> state token, the manifest carries the Given prose as the State label and pages stay
+> data-driven. Don't reintroduce `state === "<token>"` layout branches.
+
 ## How it's encoded
 
 - **Spec (`specs/story-*.yaml`):** `epic` (theme), `persona`, `surfaces[]` (routes +
