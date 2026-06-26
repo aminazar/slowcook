@@ -24,6 +24,26 @@ export interface ViewportInfo {
   dpr: number;
 }
 
+/**
+ * The EPSS selection active when the comment was filed (epic ▸ context ▸
+ * scenario ▸ state) — so plate knows the exact precondition/state the reviewer
+ * was looking at, rather than guessing from the route (multiple states share a
+ * route, and the state lives in localStorage, not the URL).
+ */
+export interface SurfaceContext {
+  epicId: string;
+  contextId: string;
+  scenarioId: string;
+  stateId: string;
+  /** Human-readable breadcrumb, e.g. "Patient › Consider a therapist › Chosen one". */
+  crumb: string;
+}
+
+/** Coarse device class from viewport width — for plate + humans. */
+export function viewportMode(width: number): "mobile" | "desktop" {
+  return width < 768 ? "mobile" : "desktop";
+}
+
 export interface ReviewCommentPayload {
   slowcook_overlay_version: string;
   story_id: string | null;
@@ -66,6 +86,15 @@ export interface ReviewCommentPayload {
   } | null;
   viewport: ViewportInfo;
   user_agent: string;
+  /**
+   * Full review CONTEXT so plate never guesses the conditions. `viewport`
+   * already carries colorScheme (dark/light) + size (mobile/desktop); these add
+   * the EPSS state and the UI language. Present on BOTH element-anchored and
+   * general (page-level) comments.
+   */
+  surface?: SurfaceContext | null;
+  /** App language at comment time, e.g. "fa" | "en" (document.documentElement.lang). */
+  lang?: string;
 }
 
 export const PAYLOAD_MARKER = "slowcook:review-overlay";
@@ -186,9 +215,16 @@ export function formatReviewComment(args: FormatArgs): string {
     lines.push(`### Review note (general — no element anchor)`);
     lines.push("");
   }
+  // Full context so plate (and humans) never guess the conditions. Rendered for
+  // BOTH element-anchored and general (page-level) comments.
   lines.push(
-    `**Viewport:** ${payload.viewport.width}×${payload.viewport.height} ${payload.viewport.colorScheme} (dpr ${payload.viewport.dpr})`
+    `**Viewport:** ${payload.viewport.width}×${payload.viewport.height} (${viewportMode(payload.viewport.width)}) · ${payload.viewport.colorScheme} mode${payload.lang ? ` · lang \`${payload.lang}\`` : ""} (dpr ${payload.viewport.dpr})`
   );
+  if (payload.surface) {
+    lines.push(
+      `**State (EPSS):** ${payload.surface.crumb}  \`${payload.surface.epicId} ▸ ${payload.surface.contextId} ▸ ${payload.surface.scenarioId} ▸ ${payload.surface.stateId}\``
+    );
+  }
   if (payload.pathname) {
     lines.push(`**Route:** \`${payload.pathname}${payload.route_query ?? ""}\``);
   }
@@ -339,6 +375,10 @@ export function buildPayload(args: {
   bbox?: { x: number; y: number; w: number; h: number };
   viewport: ViewportInfo;
   userAgent: string;
+  /** EPSS selection active at comment time (epic ▸ context ▸ scenario ▸ state). */
+  surface?: SurfaceContext | null;
+  /** UI language at comment time (e.g. "fa" | "en"). */
+  lang?: string;
 }): ReviewCommentPayload {
   const element =
     args.selector && args.bbox
@@ -363,5 +403,7 @@ export function buildPayload(args: {
     element,
     viewport: args.viewport,
     user_agent: args.userAgent,
+    ...(args.surface ? { surface: args.surface } : {}),
+    ...(args.lang ? { lang: args.lang } : {}),
   };
 }

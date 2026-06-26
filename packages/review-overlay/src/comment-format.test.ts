@@ -8,6 +8,7 @@ import {
   VIBE_LABEL,
   COMMUNITY_LABEL,
   PAYLOAD_MARKER,
+  viewportMode,
 } from "./comment-format.js";
 import type { ExtractedSelector } from "./selector.js";
 
@@ -25,6 +26,55 @@ const sampleViewport = {
   colorScheme: "dark" as const,
   dpr: 3,
 };
+
+const sampleSurface = {
+  epicId: "patient-care",
+  contextId: "patient",
+  scenarioId: "consider-therapist",
+  stateId: "chosen",
+  crumb: "Patient › Consider a therapist › Chosen one",
+};
+
+describe("full review context (EPSS surface + lang + viewport mode)", () => {
+  it("viewportMode classifies by width (mobile < 768 ≤ desktop)", () => {
+    expect(viewportMode(390)).toBe("mobile");
+    expect(viewportMode(767)).toBe("mobile");
+    expect(viewportMode(768)).toBe("desktop");
+    expect(viewportMode(1440)).toBe("desktop");
+  });
+
+  it("buildPayload carries surface + lang and round-trips through parse", () => {
+    const p = buildPayload({
+      overlayVersion: "0.9.8", storyId: null, url: "http://x/p/patient/therapists",
+      prose: "x", viewport: sampleViewport, userAgent: "UA", surface: sampleSurface, lang: "fa",
+    });
+    expect(p.surface).toEqual(sampleSurface);
+    expect(p.lang).toBe("fa");
+    expect(parseReviewComment(formatReviewComment({ payload: p }))).toMatchObject({ surface: sampleSurface, lang: "fa" });
+  });
+
+  it("renders the full context on a GENERAL (page-level, no element) comment", () => {
+    const p = buildPayload({
+      overlayVersion: "0.9.8", storyId: null, url: "http://x/p/patient/therapists",
+      prose: "page comment", viewport: sampleViewport, userAgent: "UA", surface: sampleSurface, lang: "fa",
+    });
+    expect(p.element).toBeNull(); // general / page-level
+    const body = formatReviewComment({ payload: p });
+    expect(body).toContain("Review note (general"); // page-level comment
+    expect(body).toContain("(mobile)");             // viewport mode
+    expect(body).toContain("dark mode");            // colorScheme
+    expect(body).toContain("lang `fa`");            // language
+    expect(body).toContain("**State (EPSS):**");    // EPSS context
+    expect(body).toContain("Chosen one");           // crumb
+  });
+
+  it("omits surface/lang when absent (back-compat)", () => {
+    const p = buildPayload({ overlayVersion: "0.9.8", storyId: null, url: "http://x", prose: "x", viewport: sampleViewport, userAgent: "UA" });
+    expect(p.surface).toBeUndefined();
+    expect(p.lang).toBeUndefined();
+    expect(formatReviewComment({ payload: p })).not.toContain("**State (EPSS):**");
+  });
+});
 
 describe("buildPayload", () => {
   it("populates every required field + carries the timestamp", () => {
@@ -126,7 +176,7 @@ describe("formatReviewComment + parseReviewComment round trip", () => {
     const body = formatReviewComment({ payload });
     expect(body).toContain("### Review comment — `#unread-badge`");
     expect(body).toContain("**Element:** `span` · \"3\"");
-    expect(body).toContain("**Viewport:** 390×844 dark (dpr 3)");
+    expect(body).toContain("**Viewport:** 390×844 (mobile) · dark mode (dpr 3)");
     expect(body).toContain("> Pin button looks dead.");
     expect(body).toContain("> ");
     expect(body).toContain("> The disabled state is invisible.");
