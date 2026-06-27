@@ -491,10 +491,24 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // token, org OAuth-App restriction, or a private repo the token can't see)
   // routes to the sign-in dialog with a deterministic explanation, instead of a
   // dead-end toast. Other failures still toast.
+  // The shared reviewer token (used by BOTH comments and the Docs studio) is dead.
+  // Clear the whole session — token AND the cached identity — so the overlay shows
+  // "signed out" CONSISTENTLY everywhere (not signed-in in the pill but rejected in
+  // Docs), then open the login dialog. One re-sign-in restores everything.
+  const expireSession = useCallback((reason?: string) => {
+    if (typeof window !== "undefined") clearReviewerSession(window.localStorage, { owner, repo });
+    setReviewerIdentity(null);
+    openLogin(reason ?? "Your GitHub session expired — sign in again.");
+  }, [owner, repo, openLogin]);
+
   const reportFailure = useCallback((status: number | undefined, message: string | undefined, prefix: string) => {
-    if (status === 401 || status === 403 || status === 404) openLogin(describeAuthError(status, message, { owner, repo }));
+    // 401 "Bad credentials" = the token itself is invalid (expired) → expire the
+    // shared session. 403/404 can be OAuth-restriction / private-repo, not a dead
+    // token — route to sign-in without clearing.
+    if (status === 401) expireSession(describeAuthError(status, message, { owner, repo }));
+    else if (status === 403 || status === 404) openLogin(describeAuthError(status, message, { owner, repo }));
     else setFeedback(`${prefix}: ${status ?? "?"} ${message ?? ""}`);
-  }, [openLogin, owner, repo]);
+  }, [openLogin, owner, repo, expireSession]);
 
   const startDeviceLogin = useCallback(async () => {
     if (!authBase) return;
@@ -1058,6 +1072,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           identity={reviewerIdentity}
           getToken={() => (typeof window !== "undefined" ? loadReviewerToken(window.localStorage, repoCoord) : null)}
           onSignIn={() => openLogin()}
+          onSessionExpired={() => expireSession(`Your GitHub session expired — sign in again to read the docs.`)}
           apiBase={getProxyApiBase() ?? undefined}
           onClose={() => setDocsPanelOpen(false)}
           onFeedback={(t) => setFeedback(t)}
@@ -3036,11 +3051,13 @@ function DocsPanel(props: {
   identity: StoredReviewerIdentity | null;
   getToken: () => string | null;
   onSignIn: () => void;
+  /** The shared token was rejected (expired) — clear the whole session + re-prompt. */
+  onSessionExpired: () => void;
   apiBase?: string;
   onClose: () => void;
   onFeedback: (t: string) => void;
 }): JSX.Element {
-  const { repo, docPaths, branch, identity, getToken, onSignIn, apiBase, onClose, onFeedback } = props;
+  const { repo, docPaths, branch, identity, getToken, onSignIn, onSessionExpired, apiBase, onClose, onFeedback } = props;
   const [path, setPath] = useState<string>(docPaths[0] ?? "");
   const [file, setFile] = useState<DocFile | null>(null);
   const [draft, setDraft] = useState<string>("");
@@ -3061,10 +3078,12 @@ function DocsPanel(props: {
     if (res.ok) { setFile(res.file); setDraft(res.file.content); setView("preview"); }
     else if (res.status === 401) {
       // 401 "Bad credentials" = the token is invalid — almost always an EXPIRED
-      // reviewer session (device-flow tokens expire). Not signed in yet looks the
-      // same. Either way: re-authenticate (a fresh sign-in overwrites the token).
+      // reviewer session (device-flow tokens expire). A token WAS present (the pill
+      // still shows signed-in), so clear the whole SHARED session so the overlay is
+      // consistent everywhere + re-prompt; absent token is just a normal sign-in.
       setNeedsAuth(true);
       setError(token ? `Your GitHub session expired — sign in again to read ${short}.` : `Sign in with GitHub to read ${short} — this repo is private.`);
+      if (token) onSessionExpired();
     } else if (!token && res.status === 404) {
       setNeedsAuth(true);
       setError(`Sign in with GitHub to read ${short} — this repo is private.`);
@@ -3072,7 +3091,7 @@ function DocsPanel(props: {
       setError(`Couldn't load ${p}: ${res.message} (${res.status})`);
     }
     setLoading(false);
-  }, [repo.owner, repo.repo, ref, apiBase, getToken]);
+  }, [repo.owner, repo.repo, ref, apiBase, getToken, onSessionExpired]);
 
   useEffect(() => { if (path) void load(path); }, [path, load]);
 

@@ -8,7 +8,7 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ## review-overlay 0.9.10 — Docs studio handles an expired session
 
-`@slowcook-ai/review-overlay` 0.9.10 (overlay-only; bug fix). The Docs studio reads spine docs with the signed-in reviewer's token; device-flow tokens expire, so a stale session returned a dead-end `Couldn't load docs/PRD.md: Bad credentials (401)`. Now a **401 is recognised as an expired/absent session** — the panel shows "Your GitHub session expired — sign in again" with a **Sign in with GitHub** button + a **Retry**, so re-authenticating (which overwrites the stale token) recovers in place. No change when the token is valid.
+`@slowcook-ai/review-overlay` 0.9.10 (overlay-only; bug fix). The Docs studio and comments share ONE reviewer token (`loadReviewerToken`); device-flow tokens expire, so a stale session returned a dead-end `Couldn't load docs/PRD.md: Bad credentials (401)` — while the pill still showed the cached identity as "signed in", making it look like Docs and LCR didn't share the login. Now a **401 expires the whole session** — token **and** cached identity are cleared, so the pill, comments, and Docs all show signed-out **consistently**, and **one** re-sign-in restores everything. The Docs panel surfaces a **Sign in with GitHub** + **Retry**; valid-token path unchanged.
 
 ## docs(EPSS) — an affordance's interaction is part of the requirement
 
