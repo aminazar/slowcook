@@ -6,6 +6,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## docs(EPSS) — an affordance's interaction is part of the requirement
+
+Docs-only follow-up to the "design is a state source" section. Extends affordances→requirements from *presence + appearance + data-variant* to **interaction**: *what an affordance does when activated* is spec too. A button reproduced to look right but wired to a stub (e.g. `navigate` instead of opening the design's confirm modal) drops a requirement just as surely as a missing control — and the modal's content + data-driven branching are themselves requirements. New EPSS.md bullet + consequence sentence ("doesn't *behave* like design" is the same class of miss as "doesn't *look* like design"), mirrored in `AGENTS.md`'s pointer. Provenance: a chosen-therapist card whose Manage/Cancel buttons, reproduced visually but stubbed to a route change, dropped the cancel-confirm-sheet flow that surfaces the ≥24h-refund / <24h-charge cancellation model.
+
 ## docs(EPSS) — design is a state source (the inverse of state→data)
 
 Docs-only. `docs/EPSS.md` gains a section: the design runs the *other* direction — **affordances → requirements, affordance-variants → States** (the complement of "state drives the data, not a layout flag"). A rich component is a state-discovery surface; **a "drifted from design" review is a dropped requirement, not a cosmetic nit.** `AGENTS.md`'s EPSS pointer gets the one-line directive. Provenance: a chosen-therapist card whose dropped "next session / change-disabled" affordances turned out to encode the one-therapist-per-care-profile rule.

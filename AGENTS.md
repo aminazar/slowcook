@@ -238,8 +238,11 @@ non-negotiable defaults unless the user specifically overrides.
   why a scenario is a task (not a route) and why universal states (loading/error)
   get one Foundations home instead of a per-page repeat. **Design drives state:**
   when building or reviewing a mock, treat each affordance as a requirement and each
-  affordance-variant as a State; never simplify a component without recording what you
-  dropped — a "drifted from design" comment is a dropped requirement, not a cosmetic nit.
+  affordance-variant as a State; an affordance's *interaction* (what activating it
+  does — e.g. opening a confirm modal vs navigating away) is part of the requirement
+  too, so reproduce the flow, never a stub; never simplify a component without recording
+  what you dropped — a "drifted from design" comment is a dropped requirement, not a
+  cosmetic nit, and "doesn't *behave* like design" is the same class of miss.
 - [REPORTING.md](./REPORTING.md) — how to file a slowcook bug
 - [docs/plans/](./docs/plans/) — the roadmap / design docs (if a story
   references one, read it before running the agent)
