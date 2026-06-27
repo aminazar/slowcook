@@ -171,16 +171,28 @@ spec; in slowcook it **is** the spec. So:
   absent, enabled vs disabled, booked vs unbooked, this-value vs that-value. A rich
   component is therefore a **state-discovery surface** — read its variants *backwards*
   into the EPSS matrix, including States the written spec never enumerated.
+- **An affordance's *interaction* is part of the requirement, not just its
+  presence and appearance.** *What it does when activated* is spec: a button that
+  opens a confirm modal is not satisfied by a button that navigates away; the modal's
+  content and its data-driven branching are themselves requirements. Reproducing the
+  look (and even the disabled/variant states) while stubbing the handler drops a
+  requirement just as surely as omitting the control. For each *interactive*
+  affordance ask not only "what State does this imply?" but **"what does activating it
+  do, and what does that flow reveal?"** — then reproduce that flow, not a placeholder.
 - **Simplifying a design silently drops requirements *and* States.** A "lite"
   reproduction loses behaviours, not just pixels.
 
 Consequence for the loop: a **"drifted from design" review comment is a dropped
-requirement, not a cosmetic nit.** The fix recovers the affordance **and** the
-behaviour/state it encoded. When `vibe` reproduces (or a port adapts) a component, it
-must carry the *full* affordance set and ask of each piece "what State/behaviour does
-this imply?" — then add those States to the matrix. (Provenance: a chosen-therapist
-card whose dropped "next session / change-disabled" affordances turned out to encode
-the one-therapist-per-care-profile rule.)
+requirement, not a cosmetic nit** — and "doesn't *behave* like design" is the same
+class of miss as "doesn't *look* like design." The fix recovers the affordance, the
+behaviour/state it encoded, **and the interaction it triggers.** When `vibe`
+reproduces (or a port adapts) a component, it must carry the *full* affordance set and
+ask of each piece "what State/behaviour does this imply, and what does activating it
+do?" — then add those States *and that flow* to the matrix. (Provenance: a
+chosen-therapist card whose dropped "next session / change-disabled" affordances
+encoded the one-therapist-per-care-profile rule; and whose Manage/Cancel buttons,
+reproduced to *look* right but wired to a `navigate` stub, dropped the confirm-sheet
+flow that surfaces the ≥24h-refund / <24h-charge cancellation model.)
 
 ## How it's encoded
 
