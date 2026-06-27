@@ -3048,17 +3048,26 @@ function DocsPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"edit" | "preview">("preview");
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [needsAuth, setNeedsAuth] = useState<boolean>(false);
   const canApply = identity?.canApply === true;
   const dirty = file != null && draft !== file.content;
   const ref = branch || "HEAD";
 
   const load = useCallback(async (p: string) => {
-    setLoading(true); setError(null); setFile(null);
+    setLoading(true); setError(null); setFile(null); setNeedsAuth(false);
     const token = getToken();
     const res = await fetchDocFile({ owner: repo.owner, repo: repo.repo, path: p, ref, pat: token ?? undefined, apiBase });
+    const short = p.split("/").pop();
     if (res.ok) { setFile(res.file); setDraft(res.file.content); setView("preview"); }
-    else if (!token && (res.status === 404 || res.status === 401)) {
-      setError(`Sign in with GitHub to read ${p.split("/").pop()} — this repo is private.`);
+    else if (res.status === 401) {
+      // 401 "Bad credentials" = the token is invalid — almost always an EXPIRED
+      // reviewer session (device-flow tokens expire). Not signed in yet looks the
+      // same. Either way: re-authenticate (a fresh sign-in overwrites the token).
+      setNeedsAuth(true);
+      setError(token ? `Your GitHub session expired — sign in again to read ${short}.` : `Sign in with GitHub to read ${short} — this repo is private.`);
+    } else if (!token && res.status === 404) {
+      setNeedsAuth(true);
+      setError(`Sign in with GitHub to read ${short} — this repo is private.`);
     } else {
       setError(`Couldn't load ${p}: ${res.message} (${res.status})`);
     }
@@ -3158,7 +3167,21 @@ function DocsPanel(props: {
         {loading ? (
           <div style={{ padding: 24, opacity: 0.6 }}>Loading {name(path)}…</div>
         ) : error ? (
-          <div style={{ padding: 24, color: "#ffb4b4" }}>{error}</div>
+          <div style={{ padding: 24, color: "#ffb4b4" }}>
+            <div>{error}</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              {needsAuth && (
+                <button type="button" onClick={onSignIn}
+                  style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer", background: "white", color: "#111" }}>
+                  Sign in with GitHub
+                </button>
+              )}
+              <button type="button" onClick={() => void load(path)}
+                style={{ fontSize: 12.5, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.25)", cursor: "pointer", background: "transparent", color: "rgba(255,255,255,0.85)" }}>
+                Retry
+              </button>
+            </div>
+          </div>
         ) : view === "edit" ? (
           <textarea
             value={draft}
