@@ -2889,13 +2889,17 @@ function CommentsListPanel(props: {
             // Mode-aware label colours — bright on dark, darker on light — so the
             // pill text stays readable whichever scheme the host app renders in.
             const grey = dark ? "#9aa6b6" : "#475569";
+            // Quiet outline chips — no filled background. The colour carries the
+            // meaning; a filled translucent pill read as a "bright background" in
+            // the dark sidebar. Border at low alpha so it never competes with the
+            // comment prose. (Colour-only `bg` is reused for the thin border.)
             const anchorLabel = !anchored
-              ? { text: "note", color: grey, bg: dark ? "rgba(148,163,184,0.22)" : "rgba(148,163,184,0.16)" }
+              ? { text: "note", color: grey }
               : !live
-              ? { text: "drifted", color: dark ? "#fbbf24" : "#a16207", bg: dark ? "rgba(250,204,21,0.20)" : "rgba(250,204,21,0.16)" }
+              ? { text: "drifted", color: dark ? "#fbbf24" : "#a16207" }
               : hidden
-              ? { text: "hidden", color: grey, bg: dark ? "rgba(148,163,184,0.22)" : "rgba(148,163,184,0.16)" }
-              : { text: "anchored", color: dark ? "#34d399" : "#15803d", bg: dark ? "rgba(34,197,94,0.20)" : "rgba(34,197,94,0.14)" };
+              ? { text: "hidden", color: grey }
+              : { text: "anchored", color: dark ? "#34d399" : "#15803d" };
             const expanded = expandedId === r.commentId;
             const clamp = (lines: number) => expanded ? {} : { display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical" as const, overflow: "hidden" };
             return (
@@ -2921,7 +2925,7 @@ function CommentsListPanel(props: {
                       <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: `1.5px solid ${S.sheet}`, fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
                     )}
                   </span>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: anchorLabel.bg, color: anchorLabel.color }}>{anchorLabel.text}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: "transparent", border: `1px solid ${anchorLabel.color}`, opacity: 0.85, color: anchorLabel.color }}>{anchorLabel.text}</span>
                   <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>@{r.author} · {formatTimeAgo(r.createdAt)}</span>
                   <span aria-hidden style={{ fontSize: 10, opacity: 0.55, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▶</span>
                 </button>
