@@ -2935,7 +2935,7 @@ function CommentsListPanel(props: {
                 <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11.5 }}>
                   <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ color: dark ? "#7cc7ff" : "#0969da", textDecoration: "none" }}>↗ Open issue on GitHub</a>
                   {anchored && (
-                    <button type="button" onClick={() => onOpenComment(r.commentId)} style={{ color: "#22c55e", font: "inherit", fontSize: 11.5, cursor: "pointer" }}>
+                    <button type="button" onClick={() => onOpenComment(r.commentId)} style={{ background: "transparent", border: "none", padding: 0, color: dark ? "#34d399" : "#15803d", font: "inherit", fontSize: 11.5, cursor: "pointer" }}>
                       📍 {live ? "Locate on page" : "Anchor drifted"}
                     </button>
                   )}
