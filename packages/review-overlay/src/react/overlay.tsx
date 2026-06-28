@@ -2886,13 +2886,16 @@ function CommentsListPanel(props: {
               live.element.getBoundingClientRect().width === 0 ||
               (live.element as HTMLElement).offsetParent === null
             );
+            // Mode-aware label colours — bright on dark, darker on light — so the
+            // pill text stays readable whichever scheme the host app renders in.
+            const grey = dark ? "#9aa6b6" : "#475569";
             const anchorLabel = !anchored
-              ? { text: "note", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
+              ? { text: "note", color: grey, bg: dark ? "rgba(148,163,184,0.22)" : "rgba(148,163,184,0.16)" }
               : !live
-              ? { text: "drifted", color: "#facc15", bg: "rgba(250,204,21,0.18)" }
+              ? { text: "drifted", color: dark ? "#fbbf24" : "#a16207", bg: dark ? "rgba(250,204,21,0.20)" : "rgba(250,204,21,0.16)" }
               : hidden
-              ? { text: "hidden", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
-              : { text: "anchored", color: "#22c55e", bg: "rgba(34,197,94,0.18)" };
+              ? { text: "hidden", color: grey, bg: dark ? "rgba(148,163,184,0.22)" : "rgba(148,163,184,0.16)" }
+              : { text: "anchored", color: dark ? "#34d399" : "#15803d", bg: dark ? "rgba(34,197,94,0.20)" : "rgba(34,197,94,0.14)" };
             const expanded = expandedId === r.commentId;
             const clamp = (lines: number) => expanded ? {} : { display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical" as const, overflow: "hidden" };
             return (
@@ -2930,7 +2933,7 @@ function CommentsListPanel(props: {
                 )}
                 {/* Actions — always offer GitHub; locate only when anchored. */}
                 <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11.5 }}>
-                  <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ color: "#7cc7ff", textDecoration: "none" }}>↗ Open issue on GitHub</a>
+                  <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ color: dark ? "#7cc7ff" : "#0969da", textDecoration: "none" }}>↗ Open issue on GitHub</a>
                   {anchored && (
                     <button type="button" onClick={() => onOpenComment(r.commentId)} style={{ color: "#22c55e", font: "inherit", fontSize: 11.5, cursor: "pointer" }}>
                       📍 {live ? "Locate on page" : "Anchor drifted"}
