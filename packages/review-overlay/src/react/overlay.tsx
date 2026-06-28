@@ -26,7 +26,7 @@
 
 import { useEffect, useState, useRef, useCallback, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { extractSelector, resolveStoredSelector } from "../selector.js";
+import { extractSelector, resolveAnchor } from "../selector.js";
 import {
   buildPayload,
   formatReviewComment,
@@ -2356,7 +2356,7 @@ function CommentPins(props: {
       return { record: r, rect: { x: -100, y: -100 }, drifted: true };
     }
     const resolved = typeof document !== "undefined"
-      ? resolveStoredSelector(document, r.payload.element.selector, r.payload.element.fallback_selector)
+      ? resolveAnchor(document, r.payload.element)
       : null;
     let rect: { x: number; y: number };
     let drifted = false;
@@ -2830,7 +2830,7 @@ function CommentsListPanel(props: {
             const palette = pinPalette(status as never, false);
             const anchored = r.payload.element !== null;
             const live = anchored && typeof document !== "undefined"
-              ? resolveStoredSelector(document, r.payload.element!.selector, r.payload.element!.fallback_selector)
+              ? resolveAnchor(document, r.payload.element!)
               : null;
             const hidden = anchored && live && (
               live.element.getBoundingClientRect().width === 0 ||

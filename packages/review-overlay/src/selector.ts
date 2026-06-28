@@ -30,11 +30,17 @@ export interface ExtractedSelector {
   tag: string;
   /** First 80 chars of trimmed text content; null when empty. */
   textHint: string | null;
+  /** Semantic anchor (role + accessible name + container path) — the PRIMARY
+   *  anchor when present: it survives DOM churn AND mock→prod, and leaves no
+   *  trace in shipped code (computed from the a11y tree). Null when the target
+   *  has no (role, name); then the selector below is the only anchor. */
+  a11y: A11yPath | null;
 }
 
 export function extractSelector(el: Element): ExtractedSelector {
   const tag = el.tagName.toLowerCase();
   const textHint = textHintOf(el);
+  const a11y = extractA11yPath(el);
 
   const ord: Array<{
     strategy: ExtractedSelector["strategy"];
@@ -68,6 +74,7 @@ export function extractSelector(el: Element): ExtractedSelector {
       strategy: "tag-classes",
       tag,
       textHint,
+      a11y,
     };
   }
   return {
@@ -76,6 +83,7 @@ export function extractSelector(el: Element): ExtractedSelector {
     strategy: primary.strategy,
     tag,
     textHint,
+    a11y,
   };
 }
 
@@ -167,6 +175,15 @@ function implicitRoleOf(el: Element): string | null {
     case "main": return "main";
     case "header": return "banner";
     case "footer": return "contentinfo";
+    case "section": return "region";
+    case "article": return "article";
+    case "aside": return "complementary";
+    case "form": return "form";
+    case "dialog": return "dialog";
+    case "ul": case "ol": return "list";
+    case "li": return "listitem";
+    case "table": return "table";
+    case "tr": return "row";
     case "h1": case "h2": case "h3": case "h4": case "h5": case "h6": return "heading";
     case "img": return "img";
     case "input": {
@@ -206,11 +223,19 @@ function accessibleNameOf(el: Element): string | null {
     }
   }
 
-  // For buttons + links, textContent is the accessible name
+  // textContent is the accessible name for buttons, links, and headings.
   const tag = el.tagName.toLowerCase();
-  if (tag === "button" || tag === "a") {
+  if (tag === "button" || tag === "a" || /^h[1-6]$/.test(tag) || el.getAttribute("role") === "heading") {
     const t = (el.textContent ?? "").trim().replace(/\s+/g, " ");
     if (t) return t.length > 60 ? t.slice(0, 57) + "…" : t;
+  }
+  if (tag === "img") {
+    const alt = el.getAttribute("alt");
+    if (alt && alt.trim()) return alt.trim();
+  }
+  if (tag === "input" || tag === "textarea") {
+    const ph = el.getAttribute("placeholder");
+    if (ph && ph.trim()) return ph.trim();
   }
   return null;
 }
@@ -305,5 +330,108 @@ export function resolveStoredSelector(
     const fb = resolveOne(doc, fallbackSelector);
     if (fb) return { element: fb, usedFallback: true };
   }
+  return null;
+}
+
+// ── Semantic (a11y-tree) anchoring — #1 ───────────────────────────────────────
+// A semantic anchor is a path of (role, accessible-name) segments: up to two
+// nearest NAMED container ancestors (outer→in) plus the target leaf. It's
+// computed from the accessibility tree — nothing is injected into the DOM — so it
+// leaves no trace in shipped code, survives DOM restructuring, and (because a11y
+// semantics are part of the UI shape brew preserves) resolves against the real
+// product too, not just the mock. Falls back to the CSS selector when the target
+// has no (role, name) or for legacy comments captured before this existed.
+
+export interface A11ySeg { role: string; name: string }
+export interface A11yPath { segs: A11ySeg[] }
+
+const CONTAINER_ROLES = new Set([
+  "main", "navigation", "banner", "contentinfo", "region", "form", "search",
+  "dialog", "article", "list", "listitem", "table", "row", "tabpanel", "complementary", "group",
+]);
+
+export function roleOf(el: Element): string | null {
+  return el.getAttribute("role") || implicitRoleOf(el);
+}
+
+/** Build the semantic anchor for an element; null when it has no (role, name). */
+export function extractA11yPath(el: Element): A11yPath | null {
+  const role = roleOf(el);
+  const name = accessibleNameOf(el);
+  if (!role || !name) return null;
+  const ctx: A11ySeg[] = [];
+  let node = el.parentElement;
+  while (node && ctx.length < 2) {
+    const r = roleOf(node);
+    if (r && CONTAINER_ROLES.has(r)) {
+      const n = accessibleNameOf(node);
+      if (n) ctx.unshift({ role: r, name: n });
+    }
+    node = node.parentElement;
+  }
+  return { segs: [...ctx, { role, name }] };
+}
+
+/** Candidate-tag hint per role so resolve doesn't scan the whole document. */
+function roleHintSelector(role: string): string {
+  switch (role) {
+    case "button": return "button,[role=button],input[type=button],input[type=submit]";
+    case "link": return "a[href],[role=link]";
+    case "heading": return "h1,h2,h3,h4,h5,h6,[role=heading]";
+    case "textbox": return "input,textarea,[role=textbox]";
+    case "checkbox": return "input[type=checkbox],[role=checkbox]";
+    case "radio": return "input[type=radio],[role=radio]";
+    case "img": return "img,[role=img]";
+    default: return `[role=${cssEscapeIdent(role)}]`;
+  }
+}
+
+function namedContainerAncestors(el: Element): A11ySeg[] {
+  const out: A11ySeg[] = [];
+  let node = el.parentElement;
+  while (node) {
+    const r = roleOf(node);
+    if (r && CONTAINER_ROLES.has(r)) {
+      const n = accessibleNameOf(node);
+      if (n) out.push({ role: r, name: n });
+    }
+    node = node.parentElement;
+  }
+  return out;
+}
+
+/** Resolve a semantic anchor back to a live element (mock OR real product). */
+export function resolveA11yPath(doc: Document, path: A11yPath): Element | null {
+  if (!path.segs.length) return null;
+  const leaf = path.segs[path.segs.length - 1]!;
+  const ctx = path.segs.slice(0, -1);
+  let candidates: Element[];
+  try {
+    candidates = Array.from(doc.querySelectorAll(roleHintSelector(leaf.role)));
+  } catch {
+    candidates = [];
+  }
+  const matches = candidates.filter((el) => roleOf(el) === leaf.role && accessibleNameOf(el) === leaf.name);
+  if (matches.length === 0) return null;
+  if (ctx.length === 0) return matches[0]!;
+  // Prefer a match whose named-container ancestors include every context seg.
+  for (const el of matches) {
+    const anc = namedContainerAncestors(el);
+    if (ctx.every((seg) => anc.some((a) => a.role === seg.role && a.name === seg.name))) return el;
+  }
+  return matches[0]!; // name matched but context didn't — still our best guess
+}
+
+/** The unified anchor resolver: semantic first, then selector + fallback. */
+export function resolveAnchor(
+  doc: Document,
+  element: { selector: string; fallback_selector: string | null; a11y?: A11yPath | null }
+): { element: Element; via: "a11y" | "selector" | "fallback" } | null {
+  if (element.a11y) {
+    const hit = resolveA11yPath(doc, element.a11y);
+    if (hit) return { element: hit, via: "a11y" };
+  }
+  const sel = resolveStoredSelector(doc, element.selector, element.fallback_selector);
+  if (sel) return { element: sel.element, via: sel.usedFallback ? "fallback" : "selector" };
   return null;
 }
