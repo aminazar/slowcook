@@ -58,6 +58,13 @@ describe("a11y anchoring (#1)", () => {
     expect(hit?.via).toBe("selector");
   });
 
+  it("anchors a textarea by its placeholder (regression: textarea had no role)", () => {
+    set(`<textarea placeholder="Tell pm-assistant more…"></textarea>`);
+    const p = extractA11yPath(document.querySelector("textarea")!);
+    expect(p).toEqual({ segs: [{ role: "textbox", name: "Tell pm-assistant more…" }] });
+    expect(resolveA11yPath(document, p!)).toBe(document.querySelector("textarea"));
+  });
+
   it("resolveAnchor prefers the a11y anchor over the selector", () => {
     set(`<button>Go</button>`);
     const sel = extractSelector(document.querySelector("button")!);

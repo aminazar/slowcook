@@ -193,6 +193,8 @@ function implicitRoleOf(el: Element): string | null {
       if (type === "submit" || type === "button") return "button";
       return "textbox";
     }
+    case "textarea": return "textbox";
+    case "select": return "combobox";
     default: return null;
   }
 }
