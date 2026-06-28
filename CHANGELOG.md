@@ -6,9 +6,13 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## review-overlay 0.9.10 — Docs studio handles an expired session
+## review-overlay 0.9.10 — expired-session handling + page-theme detection
 
-`@slowcook-ai/review-overlay` 0.9.10 (overlay-only; bug fix). The Docs studio and comments share ONE reviewer token (`loadReviewerToken`); device-flow tokens expire, so a stale session returned a dead-end `Couldn't load docs/PRD.md: Bad credentials (401)` — while the pill still showed the cached identity as "signed in", making it look like Docs and LCR didn't share the login. Now a **401 expires the whole session** — token **and** cached identity are cleared, so the pill, comments, and Docs all show signed-out **consistently**, and **one** re-sign-in restores everything. The Docs panel surfaces a **Sign in with GitHub** + **Retry**; valid-token path unchanged.
+`@slowcook-ai/review-overlay` 0.9.10 (overlay-only; bug fixes).
+
+**Expired session.** The Docs studio and comments share ONE reviewer token (`loadReviewerToken`); device-flow tokens expire, so a stale session returned a dead-end `Couldn't load docs/PRD.md: Bad credentials (401)` — while the pill still showed the cached identity as "signed in", making it look like Docs and LCR didn't share the login. Now a **401 expires the whole session** — token **and** cached identity are cleared, so the pill, comments, and Docs all show signed-out **consistently**, and **one** re-sign-in restores everything. The Docs panel surfaces a **Sign in with GitHub** + **Retry**; valid-token path unchanged.
+
+**Dark-mode contrast (follow the app, not the OS).** The overlay's panels followed `prefers-color-scheme`, so over an app that forces dark (`data-theme="dark"`) on a *light* OS it rendered a **bright panel with low-contrast text**. It now detects the **page's** scheme — explicit `data-theme`/`color-scheme` wins, else the page background's luminance, else the OS — and re-detects when the app toggles its theme. Plus a small dark-mode legibility bump (brighter `fg`/`fgDim`, less-clamped prose).
 
 ## docs(EPSS) — an affordance's interaction is part of the requirement
 

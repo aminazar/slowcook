@@ -1286,18 +1286,44 @@ function ReviewerLoginDialog({
 // 0.9.0 — LEFT-anchored (was right): the grip + logo + nav/rev pin to the left
 // edge and the EPSS status grows the pill rightward. Bumped key suffix so old
 // right-based saved positions don't mis-place the new left-anchored pill.
-// 0.9.0 — overlay artifacts follow the SYSTEM colour scheme (not the app's,
-// since the overlay lives in an isolated shadow root). Reactive to OS changes.
+// Detect the scheme to render overlay artifacts in. The overlay is mounted INSIDE a
+// consumer app that has its OWN theme (e.g. dash forces dark via data-theme="dark"),
+// which may differ from the OS. Following prefers-color-scheme rendered a LIGHT panel
+// over a dark app (bright, low-contrast). So follow the PAGE: an explicit
+// data-theme/color-scheme wins, else the page background's luminance, else the OS.
+function detectPageDark(): boolean {
+  try {
+    for (const el of [document.documentElement, document.body]) {
+      if (!el) continue;
+      const t = (el.getAttribute("data-theme") || el.getAttribute("data-color-scheme") || el.style.colorScheme || "").toLowerCase();
+      if (t.includes("dark")) return true;
+      if (t.includes("light")) return false;
+    }
+    for (const el of [document.body, document.documentElement]) {
+      const bg = el && getComputedStyle(el).backgroundColor;
+      const m = bg && bg.match(/[\d.]+/g);
+      if (m && m.length >= 3 && (m.length < 4 || parseFloat(m[3]!) > 0.1)) {
+        const r = Number(m[0]), g = Number(m[1]), b = Number(m[2]);
+        return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+      }
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  } catch { return true; }
+}
 function usePrefersDark(): boolean {
-  const [dark, setDark] = useState<boolean>(() => {
-    try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return true; }
-  });
+  const [dark, setDark] = useState<boolean>(() => { try { return detectPageDark(); } catch { return true; } });
   useEffect(() => {
-    let mq: MediaQueryList;
-    try { mq = window.matchMedia("(prefers-color-scheme: dark)"); } catch { return; }
-    const on = (): void => setDark(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
+    const update = (): void => setDark(detectPageDark());
+    update();
+    let mq: MediaQueryList | undefined;
+    try { mq = window.matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener("change", update); } catch { /* ignore */ }
+    // Re-detect if the host app toggles its theme attribute.
+    const mo = new MutationObserver(update);
+    try {
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-color-scheme", "style", "class"] });
+      if (document.body) mo.observe(document.body, { attributes: true, attributeFilter: ["data-theme", "data-color-scheme", "style", "class"] });
+    } catch { /* ignore */ }
+    return () => { try { mq?.removeEventListener("change", update); } catch { /* ignore */ } mo.disconnect(); };
   }, []);
   return dark;
 }
@@ -1338,7 +1364,7 @@ function pillTheme(dark: boolean): PillTheme {
 interface SheetTheme { backdrop: string; sheet: string; fg: string; fgDim: string; header: string; input: string; inputBorder: string; border: string; rowActive: string; rowHover: string; }
 function sheetTheme(dark: boolean): SheetTheme {
   return dark
-    ? { backdrop: "rgba(0,0,0,0.5)", sheet: "#1b1b22", fg: "#ececf0", fgDim: "#a0a0aa", header: "#8a8a96", input: "#26262f", inputBorder: "#3a3a46", border: "rgba(255,255,255,0.08)", rowActive: "rgba(59,175,160,0.22)", rowHover: "rgba(255,255,255,0.06)" }
+    ? { backdrop: "rgba(0,0,0,0.5)", sheet: "#1b1b22", fg: "#f3f3f7", fgDim: "#bdbdc8", header: "#8a8a96", input: "#26262f", inputBorder: "#3a3a46", border: "rgba(255,255,255,0.08)", rowActive: "rgba(59,175,160,0.22)", rowHover: "rgba(255,255,255,0.06)" }
     : { backdrop: "rgba(0,0,0,0.4)", sheet: "#ffffff", fg: "#111111", fgDim: "#999999", header: "#8a8a8a", input: "#ffffff", inputBorder: "#d0d7de", border: "#eeeeee", rowActive: "rgba(59,175,160,0.14)", rowHover: "#f3f4f6" };
 }
 
@@ -2896,7 +2922,7 @@ function CommentsListPanel(props: {
                   <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>@{r.author} · {formatTimeAgo(r.createdAt)}</span>
                   <span aria-hidden style={{ fontSize: 10, opacity: 0.55, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▶</span>
                 </button>
-                <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
+                <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
                 {r.plateReply?.summary && (
                   <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${S.border}`, fontSize: 11.5, lineHeight: 1.45, color: S.fgDim, whiteSpace: "pre-wrap", ...clamp(4) }}>
                     <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>{r.plateReply.summary}
