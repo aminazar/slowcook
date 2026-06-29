@@ -48,6 +48,16 @@ them with exactly one connector: the EPSS router. Two things are missing:
    navigator stays as a **deep-link shortcut** for review coverage, not the only
    door. Each scenario should be reachable both ways: by interaction, and by jump.
 
+## Pragmatic scope — wire where data *flows*
+
+Not every surface needs the adaptor. The value of adaptor-wiring is **cross-surface
+flow** (entered data appears elsewhere) and **traversable state** (a "Given" reached
+by doing). So wire the entities that flow — members, wallet, gates, workers — and
+let **leaf surfaces** (no other surface reads their data — e.g. an audit log, a QA
+plan, a voucher console) keep realistic local/seed data: for those, adaptor-backed
+is *functionally identical* to seeded, so the port is uniformity with no behaviour.
+`vibe app` should default to wiring, but this is the line when triaging by hand.
+
 ## Why it matters
 - **No duplication** — one app, many paths, one data source (vs N isolated screens).
 - **Real test flows** — a scenario is a journey through the live app; review +
