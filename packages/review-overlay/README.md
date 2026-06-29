@@ -9,17 +9,21 @@ When mounted into the consumer's mock app:
 - A floating mode toggle (top-right) shows three modes: **Nav** / **💬 Comment** / **✅ Approve**.
 - In **Comment** mode, clicks on any element open a sidebar where the PM types prose. On submit, the overlay POSTs a structured comment to the configured PR.
 - In **Approve** mode, the PM clicks an element (or just toggles back to Nav after one click) and the overlay posts an approval comment with a hidden marker that plate detects.
-- Each comment carries the element's stable selector (id > data-testid > role+name > tag.classes:nth-child > XPath fallback), bounding box, viewport size + color scheme, current URL, and user agent — both as human-readable markdown AND as a JSON payload inside an HTML comment that plate parses.
+- Each comment carries a **semantic anchor** (0.10) — `role + accessible name + container path`, computed from the **accessibility tree**: no DOM markers, survives re-renders/reorder, and resolves against the **real product** too (not just the mock). The CSS selector (id > data-testid > role+name > tag.classes:nth-child > XPath) is kept as a fallback. Plus bounding box, viewport size + color scheme, current URL, and user agent — both as human-readable markdown AND as a JSON payload inside an HTML comment that plate parses.
 
 The package has TWO entries:
 
 ```ts
-// Framework-free core (parser, selector, GitHub submit, PAT storage).
+// Framework-free core (parser, selector + a11y anchoring, GitHub submit, PAT storage).
 // This is what plate imports server-side to decode review comments.
-import { parseReviewComment, extractSelector, submitComment } from "@slowcook-ai/review-overlay";
+import { parseReviewComment, extractSelector, resolveAnchor, extractA11yPath } from "@slowcook-ai/review-overlay";
 
-// React shell (mounted into the mock app's root layout).
-import { SlowcookReviewOverlay } from "@slowcook-ai/review-overlay/react";
+// React shells (mounted into the mock app's root layout):
+//  - SlowcookReviewOverlay: the LCR mock-review pill (persona/EPSS + selector anchoring).
+//  - ReviewWidget: a context-free shell for reviewing STRUCTURED content (PRD/spec/
+//    config) — anchors to semantic node ids (data-review-node); configurable label,
+//    accent, corner, toggle, accessory.
+import { SlowcookReviewOverlay, ReviewWidget } from "@slowcook-ai/review-overlay/react";
 ```
 
 Mount only the `/react` entry in the consumer's app; the core entry has zero React dependency.

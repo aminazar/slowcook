@@ -6,6 +6,18 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.10.0 — semantic (a11y) anchoring + a reusable ReviewWidget shell
+
+`@slowcook-ai/review-overlay` 0.10.0 (overlay-only; additive + new public API). Backward-compatible — legacy selector-anchored comments still resolve.
+
+**Semantic anchoring (no production trace).** Comments now anchor to the **accessibility tree** — `role + accessible name + container path` — not just a CSS selector. The anchor is *computed* from the a11y tree, so nothing is injected into the DOM: it leaves **no trace in shipped code**, **survives DOM restructuring + reorder** (where a selector drifts), and — because a11y semantics are part of the UI shape brew preserves — **resolves against the real product too**, not only the mock (so QA-on-real-product gets anchoring for free). New `resolveAnchor` (semantic → selector → fallback) drives the pins + locate; comment payloads gain an optional `a11y` field (absent on legacy comments). New exports: `extractA11yPath`, `resolveA11yPath`, `resolveAnchor`, `roleOf`, types `A11yPath`/`A11ySeg`. Role coverage broadened (containers, headings, img, **textarea/select** — the last a dogfood fix).
+
+**`ReviewWidget` — a context-free review shell.** The reusable abstractions (floating + draggable pill, a configurable mode toggle, anchored markers + a sidebar list, an accessory slot, host-theme awareness) are decoupled from the LCR overlay's EPSS/selector machinery into a new `ReviewWidget` that anchors to **semantic node ids** (`data-review-node`) — for structured, mutating content (a PRD passage, an invariant, a budget knob). Theme primitives extracted to a shared module (`usePrefersDark`/`detectPageDark`/`pillTheme`/`sheetTheme`, now exported). The LCR overlay is unchanged; both consume the same theme module.
+
+**Pill redesign.** The floating pill is minimal in nav mode (just the switch; the EPSS status wraps below) and a tidy two-row layout in review mode (row 1: switch · pin · comments · persona; row 2: docs · identity · timer), with consistent icon+label buttons and **wrap-inside-the-border** so a wide signed-in row never overflows. Comment-row status chips are quiet outlines (not filled "bright" pills).
+
+Rolls up the unpublished 0.9.8–0.9.10 line (full per-comment context, the generic `accessory` slot, expired-session handling, page-theme detection).
+
 ## review-overlay 0.9.10 — expired-session handling + page-theme detection
 
 `@slowcook-ai/review-overlay` 0.9.10 (overlay-only; bug fixes).
