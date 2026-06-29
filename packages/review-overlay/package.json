@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@slowcook-ai/core": "workspace:^",
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.0.1",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19",
     "jsdom": "^29.1.1",
