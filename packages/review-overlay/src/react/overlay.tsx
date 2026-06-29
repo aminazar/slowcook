@@ -1545,24 +1545,21 @@ function ModeToggle(props: {
           aria-label={armed ? "Cancel pick" : "Comment on an element"}
           title={armed ? "Cancel — tap an element, or cancel the pick" : "Comment on an element"}
           style={{
-            marginLeft: 4,
             background: armed ? ACCENT : T.sub,
             color: armed ? "white" : T.fg,
             border: armed ? `1px solid ${ACCENT}` : "1px solid transparent",
-            // 0.9.2 — icon-only (compact): 💭 to arm a pick, ✕ to cancel.
-            padding: "5px 9px",
+            padding: "5px 10px",
             borderRadius: 999,
             cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.6 : 1,
             font: "inherit",
-            fontSize: 14,
-            lineHeight: 1,
+            fontSize: 12,
             display: "inline-flex",
             alignItems: "center",
-            justifyContent: "center",
+            gap: 5,
           }}
         >
-          {armed ? "✕" : "💭"}
+          {armed ? "✕ Cancel" : "📍 Pin"}
         </button>
       )}
       {/* 0.6.8 — Approve moved into the Comments panel (under "+ Add note").
@@ -1589,11 +1586,10 @@ function ModeToggle(props: {
         disabled={disabled}
         title={`See all comments (${commentCount})`}
         style={{
-          marginLeft: 4,
           background: T.sub,
           color: T.fg,
           border: "none",
-          padding: "6px 10px",
+          padding: "5px 10px",
           borderRadius: 999,
           cursor: disabled ? "not-allowed" : "pointer",
           opacity: disabled ? 0.6 : 1,
@@ -1604,7 +1600,7 @@ function ModeToggle(props: {
           gap: 5,
         }}
       >
-        📋 {commentCount > 0 && (
+        💬 Comments {commentCount > 0 && (
           <span style={{
             background: ACCENT,
             color: "white",
@@ -1618,84 +1614,83 @@ function ModeToggle(props: {
         )}
       </button>
       )}
-      {/* 0.7.0 — Docs (textual review): read + edit the spec docs. Available in
-          both Nav and Comment modes — it's a parallel review surface. */}
-      {docsEnabled && (
-        <button
-          type="button"
-          onClick={() => { setConfirmLogout(false); onDocsClick(); }}
-          disabled={disabled}
-          title="Review & edit the spec docs (textual review)"
-          style={{
-            marginLeft: 4, background: T.sub, color: T.fg,
-            border: "none", padding: "6px 10px", borderRadius: 999,
-            cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
-            font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
-          }}
-        >
-          📄 Docs
-        </button>
-      )}
-      {/* 0.7.1 — "Viewing as" surface switcher. A REVIEW affordance (a real user
-          is one role), so it lives in the pane, not the mock. */}
-      {surfaces.length > 0 && <SurfaceSwitcher surfaces={surfaces} onNavigate={onNavigate} disabled={disabled} />}
-      {/* Pill extension slot — consumer-provided, always visible (e.g. dash's
-          work-session timer). The overlay owns the pill; the consumer owns the slot. */}
-      {accessory}
-      {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
-          explicit (white-on-dark) so the app's dark/light theme can't touch it.
-          0.6.11 — only in Comment mode. */}
-      {reviewMode === "lcr" && mode === "comment" && (
-        identity ? (
-          <span
-            title={confirmLogout
-              ? "Click again to sign out (or click anything else to cancel)"
-              : identity.canApply
-              ? `Signed in as @${identity.login} — you have write access, so your comments are applied`
-              : `Signed in as @${identity.login} — no write access, so your feedback is gathered for the team to review (not auto-applied)`}
-            onClick={() => { if (confirmLogout) { setConfirmLogout(false); onSignOut(); } else { setConfirmLogout(true); } }}
-            style={{
-              marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
-              background: confirmLogout ? "rgba(255,107,107,0.25)" : T.sub,
-              border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
-              color: confirmLogout ? (dark ? "white" : "#a8071a") : T.fg, fontSize: 12, fontWeight: 600,
-            }}
-          >
-            {confirmLogout ? (
-              <><span aria-hidden>🚪</span> Sign out?</>
-            ) : (
-              <>
-                {identity.avatarUrl
-                  ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
-                  : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
-                @{identity.login}
-                {/* 0.9.2 — dropped the applies/review tier chip: jargon nobody
-                    asked for; the write-access nuance lives in the sign-in title. */}
-              </>
-            )}
-          </span>
-        ) : (
+      {/* 0.7.1 — persona picker ("Viewing as") — a primary review control; row 1.
+          Review mode only (nav shows just the switch). */}
+      {mode === "comment" && surfaces.length > 0 && <SurfaceSwitcher surfaces={surfaces} onNavigate={onNavigate} disabled={disabled} />}
+      </div>{/* /row 1 */}
+
+      {/* Row 2 — secondary controls, review mode only: Docs · identity · timer.
+          Nav mode renders none of these, so the pill is as narrow as the switch. */}
+      {mode === "comment" && (docsEnabled || reviewMode === "lcr" || accessory != null) && (
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5 }}>
+        {/* 0.7.0 — Docs (textual review): read + edit the spec docs. */}
+        {docsEnabled && (
           <button
             type="button"
-            onClick={onSignIn}
+            onClick={() => { setConfirmLogout(false); onDocsClick(); }}
             disabled={disabled}
-            title="Sign in with GitHub to comment as yourself"
+            title="Review & edit the spec docs (textual review)"
             style={{
-              marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "6px 12px", borderRadius: 999, border: "none",
-              background: T.ghBg, color: T.ghFg, cursor: disabled ? "not-allowed" : "pointer",
-              font: "inherit", fontSize: 12, fontWeight: 700,
+              background: T.sub, color: T.fg, border: "none", padding: "5px 10px", borderRadius: 999,
+              cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+              font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill={T.ghFg} aria-hidden="true">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-            </svg>
-            Sign in
+            📄 Docs
           </button>
-        )
+        )}
+        {/* 0.6.2 — LCR per-reviewer sign-in / identity. */}
+        {reviewMode === "lcr" && (
+          identity ? (
+            <span
+              title={confirmLogout
+                ? "Click again to sign out (or click anything else to cancel)"
+                : identity.canApply
+                ? `Signed in as @${identity.login} — you have write access, so your comments are applied`
+                : `Signed in as @${identity.login} — no write access, so your feedback is gathered for the team to review (not auto-applied)`}
+              onClick={() => { if (confirmLogout) { setConfirmLogout(false); onSignOut(); } else { setConfirmLogout(true); } }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
+                background: confirmLogout ? "rgba(255,107,107,0.25)" : T.sub,
+                border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
+                color: confirmLogout ? (dark ? "white" : "#a8071a") : T.fg, fontSize: 12, fontWeight: 600,
+              }}
+            >
+              {confirmLogout ? (
+                <><span aria-hidden>🚪</span> Sign out?</>
+              ) : (
+                <>
+                  {identity.avatarUrl
+                    ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
+                    : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
+                  @{identity.login}
+                </>
+              )}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onSignIn}
+              disabled={disabled}
+              title="Sign in with GitHub to comment as yourself"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: 999, border: "none",
+                background: T.ghBg, color: T.ghFg, cursor: disabled ? "not-allowed" : "pointer",
+                font: "inherit", fontSize: 12, fontWeight: 700,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill={T.ghFg} aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+              Sign in
+            </button>
+          )
+        )}
+        {accessory}
+      </div>
       )}
-      </div>{/* /top row */}
 
       {/* 0.9.1/0.9.5 — EPSS current location: always shown, small font, both
           modes. 0.9.5 — it's now LIVE: reflects the surface the reviewer is
