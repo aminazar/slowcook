@@ -1511,10 +1511,10 @@ function ModeToggle(props: {
       {/* 0.9.3 — the content column is `min-content` wide so the pill is exactly
           as wide as the BUTTON ROW; the EPSS status then WRAPS within that width
           instead of stretching the pill rightward. */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "max-content", maxWidth: "100%", minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "min-content", maxWidth: "100%", minWidth: 0 }}>
       {/* Top row — buttons on a single non-wrapping line; this row's width is what
           the column (and pill) sizes to. */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap", gap: 4 }}>
       {/* Slowcook logo — pinned to the left of the button row. */}
       <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
@@ -1622,7 +1622,7 @@ function ModeToggle(props: {
       {/* Row 2 — secondary controls, review mode only: Docs · identity · timer.
           Nav mode renders none of these, so the pill is as narrow as the switch. */}
       {mode === "comment" && (docsEnabled || reviewMode === "lcr" || accessory != null) && (
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap", gap: 4 }}>
         {/* 0.7.0 — Docs (textual review): read + edit the spec docs. */}
         {docsEnabled && (
           <button
