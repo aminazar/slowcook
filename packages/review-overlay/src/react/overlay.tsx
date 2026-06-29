@@ -1462,7 +1462,7 @@ function ModeToggle(props: {
         // as its buttons; a hard 300px cap clipped the signed-in identity chip
         // OUTSIDE the pill border. 94vw keeps a wide (signed-in) row inside the
         // pill; on a truly tiny viewport the grip still pans it left.
-        maxWidth: "min(560px, 94vw)",
+        maxWidth: "min(600px, 94vw)",
         gap: 4,
         // 0.4.2 — green-tinted when approved; else follows the system theme.
         background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
@@ -1511,10 +1511,10 @@ function ModeToggle(props: {
       {/* 0.9.3 — the content column is `min-content` wide so the pill is exactly
           as wide as the BUTTON ROW; the EPSS status then WRAPS within that width
           instead of stretching the pill rightward. */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "min-content", minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "max-content", maxWidth: "100%", minWidth: 0 }}>
       {/* Top row — buttons on a single non-wrapping line; this row's width is what
           the column (and pill) sizes to. */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", gap: 4, whiteSpace: "nowrap" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, rowGap: 5 }}>
       {/* Slowcook logo — pinned to the left of the button row. */}
       <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
