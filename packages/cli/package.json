@@ -48,7 +48,7 @@
     "@slowcook-ai/recorder": "workspace:^",
     "@slowcook-ai/review-overlay": "workspace:^",
     "@slowcook-ai/gates": "workspace:^",
-    "@anthropic-ai/sdk": "^0.104.1",
+    "@anthropic-ai/sdk": "^0.106.0",
     "@octokit/rest": "^22.0.1",
     "@playwright/test": "^1.61.0",
     "ts-morph": "^28.0.0",
