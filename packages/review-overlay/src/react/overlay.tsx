@@ -27,6 +27,7 @@
 import { useEffect, useState, useRef, useCallback, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { extractSelector, resolveAnchor, isPillOffViewport, clampPillPosition } from "../selector.js";
+import { CometSheen } from "./comet.js";
 import {
   buildPayload,
   formatReviewComment,
@@ -1406,6 +1407,7 @@ function ModeToggle(props: {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startLeft: number } | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
 
   // 0.9.0 — EPSS jump palette open state. The tappable status (right of the
   // pill) opens it; it lists matching states to jump to.
@@ -1466,6 +1468,7 @@ function ModeToggle(props: {
 
   return (
     <div
+      ref={pillRef}
       data-slowcook-overlay-ui="1"
       title={isApproved ? "Mockup approved — comments still allowed; plate refuses to amend" : undefined}
       style={{
@@ -1501,6 +1504,7 @@ function ModeToggle(props: {
         userSelect: "none",
       }}
     >
+      <CometSheen pillRef={pillRef} radius={16} />
       {/* 0.9.1 — Grip on the LEFTMOST edge, FULL height: alignSelf stretch +
           a tiled dot texture so it visually covers the ENTIRE left border,
           however many lines the status wraps to. Drag to move; if a long status

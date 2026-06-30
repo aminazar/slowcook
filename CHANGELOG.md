@@ -6,6 +6,23 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.11.0 — context-gated Refine pill + comet-light glint
+
+`@slowcook-ai/review-overlay` 0.11.0 (additive; new prop + ambient animation).
+
+- **`ReviewWidget` only appears where there's something to review.** New
+  `requireTargets` prop (default **true**): the pill hides on pages with no
+  anchorable nodes (no `data-review-node`). Combined with the existing `enabled`
+  gate (persona/role capability), the widget shows iff **(a)** the persona may
+  review here **and (b)** the page has reviewable context — so a founder who isn't
+  in review mode no longer sees a Refine pill on every page.
+- **Comet-light glint.** Both pills (`SlowcookReviewOverlay` + `ReviewWidget`) now
+  share an invisible "comet" that streaks across the viewport every 5–14s on a
+  random path; you don't see the comet, only its reflection sweeping each pill's
+  background and glinting along its border as it passes. Usually slowcook **coral**.
+  One shared driver (`useCometLight`), proximity-based reflection, honors
+  `prefers-reduced-motion`.
+
 ## review-overlay 0.10.1 — keep the floating pill on-screen
 
 `@slowcook-ai/review-overlay` 0.10.1 (patch; bug fix). A persisted or dragged pill
