@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState, type ReactNode, type CSSProperties, type JSX, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { usePrefersDark, sheetTheme } from "./theme.js";
+import { clampPillPosition } from "../selector.js";
 
 export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; }
 export type Corner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
@@ -75,6 +76,14 @@ export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
     const y = corner.includes("top") ? m : window.innerHeight - h - m;
     setPos({ x, y });
   }, [corner, pos]);
+
+  // Keep the pill on-screen if the window resizes smaller (0.10.1).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => setPos((p) => (p ? clampToViewport(p) : p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Comment-mode interactions: hover-highlight a node, click to open the composer.
   useEffect(() => {
@@ -181,10 +190,19 @@ export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
   );
 }
 
+// 0.10.1 — keep a pill inside the viewport. A fixed pill dragged (or left by a
+// resize) off-screen is unreachable — you can't scroll to fixed chrome. Clamp so a
+// sliver always stays visible and grabbable.
+function clampToViewport(p: { x: number; y: number }): { x: number; y: number } {
+  if (typeof window === "undefined") return p;
+  const { left, top } = clampPillPosition(p.x, p.y, window.innerWidth, window.innerHeight);
+  return { x: left, y: top };
+}
+
 function startDrag(e: ReactPointerEvent, pos: { x: number; y: number }, setPos: (p: { x: number; y: number }) => void) {
   e.preventDefault();
   const sx = e.clientX, sy = e.clientY, ox = pos.x, oy = pos.y;
-  const move = (ev: PointerEvent) => setPos({ x: Math.max(4, ox + ev.clientX - sx), y: Math.max(4, oy + ev.clientY - sy) });
+  const move = (ev: PointerEvent) => setPos(clampToViewport({ x: ox + ev.clientX - sx, y: oy + ev.clientY - sy }));
   const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
 }

@@ -34,6 +34,8 @@ export {
   extractA11yPath,
   resolveA11yPath,
   roleOf,
+  isPillOffViewport,
+  clampPillPosition,
   type ExtractedSelector,
   type A11yPath,
   type A11ySeg,
