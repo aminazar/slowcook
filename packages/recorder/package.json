@@ -42,7 +42,7 @@
     "prepublishOnly": "tsc -b"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1"
+    "@types/node": "^26.0.1"
   },
   "publishConfig": {
     "access": "public"
