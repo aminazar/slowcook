@@ -437,3 +437,22 @@ export function resolveAnchor(
   if (sel) return { element: sel.element, via: sel.usedFallback ? "fallback" : "selector" };
   return null;
 }
+
+// ── Draggable-pill viewport math (shared by the React shells) ────────────────
+// Fixed/absolute chrome can't be scrolled to, so a pill whose persisted/dragged
+// position lands outside the viewport becomes unreachable. These keep it visible.
+
+/** True when a pill's top-left corner is outside the viewport (minus a small
+ *  margin) — i.e. it would be unreachable and should be snapped back. */
+export function isPillOffViewport(left: number, top: number, vw: number, vh: number, margin = 8): boolean {
+  return left < 0 || top < 0 || left > vw - margin || top > vh - margin;
+}
+
+/** Clamp a top-left position so a sliver of the pill always stays on-screen
+ *  (grip grabbable). `keepX`/`keepY` are the minimum visible px at right/bottom. */
+export function clampPillPosition(left: number, top: number, vw: number, vh: number, keepX = 40, keepY = 30): { left: number; top: number } {
+  return {
+    left: Math.min(Math.max(0, left), Math.max(0, vw - keepX)),
+    top: Math.min(Math.max(0, top), Math.max(0, vh - keepY)),
+  };
+}

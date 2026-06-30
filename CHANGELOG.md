@@ -6,6 +6,20 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.10.1 — keep the floating pill on-screen
+
+`@slowcook-ai/review-overlay` 0.10.1 (patch; bug fix). A persisted or dragged pill
+position could land **outside the viewport**, and since the pill is fixed/absolute
+chrome you can't scroll to it — so the widget looked **gone**.
+
+- **Snap stranded pills back.** On mount, if the restored position is off-screen the
+  LCR overlay pill resets to the top-left (`{top:12,left:12}`); same on window resize.
+- **Clamp while dragging.** Both shells (`SlowcookReviewOverlay` + `ReviewWidget`)
+  now clamp the drag into the viewport (the old `-2000` left floor that let the
+  left-anchored grip vanish is gone), keeping a sliver visible and grabbable.
+- New pure, tested helpers `isPillOffViewport` / `clampPillPosition` exported from
+  the core entry (used by both shells).
+
 ## review-overlay 0.10.0 — semantic (a11y) anchoring + a reusable ReviewWidget shell
 
 `@slowcook-ai/review-overlay` 0.10.0 (overlay-only; additive + new public API). Backward-compatible — legacy selector-anchored comments still resolve.

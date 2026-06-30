@@ -26,7 +26,7 @@
 
 import { useEffect, useState, useRef, useCallback, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { extractSelector, resolveAnchor } from "../selector.js";
+import { extractSelector, resolveAnchor, isPillOffViewport, clampPillPosition } from "../selector.js";
 import {
   buildPayload,
   formatReviewComment,
@@ -1350,6 +1350,17 @@ function saveTogglePosition(p: TogglePosition): void {
   }
 }
 
+// 0.10.1 — a persisted position can fall outside the viewport (the window was
+// resized smaller, or the pill was dragged to an edge). Because the pill is
+// fixed/absolute chrome, an off-screen position is UNREACHABLE — you can't scroll
+// to it. So whenever we restore or the window resizes, snap a stranded pill back
+// to the top-left where it's always grabbable. `margin` keeps a sliver on-screen so
+// a position that's merely flush to an edge still counts as visible.
+function ensureOnScreen(p: TogglePosition): TogglePosition {
+  if (typeof window === "undefined") return p;
+  return isPillOffViewport(p.left, p.top, window.innerWidth, window.innerHeight) ? { top: 12, left: 12 } : p;
+}
+
 function ModeToggle(props: {
   mode: Mode;
   armed: boolean;
@@ -1380,7 +1391,20 @@ function ModeToggle(props: {
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
   const [pos, setPos] = useState<TogglePosition>({ top: 12, left: 12 });
-  useEffect(() => { setPos(loadTogglePosition()); }, []);
+  // Restore the saved position after mount (avoids an SSR hydration mismatch), but
+  // never restore it off-screen — snap a stranded pill back into view (0.10.1).
+  useEffect(() => { setPos(ensureOnScreen(loadTogglePosition())); }, []);
+  // If the window resizes such that the pill ends up outside the viewport, bring it
+  // back (a fixed pill can't be scrolled to).
+  useEffect(() => {
+    const onResize = () => setPos((p) => {
+      const next = ensureOnScreen(p);
+      if (next !== p) saveTogglePosition(next);
+      return next;
+    });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const dragRef = useRef<{ startX: number; startY: number; startTop: number; startLeft: number } | null>(null);
 
   // 0.9.0 — EPSS jump palette open state. The tappable status (right of the
@@ -1427,11 +1451,10 @@ function ModeToggle(props: {
     e.preventDefault();
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
-    const newTop = Math.max(0, dragRef.current.startTop + dy);
-    // Allow a slightly-negative left so a clipped (grown-right) pill can be
-    // panned left to reveal its right side; the grip stays grabbable.
-    const newLeft = Math.max(-2000, dragRef.current.startLeft + dx);
-    setPos({ top: newTop, left: newLeft });
+    // 0.10.1 — clamp into the viewport while dragging so the grip can never be
+    // pushed off-screen (it's left-anchored now, so a negative left hides it).
+    const { left, top } = clampPillPosition(dragRef.current.startLeft + dx, dragRef.current.startTop + dy, window.innerWidth, window.innerHeight);
+    setPos({ top, left });
   }, []);
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
