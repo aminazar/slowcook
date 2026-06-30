@@ -30,7 +30,13 @@ export {
 export {
   extractSelector,
   resolveStoredSelector,
+  resolveAnchor,
+  extractA11yPath,
+  resolveA11yPath,
+  roleOf,
   type ExtractedSelector,
+  type A11yPath,
+  type A11ySeg,
 } from "./selector.js";
 
 export {

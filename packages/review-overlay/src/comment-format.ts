@@ -13,7 +13,7 @@
  * Pure function; no DOM access.
  */
 
-import type { ExtractedSelector } from "./selector.js";
+import type { ExtractedSelector, A11yPath } from "./selector.js";
 
 export interface ViewportInfo {
   width: number;
@@ -81,6 +81,9 @@ export interface ReviewCommentPayload {
     strategy: ExtractedSelector["strategy"];
     tag: string;
     text_hint: string | null;
+    /** Semantic anchor (role + name + container path) — preferred over the CSS
+     *  selector on resolve; absent for legacy comments captured before #1. */
+    a11y?: A11yPath | null;
     /** Bounding box in CSS pixels at submit time. */
     bbox: { x: number; y: number; w: number; h: number };
   } | null;
@@ -388,6 +391,7 @@ export function buildPayload(args: {
           strategy: args.selector.strategy,
           tag: args.selector.tag,
           text_hint: args.selector.textHint,
+          a11y: args.selector.a11y ?? null,
           bbox: args.bbox,
         }
       : null;

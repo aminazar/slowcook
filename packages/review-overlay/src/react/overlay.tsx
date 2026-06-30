@@ -26,7 +26,7 @@
 
 import { useEffect, useState, useRef, useCallback, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { extractSelector, resolveStoredSelector } from "../selector.js";
+import { extractSelector, resolveAnchor } from "../selector.js";
 import {
   buildPayload,
   formatReviewComment,
@@ -55,6 +55,7 @@ import {
   type DocFile,
 } from "../github.js";
 import { renderMarkdown } from "./markdown.js";
+import { usePrefersDark, detectPageDark, pillTheme, sheetTheme, type PillTheme, type SheetTheme } from "./theme.js";
 import {
   loadReviewerToken,
   loadReviewerIdentity,
@@ -491,10 +492,24 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // token, org OAuth-App restriction, or a private repo the token can't see)
   // routes to the sign-in dialog with a deterministic explanation, instead of a
   // dead-end toast. Other failures still toast.
+  // The shared reviewer token (used by BOTH comments and the Docs studio) is dead.
+  // Clear the whole session — token AND the cached identity — so the overlay shows
+  // "signed out" CONSISTENTLY everywhere (not signed-in in the pill but rejected in
+  // Docs), then open the login dialog. One re-sign-in restores everything.
+  const expireSession = useCallback((reason?: string) => {
+    if (typeof window !== "undefined") clearReviewerSession(window.localStorage, { owner, repo });
+    setReviewerIdentity(null);
+    openLogin(reason ?? "Your GitHub session expired — sign in again.");
+  }, [owner, repo, openLogin]);
+
   const reportFailure = useCallback((status: number | undefined, message: string | undefined, prefix: string) => {
-    if (status === 401 || status === 403 || status === 404) openLogin(describeAuthError(status, message, { owner, repo }));
+    // 401 "Bad credentials" = the token itself is invalid (expired) → expire the
+    // shared session. 403/404 can be OAuth-restriction / private-repo, not a dead
+    // token — route to sign-in without clearing.
+    if (status === 401) expireSession(describeAuthError(status, message, { owner, repo }));
+    else if (status === 403 || status === 404) openLogin(describeAuthError(status, message, { owner, repo }));
     else setFeedback(`${prefix}: ${status ?? "?"} ${message ?? ""}`);
-  }, [openLogin, owner, repo]);
+  }, [openLogin, owner, repo, expireSession]);
 
   const startDeviceLogin = useCallback(async () => {
     if (!authBase) return;
@@ -1058,6 +1073,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           identity={reviewerIdentity}
           getToken={() => (typeof window !== "undefined" ? loadReviewerToken(window.localStorage, repoCoord) : null)}
           onSignIn={() => openLogin()}
+          onSessionExpired={() => expireSession(`Your GitHub session expired — sign in again to read the docs.`)}
           apiBase={getProxyApiBase() ?? undefined}
           onClose={() => setDocsPanelOpen(false)}
           onFeedback={(t) => setFeedback(t)}
@@ -1271,22 +1287,11 @@ function ReviewerLoginDialog({
 // 0.9.0 — LEFT-anchored (was right): the grip + logo + nav/rev pin to the left
 // edge and the EPSS status grows the pill rightward. Bumped key suffix so old
 // right-based saved positions don't mis-place the new left-anchored pill.
-// 0.9.0 — overlay artifacts follow the SYSTEM colour scheme (not the app's,
-// since the overlay lives in an isolated shadow root). Reactive to OS changes.
-function usePrefersDark(): boolean {
-  const [dark, setDark] = useState<boolean>(() => {
-    try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return true; }
-  });
-  useEffect(() => {
-    let mq: MediaQueryList;
-    try { mq = window.matchMedia("(prefers-color-scheme: dark)"); } catch { return; }
-    const on = (): void => setDark(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-  return dark;
-}
-
+// Detect the scheme to render overlay artifacts in. The overlay is mounted INSIDE a
+// consumer app that has its OWN theme (e.g. dash forces dark via data-theme="dark"),
+// which may differ from the OS. Following prefers-color-scheme rendered a LIGHT panel
+// over a dark app (bright, low-contrast). So follow the PAGE: an explicit
+// data-theme/color-scheme wins, else the page background's luminance, else the OS.
 // 0.9.5 — track the live pathname so the EPSS status reflects where the reviewer
 // ACTUALLY is, reactively. react-router (and most SPA routers) navigate via
 // history.pushState without firing popstate, so patch it to notify us; popstate +
@@ -1311,20 +1316,6 @@ function useCurrentPath(): string {
     };
   }, []);
   return path;
-}
-
-interface PillTheme { bg: string; border: string; fg: string; fgDim: string; sub: string; subBorder: string; shadow: string; ghBg: string; ghFg: string; }
-function pillTheme(dark: boolean): PillTheme {
-  return dark
-    ? { bg: "rgba(15,15,24,0.92)", border: "rgba(255,255,255,0.16)", fg: "white", fgDim: "rgba(255,255,255,0.55)", sub: "rgba(255,255,255,0.08)", subBorder: "rgba(255,255,255,0.15)", shadow: "0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)", ghBg: "#ffffff", ghFg: "#24292f" }
-    : { bg: "rgba(255,255,255,0.96)", border: "rgba(0,0,0,0.12)", fg: "#1a1a1a", fgDim: "rgba(0,0,0,0.5)", sub: "rgba(0,0,0,0.05)", subBorder: "rgba(0,0,0,0.12)", shadow: "0 4px 16px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7)", ghBg: "#24292f", ghFg: "#ffffff" };
-}
-
-interface SheetTheme { backdrop: string; sheet: string; fg: string; fgDim: string; header: string; input: string; inputBorder: string; border: string; rowActive: string; rowHover: string; }
-function sheetTheme(dark: boolean): SheetTheme {
-  return dark
-    ? { backdrop: "rgba(0,0,0,0.5)", sheet: "#1b1b22", fg: "#ececf0", fgDim: "#a0a0aa", header: "#8a8a96", input: "#26262f", inputBorder: "#3a3a46", border: "rgba(255,255,255,0.08)", rowActive: "rgba(59,175,160,0.22)", rowHover: "rgba(255,255,255,0.06)" }
-    : { backdrop: "rgba(0,0,0,0.4)", sheet: "#ffffff", fg: "#111111", fgDim: "#999999", header: "#8a8a8a", input: "#ffffff", inputBorder: "#d0d7de", border: "#eeeeee", rowActive: "rgba(59,175,160,0.14)", rowHover: "#f3f4f6" };
 }
 
 const TOGGLE_POSITION_STORAGE_KEY = "slowcook.review-overlay.toggle-pos.v2";
@@ -1471,7 +1462,7 @@ function ModeToggle(props: {
         // as its buttons; a hard 300px cap clipped the signed-in identity chip
         // OUTSIDE the pill border. 94vw keeps a wide (signed-in) row inside the
         // pill; on a truly tiny viewport the grip still pans it left.
-        maxWidth: "min(560px, 94vw)",
+        maxWidth: "min(600px, 94vw)",
         gap: 4,
         // 0.4.2 — green-tinted when approved; else follows the system theme.
         background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
@@ -1520,10 +1511,10 @@ function ModeToggle(props: {
       {/* 0.9.3 — the content column is `min-content` wide so the pill is exactly
           as wide as the BUTTON ROW; the EPSS status then WRAPS within that width
           instead of stretching the pill rightward. */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "min-content", minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, width: "min-content", maxWidth: "100%", minWidth: 0 }}>
       {/* Top row — buttons on a single non-wrapping line; this row's width is what
           the column (and pill) sizes to. */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", gap: 4, whiteSpace: "nowrap" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap", gap: 4 }}>
       {/* Slowcook logo — pinned to the left of the button row. */}
       <SlowcookLogo />
       {/* 0.8.0 — single Review/exit toggle. Off = overlay idle. On (accent) =
@@ -1554,24 +1545,21 @@ function ModeToggle(props: {
           aria-label={armed ? "Cancel pick" : "Comment on an element"}
           title={armed ? "Cancel — tap an element, or cancel the pick" : "Comment on an element"}
           style={{
-            marginLeft: 4,
             background: armed ? ACCENT : T.sub,
             color: armed ? "white" : T.fg,
             border: armed ? `1px solid ${ACCENT}` : "1px solid transparent",
-            // 0.9.2 — icon-only (compact): 💭 to arm a pick, ✕ to cancel.
-            padding: "5px 9px",
+            padding: "5px 10px",
             borderRadius: 999,
             cursor: disabled ? "not-allowed" : "pointer",
             opacity: disabled ? 0.6 : 1,
             font: "inherit",
-            fontSize: 14,
-            lineHeight: 1,
+            fontSize: 12,
             display: "inline-flex",
             alignItems: "center",
-            justifyContent: "center",
+            gap: 5,
           }}
         >
-          {armed ? "✕" : "💭"}
+          {armed ? "✕ Cancel" : "📍 Pin"}
         </button>
       )}
       {/* 0.6.8 — Approve moved into the Comments panel (under "+ Add note").
@@ -1598,11 +1586,10 @@ function ModeToggle(props: {
         disabled={disabled}
         title={`See all comments (${commentCount})`}
         style={{
-          marginLeft: 4,
           background: T.sub,
           color: T.fg,
           border: "none",
-          padding: "6px 10px",
+          padding: "5px 10px",
           borderRadius: 999,
           cursor: disabled ? "not-allowed" : "pointer",
           opacity: disabled ? 0.6 : 1,
@@ -1613,7 +1600,7 @@ function ModeToggle(props: {
           gap: 5,
         }}
       >
-        📋 {commentCount > 0 && (
+        💬 Comments {commentCount > 0 && (
           <span style={{
             background: ACCENT,
             color: "white",
@@ -1627,84 +1614,83 @@ function ModeToggle(props: {
         )}
       </button>
       )}
-      {/* 0.7.0 — Docs (textual review): read + edit the spec docs. Available in
-          both Nav and Comment modes — it's a parallel review surface. */}
-      {docsEnabled && (
-        <button
-          type="button"
-          onClick={() => { setConfirmLogout(false); onDocsClick(); }}
-          disabled={disabled}
-          title="Review & edit the spec docs (textual review)"
-          style={{
-            marginLeft: 4, background: T.sub, color: T.fg,
-            border: "none", padding: "6px 10px", borderRadius: 999,
-            cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
-            font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
-          }}
-        >
-          📄 Docs
-        </button>
-      )}
-      {/* 0.7.1 — "Viewing as" surface switcher. A REVIEW affordance (a real user
-          is one role), so it lives in the pane, not the mock. */}
-      {surfaces.length > 0 && <SurfaceSwitcher surfaces={surfaces} onNavigate={onNavigate} disabled={disabled} />}
-      {/* Pill extension slot — consumer-provided, always visible (e.g. dash's
-          work-session timer). The overlay owns the pill; the consumer owns the slot. */}
-      {accessory}
-      {/* 0.6.2 — LCR per-reviewer sign-in, inside the disk. All colours are
-          explicit (white-on-dark) so the app's dark/light theme can't touch it.
-          0.6.11 — only in Comment mode. */}
-      {reviewMode === "lcr" && mode === "comment" && (
-        identity ? (
-          <span
-            title={confirmLogout
-              ? "Click again to sign out (or click anything else to cancel)"
-              : identity.canApply
-              ? `Signed in as @${identity.login} — you have write access, so your comments are applied`
-              : `Signed in as @${identity.login} — no write access, so your feedback is gathered for the team to review (not auto-applied)`}
-            onClick={() => { if (confirmLogout) { setConfirmLogout(false); onSignOut(); } else { setConfirmLogout(true); } }}
-            style={{
-              marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
-              background: confirmLogout ? "rgba(255,107,107,0.25)" : T.sub,
-              border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
-              color: confirmLogout ? (dark ? "white" : "#a8071a") : T.fg, fontSize: 12, fontWeight: 600,
-            }}
-          >
-            {confirmLogout ? (
-              <><span aria-hidden>🚪</span> Sign out?</>
-            ) : (
-              <>
-                {identity.avatarUrl
-                  ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
-                  : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
-                @{identity.login}
-                {/* 0.9.2 — dropped the applies/review tier chip: jargon nobody
-                    asked for; the write-access nuance lives in the sign-in title. */}
-              </>
-            )}
-          </span>
-        ) : (
+      {/* 0.7.1 — persona picker ("Viewing as") — a primary review control; row 1.
+          Review mode only (nav shows just the switch). */}
+      {mode === "comment" && surfaces.length > 0 && <SurfaceSwitcher surfaces={surfaces} onNavigate={onNavigate} disabled={disabled} />}
+      </div>{/* /row 1 */}
+
+      {/* Row 2 — secondary controls, review mode only: Docs · identity · timer.
+          Nav mode renders none of these, so the pill is as narrow as the switch. */}
+      {mode === "comment" && (docsEnabled || reviewMode === "lcr" || accessory != null) && (
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap", gap: 4 }}>
+        {/* 0.7.0 — Docs (textual review): read + edit the spec docs. */}
+        {docsEnabled && (
           <button
             type="button"
-            onClick={onSignIn}
+            onClick={() => { setConfirmLogout(false); onDocsClick(); }}
             disabled={disabled}
-            title="Sign in with GitHub to comment as yourself"
+            title="Review & edit the spec docs (textual review)"
             style={{
-              marginLeft: 4, display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "6px 12px", borderRadius: 999, border: "none",
-              background: T.ghBg, color: T.ghFg, cursor: disabled ? "not-allowed" : "pointer",
-              font: "inherit", fontSize: 12, fontWeight: 700,
+              background: T.sub, color: T.fg, border: "none", padding: "5px 10px", borderRadius: 999,
+              cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+              font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill={T.ghFg} aria-hidden="true">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-            </svg>
-            Sign in
+            📄 Docs
           </button>
-        )
+        )}
+        {/* 0.6.2 — LCR per-reviewer sign-in / identity. */}
+        {reviewMode === "lcr" && (
+          identity ? (
+            <span
+              title={confirmLogout
+                ? "Click again to sign out (or click anything else to cancel)"
+                : identity.canApply
+                ? `Signed in as @${identity.login} — you have write access, so your comments are applied`
+                : `Signed in as @${identity.login} — no write access, so your feedback is gathered for the team to review (not auto-applied)`}
+              onClick={() => { if (confirmLogout) { setConfirmLogout(false); onSignOut(); } else { setConfirmLogout(true); } }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 10px 4px 4px", borderRadius: 999, cursor: "pointer",
+                background: confirmLogout ? "rgba(255,107,107,0.25)" : T.sub,
+                border: confirmLogout ? "1px solid rgba(255,107,107,0.7)" : "1px solid transparent",
+                color: confirmLogout ? (dark ? "white" : "#a8071a") : T.fg, fontSize: 12, fontWeight: 600,
+              }}
+            >
+              {confirmLogout ? (
+                <><span aria-hidden>🚪</span> Sign out?</>
+              ) : (
+                <>
+                  {identity.avatarUrl
+                    ? <img src={identity.avatarUrl} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
+                    : <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>👤</span>}
+                  @{identity.login}
+                </>
+              )}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onSignIn}
+              disabled={disabled}
+              title="Sign in with GitHub to comment as yourself"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: 999, border: "none",
+                background: T.ghBg, color: T.ghFg, cursor: disabled ? "not-allowed" : "pointer",
+                font: "inherit", fontSize: 12, fontWeight: 700,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill={T.ghFg} aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+              Sign in
+            </button>
+          )
+        )}
+        {accessory}
+      </div>
       )}
-      </div>{/* /top row */}
 
       {/* 0.9.1/0.9.5 — EPSS current location: always shown, small font, both
           modes. 0.9.5 — it's now LIVE: reflects the surface the reviewer is
@@ -2365,7 +2351,7 @@ function CommentPins(props: {
       return { record: r, rect: { x: -100, y: -100 }, drifted: true };
     }
     const resolved = typeof document !== "undefined"
-      ? resolveStoredSelector(document, r.payload.element.selector, r.payload.element.fallback_selector)
+      ? resolveAnchor(document, r.payload.element)
       : null;
     let rect: { x: number; y: number };
     let drifted = false;
@@ -2839,19 +2825,26 @@ function CommentsListPanel(props: {
             const palette = pinPalette(status as never, false);
             const anchored = r.payload.element !== null;
             const live = anchored && typeof document !== "undefined"
-              ? resolveStoredSelector(document, r.payload.element!.selector, r.payload.element!.fallback_selector)
+              ? resolveAnchor(document, r.payload.element!)
               : null;
             const hidden = anchored && live && (
               live.element.getBoundingClientRect().width === 0 ||
               (live.element as HTMLElement).offsetParent === null
             );
+            // Mode-aware label colours — bright on dark, darker on light — so the
+            // pill text stays readable whichever scheme the host app renders in.
+            const grey = dark ? "#9aa6b6" : "#475569";
+            // Quiet outline chips — no filled background. The colour carries the
+            // meaning; a filled translucent pill read as a "bright background" in
+            // the dark sidebar. Border at low alpha so it never competes with the
+            // comment prose. (Colour-only `bg` is reused for the thin border.)
             const anchorLabel = !anchored
-              ? { text: "note", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
+              ? { text: "note", color: grey }
               : !live
-              ? { text: "drifted", color: "#facc15", bg: "rgba(250,204,21,0.18)" }
+              ? { text: "drifted", color: dark ? "#fbbf24" : "#a16207" }
               : hidden
-              ? { text: "hidden", color: "#94a3b8", bg: "rgba(148,163,184,0.18)" }
-              : { text: "anchored", color: "#22c55e", bg: "rgba(34,197,94,0.18)" };
+              ? { text: "hidden", color: grey }
+              : { text: "anchored", color: dark ? "#34d399" : "#15803d" };
             const expanded = expandedId === r.commentId;
             const clamp = (lines: number) => expanded ? {} : { display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical" as const, overflow: "hidden" };
             return (
@@ -2877,11 +2870,11 @@ function CommentsListPanel(props: {
                       <span aria-hidden style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: 999, background: palette.bg, color: palette.fg, border: `1.5px solid ${S.sheet}`, fontSize: 7, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{palette.glyph}</span>
                     )}
                   </span>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: anchorLabel.bg, color: anchorLabel.color }}>{anchorLabel.text}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 6px", borderRadius: 999, background: "transparent", border: `1px solid ${anchorLabel.color}`, opacity: 0.85, color: anchorLabel.color }}>{anchorLabel.text}</span>
                   <span style={{ fontSize: 10, opacity: 0.55, marginLeft: "auto" }}>@{r.author} · {formatTimeAgo(r.createdAt)}</span>
                   <span aria-hidden style={{ fontSize: 10, opacity: 0.55, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▶</span>
                 </button>
-                <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
+                <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.4, marginTop: 4, ...clamp(3) }}>{r.payload.prose}</div>
                 {r.plateReply?.summary && (
                   <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${S.border}`, fontSize: 11.5, lineHeight: 1.45, color: S.fgDim, whiteSpace: "pre-wrap", ...clamp(4) }}>
                     <span style={{ color: palette.bg, fontWeight: 700 }}>↳ reply: </span>{r.plateReply.summary}
@@ -2889,9 +2882,9 @@ function CommentsListPanel(props: {
                 )}
                 {/* Actions — always offer GitHub; locate only when anchored. */}
                 <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11.5 }}>
-                  <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ color: "#7cc7ff", textDecoration: "none" }}>↗ Open issue on GitHub</a>
+                  <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ color: dark ? "#7cc7ff" : "#0969da", textDecoration: "none" }}>↗ Open issue on GitHub</a>
                   {anchored && (
-                    <button type="button" onClick={() => onOpenComment(r.commentId)} style={{ color: "#22c55e", font: "inherit", fontSize: 11.5, cursor: "pointer" }}>
+                    <button type="button" onClick={() => onOpenComment(r.commentId)} style={{ background: "transparent", border: "none", padding: 0, color: dark ? "#34d399" : "#15803d", font: "inherit", fontSize: 11.5, cursor: "pointer" }}>
                       📍 {live ? "Locate on page" : "Anchor drifted"}
                     </button>
                   )}
@@ -3036,11 +3029,13 @@ function DocsPanel(props: {
   identity: StoredReviewerIdentity | null;
   getToken: () => string | null;
   onSignIn: () => void;
+  /** The shared token was rejected (expired) — clear the whole session + re-prompt. */
+  onSessionExpired: () => void;
   apiBase?: string;
   onClose: () => void;
   onFeedback: (t: string) => void;
 }): JSX.Element {
-  const { repo, docPaths, branch, identity, getToken, onSignIn, apiBase, onClose, onFeedback } = props;
+  const { repo, docPaths, branch, identity, getToken, onSignIn, onSessionExpired, apiBase, onClose, onFeedback } = props;
   const [path, setPath] = useState<string>(docPaths[0] ?? "");
   const [file, setFile] = useState<DocFile | null>(null);
   const [draft, setDraft] = useState<string>("");
@@ -3048,22 +3043,33 @@ function DocsPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"edit" | "preview">("preview");
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [needsAuth, setNeedsAuth] = useState<boolean>(false);
   const canApply = identity?.canApply === true;
   const dirty = file != null && draft !== file.content;
   const ref = branch || "HEAD";
 
   const load = useCallback(async (p: string) => {
-    setLoading(true); setError(null); setFile(null);
+    setLoading(true); setError(null); setFile(null); setNeedsAuth(false);
     const token = getToken();
     const res = await fetchDocFile({ owner: repo.owner, repo: repo.repo, path: p, ref, pat: token ?? undefined, apiBase });
+    const short = p.split("/").pop();
     if (res.ok) { setFile(res.file); setDraft(res.file.content); setView("preview"); }
-    else if (!token && (res.status === 404 || res.status === 401)) {
-      setError(`Sign in with GitHub to read ${p.split("/").pop()} — this repo is private.`);
+    else if (res.status === 401) {
+      // 401 "Bad credentials" = the token is invalid — almost always an EXPIRED
+      // reviewer session (device-flow tokens expire). A token WAS present (the pill
+      // still shows signed-in), so clear the whole SHARED session so the overlay is
+      // consistent everywhere + re-prompt; absent token is just a normal sign-in.
+      setNeedsAuth(true);
+      setError(token ? `Your GitHub session expired — sign in again to read ${short}.` : `Sign in with GitHub to read ${short} — this repo is private.`);
+      if (token) onSessionExpired();
+    } else if (!token && res.status === 404) {
+      setNeedsAuth(true);
+      setError(`Sign in with GitHub to read ${short} — this repo is private.`);
     } else {
       setError(`Couldn't load ${p}: ${res.message} (${res.status})`);
     }
     setLoading(false);
-  }, [repo.owner, repo.repo, ref, apiBase, getToken]);
+  }, [repo.owner, repo.repo, ref, apiBase, getToken, onSessionExpired]);
 
   useEffect(() => { if (path) void load(path); }, [path, load]);
 
@@ -3158,7 +3164,21 @@ function DocsPanel(props: {
         {loading ? (
           <div style={{ padding: 24, opacity: 0.6 }}>Loading {name(path)}…</div>
         ) : error ? (
-          <div style={{ padding: 24, color: "#ffb4b4" }}>{error}</div>
+          <div style={{ padding: 24, color: "#ffb4b4" }}>
+            <div>{error}</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              {needsAuth && (
+                <button type="button" onClick={onSignIn}
+                  style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer", background: "white", color: "#111" }}>
+                  Sign in with GitHub
+                </button>
+              )}
+              <button type="button" onClick={() => void load(path)}
+                style={{ fontSize: 12.5, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.25)", cursor: "pointer", background: "transparent", color: "rgba(255,255,255,0.85)" }}>
+                Retry
+              </button>
+            </div>
+          </div>
         ) : view === "edit" ? (
           <textarea
             value={draft}

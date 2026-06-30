@@ -6,6 +6,26 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.10.0 — semantic (a11y) anchoring + a reusable ReviewWidget shell
+
+`@slowcook-ai/review-overlay` 0.10.0 (overlay-only; additive + new public API). Backward-compatible — legacy selector-anchored comments still resolve.
+
+**Semantic anchoring (no production trace).** Comments now anchor to the **accessibility tree** — `role + accessible name + container path` — not just a CSS selector. The anchor is *computed* from the a11y tree, so nothing is injected into the DOM: it leaves **no trace in shipped code**, **survives DOM restructuring + reorder** (where a selector drifts), and — because a11y semantics are part of the UI shape brew preserves — **resolves against the real product too**, not only the mock (so QA-on-real-product gets anchoring for free). New `resolveAnchor` (semantic → selector → fallback) drives the pins + locate; comment payloads gain an optional `a11y` field (absent on legacy comments). New exports: `extractA11yPath`, `resolveA11yPath`, `resolveAnchor`, `roleOf`, types `A11yPath`/`A11ySeg`. Role coverage broadened (containers, headings, img, **textarea/select** — the last a dogfood fix).
+
+**`ReviewWidget` — a context-free review shell.** The reusable abstractions (floating + draggable pill, a configurable mode toggle, anchored markers + a sidebar list, an accessory slot, host-theme awareness) are decoupled from the LCR overlay's EPSS/selector machinery into a new `ReviewWidget` that anchors to **semantic node ids** (`data-review-node`) — for structured, mutating content (a PRD passage, an invariant, a budget knob). Theme primitives extracted to a shared module (`usePrefersDark`/`detectPageDark`/`pillTheme`/`sheetTheme`, now exported). The LCR overlay is unchanged; both consume the same theme module.
+
+**Pill redesign.** The floating pill is minimal in nav mode (just the switch; the EPSS status wraps below) and a tidy two-row layout in review mode (row 1: switch · pin · comments · persona; row 2: docs · identity · timer), with consistent icon+label buttons and **wrap-inside-the-border** so a wide signed-in row never overflows. Comment-row status chips are quiet outlines (not filled "bright" pills).
+
+Rolls up the unpublished 0.9.8–0.9.10 line (full per-comment context, the generic `accessory` slot, expired-session handling, page-theme detection).
+
+## review-overlay 0.9.10 — expired-session handling + page-theme detection
+
+`@slowcook-ai/review-overlay` 0.9.10 (overlay-only; bug fixes).
+
+**Expired session.** The Docs studio and comments share ONE reviewer token (`loadReviewerToken`); device-flow tokens expire, so a stale session returned a dead-end `Couldn't load docs/PRD.md: Bad credentials (401)` — while the pill still showed the cached identity as "signed in", making it look like Docs and LCR didn't share the login. Now a **401 expires the whole session** — token **and** cached identity are cleared, so the pill, comments, and Docs all show signed-out **consistently**, and **one** re-sign-in restores everything. The Docs panel surfaces a **Sign in with GitHub** + **Retry**; valid-token path unchanged.
+
+**Dark-mode contrast (follow the app, not the OS).** The overlay's panels followed `prefers-color-scheme`, so over an app that forces dark (`data-theme="dark"`) on a *light* OS it rendered a **bright panel with low-contrast text**. It now detects the **page's** scheme — explicit `data-theme`/`color-scheme` wins, else the page background's luminance, else the OS — and re-detects when the app toggles its theme. Plus a small dark-mode legibility bump (brighter `fg`/`fgDim`, less-clamped prose).
+
 ## docs(EPSS) — an affordance's interaction is part of the requirement
 
 Docs-only follow-up to the "design is a state source" section. Extends affordances→requirements from *presence + appearance + data-variant* to **interaction**: *what an affordance does when activated* is spec too. A button reproduced to look right but wired to a stub (e.g. `navigate` instead of opening the design's confirm modal) drops a requirement just as surely as a missing control — and the modal's content + data-driven branching are themselves requirements. New EPSS.md bullet + consequence sentence ("doesn't *behave* like design" is the same class of miss as "doesn't *look* like design"), mirrored in `AGENTS.md`'s pointer. Provenance: a chosen-therapist card whose Manage/Cancel buttons, reproduced visually but stubbed to a route change, dropped the cancel-confirm-sheet flow that surfaces the ≥24h-refund / <24h-charge cancellation model.
