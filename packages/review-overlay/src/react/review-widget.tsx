@@ -8,16 +8,23 @@
 //
 // First consumer: dash's coral "Refine" pill (PM requirement review). Next: QA on a
 // real backend. The LCR mock-review overlay stays as-is for vibe/plate.
-import { useEffect, useMemo, useState, type ReactNode, type CSSProperties, type JSX, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties, type JSX, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { usePrefersDark, sheetTheme } from "./theme.js";
 import { clampPillPosition } from "../selector.js";
+import { CometSheen } from "./comet.js";
 
 export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; }
 export type Corner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
 
 export interface ReviewWidgetProps {
+  /** Gate (a): whether the current persona/user may review/chat here. When false
+   *  the widget renders nothing. */
   enabled?: boolean;
+  /** Gate (b): hide the widget when the page has NO reviewable context (no nodes
+   *  carrying `anchorAttribute`). Default true — the pill only appears where there
+   *  is actually something to review. */
+  requireTargets?: boolean;
   /** Pill title, e.g. "Refine". */
   title?: string;
   /** Brand accent for the pill, markers, highlight (dash coral by default). */
@@ -49,11 +56,12 @@ const ago = (t: number) => { const s = Math.floor((Date.now() - t) / 1000); if (
 
 export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
   const {
-    enabled = true, title = "Refine", accent = DASH_CORAL, icon = "✎",
+    enabled = true, requireTargets = true, title = "Refine", accent = DASH_CORAL, icon = "✎",
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
     author = "PM", storageKey = "slowcook.review-widget.comments", accessory,
   } = props;
+  const pillRef = useRef<HTMLDivElement | null>(null);
   const dark = usePrefersDark();
   const S = sheetTheme(dark);
   const [comments, setComments] = useState<ReviewComment[]>(() => (typeof window !== "undefined" ? load(storageKey) : []));
@@ -122,6 +130,9 @@ export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
   }, [comments]);
 
   if (!enabled || typeof document === "undefined") return null;
+  // Gate (b): nothing to review on this page → don't show the pill. (Recomputed on
+  // the marker-scan tick, so it follows SPA navigation.)
+  if (requireTargets && !document.querySelector(sel)) return null;
 
   // Live marker rects (recomputed each render; `setTick` drives re-render).
   const markers: { node: string; count: number; x: number; y: number }[] = [];
@@ -163,7 +174,8 @@ export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
 
       {/* the floating pill */}
       {pos && (
-        <div style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 10px", borderRadius: 999, background: S.sheet, border: `1px solid ${S.border}`, boxShadow: "0 6px 20px rgba(0,0,0,.35)", pointerEvents: "auto", zIndex: Z + 2, fontFamily: "system-ui, sans-serif", userSelect: "none" }}>
+        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 10px", borderRadius: 999, background: S.sheet, border: `1px solid ${S.border}`, boxShadow: "0 6px 20px rgba(0,0,0,.35)", pointerEvents: "auto", zIndex: Z + 2, fontFamily: "system-ui, sans-serif", userSelect: "none" }}>
+          <CometSheen pillRef={pillRef} radius={999} />
           <span onPointerDown={(e) => startDrag(e, pos, setPos)} title="Drag to move" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "grab", color: S.fg }}>
             <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
             <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>
