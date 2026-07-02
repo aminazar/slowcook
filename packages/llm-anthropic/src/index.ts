@@ -1,4 +1,5 @@
 export { AnthropicClient } from "./client.js";
+export { ClaudeCliClient, createLlmClient, renderCliPrompt, type CliRunner } from "./claude-cli.js";
 export {
   PRICING_PER_M_TOKENS,
   costUsdForUsage,
