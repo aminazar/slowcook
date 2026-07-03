@@ -1,20 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { ClaudeCliClient, createLlmClient, renderCliPrompt } from "./claude-cli.js";
 
-const cliJson = (over: Record<string, unknown> = {}) =>
-  JSON.stringify({
-    type: "result",
-    subtype: "success",
-    is_error: false,
-    result: "the reply",
-    usage: {
-      input_tokens: 12,
-      output_tokens: 7,
-      cache_read_input_tokens: 3,
-      cache_creation_input_tokens: 2,
-    },
-    ...over,
-  });
+const cliStream = (opts: { blocks?: string[]; resultOver?: Record<string, unknown> } = {}) => {
+  const blocks = opts.blocks ?? ["the reply"];
+  const events = [
+    ...blocks.map((b) =>
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: b }] } })
+    ),
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: blocks[blocks.length - 1],
+      usage: {
+        input_tokens: 12,
+        output_tokens: 7,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 2,
+      },
+      ...(opts.resultOver ?? {}),
+    }),
+  ];
+  return events.join("\n") + "\n";
+};
+const cliJson = (over: Record<string, unknown> = {}) => cliStream({ resultOver: over });
 
 describe("ClaudeCliClient", () => {
   it("runs the CLI as a pure text model and maps usage + cost", async () => {
@@ -36,6 +45,7 @@ describe("ClaudeCliClient", () => {
 
     const { args, stdin } = seen!;
     expect(args).toContain("--disallowedTools");
+    expect(args[args.indexOf("--output-format") + 1]).toBe("stream-json");
     expect(args[args.indexOf("--model") + 1]).toBe("claude-opus-4-7");
     expect(args[args.indexOf("--system-prompt") + 1]).toBe("you are testgen");
     expect(stdin).toContain("[user]\ngenerate tests for story-054");
@@ -63,7 +73,13 @@ describe("ClaudeCliClient", () => {
     const garbage = new ClaudeCliClient(async () => "definitely not json");
     await expect(
       garbage.complete({ system: "s", messages: [{ role: "user", content: "x" }], model: "m" })
-    ).rejects.toThrow(/non-JSON/);
+    ).rejects.toThrow(/no result event/);
+  });
+
+  it("concatenates MULTI-BLOCK replies — the aggregate result field only carries the last block", async () => {
+    const client = new ClaudeCliClient(async () => cliStream({ blocks: ["<test_file>\nlots of code\n", "more code\n</test_file>"] }));
+    const res = await client.complete({ system: "s", messages: [{ role: "user", content: "x" }], model: "m" });
+    expect(res.text).toBe("<test_file>\nlots of code\nmore code\n</test_file>");
   });
 
   it("folds a multi-turn transcript into one prompt", () => {

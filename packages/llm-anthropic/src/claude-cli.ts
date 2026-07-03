@@ -80,25 +80,48 @@ export class ClaudeCliClient implements LlmClient {
   constructor(private readonly run: CliRunner = defaultRunner) {}
 
   async complete(args: LlmRequest): Promise<LlmResponse> {
+    // stream-json, NOT json: on long replies the CLI's aggregate `result`
+    // field carries only the FINAL text block (observed thrice on dash —
+    // replies arriving mid-word). Concatenating the assistant events' text
+    // blocks recovers the full reply.
     const cliArgs = [
       "-p",
-      "--output-format", "json",
+      "--output-format", "stream-json",
+      "--verbose", // stream-json in print mode requires it
       "--model", args.model,
       "--disallowedTools", "*", // pure text model — no host access, ever
       "--system-prompt", args.system,
     ];
     const stdout = await this.run(cliArgs, renderCliPrompt(args.messages));
-    let parsed: CliResult;
-    try {
-      parsed = JSON.parse(stdout) as CliResult;
-    } catch {
-      throw new Error(`claude-cli returned non-JSON output: ${stdout.slice(0, 200)}`);
+    let text = "";
+    let parsed: CliResult | null = null;
+    for (const line of stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) continue;
+      let evt: Record<string, unknown>;
+      try {
+        evt = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (evt.type === "assistant") {
+        const message = evt.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
+        for (const block of message?.content ?? []) {
+          if (block.type === "text" && typeof block.text === "string") text += block.text;
+        }
+      } else if (evt.type === "result") {
+        parsed = evt as unknown as CliResult;
+      }
     }
-    if (parsed.is_error || typeof parsed.result !== "string") {
+    if (!parsed) {
+      throw new Error(`claude-cli emitted no result event: ${stdout.slice(0, 200)}`);
+    }
+    if (parsed.is_error) {
       throw new Error(
         `claude-cli error (${parsed.subtype ?? "unknown"}): ${parsed.result ?? stdout.slice(0, 200)}`
       );
     }
+    if (!text) text = typeof parsed.result === "string" ? parsed.result : "";
     const usage = {
       inputTokens: parsed.usage?.input_tokens ?? 0,
       outputTokens: parsed.usage?.output_tokens ?? 0,
@@ -106,7 +129,7 @@ export class ClaudeCliClient implements LlmClient {
       cacheCreateTokens: parsed.usage?.cache_creation_input_tokens ?? 0,
     };
     return {
-      text: parsed.result,
+      text,
       usage,
       costUsd: costUsdForUsage(args.model, usage),
       model: args.model,
