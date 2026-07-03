@@ -16,6 +16,7 @@ import {
   buildSchemaPresenceTestContent,
   buildStylingPresenceTestContent,
   resolveImportToSourcePath,
+  mineTestExemplars,
 } from "./agent.js";
 import type { Spec } from "@slowcook-ai/core";
 import { normalizeSpecId } from "./index.js";
@@ -973,6 +974,25 @@ describe("validateImportClosure workspace fallback", () => {
         emittedHelperPaths: [],
       });
       expect(violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── sc#240: convention-mining when no context.md exists ──
+describe("mineTestExemplars", () => {
+  it("excerpts the newest story tests from package roots; null on empty repos", () => {
+    const root = mkdtempSync(join(tmpdir(), "tg-mine-"));
+    try {
+      mkdirSync(join(root, "server", "test"), { recursive: true });
+      writeFileSync(join(root, "server", "package.json"), "{}");
+      writeFileSync(join(root, "server", "test", "story-068.settlement.test.ts"),
+        'import { acceptPOST } from "../src/http/work-sessions.js";\nit("x", () => {});\n');
+      const out = mineTestExemplars(root);
+      expect(out).toContain("story-068.settlement.test.ts");
+      expect(out).toContain("../src/http/work-sessions.js");
+      expect(mineTestExemplars(mkdtempSync(join(tmpdir(), "tg-empty-")))).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
