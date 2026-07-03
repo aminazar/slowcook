@@ -894,7 +894,21 @@ export function parseAgentOutput(
       );
     }
     const d = parsed.data;
+    // sc#236 ROOT CAUSE — the passthrough parse preserved repo-local fields
+    // (prd_ref, epic, surfaces, …) but this hand-enumerated rebuild dropped
+    // them. Start from the model's extras; the enumerated fields win.
+    const KNOWN_REBUILD_KEYS = new Set([
+      "$schema", "story_id", "title", "status", "created_at", "supersedes",
+      "superseded_by", "token_budget_usd", "estimate", "source_issue",
+      "refined_by", "actors", "preconditions", "invariants", "api_contract",
+      "ui_behavior", "acceptance_scenarios", "non_goals", "related_specs",
+      "proposals",
+    ]);
+    const repoLocalExtras = Object.fromEntries(
+      Object.entries(d as Record<string, unknown>).filter(([k]) => !KNOWN_REBUILD_KEYS.has(k))
+    );
     const spec: Spec = {
+      ...(repoLocalExtras as Partial<Spec>),
       $schema: "./spec.schema.json",
       story_id: ctx.storyId,
       title: d.title,

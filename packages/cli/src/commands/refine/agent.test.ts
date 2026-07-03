@@ -166,3 +166,37 @@ describe("stripModelEmittedDuplicates — defense in depth for cost-footer/brand
     expect(stripModelEmittedDuplicates(body)).toBe(body);
   });
 });
+
+// ── sc#236 root-cause regression: repo-local fields survive the Spec rebuild ──
+describe("parseAgentOutput repo-local passthrough", () => {
+  it("keeps prd_ref/epic emitted by the model through the hand rebuild", () => {
+    const yaml = [
+      "---",
+      "title: t",
+      'estimate: small',
+      "actors: []",
+      "preconditions: []",
+      "invariants: [inv]",
+      "acceptance_scenarios: ['Given a, When b, Then c', 'Given d, When e, Then f', 'Given g, When h, Then i']",
+      "non_goals: []",
+      'epic: "Backend"',
+      "prd_ref:",
+      "  file: docs/PRD.md",
+      "  anchor: surface-billing",
+    ].join("\n");
+    const out = parseAgentOutput(yaml, {
+      storyId: "099",
+      issueNumber: 1,
+      createdAt: "2026-07-03T00:00:00.000Z",
+      supersedes: [],
+      cliVersion: "0.0.0-test",
+    } as never);
+    expect(out.kind).toBe("spec");
+    if (out.kind === "spec") {
+      const s = out.spec as unknown as Record<string, unknown>;
+      expect(s.epic).toBe("Backend");
+      expect(s.prd_ref).toEqual({ file: "docs/PRD.md", anchor: "surface-billing" });
+      expect(s.story_id).toBe("099"); // enumerated fields still win
+    }
+  });
+});
