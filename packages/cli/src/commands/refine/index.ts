@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { LlmCreditExhaustedError } from "@slowcook-ai/core";
-import { AnthropicClient } from "./llm.js";
+import { createLlmClient } from "./llm.js";
 import {
   runRefinement,
   runResubmitRefinement,
@@ -129,7 +129,8 @@ Options:
   --help, -h                   Show this help
 
 Environment:
-  ANTHROPIC_API_KEY  (required)  Anthropic API key
+  ANTHROPIC_API_KEY  Anthropic API key — or SLOWCOOK_LLM=claude-cli for the
+                     local claude CLI's subscription auth (key-less)
   GITHUB_TOKEN       (required)  GitHub token with issues:write, contents:write, pull-requests:write
 
 Exit codes:
@@ -156,9 +157,13 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 export async function refine(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
-  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-  if (!anthropicKey) {
-    console.error("ANTHROPIC_API_KEY environment variable is not set.");
+  // sc#233 — the LLM runtime is environment-decided: ANTHROPIC_API_KEY (API)
+  // or SLOWCOOK_LLM=claude-cli (key-less, Claude Code subscription auth).
+  let llm;
+  try {
+    llm = await createLlmClient();
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
     process.exit(2);
   }
   const githubToken = process.env["GITHUB_TOKEN"];
@@ -182,7 +187,6 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
   }
 
   const forge = new GitHubAdapter({ owner, repo, token: githubToken });
-  const llm = new AnthropicClient(anthropicKey);
 
   try {
     if (args.prNumber) {
