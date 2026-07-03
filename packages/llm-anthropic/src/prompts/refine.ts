@@ -65,7 +65,7 @@ When in doubt, prefer ONE. Splitting a real single story into fake sub-stories a
 
 ## When the input was itself a multifurcation output
 
-If the issue body contains a footer like \`Split from #<N> (slowcook multifurcation)\`, the parent was already classified epic-scale and broken down once. The granularity floor doesn't move, but you should **lean toward "one"** unless the body still has 2+ distinct user outcomes that each meet the 3-6 scenario floor on their own. Most of the splitting work was done upstream; verify it actually still has multiple outcomes before splitting again.
+If the issue body contains "Split from #<N>" in ANY phrasing, the parent was already broken down and a PM accepted that split — the granularity decision is made. Answer "one" unless the body UNMISTAKABLY contains 2+ distinct user outcomes that were not visible to the parent split (rare). Re-proposing the same backend/surface axis the parent already considered is always wrong.
 
 Concrete: if the issue's body parses as a single sentence describing a single screen with a single bounded flow, AND it has a \`Split from #N\` footer, the answer is almost certainly "one".
 

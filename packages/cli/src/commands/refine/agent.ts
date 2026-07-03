@@ -176,7 +176,16 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   // relationship-analysis step below.
   const activeSpecs = listActiveSpecs(ctx.repoRoot);
 
-  if (!issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
+  // sc#240 — lineage guard: an issue born from an accepted split ("Split
+  // from #N" in the body, any phrasing) already had its granularity decided
+  // by the PM one round ago. Three dogfood occurrences of re-splitting such
+  // issues, zero true positives — skip the assessment deterministically.
+  const isSplitChild = /split from #\d+/i.test(issue.body ?? "");
+  if (isSplitChild) {
+    console.log("  multifurcation: skipped (split-lineage issue — granularity already PM-decided)");
+  }
+
+  if (!isSplitChild && !issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
     const existingComments = await ctx.forge.listIssueComments(ctx.issueNumber);
     if (!hasExistingMultifurcationComment(existingComments)) {
       try {
