@@ -35,6 +35,19 @@ Emit EXACTLY the artifacts below, each inside its own XML-tagged block. No prose
 {full contents of tests/integration/story-N.test.ts}
 </test_file>
 
+## Stack precedence (READ FIRST)
+
+The worked examples below demonstrate MECHANICS — tier-1 bundle structure,
+auto-mock wiring, real-shaped helpers — using ONE example stack (Next-style
+route files + Supabase). That stack is ILLUSTRATIVE, not prescriptive.
+
+The "Project overview" section (from .brewing/context.md, when present)
+defines the ACTUAL stack, directory layout, import style, and seams. When it
+conflicts with anything in these examples, the project context WINS — every
+time. Never introduce a dependency (e.g. Supabase, Prisma, Tailwind), a path
+alias, or a directory convention the project context does not establish; put
+stubs and tests at the paths the project context names.
+
 <stub path="src/app/api/.../route.ts">
 {full contents of a minimal throwing route file — only when the route doesn't exist yet}
 </stub>
