@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  resolveDataSeamRoot,
   writeMockFixtures,
   renderMockFile,
   renderStubFile,
@@ -252,6 +253,30 @@ describe("writeMockFixtures", () => {
       expect(second).toBe(first);
     } finally {
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── #238 regression: fixtures land in the package that owns the data seam ──
+describe("resolveDataSeamRoot", () => {
+  it("prefers an existing populated seam dir in a sub-package over root src/lib/data", () => {
+    const root = mkdtempSync(join(tmpdir(), "mf-seam-"));
+    try {
+      mkdirSync(join(root, "mock", "src", "data"), { recursive: true });
+      writeFileSync(join(root, "mock", "package.json"), "{}");
+      writeFileSync(join(root, "mock", "src", "data", "wallet-dash.ts"), "export {};\n");
+      expect(resolveDataSeamRoot(root)).toBe("mock/src/data");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the legacy root path on greenfield repos", () => {
+    const root = mkdtempSync(join(tmpdir(), "mf-green-"));
+    try {
+      expect(resolveDataSeamRoot(root)).toBe("src/lib/data");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
