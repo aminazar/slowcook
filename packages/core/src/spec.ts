@@ -191,7 +191,29 @@ export interface Spec {
    * data states the surface must render (empty / populated / error / edge).
    * The persona-surface trace lint checks each route resolves to a real router path.
    */
-  surfaces?: { route: string; name?: string; persona?: string; home?: boolean; states?: string[] }[];
+  /**
+   * `access` (mock→prod honesty) — the route's PRODUCTION posture, distinct
+   * from the mock's "every surface reachable" stance and from `auth_proposal`
+   * (which is API/RLS auth, not page gating). `public` = reachable signed-out
+   * (landing, sign-in, guest-review); `authed` = requires a session (DEFAULT
+   * for anything not explicitly public); `role:<name>` = a specific role.
+   * `port` emits a route guard from this; `check prod-honesty` fails when a
+   * non-public route ships ungated.
+   *
+   * `ctas` — every actionable affordance names its real effect so the port
+   * wires it and never ships mock theater: `navigate:<path>`,
+   * `mutate:<METHOD /api/...>`, or `deferred` (no backend yet → honest
+   * disabled/coming-soon state, never a fake success).
+   */
+  surfaces?: {
+    route: string;
+    name?: string;
+    persona?: string;
+    home?: boolean;
+    states?: string[];
+    access?: "public" | "authed" | string;
+    ctas?: { label: string; effect: string }[];
+  }[];
   /** GUCDI — open questions; addressable must resolve before the scope is "complete". */
   open_questions?: { addressable: string[]; deferred: string[] };
 
