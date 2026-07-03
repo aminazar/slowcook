@@ -427,6 +427,8 @@ Good:
 
 When emitting the spec: output ONLY the YAML, nothing before or after, starting with \`---\` and ending with the last field. The YAML MUST validate against this schema (\`?\` marks optional):
 
+**Surface honesty (mock→prod)**: for every entry in `surfaces`, declare its PRODUCTION posture so the port can strip review scaffolding — the mock is populated + open + theatrical for review, and those must NOT ship. Add `access:` (`public` = reachable signed-out — landing, sign-in, guest-review; `authed` = requires a session — the DEFAULT for anything not explicitly public; `role:<name>` for a specific role) and, for each actionable affordance, a `ctas:` entry naming its real `effect:` (`navigate:<path>`, `mutate:<METHOD /api/...>`, or `deferred` when there is no backend yet → it must render an honest disabled/coming-soon state, never a fake success). `access` is PAGE gating, distinct from `auth_proposal` (API/RLS). These feed `slowcook check prod-honesty`, which fails the build on fixture/gating/dead-CTA leakage.
+
 **Repo-local required fields**: if the project context (\`.brewing/context.md\`) declares spec metadata fields beyond this schema (e.g. \`epic\`, \`prd_ref\`, \`surfaces\` with exact shapes), EMIT them in the YAML too, in exactly the documented shapes — the pipeline preserves unknown fields and repo linters require them. Omitting them fails the repo's lint.
 
 - story_id: string (provided to you — don't invent)
