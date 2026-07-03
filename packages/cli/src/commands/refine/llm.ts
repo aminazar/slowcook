@@ -17,6 +17,8 @@ export type {
 
 export {
   AnthropicClient,
+  ClaudeCliClient,
+  createLlmClient,
   costUsdForUsage,
   costMarker,
   parseCostMarkers,
