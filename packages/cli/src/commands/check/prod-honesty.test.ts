@@ -57,6 +57,21 @@ describe("prod-honesty check", () => {
     expect(v.filter(x => x.cls === "dead_cta")).toHaveLength(0);
   });
 
+  it("C: FLAGS a fake-success even when a CONDITIONAL disabled is on the line", () => {
+    const v = check(`export function P(){ return <button onClick={() => setDone(true)} disabled={!ok || done}>Satisfy</button>; }`);
+    expect(v.map(x => x.cls)).toContain("dead_cta");
+  });
+
+  it("C: honors @slowcook-honest on the line ABOVE the handler", () => {
+    const v = check(`export function P(){ return (\n  <button\n    // @slowcook-honest: demo only\n    onClick={() => setDone(true)}\n  >Go</button>\n); }`);
+    expect(v.filter(x => x.cls === "dead_cta")).toHaveLength(0);
+  });
+
+  it("C: clean with a BARE disabled (always-off honest state)", () => {
+    const v = check(`export function P(){ return <button onClick={() => setDone(true)} disabled>Coming</button>; }`);
+    expect(v.filter(x => x.cls === "dead_cta")).toHaveLength(0);
+  });
+
   it("C: clean when the theater is acknowledged deferred", () => {
     const v = check(`export function P(){ return <button onClick={() => setSubmitted(true)} disabled>Coming soon</button>; }`);
     expect(v.filter(x => x.cls === "dead_cta")).toHaveLength(0);
