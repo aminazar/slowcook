@@ -54,3 +54,17 @@ after`;
     expect(inits.map((i) => `${i.level}:${i.anchor}`)).toEqual(["1:a", "2:a1", "3:a1a"]);
   });
 });
+
+// ── dash dogfood: bold-list-item sections with explicit anchors ──
+describe("anchored list-item initiatives", () => {
+  it("parses `- **Title** {#anchor} — body` as an initiative", () => {
+    const md = "## Surfaces {#surfaces}\n- **7.9a Worker timesheet** {#surface-timesheet} — the worker reviews by pointing.\n  More detail here.\n- plain bullet stays body\n";
+    const inits = parsePrdInitiatives(md);
+    const ts = inits.find((i) => i.anchor === "surface-timesheet");
+    expect(ts).toBeDefined();
+    expect(ts!.title).toBe("7.9a Worker timesheet");
+    expect(ts!.body).toContain("reviews by pointing");
+    expect(ts!.body).toContain("More detail here");
+    expect(ts!.body).toContain("plain bullet stays body");
+  });
+});
