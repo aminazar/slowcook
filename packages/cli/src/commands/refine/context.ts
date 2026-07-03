@@ -32,6 +32,15 @@ export function buildProjectContext(repoRoot: string): string {
 
   const activeSpecs = readActiveSpecsSummary(repoRoot);
   if (activeSpecs.length > 0) {
+  // Anchor-validity (dash dogfood: models invent plausible-but-nonexistent
+  // prd_ref anchors). When the repo has a PRD with {#anchor} markers, list
+  // them — an emitted prd_ref.anchor MUST be one of these.
+  const prdAnchors = readPrdAnchors(repoRoot);
+  if (prdAnchors.length > 0) {
+    sections.push("\n### PRD anchors (prd_ref.anchor MUST be one of these — never invent one)\n");
+    sections.push(prdAnchors.join(" · "));
+  }
+
     sections.push("\n### Active specs (cross-reference via `related_specs` when applicable)\n");
     for (const line of activeSpecs) sections.push(line);
   }
@@ -696,4 +705,17 @@ function joinPath(base: string, sub: string): string {
   if (!b) return s;
   if (!s) return b;
   return `${b}/${s}`;
+}
+
+
+/** every {#anchor} marker in docs/PRD.md (empty when no PRD). */
+export function readPrdAnchors(repoRoot: string): string[] {
+  const path = join(repoRoot, "docs", "PRD.md");
+  if (!existsSync(path)) return [];
+  try {
+    const text = readFileSync(path, "utf8");
+    return [...text.matchAll(/\{#([a-z0-9-]+)\}/g)].map((m) => m[1]!);
+  } catch {
+    return [];
+  }
 }

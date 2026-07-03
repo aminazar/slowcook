@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildProjectContext, readBrownfieldExtracts } from "./context.js";
+import { buildProjectContext, readBrownfieldExtracts, readPrdAnchors } from "./context.js";
 
 function mkRepo(): string {
   return mkdtempSync(join(tmpdir(), "slowcook-refine-context-"));
@@ -107,6 +107,20 @@ describe("readBrownfieldExtracts", () => {
       expect(out).not.toContain("Existing schema");
     } finally {
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("readPrdAnchors", () => {
+  it("extracts {#anchor} markers; empty without a PRD", () => {
+    const root = mkdtempSync(join(tmpdir(), "ctx-prd-"));
+    try {
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(join(root, "docs", "PRD.md"), "# P {#prd}\n## 7.1 {#surface-onboarding}\n");
+      expect(readPrdAnchors(root)).toEqual(["prd", "surface-onboarding"]);
+      expect(readPrdAnchors(mkdtempSync(join(tmpdir(), "ctx-none-")))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
