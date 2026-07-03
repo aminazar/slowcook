@@ -159,7 +159,10 @@ export function buildHistoryIndex(opts: BuildOptions): HistoryIndex {
     dirs.flatMap((d) => scan(repoRoot, d));
 
   const components = scanAll(candidates.components, scanComponents);
-  const api_routes = scanAll(candidates.api, scanApiRoutes);
+  const api_routes = [
+    ...scanAll(candidates.api, scanApiRoutes),
+    ...scanCodeRoutes(repoRoot, pkgDirs),
+  ];
   const migrations = scanAll(candidates.migrations, scanMigrations);
   const test_helpers = scanAll(candidates.helpers, scanTestHelpers);
   const test_files = scanAll(candidates.tests, scanTestFiles);
@@ -592,6 +595,38 @@ function trimExcerpt(body: string, limit: number): string {
   const trimmed = body.trim();
   if (trimmed.length <= limit) return trimmed;
   return trimmed.slice(0, limit) + "\n/* ...truncated... */";
+}
+
+// ----- Code-routed API scanner (Hono/Express-style) -----
+
+/**
+ * Route-FILE conventions (src/app/api/**​/route.ts) miss code-routed
+ * frameworks entirely — dash mounts everything via Hono `app.post("/api/...")`
+ * in one file, which indexed as "0 api routes" and led testgen to FORK an
+ * existing webhook handler it couldn't see (aminazar/slowcook#240). This pass
+ * greps literal `app.<method>("...")` registrations out of every package's
+ * src/ tree. Regex-level fidelity is deliberate: no AST dependency, and a
+ * route the regex misses degrades to the old behavior, never worse.
+ */
+export function scanCodeRoutes(repoRoot: string, pkgDirs: string[]): ApiRouteEntry[] {
+  const out: ApiRouteEntry[] = [];
+  const re = /\bapp\.(get|post|put|patch|delete)\(\s*["'`]([^"'`]+)["'`]/g;
+  for (const pkg of pkgDirs) {
+    const srcRoot = join(repoRoot, pkg === "" ? "src" : `${pkg}/src`);
+    for (const file of walkFiles(srcRoot, /\.(ts|tsx)$/)) {
+      if (/\.test\.|\.spec\./.test(file)) continue;
+      const text = readFileSync(file, "utf8");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        out.push({
+          method: m[1]!.toUpperCase(),
+          path: m[2]!,
+          file: file.slice(repoRoot.length + 1),
+        });
+      }
+    }
+  }
+  return out;
 }
 
 // ----- Package-root discovery (workspace-blindness fix) -----
