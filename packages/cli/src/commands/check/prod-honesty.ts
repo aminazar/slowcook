@@ -162,7 +162,14 @@ function findDeadCtas(lines: string[]): { line: number; reason: string }[] {
     const outcomeM = inline.match(new RegExp(OUTCOME_SETTER.source + "\\s*\\(\\s*([^,)]*)"));
     const claimsOutcome = !!outcomeM && !/^(false|null|undefined|""|''|``|0)$/.test((outcomeM[1] ?? "").trim());
     const hasRealEffect = /\bfetch\s*\(|\bnavigate\s*\(|\.push\s*\(|\brouter\.|\baxios|href\s*=|window\.location|\bmutate\w*\s*\(|void\s+\w+\(|await\s/.test(inline);
-    const acknowledged = /deferred|disabled|coming.?soon/i.test(line) || EXEMPT.test(line);
+    // a BARE `disabled` (always-off) or `disabled={true}` is an honest
+    // acknowledgement; a CONDITIONAL `disabled={expr}` is NOT — the button is
+    // live when the condition is false, so a fake-success there still ships.
+    const bareDisabled = /\bdisabled(?![=\w])/.test(line) || /\bdisabled\s*=\s*\{?\s*true\s*\}?/.test(line);
+    // a leading `// @slowcook-honest` (this line or up to 2 lines above, like
+    // eslint-disable-next-line) is a valid, greppable acknowledgement.
+    const markerWindow = [line, lines[i - 1] ?? "", lines[i - 2] ?? ""].some((l) => EXEMPT.test(l));
+    const acknowledged = /deferred|coming.?soon/i.test(line) || bareDisabled || markerWindow;
     if (claimsOutcome && !hasRealEffect && !acknowledged) {
       out.push({
         line: i + 1,
