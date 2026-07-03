@@ -23,17 +23,33 @@ import { costUsdForUsage } from "./pricing.js";
 /** shell-out seam, injectable so tests never spawn a process. */
 export type CliRunner = (args: string[], stdin: string) => Promise<string>;
 
-const defaultRunner: CliRunner = (args, stdin) =>
+const runOnce = (args: string[], stdin: string): Promise<string> =>
   new Promise((resolve, reject) => {
     const child = execFile(
       "claude",
       args,
       { maxBuffer: 64 * 1024 * 1024, timeout: 15 * 60 * 1000 },
-      (err, stdout) => (err ? reject(err) : resolve(stdout))
+      (err, stdout, stderr) => {
+        if (!err) return resolve(stdout);
+        // stderr is the only diagnostic the CLI gives on a crash — carry it.
+        const tail = String(stderr ?? "").trim().slice(-500);
+        reject(new Error(`claude CLI exited abnormally: ${err.message}${tail ? `\nstderr: ${tail}` : ""}`));
+      }
     );
     child.stdin?.write(stdin);
     child.stdin?.end();
   });
+
+// Long generations occasionally die in-flight (observed on multi-minute
+// testgen bundles: one truncated reply, one abnormal exit). One retry
+// absorbs the transient class; a second failure surfaces with diagnostics.
+const defaultRunner: CliRunner = async (args, stdin) => {
+  try {
+    return await runOnce(args, stdin);
+  } catch {
+    return runOnce(args, stdin);
+  }
+};
 
 interface CliResult {
   is_error?: boolean;
