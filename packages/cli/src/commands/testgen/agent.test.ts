@@ -957,3 +957,24 @@ describe("validateImportClosure (α.49 — delgoosh#656 regression)", () => {
     }
   });
 });
+
+// ── #240 round-C regression: conventional imports resolve via package roots ──
+describe("validateImportClosure workspace fallback", () => {
+  it("accepts ../src imports whose target lives in a package root (nodenext .js)", () => {
+    const root = mkdtempSync(join(tmpdir(), "tg-ws-"));
+    try {
+      mkdirSync(join(root, "mock", "src", "pages"), { recursive: true });
+      writeFileSync(join(root, "mock", "package.json"), "{}");
+      writeFileSync(join(root, "mock", "src", "pages", "BillingRedeemPage.tsx"), "export const x = 1;\n");
+      const violations = validateImportClosure({
+        repoRoot: root,
+        testFilePath: "tests/integration/story-064-ui.test.tsx",
+        testContent: 'import { BillingRedeemPage } from "../src/pages/BillingRedeemPage.js";\n',
+        emittedHelperPaths: [],
+      });
+      expect(violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
