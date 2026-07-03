@@ -7,6 +7,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
+import { discoverPackageDirs } from "../refine/history-index.js";
 import { join, dirname, relative } from "node:path";
 import YAML from "yaml";
 import type { ForgeAdapter, Spec } from "@slowcook-ai/core";
@@ -1570,18 +1571,40 @@ export function validateImportClosure(args: {
     const imp = m[1];
     if (!imp) continue;
     const baseRel = join(testDir, imp).replace(/\\/g, "/");
+    // nodenext repos import "./x.js" for a file named x.ts — map the extension.
+    const baseNoJs = baseRel.replace(/\.js$/, "");
     const candidates = [
       baseRel,
       `${baseRel}.ts`,
       `${baseRel}.tsx`,
+      `${baseNoJs}.ts`,
+      `${baseNoJs}.tsx`,
       `${baseRel}/index.ts`,
       `${baseRel}/index.tsx`,
+      `${baseNoJs}/index.ts`,
     ];
-    const resolved = candidates.find((c) => {
+    let resolved = candidates.find((c) => {
       if (emitted.has(c)) return true;
       const abs = join(repoRoot, c);
       try { return statSync(abs).isFile(); } catch { return false; }
     });
+    if (!resolved) {
+      // Workspace fallback (aminazar/slowcook#240 round C): the emit location
+      // is repo-root tests/, but multi-package repos keep sources under
+      // <pkg>/src — an import like ../src/pages/X.js is conventionally right
+      // and merely unresolvable FROM HERE. Accept it if any package root
+      // holds the target; brewing relocates the test into that package.
+      const tail = imp.replace(/^(\.\.\/)+/, "").replace(/^\.\//, "");
+      const tailNoJs = tail.replace(/\.js$/, "");
+      outer: for (const pkg of discoverPackageDirs(repoRoot)) {
+        if (pkg === "") continue;
+        for (const c of [`${pkg}/${tail}`, `${pkg}/${tailNoJs}.ts`, `${pkg}/${tailNoJs}.tsx`]) {
+          try {
+            if (statSync(join(repoRoot, c)).isFile()) { resolved = c; break outer; }
+          } catch { /* keep looking */ }
+        }
+      }
+    }
     if (!resolved) {
       // Distinguish "the import points at a directory that exists but
       // has no index file" from outright missing — the prompt advice
