@@ -427,6 +427,8 @@ Good:
 
 When emitting the spec: output ONLY the YAML, nothing before or after, starting with \`---\` and ending with the last field. The YAML MUST validate against this schema (\`?\` marks optional):
 
+**Repo-local required fields**: if the project context (\`.brewing/context.md\`) declares spec metadata fields beyond this schema (e.g. \`epic\`, \`prd_ref\`, \`surfaces\` with exact shapes), EMIT them in the YAML too, in exactly the documented shapes — the pipeline preserves unknown fields and repo linters require them. Omitting them fails the repo's lint.
+
 - story_id: string (provided to you — don't invent)
 - title: string (one-line description)
 - status: "active"
