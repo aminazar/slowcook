@@ -346,6 +346,21 @@ export async function nextStoryId(
     .map((id) => parseInt(id, 10))
     .filter((n) => !isNaN(n));
 
+  // Brownfield guard: repos whose specs predate slowcook (or were written by
+  // other tooling) have `specs/story-*.yaml` files but no `_index.yaml` — the
+  // files are the ground truth. Without this, refine allocated "001" into a
+  // repo holding 58 stories and OVERWROTE story-001 (found dogfooding dash).
+  let fromFiles: number[] = [];
+  try {
+    fromFiles = readdirSync(join(repoRoot, SPECS_DIR))
+      .map((f) => /^story-(\d+)\.yaml$/.exec(f)?.[1])
+      .filter((id): id is string => id !== undefined)
+      .map((id) => parseInt(id, 10))
+      .filter((n) => !isNaN(n));
+  } catch {
+    // no specs/ dir yet — fine, fresh repo.
+  }
+
   let fromBranches: number[] = [];
   if (forge) {
     try {
@@ -360,7 +375,7 @@ export async function nextStoryId(
     }
   }
 
-  const all = [...fromIndex, ...fromBranches, 0];
+  const all = [...fromIndex, ...fromFiles, ...fromBranches, 0];
   return String(Math.max(...all) + 1).padStart(3, "0");
 }
 

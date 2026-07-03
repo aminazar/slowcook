@@ -100,6 +100,15 @@ describe("spec-yaml I/O", () => {
       expect(await nextStoryId(repoRoot)).toBe("043");
     });
 
+    it("considers story FILES when no _index.yaml exists (brownfield repos)", async () => {
+      // dash dogfood regression: 58 spec files, no index → refine allocated
+      // "001" and overwrote a live spec. Files are ground truth.
+      mkdirSync(join(repoRoot, "specs"), { recursive: true });
+      writeFileSync(join(repoRoot, "specs", "story-001.yaml"), "story_id: '001'\n");
+      writeFileSync(join(repoRoot, "specs", "story-058.yaml"), "story_id: '058'\n");
+      expect(await nextStoryId(repoRoot)).toBe("059");
+    });
+
     it("also considers remote branches matching slowcook/spec/story-*", async () => {
       // Index is empty; branch has story-007 in flight.
       const mockForge = {
