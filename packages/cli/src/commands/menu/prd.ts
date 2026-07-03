@@ -59,6 +59,23 @@ export function parsePrdInitiatives(md: string): PrdInitiative[] {
       if (current) current.body += line + "\n";
       continue;
     }
+    // dash dogfood: PRDs also anchor sections as bold LIST ITEMS
+    // (`- **7.9a Title** {#anchor} — body…`). Only EXPLICITLY anchored
+    // bullets become initiatives — plain bullets stay body text.
+    const li = !inFence
+      ? /^\s*[-*]\s+\*\*(.+?)\*\*\s*\{#([\w-]+)\}\s*(?:[—–-]\s*)?(.*)$/.exec(line)
+      : null;
+    if (li) {
+      const parentLevel: number = current !== null ? current.level : 2;
+      flush();
+      current = {
+        anchor: li[2]!,
+        title: li[1]!.trim(),
+        level: parentLevel + 1,
+        body: (li[3] ?? "") + "\n",
+      };
+      continue;
+    }
     const h = !inFence ? /^(#{1,6})\s+(.+?)\s*$/.exec(line) : null;
     if (h) {
       flush();
