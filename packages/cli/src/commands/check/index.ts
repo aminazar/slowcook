@@ -16,6 +16,7 @@
 import { runMockIsolationCheck } from "./mock-isolation.js";
 import { runSpecValidateCli } from "./spec-validate.js";
 import { runProdHonestyCli } from "./prod-honesty.js";
+import { runProdBundleCli } from "./prod-bundle.js";
 
 export async function check(argv: string[], _cliVersion: string): Promise<void> {
   const sub = argv[0];
@@ -26,6 +27,8 @@ export async function check(argv: string[], _cliVersion: string): Promise<void> 
       return runSpecValidateCli(argv.slice(1));
     case "prod-honesty":
       return runProdHonestyCli(argv.slice(1));
+    case "prod-bundle":
+      return runProdBundleCli(argv.slice(1));
     case undefined:
     case "help":
     case "--help":
@@ -46,6 +49,7 @@ slowcook check — static structural checks (0.16-α.13)
 Usage:
   slowcook check mock-isolation [--cwd <path>]
   slowcook check prod-honesty [--cwd <path>] [--dir <src>]
+  slowcook check prod-bundle [--cwd <path>] [--dist <dist>]
   slowcook check spec [file...] [--cwd <path>]
 
 Subcommands:
