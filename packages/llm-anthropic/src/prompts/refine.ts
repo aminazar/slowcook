@@ -714,6 +714,7 @@ Same as the main refine prompt emit shape:
 - Start with three dashes on their own line
 - Emit ONLY the YAML, nothing before or after
 - Preserve the full spec schema: story_id, title, status, created_at, supersedes, superseded_by, actors, preconditions, invariants, api_contract?, ui_behavior?, acceptance_scenarios, non_goals, related_specs?, proposals?
+- REPO-LOCAL EXTRA FIELDS (e.g. prd_ref, epic, surfaces — anything present in the current spec or explicitly requested by feedback that is not in the list above) MUST be preserved/added verbatim — repos may enforce local spec extensions with their own linters. Never strip a field you don't recognize; never silently skip feedback that asks for one.
 
 No prose preamble, no summary line, no postscript.
 

@@ -782,7 +782,7 @@ const EmittedSpecSchema = z.object({
       })
     )
     .optional(),
-});
+}).passthrough();
 
 /**
  * 0.11.6 — coerce common LLM emit variance to the shapes zod expects.

@@ -234,7 +234,7 @@ const SpecSchema = z.object({
     total_usd: z.number(),
     last_updated: z.string(),
   }).optional(),
-});
+}).passthrough();
 
 export function readIndex(repoRoot: string): SpecIndex {
   const path = join(repoRoot, INDEX_FILE);
