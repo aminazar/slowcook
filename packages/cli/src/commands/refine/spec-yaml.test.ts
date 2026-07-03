@@ -156,3 +156,33 @@ describe("spec-yaml I/O", () => {
     });
   });
 });
+
+// ── #236 regression: repo-local spec fields survive the round-trip ──
+describe("repo-local field passthrough", () => {
+  it("preserves fields outside the core schema (e.g. prd_ref) through parse", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "sy-pt-"));
+    mkdirSync(join(repoRoot, "specs"), { recursive: true });
+    const raw = [
+      'story_id: "071"',
+      "title: t",
+      "status: active",
+      "created_at: 2026-07-03T00:00:00.000Z",
+      "supersedes: []",
+      "superseded_by: null",
+      "actors: []",
+      "preconditions: []",
+      "invariants: []",
+      "acceptance_scenarios: []",
+      "non_goals: []",
+      "prd_ref:",
+      "  file: docs/PRD.md",
+      "  anchor: surface-billing",
+      'epic: "Backend"',
+    ].join("\n");
+    writeFileSync(join(repoRoot, "specs", "story-071.yaml"), raw + "\n");
+    const spec = readSpec(repoRoot, "071") as unknown as Record<string, unknown>;
+    expect(spec.prd_ref).toEqual({ file: "docs/PRD.md", anchor: "surface-billing" });
+    expect(spec.epic).toBe("Backend");
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+});
