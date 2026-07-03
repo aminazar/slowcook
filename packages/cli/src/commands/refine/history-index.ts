@@ -128,21 +128,42 @@ interface BuildOptions {
 
 export function buildHistoryIndex(opts: BuildOptions): HistoryIndex {
   const { repoRoot } = opts;
-  const paths = {
-    components: opts.scanPaths?.components ?? "src/components",
-    api: opts.scanPaths?.api ?? "src/app/api",
-    migrations: opts.scanPaths?.migrations ?? "supabase/migrations",
-    tests: opts.scanPaths?.tests ?? "tests",
-    helpers: opts.scanPaths?.helpers ?? "tests/helpers",
+
+  // sc: workspace-blindness fix. Single hardcoded roots made the index report
+  // "0 components · 0 api routes · 0 tests" on any multi-package repo (dash:
+  // components under mock/src, 60+ tests under server/test), so agents
+  // invented parallel conventions instead of following the repo's. Every
+  // convention path now scans across ALL package roots (repo root + any
+  // first-level dir holding a package.json + pnpm-workspace globs). An
+  // explicit scanPaths override still pins a single path (test seam).
+  const pkgDirs = discoverPackageDirs(repoRoot);
+  const expand = (sub: string): string[] =>
+    pkgDirs.map((d) => (d === "" ? sub : `${d}/${sub}`));
+  const candidates = {
+    components: opts.scanPaths?.components
+      ? [opts.scanPaths.components]
+      : [...expand("src/components"), ...expand("src/pages")],
+    api: opts.scanPaths?.api ? [opts.scanPaths.api] : expand("src/app/api"),
+    migrations: opts.scanPaths?.migrations
+      ? [opts.scanPaths.migrations]
+      : [...expand("supabase/migrations"), ...expand("migrations"), ...expand("src/db")],
+    tests: opts.scanPaths?.tests
+      ? [opts.scanPaths.tests]
+      : [...expand("tests"), ...expand("test")],
+    helpers: opts.scanPaths?.helpers
+      ? [opts.scanPaths.helpers]
+      : [...expand("tests/helpers"), ...expand("test/helpers"), ...expand("test/mocks")],
     mockRoot: opts.scanPaths?.mockRoot ?? "mock/src",
   };
+  const scanAll = <T>(dirs: string[], scan: (repoRoot: string, dir: string) => T[]): T[] =>
+    dirs.flatMap((d) => scan(repoRoot, d));
 
-  const components = scanComponents(repoRoot, paths.components);
-  const api_routes = scanApiRoutes(repoRoot, paths.api);
-  const migrations = scanMigrations(repoRoot, paths.migrations);
-  const test_helpers = scanTestHelpers(repoRoot, paths.helpers);
-  const test_files = scanTestFiles(repoRoot, paths.tests);
-  const mock_surface = scanMockSurface(repoRoot, paths.mockRoot);
+  const components = scanAll(candidates.components, scanComponents);
+  const api_routes = scanAll(candidates.api, scanApiRoutes);
+  const migrations = scanAll(candidates.migrations, scanMigrations);
+  const test_helpers = scanAll(candidates.helpers, scanTestHelpers);
+  const test_files = scanAll(candidates.tests, scanTestFiles);
+  const mock_surface = scanMockSurface(repoRoot, candidates.mockRoot);
 
   // Reverse-index test → component coverage (which components each test
   // imports → annotate components.tests_covering).
@@ -571,6 +592,43 @@ function trimExcerpt(body: string, limit: number): string {
   const trimmed = body.trim();
   if (trimmed.length <= limit) return trimmed;
   return trimmed.slice(0, limit) + "\n/* ...truncated... */";
+}
+
+// ----- Package-root discovery (workspace-blindness fix) -----
+
+/**
+ * Every place code can live by convention: the repo root ("") plus any
+ * first-level directory containing a package.json (covers dash's server/ +
+ * mock/, simple monorepos) plus pnpm-workspace.yaml globs one level deep
+ * (covers packages/star layouts). Deduped, deterministic order.
+ */
+export function discoverPackageDirs(repoRoot: string): string[] {
+  const dirs = new Set<string>([""]);
+  try {
+    for (const name of readdirSync(repoRoot).sort()) {
+      if (name.startsWith(".") || name === "node_modules") continue;
+      const full = join(repoRoot, name);
+      if (statSync(full).isDirectory() && existsSync(join(full, "package.json"))) dirs.add(name);
+    }
+  } catch { /* unreadable root — index stays root-only */ }
+  const wsFile = join(repoRoot, "pnpm-workspace.yaml");
+  if (existsSync(wsFile)) {
+    const globs = [...readFileSync(wsFile, "utf8").matchAll(/^\s*-\s*["']?([^"'\n#]+?)["']?\s*$/gm)]
+      .map((m) => m[1]!.trim());
+    for (const g of globs) {
+      if (!g.endsWith("/*")) { dirs.add(g); continue; }
+      const parent = join(repoRoot, g.slice(0, -2));
+      try {
+        for (const name of readdirSync(parent).sort()) {
+          const full = join(parent, name);
+          if (statSync(full).isDirectory() && existsSync(join(full, "package.json"))) {
+            dirs.add(`${g.slice(0, -2)}/${name}`);
+          }
+        }
+      } catch { /* glob parent absent */ }
+    }
+  }
+  return [...dirs];
 }
 
 // ----- File walker -----

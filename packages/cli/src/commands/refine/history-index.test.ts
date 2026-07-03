@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildHistoryIndex,
+  discoverPackageDirs,
   scanMigrations,
   parseTypeOrmMigration,
   scanMockSurface,
@@ -383,6 +384,33 @@ describe("scanMockSurface — 0.19.0-α.23 mock-aware refine context", () => {
       const idx = buildHistoryIndex({ repoRoot: root });
       expect(idx.mock_surface).toHaveLength(1);
       expect(idx.mock_surface[0]!.route).toBe("/login");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── workspace-blindness regression (dash dogfood): multi-package repos ──
+describe("discoverPackageDirs + multi-root scanning", () => {
+  it("indexes tests and components living inside sub-packages", () => {
+    const root = mkdtempSync(join(tmpdir(), "hx-ws-"));
+    try {
+      // dash-like layout: server/ and mock/ are first-level packages
+      mkdirSync(join(root, "server", "test"), { recursive: true });
+      mkdirSync(join(root, "mock", "src", "components"), { recursive: true });
+      writeFileSync(join(root, "server", "package.json"), "{}");
+      writeFileSync(join(root, "mock", "package.json"), "{}");
+      writeFileSync(join(root, "server", "test", "auth.test.ts"), 'import { x } from "../src/auth.js";\nit("a", () => {});\n');
+      writeFileSync(join(root, "mock", "src", "components", "ArtifactGate.tsx"), "export function ArtifactGate() { return null; }\n");
+
+      const dirs = discoverPackageDirs(root);
+      expect(dirs).toContain("server");
+      expect(dirs).toContain("mock");
+
+      const idx = buildHistoryIndex({ repoRoot: root });
+      expect(idx.test_files.length).toBeGreaterThanOrEqual(1);
+      expect(idx.test_files.some((t) => t.file.includes("server/test/auth.test.ts"))).toBe(true);
+      expect(idx.components.some((c) => c.name === "ArtifactGate")).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
