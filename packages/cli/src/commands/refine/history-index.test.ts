@@ -416,3 +416,23 @@ describe("discoverPackageDirs + multi-root scanning", () => {
     }
   });
 });
+
+describe("scanCodeRoutes (Hono/Express)", () => {
+  it("finds app.<method> literal registrations across package src trees", () => {
+    const root = mkdtempSync(join(tmpdir(), "hx-cr-"));
+    try {
+      mkdirSync(join(root, "server", "src"), { recursive: true });
+      writeFileSync(join(root, "server", "package.json"), "{}");
+      writeFileSync(join(root, "server", "src", "http.ts"),
+        'app.get("/api/health", (c) => c.json({ ok: true }));\n' +
+        'app.post("/api/webhooks/stripe", handler);\n');
+      const idx = buildHistoryIndex({ repoRoot: root });
+      const paths = idx.api_routes.map((r) => `${r.method} ${r.path}`);
+      expect(paths).toContain("GET /api/health");
+      expect(paths).toContain("POST /api/webhooks/stripe");
+      expect(idx.api_routes.find((r) => r.path === "/api/health")?.file).toBe("server/src/http.ts");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
