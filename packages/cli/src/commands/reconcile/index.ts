@@ -15,7 +15,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import YAML from "yaml";
-import { AnthropicClient, RECONCILE_SYSTEM, formatCostFooter } from "@slowcook-ai/llm-anthropic";
+import { createLlmClient, RECONCILE_SYSTEM, formatCostFooter } from "@slowcook-ai/llm-anthropic";
 import { listActiveSpecs, SPECS_DIR, schemas, normalizeScenarioArrays } from "../refine/spec-yaml.js";
 import { parsePrdInitiatives } from "../menu/prd.js";
 import { anchorHash } from "../trace/check.js";
@@ -112,13 +112,14 @@ export async function reconcile(argv: string[], _cliVersion: string): Promise<vo
     return;
   }
 
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!apiKey) {
-    console.error("reconcile: ANTHROPIC_API_KEY not set (or pass --dry-run).");
+  // sc#233 — environment-decided runtime: ANTHROPIC_API_KEY or SLOWCOOK_LLM=claude-cli.
+  let llm;
+  try {
+    llm = await createLlmClient();
+  } catch (err) {
+    console.error(`reconcile: ${err instanceof Error ? err.message : String(err)} (or pass --dry-run).`);
     process.exit(1);
   }
-
-  const llm = new AnthropicClient(apiKey);
   const res = await llm.complete({
     system: RECONCILE_SYSTEM,
     cacheSystem: false,
