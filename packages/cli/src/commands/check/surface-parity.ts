@@ -105,6 +105,9 @@ export interface ParityResult {
 }
 
 const SRC_EXT = /\.(tsx?|jsx?|mjs|cjs|svelte|vue)$/;
+// test files never ship — their ids would sit in the universe as permanent
+// dead-node noise (found via delgoosh's button.test.tsx data-testid="custom").
+const TEST_FILE = /\.(test|spec)\.[a-z]+$/;
 
 function walk(dir: string, pred: (name: string) => boolean, acc: string[] = []): string[] {
   let entries: string[];
@@ -154,7 +157,7 @@ export function scanNodeIds(root: string, srcRel: string | string[], markers: st
     (attr) => new RegExp(String.raw`${attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\s*[:=]\s*["'\`]([^"'\`]+)["'\`]`, "g"),
   );
   const nodeProp = /\b[a-zA-Z]*[nN]ode\s*=\s*["'`]([a-z0-9_-]+(?:\/[a-z0-9_-]+)+)["'`]/g;
-  for (const file of srcDirs.flatMap((d) => walk(d, (n) => SRC_EXT.test(n)))) {
+  for (const file of srcDirs.flatMap((d) => walk(d, (n) => SRC_EXT.test(n) && !TEST_FILE.test(n)))) {
     const body = readFileSync(file, "utf8");
     let m: RegExpExecArray | null;
     while ((m = rnCall.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
