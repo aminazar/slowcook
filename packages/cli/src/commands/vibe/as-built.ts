@@ -30,9 +30,10 @@ Rules, non-negotiable:
   package the mock app does not already use. Data the source fetches
   becomes inline fixtures marked "@slowcook-honest: as-built fixture,
   shaped from <source path>".
-- The FIRST line of every file must be a comment:
-  // @slowcook-as-built-from <source path>@<sha> — prod-first: this mock
-  // mirrors production; edits here are PROPOSALS, not truth.
+- The FIRST line of every file must be a comment IN THAT FILE TYPE'S native
+  comment syntax (// for ts/tsx, /* … */ for css, <!-- … --> for html):
+  @slowcook-as-built-from <source path>@<sha> — prod-first: this mock
+  mirrors production; edits here are PROPOSALS, not truth.
 - Use the design tokens provided (brand.yaml) via inline styles or the
   mock app's existing CSS variables; do not invent a palette.`;
 
@@ -102,7 +103,10 @@ export async function runAsBuiltVibe(
   const violations: string[] = [];
   if (out.files.length === 0) violations.push("model emitted no <file> blocks");
   for (const f of out.files) {
-    if (!f.contents.startsWith("// @slowcook-as-built-from")) {
+    // stamp must open the file in the file-type's native comment syntax
+    // (// for ts/js, /* for css, <!-- for html/md — the landing dogfood's
+    // css emission caught the //-only assumption).
+    if (!/^(\/\/|\/\*|<!--|#)\s*@slowcook-as-built-from/.test(f.contents)) {
       violations.push(`${f.path}: missing @slowcook-as-built-from provenance stamp on line 1`);
     }
     if (!f.path.startsWith(`mock/src/apps/${input.surface}/`)) {
