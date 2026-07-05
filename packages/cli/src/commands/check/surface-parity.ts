@@ -53,6 +53,10 @@ export interface ParityProfile {
   env: Record<string, string>;
   require_all_flags?: boolean;
   allow_unset?: string[];
+  /** markers that must NOT survive into this profile's bundle (e.g. fixture
+   *  emails, preview gates, review tooling in the real/prod profile) —
+   *  the prod-bundle sever philosophy, per profile. */
+  forbid?: string[];
 }
 
 export interface ParityConfig {
@@ -81,9 +85,12 @@ export interface BaselineEntry {
 
 export interface FlagViolation { flag: string; profile: string; readAt: string }
 export interface NodeDrift { node: string; absent_from: string[]; presentIn: string[] }
+export interface ForbidViolation { marker: string; profile: string }
 
 export interface ParityResult {
   flagViolations: FlagViolation[];
+  /** forbidden markers found in a profile's bundle — always failing. */
+  forbidViolations: ForbidViolation[];
   /** divergent nodes NOT covered by the baseline — these fail the check. */
   newDrift: NodeDrift[];
   /** divergent nodes covered by the baseline — reported, never failing. */
@@ -182,7 +189,7 @@ export function loadConfig(root: string, path = ".slowcook/parity.yaml"): Parity
     markers: raw.markers && raw.markers.length > 0 ? raw.markers : ["data-review-node"],
     baseline: raw.baseline ?? ".slowcook/parity-baseline.yaml",
     profiles: Object.fromEntries(
-      Object.entries(raw.profiles).map(([k, v]) => [k, { env: v?.env ?? {}, require_all_flags: v?.require_all_flags, allow_unset: v?.allow_unset ?? [] }]),
+      Object.entries(raw.profiles).map(([k, v]) => [k, { env: v?.env ?? {}, require_all_flags: v?.require_all_flags, allow_unset: v?.allow_unset ?? [], forbid: v?.forbid ?? [] }]),
     ),
   };
 }
@@ -214,8 +221,9 @@ export function runSurfaceParityCheck(
     }
   }
 
-  // 2. build each profile, probe node-literal survival
+  // 2. build each profile, probe node-literal survival + forbidden markers
   const presence = new Map<string, Record<string, boolean>>();
+  const forbidViolations: ForbidViolation[] = [];
   const tmp = mkdtempSync(join(tmpdir(), "sc-parity-"));
   const profilesBuilt: string[] = [];
   try {
@@ -237,6 +245,9 @@ export function runSurfaceParityCheck(
       }
       profilesBuilt.push(name);
       const text = bundleText(outDir);
+      for (const marker of profile.forbid ?? []) {
+        if (text.includes(marker)) forbidViolations.push({ marker, profile: name });
+      }
       for (const id of nodeIds) {
         const rec = presence.get(id) ?? {};
         rec[name] = text.includes(id);
@@ -272,7 +283,7 @@ export function runSurfaceParityCheck(
   const healed = baseline.filter((b) => !drifted.has(b.node));
 
   return {
-    flagViolations, newDrift, waivedDrift, healed, deadNodes,
+    flagViolations, forbidViolations, newDrift, waivedDrift, healed, deadNodes,
     nodesChecked: nodeIds.size, flagsChecked: flags.size, profilesBuilt,
   };
 }
@@ -322,11 +333,14 @@ export function runSurfaceParityCli(argv: string[]): void {
     process.exit(2);
   }
 
-  const { flagViolations, newDrift, waivedDrift, healed, deadNodes } = result;
+  const { flagViolations, forbidViolations, newDrift, waivedDrift, healed, deadNodes } = result;
   console.log(`surface-parity: ${result.nodesChecked} nodes · ${result.flagsChecked} flags · profiles: ${result.profilesBuilt.join(", ")}`);
 
   for (const v of flagViolations) {
     console.error(`  ✗ flag ${v.flag} is read (${v.readAt}) but UNDECLARED in profile '${v.profile}' — its live branch would be silently dropped. Declare it (value may be "") or list it under allow_unset.`);
+  }
+  for (const v of forbidViolations) {
+    console.error(`  ✗ FORBIDDEN marker ${JSON.stringify(v.marker)} survives into profile '${v.profile}' — this profile must be SEVERED from it at build time, not runtime-bypassed.`);
   }
   for (const d of newDrift) {
     console.error(`  ✗ node '${d.node}' is absent from [${d.absent_from.join(", ")}] but present in [${d.presentIn.join(", ")}] — NEW drift. Fix the missing branch, or record it in .slowcook/parity-baseline.yaml with a reason (--update-baseline scaffolds it).`);
@@ -346,6 +360,6 @@ export function runSurfaceParityCli(argv: string[]): void {
     console.log(`  baseline updated (${newDrift.length + waivedDrift.length} divergence(s)) — fill in the TODO reasons before committing.`);
     return;
   }
-  if (flagViolations.length > 0 || newDrift.length > 0) process.exit(1);
+  if (flagViolations.length > 0 || forbidViolations.length > 0 || newDrift.length > 0) process.exit(1);
   console.log(`✓ surface-parity: no new drift (${waivedDrift.length} waived, ${healed.length} healed)`);
 }
