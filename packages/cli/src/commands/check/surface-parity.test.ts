@@ -68,6 +68,19 @@ describe("scanners", () => {
   });
 });
 
+describe("forbidden markers", () => {
+  it("a forbidden marker surviving into its profile's bundle fails", () => {
+    const config: ParityConfig = { ...CONFIG, profiles: {
+      mock: { env: {}, allow_unset: [] },
+      prod: { env: { VITE_WALLET_BACKEND: "1" }, allow_unset: ["VITE_GOOGLE_CLIENT_ID"], forbid: ["preview@dev.local", "__preview"] },
+    } };
+    const r = runSurfaceParityCheck(root, config, [], {
+      build: builder({ mock: ["preview@dev.local"], prod: ["wallet/balance", "preview@dev.local"] }),
+    });
+    expect(r.forbidViolations).toEqual([{ marker: "preview@dev.local", profile: "prod" }]);
+  });
+});
+
 describe("flag completeness", () => {
   it("an UNDECLARED flag in a require_all_flags profile fails; allow_unset and lax profiles don't", () => {
     const config: ParityConfig = { ...CONFIG, profiles: {
