@@ -17,6 +17,7 @@ import { runMockIsolationCheck } from "./mock-isolation.js";
 import { runSpecValidateCli } from "./spec-validate.js";
 import { runProdHonestyCli } from "./prod-honesty.js";
 import { runProdBundleCli } from "./prod-bundle.js";
+import { runSurfaceParityCli } from "./surface-parity.js";
 
 export async function check(argv: string[], _cliVersion: string): Promise<void> {
   const sub = argv[0];
@@ -29,6 +30,8 @@ export async function check(argv: string[], _cliVersion: string): Promise<void> 
       return runProdHonestyCli(argv.slice(1));
     case "prod-bundle":
       return runProdBundleCli(argv.slice(1));
+    case "surface-parity":
+      return runSurfaceParityCli(argv.slice(1));
     case undefined:
     case "help":
     case "--help":
@@ -50,12 +53,19 @@ Usage:
   slowcook check mock-isolation [--cwd <path>]
   slowcook check prod-honesty [--cwd <path>] [--dir <src>]
   slowcook check prod-bundle [--cwd <path>] [--dist <dist>]
+  slowcook check surface-parity [--cwd <path>] [--update-baseline]
   slowcook check spec [file...] [--cwd <path>]
 
 Subcommands:
   mock-isolation   Verify every import in mock/ stays inside mock/.
                    Catches vibe-prompt slippage where a mock component
                    tries to import from the consumer's production src/.
+  surface-parity   Mock/prod drift detector (#261): builds each profile in
+                   .slowcook/parity.yaml, verifies every review-node id
+                   survives into every profile's bundle (unless baselined
+                   with a reason in .slowcook/parity-baseline.yaml), and
+                   that every import.meta.env flag read in src is DECLARED
+                   in prod-like profiles. New unwaived drift fails (ratchet).
   spec             Re-run spec content validators on one or more spec
                    files. Catches drift on amendment commits that
                    bypass refine's in-process lint.
