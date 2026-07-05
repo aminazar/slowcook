@@ -57,7 +57,8 @@ export interface ParityProfile {
 
 export interface ParityConfig {
   app: string;
-  src: string;
+  /** one or several source dirs (shared component packages count too). */
+  src: string | string[];
   build: string;
   env_prefix: string;
   /** attribute names harvested as node ids (besides rn() and *node= props).
@@ -113,11 +114,11 @@ function walk(dir: string, pred: (name: string) => boolean, acc: string[] = []):
 }
 
 /** every `import.meta.env.<PREFIX>X` / `["<PREFIX>X"]` read, with a source location. */
-export function scanFlagReads(root: string, srcRel: string, prefix: string): Map<string, string> {
-  const srcDir = join(root, srcRel);
+export function scanFlagReads(root: string, srcRel: string | string[], prefix: string): Map<string, string> {
+  const srcDirs = (Array.isArray(srcRel) ? srcRel : [srcRel]).map((s) => join(root, s));
   const reads = new Map<string, string>(); // flag -> first "file:line"
   const re = new RegExp(String.raw`import\.meta\.env(?:\.(${prefix}[A-Z0-9_]+)|\[\s*["'](${prefix}[A-Z0-9_]+)["']\s*\])`, "g");
-  for (const file of walk(srcDir, (n) => SRC_EXT.test(n))) {
+  for (const file of srcDirs.flatMap((d) => walk(d, (n) => SRC_EXT.test(n)))) {
     const body = readFileSync(file, "utf8");
     let m: RegExpExecArray | null;
     while ((m = re.exec(body)) !== null) {
@@ -138,15 +139,15 @@ export function scanFlagReads(root: string, srcRel: string, prefix: string): Map
  * rn() internally). The prop form requires the slashed `area/name` shape so
  * ordinary strings don't false-positive.
  */
-export function scanNodeIds(root: string, srcRel: string, markers: string[] = ["data-review-node"]): Set<string> {
-  const srcDir = join(root, srcRel);
+export function scanNodeIds(root: string, srcRel: string | string[], markers: string[] = ["data-review-node"]): Set<string> {
+  const srcDirs = (Array.isArray(srcRel) ? srcRel : [srcRel]).map((s) => join(root, s));
   const ids = new Set<string>();
   const rnCall = /\brn\(\s*["'`]([^"'`]+)["'`]/g;
   const markerRes = markers.map(
     (attr) => new RegExp(String.raw`${attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\s*[:=]\s*["'\`]([^"'\`]+)["'\`]`, "g"),
   );
   const nodeProp = /\b[a-zA-Z]*[nN]ode\s*=\s*["'`]([a-z0-9_-]+(?:\/[a-z0-9_-]+)+)["'`]/g;
-  for (const file of walk(srcDir, (n) => SRC_EXT.test(n))) {
+  for (const file of srcDirs.flatMap((d) => walk(d, (n) => SRC_EXT.test(n)))) {
     const body = readFileSync(file, "utf8");
     let m: RegExpExecArray | null;
     while ((m = rnCall.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
