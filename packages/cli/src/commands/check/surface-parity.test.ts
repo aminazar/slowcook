@@ -23,6 +23,11 @@ beforeEach(() => {
     </div>;
   `);
   writeFileSync(join(root, "app/src/pages/Old.tsx"), `export const O = () => <div {...rn("old/retired", "Gone")} />;`);
+  // id passed through a wrapper prop — the dash RateInput pattern
+  writeFileSync(join(root, "app/src/pages/Forecast.tsx"), `
+    export const F = () => <RateInput node="budget/assumption/labor-rate" reviewLabel="rate" />;
+    const notANode = <Thing mode="fast" path="a/b/c" />; // path prop must NOT be picked up
+  `);
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -45,7 +50,8 @@ describe("scanners", () => {
     expect([...flags.keys()].sort()).toEqual(["VITE_GOOGLE_CLIENT_ID", "VITE_WALLET_BACKEND"]);
     expect(flags.get("VITE_WALLET_BACKEND")).toMatch(/Wallet\.tsx:\d+/);
     const ids = scanNodeIds(root, "app/src");
-    expect([...ids].sort()).toEqual(["old/retired", "wallet/agent-usage", "wallet/balance", "wallet/ledger"]);
+    // includes the wrapper-prop id; excludes look-alike props (mode=, path=)
+    expect([...ids].sort()).toEqual(["budget/assumption/labor-rate", "old/retired", "wallet/agent-usage", "wallet/balance", "wallet/ledger"]);
   });
 });
 
@@ -79,7 +85,7 @@ describe("node parity + baseline ratchet", () => {
     });
     expect(r.newDrift).toHaveLength(1);
     expect(r.newDrift[0]).toMatchObject({ node: "wallet/agent-usage", absent_from: ["mock"], presentIn: ["prod"] });
-    expect(r.deadNodes).toEqual(["old/retired"]);
+    expect([...r.deadNodes].sort()).toEqual(["budget/assumption/labor-rate", "old/retired"]);
   });
 
   it("a baselined divergence is waived, not failing", () => {

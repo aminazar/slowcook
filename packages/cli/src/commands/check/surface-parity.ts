@@ -123,17 +123,25 @@ export function scanFlagReads(root: string, srcRel: string, prefix: string): Map
   return reads;
 }
 
-/** review-node ids from source: rn("id", …) and literal data-review-node="id". */
+/**
+ * review-node ids from source: rn("id", …), literal data-review-node="id",
+ * and ids passed through props whose NAME mentions node (e.g.
+ * `<RateInput node="budget/assumption/labor-rate" …>` — the wrapper calls
+ * rn() internally). The prop form requires the slashed `area/name` shape so
+ * ordinary strings don't false-positive.
+ */
 export function scanNodeIds(root: string, srcRel: string): Set<string> {
   const srcDir = join(root, srcRel);
   const ids = new Set<string>();
   const rnCall = /\brn\(\s*["'`]([^"'`]+)["'`]/g;
   const rawAttr = /data-review-node["']?\s*[:=]\s*["'`]([^"'`]+)["'`]/g;
+  const nodeProp = /\b[a-zA-Z]*[nN]ode\s*=\s*["'`]([a-z0-9_-]+(?:\/[a-z0-9_-]+)+)["'`]/g;
   for (const file of walk(srcDir, (n) => SRC_EXT.test(n))) {
     const body = readFileSync(file, "utf8");
     let m: RegExpExecArray | null;
     while ((m = rnCall.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
     while ((m = rawAttr.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
+    while ((m = nodeProp.exec(body)) !== null) ids.add(m[1]!);
   }
   return ids;
 }
