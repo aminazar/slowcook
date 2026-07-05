@@ -33,6 +33,9 @@ interface VibeArgs {
   /** Skip git ops; just emit files locally. Useful for offline validation. */
   dryRun: boolean;
   baseBranch: string;
+  asBuilt?: boolean;
+  fromPath?: string;
+  surface?: string;
 }
 
 function parseArgs(argv: string[]): VibeArgs {
@@ -47,6 +50,9 @@ function parseArgs(argv: string[]): VibeArgs {
     const a = argv[i];
     const next = argv[i + 1];
     if (a === "--spec" && next) { args.specId = next; i++; }
+    else if (a === "--as-built") { args.asBuilt = true; }
+    else if (a === "--from" && next) { args.fromPath = next; i++; }
+    else if (a === "--surface" && next) { args.surface = next; i++; }
     else if (a === "--cwd" && next) { args.repoRoot = next; i++; }
     else if (a === "--owner" && next) { args.owner = next; i++; }
     else if (a === "--repo" && next) { args.repo = next; i++; }
@@ -54,6 +60,13 @@ function parseArgs(argv: string[]): VibeArgs {
     else if (a === "--base-branch" && next) { args.baseBranch = next; i++; }
     else if (a === "--dry-run") { args.dryRun = true; }
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
+  }
+  if (args.asBuilt) {
+    if (!args.fromPath) {
+      console.error("--as-built requires --from <production source path>.");
+      process.exit(64);
+    }
+    return args;
   }
   if (!args.specId) {
     console.error("--spec <id> is required.");
@@ -313,6 +326,27 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   if (argv[0] === "app") return runApp(argv.slice(1));
 
   const args = parseArgs(argv);
+
+  if (args.asBuilt) {
+    // #263 — faithful mock of an EXISTING surface from its production source.
+    const { collectAsBuiltInput, runAsBuiltVibe } = await import("./as-built.js");
+    const { createLlmClient } = await import("../refine/llm.js");
+    let llm;
+    try { llm = await createLlmClient(); }
+    catch (err) { console.error(`vibe --as-built: ${err instanceof Error ? err.message : String(err)}`); process.exit(1); }
+    const input = collectAsBuiltInput(args.repoRoot, args.fromPath!, args.surface);
+    console.log(`vibe --as-built: transcribing ${input.fromPath}@${input.sha ?? "HEAD"} → mock/src/apps/${input.surface}/ (${input.sources.length} source file(s))…`);
+    const result = await runAsBuiltVibe(llm, args.model === "claude-opus-4-7" ? "claude-opus-4-8" : args.model, input, { dryRun: args.dryRun });
+    if (result.violations.length > 0) {
+      console.error(`vibe --as-built: output rejected —`);
+      for (const v of result.violations) console.error(`  · ${v}`);
+      process.exit(1);
+    }
+    if (args.dryRun) { console.log(`(dry run) would write:\n  ${result.files.map((f) => f.path).join("\n  ")}`); return; }
+    console.log(`Wrote ${result.written.length} file(s):\n  ${result.written.join("\n  ")}`);
+    console.log(`Prod-first surface: mock edits here are PROPOSALS — record its parity-baseline entry with direction: prod-first.`);
+    return;
+  }
 
   const anthropicApiKey = process.env["ANTHROPIC_API_KEY"];
   if (!anthropicApiKey) {
