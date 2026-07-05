@@ -33,6 +33,8 @@
  *   src: mock/src                   # scanned for flags + node ids
  *   build: npx vite build --outDir {outDir} --emptyOutDir
  *   env_prefix: VITE_
+ *   markers: [data-review-node]     # or e.g. [data-testid] for repos without rn()
+ *   baseline: .slowcook/parity-baseline.yaml   # per-app in multi-app repos
  *   profiles:
  *     mock: { env: {} }
  *     prod:
@@ -58,6 +60,12 @@ export interface ParityConfig {
   src: string;
   build: string;
   env_prefix: string;
+  /** attribute names harvested as node ids (besides rn() and *node= props).
+   *  Default: data-review-node. Repos without review nodes can point this at
+   *  their own stable-marker convention, e.g. data-testid. */
+  markers: string[];
+  /** baseline path (relative to root) — lets multi-app repos keep one per app. */
+  baseline: string;
   profiles: Record<string, ParityProfile>;
 }
 
@@ -130,17 +138,22 @@ export function scanFlagReads(root: string, srcRel: string, prefix: string): Map
  * rn() internally). The prop form requires the slashed `area/name` shape so
  * ordinary strings don't false-positive.
  */
-export function scanNodeIds(root: string, srcRel: string): Set<string> {
+export function scanNodeIds(root: string, srcRel: string, markers: string[] = ["data-review-node"]): Set<string> {
   const srcDir = join(root, srcRel);
   const ids = new Set<string>();
   const rnCall = /\brn\(\s*["'`]([^"'`]+)["'`]/g;
-  const rawAttr = /data-review-node["']?\s*[:=]\s*["'`]([^"'`]+)["'`]/g;
+  const markerRes = markers.map(
+    (attr) => new RegExp(String.raw`${attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\s*[:=]\s*["'\`]([^"'\`]+)["'\`]`, "g"),
+  );
   const nodeProp = /\b[a-zA-Z]*[nN]ode\s*=\s*["'`]([a-z0-9_-]+(?:\/[a-z0-9_-]+)+)["'`]/g;
   for (const file of walk(srcDir, (n) => SRC_EXT.test(n))) {
     const body = readFileSync(file, "utf8");
     let m: RegExpExecArray | null;
     while ((m = rnCall.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
-    while ((m = rawAttr.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
+    for (const re of markerRes) {
+      re.lastIndex = 0;
+      while ((m = re.exec(body)) !== null) if (!m[1]!.includes("${")) ids.add(m[1]!);
+    }
     while ((m = nodeProp.exec(body)) !== null) ids.add(m[1]!);
   }
   return ids;
@@ -165,6 +178,8 @@ export function loadConfig(root: string, path = ".slowcook/parity.yaml"): Parity
     src: raw.src ?? "src",
     build: raw.build,
     env_prefix: raw.env_prefix ?? "VITE_",
+    markers: raw.markers && raw.markers.length > 0 ? raw.markers : ["data-review-node"],
+    baseline: raw.baseline ?? ".slowcook/parity-baseline.yaml",
     profiles: Object.fromEntries(
       Object.entries(raw.profiles).map(([k, v]) => [k, { env: v?.env ?? {}, require_all_flags: v?.require_all_flags, allow_unset: v?.allow_unset ?? [] }]),
     ),
@@ -185,7 +200,7 @@ export function runSurfaceParityCheck(
   opts: { build?: (profile: string, env: Record<string, string>, outDir: string) => void } = {},
 ): ParityResult {
   const flags = scanFlagReads(root, config.src, config.env_prefix);
-  const nodeIds = scanNodeIds(root, config.src);
+  const nodeIds = scanNodeIds(root, config.src, config.markers);
 
   // 1. flag completeness
   const flagViolations: FlagViolation[] = [];
@@ -290,14 +305,16 @@ export function writeBaseline(root: string, drift: NodeDrift[], prior: BaselineE
 export function runSurfaceParityCli(argv: string[]): void {
   const cwdIdx = argv.indexOf("--cwd");
   const root = cwdIdx >= 0 ? argv[cwdIdx + 1]! : process.cwd();
+  const cfgIdx = argv.indexOf("--config");
+  const configPath = cfgIdx >= 0 ? argv[cfgIdx + 1]! : ".slowcook/parity.yaml";
   const update = argv.includes("--update-baseline");
 
   let config: ParityConfig;
-  try { config = loadConfig(root); } catch (e) {
+  try { config = loadConfig(root, configPath); } catch (e) {
     console.error(`✗ surface-parity: ${(e as Error).message}`);
     process.exit(2);
   }
-  const baseline = loadBaseline(root);
+  const baseline = loadBaseline(root, config.baseline);
   let result: ParityResult;
   try { result = runSurfaceParityCheck(root, config, baseline); } catch (e) {
     console.error(`✗ surface-parity: build failed — ${(e as Error).message.slice(0, 400)}`);
@@ -324,7 +341,7 @@ export function runSurfaceParityCli(argv: string[]): void {
   }
 
   if (update) {
-    writeBaseline(root, [...newDrift, ...waivedDrift], baseline);
+    writeBaseline(root, [...newDrift, ...waivedDrift], baseline, config.baseline);
     console.log(`  baseline updated (${newDrift.length + waivedDrift.length} divergence(s)) — fill in the TODO reasons before committing.`);
     return;
   }

@@ -33,6 +33,7 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 const CONFIG: ParityConfig = {
   app: "app", src: "app/src", build: "unused {outDir}", env_prefix: "VITE_",
+  markers: ["data-review-node"], baseline: ".slowcook/parity-baseline.yaml",
   profiles: {
     mock: { env: {}, allow_unset: [] },
     prod: { env: { VITE_WALLET_BACKEND: "1" }, require_all_flags: true, allow_unset: ["VITE_GOOGLE_CLIENT_ID"] },
@@ -45,6 +46,18 @@ const builder = (kept: Record<string, string[]>) =>
     writeFileSync(join(outDir, "index.js"), (kept[profile] ?? []).join("\n"));
 
 describe("scanners", () => {
+  it("harvests custom marker attributes (data-testid repos without rn())", () => {
+    writeFileSync(join(root, "app/src/pages/Booking.tsx"), `
+      export const B = () => <div data-testid="book-session-sheet"><span data-testid="fund-session-success" /></div>;
+    `);
+    const ids = scanNodeIds(root, "app/src", ["data-testid"]);
+    expect(ids.has("book-session-sheet")).toBe(true);
+    expect(ids.has("fund-session-success")).toBe(true);
+    expect(ids.has("wallet/balance")).toBe(true); // rn() ids are always harvested
+    expect(ids.has("wallet/ledger")).toBe(true); // slashed *node= props too (the fallback)
+    rmSync(join(root, "app/src/pages/Booking.tsx"));
+  });
+
   it("finds dot + bracket flag reads and rn()/data-review-node ids", () => {
     const flags = scanFlagReads(root, "app/src", "VITE_");
     expect([...flags.keys()].sort()).toEqual(["VITE_GOOGLE_CLIENT_ID", "VITE_WALLET_BACKEND"]);
