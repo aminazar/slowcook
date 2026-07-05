@@ -3,6 +3,8 @@ import {
   emitTokensCatalog,
   emitEntitiesDiagram,
 } from "../map/index.js";
+import { runSurvey, writeSurvey } from "./survey.js";
+import { runAsBuiltCli } from "./as-built-cli.js";
 
 /**
  * 0.13.5+ — focused brownfield extraction command. A thin wrapper over
@@ -27,6 +29,10 @@ interface ExtractArgs {
   schema: boolean;
   tokens: boolean;
   entities: boolean;
+  survey: boolean;
+  asBuilt: boolean;
+  allowUncited: boolean;
+  model: string | null;
 }
 
 function parseArgs(argv: string[]): ExtractArgs {
@@ -35,6 +41,10 @@ function parseArgs(argv: string[]): ExtractArgs {
     schema: false,
     tokens: false,
     entities: false,
+    survey: false,
+    asBuilt: false,
+    allowUncited: false,
+    model: null,
   };
   let any = false;
   for (let i = 0; i < argv.length; i++) {
@@ -52,6 +62,17 @@ function parseArgs(argv: string[]): ExtractArgs {
     } else if (a === "--entities") {
       args.entities = true;
       any = true;
+    } else if (a === "--survey") {
+      args.survey = true;
+      any = true;
+    } else if (a === "--as-built") {
+      args.asBuilt = true;
+      any = true;
+    } else if (a === "--allow-uncited") {
+      args.allowUncited = true;
+    } else if (a === "--model" && next) {
+      args.model = next;
+      i++;
     } else if (a === "--help" || a === "-h") {
       printHelp();
       process.exit(0);
@@ -80,10 +101,13 @@ investigate so their proposals align with the project's existing
 schema + design tokens instead of inventing.
 
 Usage:
-  slowcook extract [--schema] [--tokens] [--cwd <path>]
+  slowcook extract [--schema] [--tokens] [--entities] [--cwd <path>]
+  slowcook extract --survey   [--cwd <path>]
+  slowcook extract --as-built [--cwd <path>] [--model <id>] [--allow-uncited]
 
-  No flag = extract everything (currently --schema + --tokens).
-  Outputs are gitignored; regenerate per refine run.
+  No flag = the diagram extracts (--schema + --tokens + --entities).
+  Diagram outputs are gitignored; regenerate per refine run.
+  --survey / --as-built outputs are INTAKE ARTIFACTS — commit them.
 
 Targets:
   --schema    .brewing/diagrams/schema.mmd
@@ -101,6 +125,18 @@ Targets:
               by default; the init gitignore template carves out an
               exception for this file.
 
+  --survey    .brewing/extract-survey.json (#262 tier 0 — deterministic).
+              Doc catalog dated via git (stale-honest), story-spec
+              aggregate, commit/branch evidence, issues/PRs via gh when
+              available. Entries are knowledge-claim shaped for direct
+              ingestion by §7.18-style intakes.
+  --as-built  .brewing/as-built.md (#262 tier 1 — LLM, key-less capable
+              via SLOWCOOK_LLM=claude-cli). AS-OBSERVED product truth in
+              five fixed sections; every bullet must carry a (path)
+              citation — enforced by a validator; founder questions
+              close the doc. Fails on uncited bullets unless
+              --allow-uncited.
+
 This command does NOT run the ts-morph code-map scan; for that,
 use \`slowcook map generate\`.
 `);
@@ -108,6 +144,18 @@ use \`slowcook map generate\`.
 
 export async function extract(argv: string[], _cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
+
+  if (args.survey || args.asBuilt) {
+    const survey = runSurvey(args.repoRoot);
+    if (args.survey) {
+      const file = writeSurvey(args.repoRoot, survey);
+      console.log(`Wrote ${file} (${survey.claims.length} claims${survey.skipped.length ? `; skipped: ${survey.skipped.join("; ")}` : ""}).`);
+    }
+    if (args.asBuilt) {
+      await runAsBuiltCli(args.repoRoot, survey, { model: args.model, allowUncited: args.allowUncited });
+    }
+    return;
+  }
 
   if (args.schema) {
     const r = emitSchemaDiagram(args.repoRoot);
