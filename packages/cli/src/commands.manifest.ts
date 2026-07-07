@@ -164,6 +164,12 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "checks",
   },
   {
+    name: "recall",
+    usage: "slowcook recall <query> | --file <path> [--limit n] [--since 30d] [--workspace <path>] [--json]",
+    description: "Recall prior agent sessions (via ctxrs/ctx) as a compact context brief — so agents don't re-investigate settled work.",
+    group: "checks",
+  },
+  {
     name: "recon",
     usage: "slowcook recon [--story <id>] [--cwd <path>] [--reuse-scan] [--stub-scan] [--exclude <glob>]",
     description: "Pre-brew structural divergence check. Surfaces missing components / testid gaps / brownfield rename hazards.",
