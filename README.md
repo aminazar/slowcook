@@ -245,6 +245,8 @@ Init scaffolds `.brewing/*`, the slowcook GitHub Actions workflows, CODEOWNERS e
 - **`slowcook manifest record | verify`** — capture / re-verify the set of tests vitest can discover. Runs in CI on every PR so agents can't quietly skip tests.
 - **`slowcook map generate | check`** — ts-morph-driven repo-wide code map (APIs, pages, components, helpers, types). Brew reads the map first on every iteration; CI fails when the committed map drifts from a fresh generation.
 - **`slowcook catchup`** — detects + runs pipeline steps that should have triggered but didn't (useful when a workflow misfires).
+- **`slowcook recall <query> | --file <path>`** — recalls prior coding-agent sessions (via [ctxrs/ctx](https://github.com/ctxrs/ctx), local + private) as a compact "prior context" brief, so agents don't re-investigate settled work. Best-effort: without ctx installed it no-ops. `chef-orchestrate` injects it automatically.
+- **`slowcook extract --survey | --as-built | --history`** — tiered brownfield knowledge: `--survey` (deterministic doc/story/work-evidence catalog, free), `--as-built` (LLM inventory with enforced citations), `--history` (mines the agent sessions that *built* the repo — decisions, rejected approaches, known issues — each claim citing its session; needs ctx + local build history, degrades honestly otherwise). Outputs land in `.brewing/` for consumers to ingest.
 
 See [`packages/cli/README.md`](./packages/cli/README.md) for per-command detail.
 

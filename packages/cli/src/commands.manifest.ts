@@ -291,8 +291,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   // --- Misc + experimental ---
   {
     name: "extract",
-    usage: "slowcook extract [--schema] [--tokens] [--cwd <path>]",
-    description: "Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.",
+    usage: "slowcook extract [--schema] [--tokens] [--survey] [--as-built] [--history] [--cwd <path>]",
+    description: "Brownfield extracts: schema/tokens (fast), --survey (deterministic doc/work catalog), --as-built (LLM, cited), --history (mine the agent sessions that BUILT the repo, via ctxrs/ctx).",
     group: "knowledge",
   },
   {
