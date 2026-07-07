@@ -24,6 +24,7 @@ import { plate } from "./commands/plate/index.js";
 import { port } from "./commands/port/index.js";
 import { preview } from "./commands/preview/index.js";
 import { check } from "./commands/check/index.js";
+import { recall } from "./commands/recall/index.js";
 import { recon } from "./commands/recon/index.js";
 import { runMock } from "./commands/run-mock/index.js";
 import { dispatch } from "./commands/dispatch/index.js";
@@ -280,6 +281,11 @@ async function main(): Promise<void> {
       // 0.16.0-α.13 — static structural checks. mock-isolation
       // verifies vibe + plate keep mock/ self-contained.
       await check(args.slice(1), VERSION);
+      return;
+    case "recall":
+      // 0.28 — recall prior agent work (via ctxrs/ctx) before a task, so
+      // brew/chef/refine agents don't start context-blind. Best-effort.
+      await recall(args.slice(1), VERSION);
       return;
     case "recon":
       // 0.17.6 — pre-brew structural divergence check. Runs after
