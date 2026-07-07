@@ -21,6 +21,7 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { recallContext } from "../recall/context.js";
 import { dirname, join } from "node:path";
 import {
   AnthropicClient,
@@ -224,6 +225,12 @@ function loadOpenPrs(repoRoot: string, storyId: string): OpenPrsEntry[] {
   return out;
 }
 
+/** a short topic string from the spec YAML (title/name/summary) for recall. */
+function specTopic(spec: { yaml: string }): string {
+  const m = spec.yaml.match(/^\s*(?:title|name|summary):\s*(.+)$/im);
+  return m ? m[1]!.replace(/["']/g, "").trim().slice(0, 80) : "";
+}
+
 function loadSpec(repoRoot: string, storyId: string): { path: string; yaml: string } {
   const path = `specs/story-${storyId}.yaml`;
   const abs = join(repoRoot, path);
@@ -406,12 +413,26 @@ export async function chefOrchestrate(argv: string[], cliVersion: string): Promi
     recentRunnerOutput: runnerOutput,
   });
 
-  console.log(`  prompt: ${prompt.length} chars · calling chef-orchestrate LLM (${args.model})`);
+  // Loop memory (best-effort, via ctx): what did PRIOR agent sessions try or
+  // decide about this story? The orchestrator's whole job is "don't repeat
+  // what's already been tried" — the on-disk ledger only sees chef-drift's own
+  // moves; recall widens that to the full session history. No-op if ctx absent.
+  const recalled = recallContext({
+    // story + topic is the signal; generic boilerplate ("build failure") only
+    // dilutes ctx's ranked match. Prefer the topic, fall back to the story id.
+    query: `${specTopic(spec)} story-${args.storyId}`.trim(),
+    limit: 4,
+    label: `story-${args.storyId}`,
+  });
+  if (recalled) console.log(`  recall: injected prior-context brief (${recalled.length} chars) from ctx`);
+  const userContent = recalled ? `${recalled}\n\n---\n\n${prompt}` : prompt;
+
+  console.log(`  prompt: ${userContent.length} chars · calling chef-orchestrate LLM (${args.model})`);
   const client = new AnthropicClient(apiKey);
   const resp = await client.complete({
     model: args.model,
     system: CHEF_ORCHESTRATE_SYSTEM,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: userContent }],
     maxTokens: 4096,
   });
   console.log(`  chef-orchestrate LLM: ${resp.usage.inputTokens}→${resp.usage.outputTokens} tok · $${resp.costUsd.toFixed(4)}`);
