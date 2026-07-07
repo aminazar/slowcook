@@ -5,6 +5,7 @@ import {
 } from "../map/index.js";
 import { runSurvey, writeSurvey } from "./survey.js";
 import { runAsBuiltCli } from "./as-built-cli.js";
+import { runHistoryCli } from "./history-cli.js";
 
 /**
  * 0.13.5+ — focused brownfield extraction command. A thin wrapper over
@@ -31,6 +32,7 @@ interface ExtractArgs {
   entities: boolean;
   survey: boolean;
   asBuilt: boolean;
+  history: boolean;
   allowUncited: boolean;
   model: string | null;
 }
@@ -43,6 +45,7 @@ function parseArgs(argv: string[]): ExtractArgs {
     entities: false,
     survey: false,
     asBuilt: false,
+    history: false,
     allowUncited: false,
     model: null,
   };
@@ -67,6 +70,8 @@ function parseArgs(argv: string[]): ExtractArgs {
       any = true;
     } else if (a === "--as-built") {
       args.asBuilt = true;
+    } else if (a === "--history") {
+      args.history = true;
       any = true;
     } else if (a === "--allow-uncited") {
       args.allowUncited = true;
@@ -104,6 +109,7 @@ Usage:
   slowcook extract [--schema] [--tokens] [--entities] [--cwd <path>]
   slowcook extract --survey   [--cwd <path>]
   slowcook extract --as-built [--cwd <path>] [--model <id>] [--allow-uncited]
+  slowcook extract --history  [--cwd <path>] [--model <id>]   # mine the agent sessions that BUILT this repo (via ctxrs/ctx)
 
   No flag = the diagram extracts (--schema + --tokens + --entities).
   Diagram outputs are gitignored; regenerate per refine run.
@@ -145,14 +151,21 @@ use \`slowcook map generate\`.
 export async function extract(argv: string[], _cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
-  if (args.survey || args.asBuilt) {
-    const survey = runSurvey(args.repoRoot);
-    if (args.survey) {
-      const file = writeSurvey(args.repoRoot, survey);
-      console.log(`Wrote ${file} (${survey.claims.length} claims${survey.skipped.length ? `; skipped: ${survey.skipped.join("; ")}` : ""}).`);
+  if (args.survey || args.asBuilt || args.history) {
+    if (args.survey || args.asBuilt) {
+      const survey = runSurvey(args.repoRoot);
+      if (args.survey) {
+        const file = writeSurvey(args.repoRoot, survey);
+        console.log(`Wrote ${file} (${survey.claims.length} claims${survey.skipped.length ? `; skipped: ${survey.skipped.join("; ")}` : ""}).`);
+      }
+      if (args.asBuilt) {
+        await runAsBuiltCli(args.repoRoot, survey, { model: args.model, allowUncited: args.allowUncited });
+      }
     }
-    if (args.asBuilt) {
-      await runAsBuiltCli(args.repoRoot, survey, { model: args.model, allowUncited: args.allowUncited });
+    if (args.history) {
+      // tier 1.5 — the agent sessions that BUILT the repo (opt-in; degrades
+      // honestly when no local build history exists).
+      await runHistoryCli(args.repoRoot, { model: args.model });
     }
     return;
   }
