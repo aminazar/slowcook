@@ -70,3 +70,23 @@ describe("recall brief", () => {
     expect(recallBrief([], { label: '"x"' })).toContain("No relevant prior agent sessions found");
   });
 });
+
+import { recallContext } from "./context.js";
+
+describe("recallContext (loop-memory seam)", () => {
+  const withResults: CtxRunner = (a) => a[0] === "--version" ? "ctx 0.20.0" : JSON.stringify(RESULTS);
+  const noCtx: CtxRunner = () => { throw new Error("no ctx"); };
+  const empty: CtxRunner = (a) => a[0] === "--version" ? "ctx 0.20.0" : JSON.stringify({ results: [] });
+
+  it("returns a brief when ctx has relevant results", () => {
+    const brief = recallContext({ query: "wallet", label: "story-042" }, withResults);
+    expect(brief).toContain("Prior context");
+    expect(brief).toContain("wallet flag DCE");
+  });
+  it("returns '' (not a placeholder) when ctx is absent — safe to skip injection", () => {
+    expect(recallContext({ query: "wallet" }, noCtx)).toBe("");
+  });
+  it("returns '' when ctx is present but finds nothing — no prompt pollution", () => {
+    expect(recallContext({ query: "nothing" }, empty)).toBe("");
+  });
+});
