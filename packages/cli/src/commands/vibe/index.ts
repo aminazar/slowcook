@@ -189,7 +189,8 @@ function buildProjectContext(repoRoot: string): string {
       sections.push(
         "## Existing design tokens (extracted from `**/*.css`)\n\n" +
           c +
-          "\n\nReuse these tokens by exact name (`bg-coral`, `var(--tint-celebrate)`); do NOT introduce new hex/rgb values."
+          "\n\nReuse these tokens by exact name (`bg-coral`, `var(--tint-celebrate)`); do NOT introduce new hex/rgb values." +
+          "\nSTYLING CONTRACT: recurring patterns use the design system's classes (`.sc-*`/Tailwind utilities); inline `style` is for one-off GEOMETRY only (flex/grid, sizes, positions) — never color/background/border/font/shadow/radius. `slowcook check style-drift` enforces this."
       );
     } catch {
       // ignore

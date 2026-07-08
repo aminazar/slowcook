@@ -34,8 +34,12 @@ Rules, non-negotiable:
   comment syntax (// for ts/tsx, /* … */ for css, <!-- … --> for html):
   @slowcook-as-built-from <source path>@<sha> — prod-first: this mock
   mirrors production; edits here are PROPOSALS, not truth.
-- Use the design tokens provided (brand.yaml) via inline styles or the
-  mock app's existing CSS variables; do not invent a palette.`;
+- STYLING CONTRACT (style-drift post-mortem, 2026-07-08): tokens come from
+  the mock app's CSS variables; recurring patterns (cards, buttons, chips,
+  headings, inputs) use the design system's classes (.sc-*/Tailwind
+  utilities). Inline style={{…}} is allowed ONLY for one-off geometry
+  (flex/grid math, sizes, positions) — never for color/background/border/
+  font/shadow/radius. Do not invent a palette.`;
 
 export interface AsBuiltVibeInput {
   repoRoot: string;

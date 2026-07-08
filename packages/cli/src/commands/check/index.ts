@@ -18,6 +18,7 @@ import { runSpecValidateCli } from "./spec-validate.js";
 import { runProdHonestyCli } from "./prod-honesty.js";
 import { runProdBundleCli } from "./prod-bundle.js";
 import { runSurfaceParityCli } from "./surface-parity.js";
+import { runStyleDriftCli } from "./style-drift.js";
 
 export async function check(argv: string[], _cliVersion: string): Promise<void> {
   const sub = argv[0];
@@ -32,6 +33,8 @@ export async function check(argv: string[], _cliVersion: string): Promise<void> 
       return runProdBundleCli(argv.slice(1));
     case "surface-parity":
       return runSurfaceParityCli(argv.slice(1));
+    case "style-drift":
+      return runStyleDriftCli(argv.slice(1));
     case undefined:
     case "help":
     case "--help":
