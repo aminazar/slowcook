@@ -14,7 +14,15 @@ import { usePrefersDark, sheetTheme } from "./theme.js";
 import { clampPillPosition } from "../selector.js";
 import { CometSheen } from "./comet.js";
 
-export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; }
+export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; url?: string; remoteId?: string | number; }
+
+/** 0.12.0 — external per-comment state supplied by the host (agent replies,
+ *  lifecycle status like "applied"), keyed by comment id. */
+export interface ReviewCommentMeta {
+  status?: string;
+  replies?: { author: string; text: string; createdAt?: number }[];
+  url?: string;
+}
 export type Corner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
 
 export interface ReviewWidgetProps {
@@ -43,6 +51,15 @@ export interface ReviewWidgetProps {
   /** localStorage key for the (v1) internal comment store. */
   storageKey?: string;
   accessory?: ReactNode;
+  /** 0.12.0 — transport hook: called when a comment is posted. May return a
+   *  remote id/url (e.g. a GitHub issue) merged into the stored comment. */
+  onComment?: (c: ReviewComment) => void | Promise<void | { url?: string; remoteId?: string | number }>;
+  /** 0.12.0 — per-comment external state (replies/status), keyed by comment id. */
+  meta?: Record<string, ReviewCommentMeta>;
+  /** 0.12.0 — extra per-comment UI (e.g. a before/after diff toggle). */
+  renderCommentExtra?: (c: ReviewComment) => ReactNode;
+  /** 0.12.0 — sidebar footer slot (e.g. a final-approval action). */
+  sidebarFooter?: ReactNode;
 }
 
 const DASH_CORAL = "#FF6B6B";
@@ -57,6 +74,7 @@ const ago = (t: number) => { const s = Math.floor((Date.now() - t) / 1000); if (
 export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, title = "Refine", accent = DASH_CORAL, icon = "✎",
+    onComment, meta, renderCommentExtra, sidebarFooter,
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
     author = "PM", storageKey = "slowcook.review-widget.comments", accessory,
@@ -146,8 +164,16 @@ export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
 
   const addComment = (text: string) => {
     if (!composer || !text.trim()) return;
-    persist([{ id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now() }, ...comments]);
+    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now() };
+    persist([c, ...comments]);
     setComposer(null);
+    if (onComment) {
+      void Promise.resolve(onComment(c)).then((ref) => {
+        if (ref && (ref.url || ref.remoteId !== undefined)) {
+          setComments((cur) => { const next = cur.map((x) => x.id === c.id ? { ...x, url: ref.url, remoteId: ref.remoteId } : x); save(storageKey, next); return next; });
+        }
+      }).catch(() => { /* transport is best-effort; the comment stays local */ });
+    }
   };
   const gotoNode = (node: string) => {
     const el = document.querySelector(attrSel(anchorAttribute, node)) as HTMLElement | null;
@@ -196,7 +222,7 @@ export function ReviewWidget(props: ReviewWidgetProps): JSX.Element | null {
       {composer && <Composer label={composer.label} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
 
       {/* sidebar list */}
-      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} />}
+      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} />}
     </div>,
     document.body,
   );
@@ -236,7 +262,7 @@ function Composer({ label, S, accent, onSubmit, onCancel }: { label: string; S: 
   );
 }
 
-function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void }): JSX.Element {
+function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode }): JSX.Element {
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, maxWidth: "90vw", background: S.sheet, color: S.fg, borderLeft: `1px solid ${S.border}`, boxShadow: "-12px 0 40px rgba(0,0,0,.4)", pointerEvents: "auto", zIndex: Z + 4, display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
       <div style={{ padding: "13px 16px", borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -250,6 +276,26 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto }: { co
           <div key={c.id} style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <button onClick={() => onGoto(c.node)} style={{ display: "block", textAlign: "left", width: "100%", background: "transparent", border: "none", cursor: "pointer", color: accent, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, padding: 0, marginBottom: 4 }}>📍 {c.label}</button>
             <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}>{c.text}</div>
+            {(() => {
+              const m = meta?.[c.id];
+              if (!m && !c.url) return null;
+              return (
+                <div style={{ marginTop: 6 }}>
+                  {(m?.status || c.url || m?.url) && (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                      {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
+                      {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>thread ↗</a>}
+                    </div>
+                  )}
+                  {(m?.replies ?? []).map((r, i) => (
+                    <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginBottom: 5, fontSize: 12, lineHeight: 1.45, color: S.fg }}>
+                      <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span><br />{r.text}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {renderExtra?.(c)}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
               <span style={{ fontSize: 10.5, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
               <button onClick={() => onDelete(c.id)} style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 11 }}>Delete</button>
@@ -257,6 +303,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto }: { co
           </div>
         ))}
       </div>
+      {footer && <div style={{ padding: 12, borderTop: `1px solid ${S.border}` }}>{footer}</div>}
     </div>
   );
 }
