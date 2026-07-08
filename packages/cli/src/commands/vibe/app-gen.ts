@@ -256,13 +256,15 @@ function asyncTsx(): string {
   return `import type { ReactNode } from "react";
 import type { Async as AsyncResult } from "../lib/use-async";
 
-const KEYFRAMES = "@keyframes sc-spin{to{transform:rotate(360deg)}}@keyframes sc-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}";
+const KEYFRAMES = "@keyframes sc-spin{to{transform:rotate(360deg)}}@keyframes sc-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}" +
+  ".sc-spinner{width:18px;height:18px;border-radius:999px;border:2px solid var(--color-border);border-top-color:var(--color-brand);animation:sc-spin .7s linear infinite;display:inline-block}" +
+  ".sc-error-card{animation:sc-fade .2s ease;border:1px solid var(--color-danger);border-radius:var(--radius-card);padding:18px;color:var(--color-danger);font-size:13.5px;background:color-mix(in srgb,var(--color-danger) 8%,transparent)}";
 
 export function Spinner({ label = "Loading…" }: { label?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 28, color: "var(--color-text-dim)", fontSize: 13.5 }}>
       <style>{KEYFRAMES}</style>
-      <span style={{ width: 18, height: 18, borderRadius: 999, border: "2px solid var(--color-border)", borderTopColor: "var(--color-brand)", animation: "sc-spin .7s linear infinite", display: "inline-block" }} />
+      <span className="sc-spinner" />
       {label}
     </div>
   );
@@ -270,7 +272,7 @@ export function Spinner({ label = "Loading…" }: { label?: string }) {
 
 export function ErrorState({ message }: { message: string }) {
   return (
-    <div style={{ animation: "sc-fade .2s ease", border: "1px solid var(--color-danger)", borderRadius: "var(--radius-card)", padding: 18, color: "var(--color-danger)", fontSize: 13.5, background: "color-mix(in srgb, var(--color-danger) 8%, transparent)" }}>
+    <div className="sc-error-card">
       <style>{KEYFRAMES}</style>
       <b>Something went wrong.</b> {message}
     </div>
