@@ -80,6 +80,12 @@ export interface ReviewShellProps {
   renderCommentExtra?: (c: ReviewComment) => ReactNode;
   /** 0.12.0 — sidebar footer slot (e.g. a final-approval action). */
   sidebarFooter?: ReactNode;
+  /** 0.12.1 — first-appearance choreography: the pill is born CENTER-stage,
+   *  and 1s later a deliberate meteor streaks across the page and strikes it;
+   *  after a beat the pill settles to its corner. Runs ONCE (persisted under
+   *  `storageKey`), honors prefers-reduced-motion, and any user interaction
+   *  cuts straight to the settled state. */
+  intro?: { storageKey?: string };
 }
 
 const DASH_CORAL = "#FF6B6B";
@@ -89,10 +95,52 @@ const attrSel = (attr: string, val: string) => `[${attr}="${val.replace(/(["\\])
 const flash = (el: HTMLElement, color: string) => { const prev = el.style.outline; el.style.transition = "outline .15s"; el.style.outline = `2px solid ${color}`; el.style.outlineOffset = "2px"; setTimeout(() => { el.style.outline = prev; }, 1100); };
 const ago = (t: number) => { const s = Math.floor((Date.now() - t) / 1000); if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)}m ago`; if (s < 86400) return `${Math.floor(s / 3600)}h ago`; return `${Math.floor(s / 86400)}d ago`; };
 
+/** 0.12.1 — the intro meteor: a DELIBERATE streak from the upper-left sky to
+ *  the pill's heart, with a tapering glow trail and a strike burst. Pure CSS
+ *  motion-path animation; deterministic (no randomness — it AIMS). */
+function IntroMeteor({ target, accent }: { target: { x: number; y: number }; accent: string }): JSX.Element {
+  const w = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const start = { x: -140, y: Math.round((typeof window !== "undefined" ? window.innerHeight : 800) * 0.06) };
+  // one gentle arc: control point above the direct line for a falling feel
+  const cp = { x: Math.round((start.x + target.x) / 2 + w * 0.06), y: Math.max(-40, Math.round(Math.min(start.y, target.y) - 120)) };
+  const path = `M ${start.x} ${start.y} Q ${cp.x} ${cp.y} ${target.x} ${target.y}`;
+  const anim = `
+@keyframes rs-meteor-fly { 0% { offset-distance: 0%; opacity: 0; } 8% { opacity: 1; } 88% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+@keyframes rs-meteor-trail { 0% { stroke-dashoffset: 1000; opacity: 0; } 10% { opacity: .9; } 70% { opacity: .55; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes rs-strike-ring { 0% { transform: translate(-50%,-50%) scale(.2); opacity: .95; } 100% { transform: translate(-50%,-50%) scale(3.4); opacity: 0; } }
+@keyframes rs-strike-glow { 0% { opacity: 0; } 12% { opacity: .9; } 100% { opacity: 0; } }`;
+  return (
+    <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: Z + 8, overflow: "hidden" }}>
+      <style>{anim}</style>
+      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0 }}>
+        <defs>
+          <linearGradient id="rs-meteor-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={accent} stopOpacity="0" />
+            <stop offset="70%" stopColor={accent} stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#fff" stopOpacity="0.95" />
+          </linearGradient>
+        </defs>
+        <path d={path} fill="none" stroke="url(#rs-meteor-grad)" strokeWidth={3.5} strokeLinecap="round"
+          strokeDasharray="1000" style={{ animation: "rs-meteor-trail 1.05s cubic-bezier(.5,0,.9,.6) forwards" }} />
+      </svg>
+      {/* the head — a hot core with a coral halo, riding the same path */}
+      <div style={{
+        position: "absolute", width: 14, height: 14, borderRadius: 999, background: "#fff",
+        boxShadow: `0 0 10px 3px #fff, 0 0 26px 12px ${accent}, 0 0 70px 30px ${accent}55`,
+        offsetPath: `path('${path}')`, offsetRotate: "0deg",
+        animation: "rs-meteor-fly 1.05s cubic-bezier(.5,0,.9,.6) forwards",
+      } as CSSProperties} />
+      {/* the strike: an expanding ring + a brief glow where it lands */}
+      <div style={{ position: "absolute", left: target.x, top: target.y, width: 56, height: 56, borderRadius: 999, border: `2.5px solid ${accent}`, transform: "translate(-50%,-50%) scale(.2)", opacity: 0, animation: "rs-strike-ring .75s ease-out 1s forwards" } as CSSProperties} />
+      <div style={{ position: "absolute", left: target.x, top: target.y, width: 120, height: 120, borderRadius: 999, transform: "translate(-50%,-50%)", background: `radial-gradient(circle, ${accent}66 0%, transparent 70%)`, opacity: 0, animation: "rs-strike-glow .9s ease-out 1s forwards" } as CSSProperties} />
+    </div>
+  );
+}
+
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, title = "Refine", accent = DASH_CORAL, icon = "✎",
-    onComment, meta, renderCommentExtra, sidebarFooter,
+    onComment, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -110,17 +158,48 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
 
+  // 0.12.1 first-appearance intro: idle → staged (center) → strike (meteor) → settling → done
+  const introKey = intro?.storageKey ?? "review-shell-intro-seen";
+  const reduceMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const wantsIntro = !!intro && !reduceMotion && (() => { try { return !localStorage.getItem(introKey); } catch { return false; } })();
+  const [introPhase, setIntroPhase] = useState<"idle" | "staged" | "strike" | "settling" | "done">(wantsIntro ? "staged" : "done");
+  const finishIntro = () => {
+    try { localStorage.setItem(introKey, String(Date.now())); } catch { /* ignore */ }
+    setIntroPhase("done");
+  };
+
   const sel = `[${anchorAttribute}]`;
   const isSelf = (el: Element | null) => !!el?.closest?.("[data-review-widget]");
 
-  // Initial pill position from the chosen corner.
+  // Initial pill position: center-stage during the intro, else the chosen corner.
   useEffect(() => {
     if (pos || typeof window === "undefined") return;
     const m = 16, w = 250, h = 44;
+    if (introPhase === "staged") {
+      setPos({ x: Math.round(window.innerWidth / 2 - w / 2), y: Math.round(window.innerHeight / 2 - h / 2) });
+      return;
+    }
     const x = corner.includes("left") ? m : window.innerWidth - w - m;
     const y = corner.includes("top") ? m : window.innerHeight - h - m;
     setPos({ x, y });
-  }, [corner, pos]);
+  }, [corner, pos, introPhase]);
+
+  // intro choreography: 1s on stage → the meteor strikes (1.05s flight) →
+  // a beat to admire → settle to the corner.
+  useEffect(() => {
+    if (introPhase === "staged") { const t = setTimeout(() => setIntroPhase("strike"), 1000); return () => clearTimeout(t); }
+    if (introPhase === "strike") { const t = setTimeout(() => setIntroPhase("settling"), 2400); return () => clearTimeout(t); }
+    if (introPhase === "settling") {
+      const m = 16, w = 250, h = 44;
+      const x = corner.includes("left") ? m : window.innerWidth - w - m;
+      const y = corner.includes("top") ? m : window.innerHeight - h - m;
+      setPos({ x, y });
+      const t = setTimeout(() => finishIntro(), 800);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [introPhase, corner]);
 
   // Keep the pill on-screen if the window resizes smaller (0.10.1).
   useEffect(() => {
@@ -203,6 +282,9 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
   return createPortal(
     <div data-review-widget="" style={{ position: "fixed", inset: 0, zIndex: Z, pointerEvents: "none" }}>
+      {introPhase === "strike" && pos && (
+        <IntroMeteor target={{ x: pos.x + 125, y: pos.y + 22 }} accent={accent} />
+      )}
       {/* hover highlight (comment mode) */}
       {mode === "comment" && hover && (
         <div style={{ position: "fixed", left: hover.rect.left - 3, top: hover.rect.top - 3, width: hover.rect.width + 6, height: hover.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}14`, pointerEvents: "none", zIndex: Z + 1 }}>
@@ -219,7 +301,12 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
       {/* the floating pill */}
       {pos && (
-        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 10px", borderRadius: 999, background: S.sheet, border: `1px solid ${S.border}`, boxShadow: "0 6px 20px rgba(0,0,0,.35)", pointerEvents: "auto", zIndex: Z + 2, fontFamily: "system-ui, sans-serif", userSelect: "none" }}>
+        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 10px", borderRadius: 999, background: S.sheet, border: `1px solid ${S.border}`,
+          boxShadow: introPhase === "strike" ? `0 6px 20px rgba(0,0,0,.35), 0 0 34px 6px ${accent}88` : "0 6px 20px rgba(0,0,0,.35)",
+          pointerEvents: "auto", zIndex: Z + 9, fontFamily: "system-ui, sans-serif", userSelect: "none",
+          transform: introPhase === "staged" || introPhase === "strike" ? "scale(1.25)" : "scale(1)",
+          transition: introPhase === "settling" ? "left .8s cubic-bezier(.22,.8,.36,1), top .8s cubic-bezier(.22,.8,.36,1), transform .8s cubic-bezier(.22,.8,.36,1), box-shadow .8s ease" : introPhase === "strike" ? "box-shadow .25s ease 1s, transform .3s cubic-bezier(.34,1.56,.64,1) 1s" : undefined,
+        }} onPointerDownCapture={() => { if (introPhase !== "done") finishIntro(); }}>
           <CometSheen pillRef={pillRef} radius={999} />
           <span onPointerDown={(e) => startDrag(e, pos, setPos)} title="Drag to move" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "grab", color: S.fg }}>
             <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
