@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/review-overlay",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Floating review overlay for slowcook mock previews \u2014 element-anchored comments, screenshot, viewport metadata; submits to the mockup PR via PAT. Mounted into the mock app's root layout. Plate parses the comments back out for amendments.",
   "license": "MIT",
   "author": "aminazar",
