@@ -4,3 +4,4 @@ export { ReviewShell, localStorageStore, type ReviewShellProps, type ReviewComme
 export { usePrefersDark, detectPageDark, pillTheme, sheetTheme } from "./theme.js";
 export { useScenarioCommentStats, type UseScenarioCommentStatsArgs } from "./use-scenario-comment-stats.js";
 export { useStoryMarker, readCurrentStory } from "./use-story-marker.js";
+export { installBreadcrumbRecorder, breadcrumbs, pushBreadcrumb, clearBreadcrumbs, type Breadcrumb } from "./breadcrumbs.js";

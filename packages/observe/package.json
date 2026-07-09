@@ -1,0 +1,53 @@
+{
+  "name": "@slowcook-ai/observe",
+  "version": "0.1.0",
+  "description": "Observability + live-debugging substrate for slowcook backends \u2014 request-scoped tracing (AsyncLocalStorage), structured pino logs, safe background tasks, breadcrumb+trace bundles for agent diagnosis. Framework-agnostic; ships a Hono adapter.",
+  "license": "MIT",
+  "author": "aminazar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aminazar/slowcook.git",
+    "directory": "packages/observe"
+  },
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/observe#readme",
+  "bugs": {
+    "url": "https://github.com/aminazar/slowcook/issues"
+  },
+  "keywords": [
+    "slowcook",
+    "observability",
+    "debugging",
+    "tracing",
+    "pino",
+    "asynclocalstorage",
+    "request-id"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pino": "^9.0.0"
+  }
+}

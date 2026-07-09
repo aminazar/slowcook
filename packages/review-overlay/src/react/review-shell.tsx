@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { usePrefersDark, sheetTheme } from "./theme.js";
 import { clampPillPosition } from "../selector.js";
 import { CometSheen } from "./comet.js";
+import { installBreadcrumbRecorder } from "./breadcrumbs.js";
 
 // ── SHELL PRIMITIVE (0.12.0 decoupling) ─────────────────────────────────────
 // ReviewShell is the GENERIC review surface: pill + mode toggle + anchor
@@ -171,6 +172,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const sel = `[${anchorAttribute}]`;
   const isSelf = (el: Element | null) => !!el?.closest?.("[data-review-widget]");
 
+  useEffect(() => { installBreadcrumbRecorder(); }, []);
   // Initial pill position: center-stage during the intro, else the chosen corner.
   useEffect(() => {
     if (pos || typeof window === "undefined") return;
