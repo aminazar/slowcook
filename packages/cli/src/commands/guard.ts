@@ -7,10 +7,25 @@ import {
   type Violation,
 } from "@slowcook-ai/core";
 
+/** Accepts either a bare reason string or a FULL PR body (consumers can set
+ *  GUARD_OVERRIDE_REASON to the PR body verbatim); extracts the
+ *  `Override-reason: ...` line when a body is given. */
+export function extractReason(input: string | undefined): string | null {
+  const s = input?.trim();
+  if (!s) return null;
+  const line = s.split(/\r?\n/).map((l) => /^Override-reason:\s*(.+)$/i.exec(l)?.[1]).find(Boolean);
+  if (line) return line.trim();
+  return s.includes("\n") ? null : s; // multi-line without the marker = a body with NO stated reason
+}
+
 interface GuardArgs {
   base: string;
   head: string;
   override: boolean;
+  /** required with --override: WHY the frozen contract legitimately changes.
+   *  Echoed into the Actions summary so the amendment carries its reason —
+   *  the ratchet stays honest without becoming a straitjacket. */
+  reason: string | null;
   config: string;
 }
 
@@ -19,6 +34,7 @@ function parseArgs(argv: string[]): GuardArgs {
     base: "origin/main",
     head: "HEAD",
     override: false,
+    reason: extractReason(process.env["GUARD_OVERRIDE_REASON"]),
     config: ".brewing/frozen-paths.json",
   };
   for (let i = 0; i < argv.length; i++) {
@@ -32,6 +48,9 @@ function parseArgs(argv: string[]): GuardArgs {
       i++;
     } else if (arg === "--override") {
       args.override = true;
+    } else if (arg === "--reason" && next) {
+      args.reason = next;
+      i++;
     } else if (arg === "--config" && next) {
       args.config = next;
       i++;
@@ -55,6 +74,9 @@ Options:
   --head <ref>       Head git ref to compare to (default: HEAD)
   --override         Report violations but exit 0 (use via CI label for audit)
   --config <path>    Config file path (default: .brewing/frozen-paths.json)
+  --reason <text>    REQUIRED with --override: why the frozen contract changes
+                     (also read from GUARD_OVERRIDE_REASON). Echoed into the
+                     Actions summary — the amendment carries its reason.
   --help, -h         Show this help
 
 Exit codes:
@@ -148,10 +170,19 @@ export async function guard(argv: string[]): Promise<void> {
 
   const mdHeader = `### Frozen-path guard\n\n`;
   if (args.override) {
+    if (!args.reason) {
+      appendGhSummary(
+        `${mdHeader}❌ \`--override\` set WITHOUT a reason. Amending a frozen contract requires a stated reason (\`--reason\`, env \`GUARD_OVERRIDE_REASON\`, or an \`Override-reason:\` line in the PR body).\n`
+      );
+      console.error(
+        "override requires a reason: pass --reason \"…\" (or set GUARD_OVERRIDE_REASON / add 'Override-reason: …' to the PR body). The ratchet's escape hatch is deliberate AND logged."
+      );
+      process.exit(1);
+    }
     appendGhSummary(
-      `${mdHeader}⚠️ ${violations.length} violation(s), but \`--override\` is set — advisory only.\n\n${lines.join("\n")}\n`
+      `${mdHeader}⚠️ ${violations.length} violation(s) — \`override-freeze\` amendment.\n\n**Reason:** ${args.reason}\n\n${lines.join("\n")}\n`
     );
-    console.log("::warning::override flag present — not failing.");
+    console.log(`::warning::frozen-contract amendment — reason: ${args.reason}`);
     process.exit(0);
   } else {
     appendGhSummary(
