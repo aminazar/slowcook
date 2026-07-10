@@ -170,9 +170,11 @@ npx --yes @slowcook-ai/cli@latest map generate    # refresh .brewing/code-map.*
 
 1. Open a PR with the change.
 2. Add the \`override-freeze\` label to the PR.
-3. Guard runs in advisory mode (surfaces violations but doesn't fail).
-4. CODEOWNERS still requires explicit approval.
-5. Merge audit trail: PR number + \`override-freeze\` label + approval.
+3. State the reason: an \`Override-reason: …\` line in the PR body (guard REFUSES
+   an unexplained override — the amendment must carry its reason).
+4. Guard runs in advisory mode (surfaces violations + the reason, doesn't fail).
+5. CODEOWNERS still requires explicit approval.
+6. Merge audit trail: PR number + label + stated reason + approval.
 
 Deliberately slightly inconvenient. Frozen-path changes are rare events that deserve a reviewer's eyes.
 `;
