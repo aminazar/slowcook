@@ -147,8 +147,14 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   // --- Checks ---
   {
     name: "guard",
-    usage: "slowcook guard --base <ref> --head <ref> [--override] [--config <path>]",
-    description: "Check for frozen-path violations between two git refs. CI step.",
+    usage: "slowcook guard --base <ref> --head <ref> [--override --reason <why>] [--config <path>]",
+    description: "Check for frozen-path violations between two git refs. CI step. Overrides require a stated reason AND the owning story's amendment in the same diff.",
+    group: "checks",
+  },
+  {
+    name: "amend",
+    usage: "slowcook amend --story <id> --reason <why> [--pr <#>] [--files a,b]",
+    description: "Record a frozen-contract amendment ON the owning story spec (amendments: entry) — the backprop half of guard --override.",
     group: "checks",
   },
   {

@@ -170,6 +170,23 @@ export async function guard(argv: string[]): Promise<void> {
 
   const mdHeader = `### Frozen-path guard\n\n`;
   if (args.override) {
+    // BACKPROP (2026-07-11): an amended frozen test must carry its amendment
+    // UPSTREAM — the owning story's spec yaml (specs/story-<id>.yaml) must be
+    // part of the SAME diff (use `slowcook amend --story <id> --reason "…"`).
+    const { owningStory } = await import("./amend.js");
+    const changedSet = new Set(paths);
+    const missing: { file: string; story: string }[] = [];
+    for (const v of violations) {
+      const story = owningStory(process.cwd(), v.file);
+      if (story && !changedSet.has(`specs/story-${story}.yaml`)) missing.push({ file: v.file, story });
+    }
+    if (missing.length > 0) {
+      const md = missing.map((mv) => `- \`${mv.file}\` → run \`slowcook amend --story ${mv.story} --reason "…"\` and commit \`specs/story-${mv.story}.yaml\` in this PR`).join("\n");
+      appendGhSummary(`${mdHeader}❌ override without UPSTREAM amendment — the reason must live where the contract lives:\n\n${md}\n`);
+      console.error("override refused: amended frozen tests must record the amendment on their owning story (slowcook amend). Files:");
+      for (const mv of missing) console.error(`  ${mv.file} → specs/story-${mv.story}.yaml`);
+      process.exit(1);
+    }
     if (!args.reason) {
       appendGhSummary(
         `${mdHeader}❌ \`--override\` set WITHOUT a reason. Amending a frozen contract requires a stated reason (\`--reason\`, env \`GUARD_OVERRIDE_REASON\`, or an \`Override-reason:\` line in the PR body).\n`
