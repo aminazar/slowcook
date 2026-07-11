@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { guard } from "./commands/guard.js";
+import { amend } from "./commands/amend.js";
 import { manifest } from "./commands/manifest.js";
 import { init } from "./commands/init/index.js";
 import { refine } from "./commands/refine/index.js";
@@ -76,6 +77,9 @@ async function main(): Promise<void> {
   switch (command) {
     case "init":
       await init(args.slice(1), VERSION);
+      return;
+    case "amend":
+      await amend(args.slice(1));
       return;
     case "guard":
       await guard(args.slice(1));
