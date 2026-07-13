@@ -59,6 +59,8 @@ const GEOMETRY = new Set([
   "transform", "transformOrigin", "pointerEvents", "cursor", "userSelect",
   "visibility", "opacity", "order", "aspectRatio", "objectFit", "whiteSpace",
   "textOverflow", "wordBreak", "overflowWrap", "lineClamp", "WebkitLineClamp",
+  "letterSpacing", "lineHeight", "wordSpacing", "tabSize", "listStyle", "listStyleType",
+  "textTransform", "textDecoration", "textDecorationLine", "textIndent",
   "WebkitBoxOrient", "float", "clear", "resize", "appearance", "outline",
 ]);
 
