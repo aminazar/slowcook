@@ -68,6 +68,11 @@ export interface ReviewShellProps {
   anchorAttribute?: string;
   /** Attribute carrying the human label (default `data-review-label`). */
   labelAttribute?: string;
+  /** 0.14.0 — never refuse a target: when a click has NO anchor-attribute
+   *  ancestor, synthesize one from the DOM path (`dom:<selector>`) + visible
+   *  text. For bug-reporter shells (QA): every element on the page must be
+   *  commentable, labelled or not. Markers/goto resolve `dom:` nodes by path. */
+  anchorFallback?: boolean;
   author?: string;
   /** comment persistence — inject your own; defaults to localStorage. */
   store?: CommentStore;
@@ -93,6 +98,44 @@ const DASH_CORAL = "#FF6B6B";
 const Z = 2147483000;
 
 const attrSel = (attr: string, val: string) => `[${attr}="${val.replace(/(["\\])/g, "\\$1")}"]`;
+
+// ── 0.14.0 anchor fallback ───────────────────────────────────────────────────
+// A synthesized anchor for elements without a semantic node: a capped
+// tag:nth-of-type path from <body>, prefixed `dom:`. Less durable than a real
+// anchor (a re-render that reorders siblings moves it) — but a QA comment that
+// lands approximately beats one that can't be placed at all.
+const FALLBACK_CONTAINERS = new Set(["DIV", "SECTION", "ARTICLE", "ASIDE", "FORM", "LI", "TABLE", "FIELDSET", "NAV", "HEADER", "FOOTER", "MAIN", "DIALOG"]);
+
+export function domPath(el: Element): string {
+  const parts: string[] = [];
+  let cur: Element | null = el;
+  while (cur && cur.tagName !== "BODY" && parts.length < 8) {
+    const tag = cur.tagName.toLowerCase();
+    let nth = 1;
+    for (let sib = cur.previousElementSibling; sib; sib = sib.previousElementSibling) {
+      if (sib.tagName === cur.tagName) nth++;
+    }
+    parts.unshift(`${tag}:nth-of-type(${nth})`);
+    cur = cur.parentElement;
+  }
+  return `body > ${parts.join(" > ")}`;
+}
+
+/** the fallback target: the clicked element itself if it's a container, else its
+ *  nearest container ancestor — so the highlight/comment wraps the visual box. */
+export function fallbackContainer(el: Element): Element {
+  let cur: Element | null = el;
+  while (cur && cur.tagName !== "BODY") {
+    if (FALLBACK_CONTAINERS.has(cur.tagName)) return cur;
+    cur = cur.parentElement;
+  }
+  return el;
+}
+
+const fallbackLabel = (el: Element): string => {
+  const text = (el.textContent ?? "").trim().replace(/\s+/g, " ");
+  return text ? (text.length > 48 ? `${text.slice(0, 48)}…` : text) : `<${el.tagName.toLowerCase()}>`;
+};
 const flash = (el: HTMLElement, color: string) => { const prev = el.style.outline; el.style.transition = "outline .15s"; el.style.outline = `2px solid ${color}`; el.style.outlineOffset = "2px"; setTimeout(() => { el.style.outline = prev; }, 1100); };
 const ago = (t: number) => { const s = Math.floor((Date.now() - t) / 1000); if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)}m ago`; if (s < 86400) return `${Math.floor(s / 3600)}h ago`; return `${Math.floor(s / 86400)}d ago`; };
 
@@ -140,7 +183,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
-    enabled = true, requireTargets = true, title = "Refine", accent = DASH_CORAL, icon = "✎",
+    enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon = "✎",
     onComment, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
@@ -212,24 +255,35 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   }, []);
 
   // Comment-mode interactions: hover-highlight a node, click to open the composer.
+  // With anchorFallback, an element with no anchored ancestor still resolves — to
+  // its visual container, with a synthesized `dom:` node — so a comment can land
+  // ANYWHERE on the page (the bug-reporter contract).
   useEffect(() => {
     if (!enabled || mode !== "comment") { setHover(null); return; }
+    const resolve = (target: Element | null): { el: HTMLElement; node: string; label: string } | null => {
+      if (!target) return null;
+      const anchored = target.closest?.(sel) as HTMLElement | null;
+      if (anchored) return { el: anchored, node: anchored.getAttribute(anchorAttribute)!, label: anchored.getAttribute(labelAttribute) || anchored.getAttribute(anchorAttribute)! };
+      if (!anchorFallback) return null;
+      const box = fallbackContainer(target) as HTMLElement;
+      return { el: box, node: `dom:${domPath(box)}`, label: fallbackLabel(box) };
+    };
     const move = (e: PointerEvent) => {
       if (isSelf(e.target as Element)) { setHover(null); return; }
-      const el = (e.target as Element)?.closest?.(sel) as HTMLElement | null;
-      setHover(el ? { rect: el.getBoundingClientRect(), label: el.getAttribute(labelAttribute) || el.getAttribute(anchorAttribute) || "" } : null);
+      const t = resolve(e.target as Element);
+      setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label } : null);
     };
     const click = (e: MouseEvent) => {
       if (isSelf(e.target as Element)) return;
-      const el = (e.target as Element)?.closest?.(sel) as HTMLElement | null;
-      if (!el) return;
+      const t = resolve(e.target as Element);
+      if (!t) return;
       e.preventDefault(); e.stopPropagation();
-      setComposer({ node: el.getAttribute(anchorAttribute)!, label: el.getAttribute(labelAttribute) || el.getAttribute(anchorAttribute)! });
+      setComposer({ node: t.node, label: t.label });
     };
     document.addEventListener("pointermove", move, true);
     document.addEventListener("click", click, true);
     return () => { document.removeEventListener("pointermove", move, true); document.removeEventListener("click", click, true); };
-  }, [enabled, mode, sel, anchorAttribute, labelAttribute]);
+  }, [enabled, mode, sel, anchorAttribute, labelAttribute, anchorFallback]);
 
   // Reposition markers on scroll/resize/route (interval covers SPA nav).
   useEffect(() => {
@@ -252,10 +306,17 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   // the marker-scan tick, so it follows SPA navigation.)
   if (requireTargets && !document.querySelector(sel)) return null;
 
+  // node → element: semantic anchors by attribute; `dom:` fallbacks by path.
+  const findNodeEl = (node: string): HTMLElement | null => {
+    try {
+      return document.querySelector(node.startsWith("dom:") ? node.slice(4) : attrSel(anchorAttribute, node)) as HTMLElement | null;
+    } catch { return null; }
+  };
+
   // Live marker rects (recomputed each render; `setTick` drives re-render).
   const markers: { node: string; count: number; x: number; y: number }[] = [];
   byNode.forEach((list, node) => {
-    const el = document.querySelector(attrSel(anchorAttribute, node)) as HTMLElement | null;
+    const el = findNodeEl(node);
     if (!el) return;
     const r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) return;
@@ -276,7 +337,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     }
   };
   const gotoNode = (node: string) => {
-    const el = document.querySelector(attrSel(anchorAttribute, node)) as HTMLElement | null;
+    const el = findNodeEl(node);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); flash(el, accent); }
   };
 
