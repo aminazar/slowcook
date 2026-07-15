@@ -63,5 +63,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "optionalDependencies": {
+    "rustwright": "^0.1.1"
   }
 }

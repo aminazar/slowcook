@@ -71,6 +71,12 @@ export interface RunEyeResult {
 
 /** Render + grade the full matrix. Launches one browser, a fresh context per cell. */
 export async function runEyeMatrix(opts: RunEyeOptions): Promise<RunEyeResult> {
+  // Browser engine: eye NEEDS per-context colorScheme + retina DPI emulation,
+  // which rustwright's Node bindings don't have — so eye stays on Playwright
+  // (the proven default). If a user forces rustwright, say why we didn't.
+  if (process.env["SLOWCOOK_BROWSER"]?.trim().toLowerCase() === "rustwright") {
+    console.error("eye: SLOWCOOK_BROWSER=rustwright ignored — the eye matrix needs colorScheme + retina emulation (rustwright lacks contexts); using Playwright. Revisit if rustwright adds contexts.");
+  }
   mkdirSync(opts.outDir, { recursive: true });
   const prefix = opts.shotPrefix ? `${opts.shotPrefix}-` : "";
   const browser = await chromium.launch();

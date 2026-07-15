@@ -206,6 +206,12 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "checks",
   },
   {
+    name: "bench-browser",
+    usage: "slowcook bench-browser [eye|qa|both] [--iters <n>] [--plan <file.json>]",
+    description: "Benchmark the browser engines — Playwright (default) vs rustwright (option) — on the eye-capture + QA-replay workloads, per-process RSS + wall-time + oracle pass/fail agreement.",
+    group: "checks",
+  },
+  {
     name: "map",
     usage: "slowcook map (generate|check) [--cwd <path>] [--out <path>] [--md <path>]",
     description: "Generate / check the repo-wide code map (APIs, pages, components, helpers, types).",
