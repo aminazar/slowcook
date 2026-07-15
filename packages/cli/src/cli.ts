@@ -41,6 +41,7 @@ import { serve } from "./commands/serve/index.js";
 import { budget } from "./commands/budget/index.js";
 import { brand } from "./commands/brand/index.js";
 import { eye } from "./commands/eye/index.js";
+import { benchBrowser } from "./commands/bench-browser.js";
 import { gate } from "./commands/gate/index.js";
 import { menu } from "./commands/menu/index.js";
 import { trace } from "./commands/trace/index.js";
@@ -327,6 +328,11 @@ async function main(): Promise<void> {
       // design #9 — HITL halt: refuse to advance a stage until a human in the
       // required role has approved on the PR (agent-unforgeable).
       await gate(args.slice(1), VERSION);
+      return;
+    case "bench-browser":
+      // browser-engine benchmark: playwright (default) vs rustwright (option),
+      // eye-capture + QA-replay, honest per-process RSS + oracle agreement.
+      await benchBrowser(args.slice(1), VERSION);
       return;
     case "run-mock":
       // 0.16.0-α.17 — one-command mock launch + auto-pull on plate
