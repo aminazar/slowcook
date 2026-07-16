@@ -1,7 +1,7 @@
 {
   "name": "@slowcook-ai/observe",
-  "version": "0.1.0",
-  "description": "Observability + live-debugging substrate for slowcook backends \u2014 request-scoped tracing (AsyncLocalStorage), structured pino logs, safe background tasks, breadcrumb+trace bundles for agent diagnosis. Framework-agnostic; ships a Hono adapter.",
+  "version": "0.1.1",
+  "description": "Observability + live-debugging substrate for slowcook backends — request-scoped tracing (AsyncLocalStorage), structured pino logs, safe background tasks, breadcrumb+trace bundles for agent diagnosis. Framework-agnostic; ships a Hono adapter.",
   "license": "MIT",
   "author": "aminazar",
   "repository": {
