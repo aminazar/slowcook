@@ -217,7 +217,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [mode, setMode] = useState<"read" | "comment">("read");
   const [listOpen, setListOpen] = useState(false);
   const [hover, setHover] = useState<{ rect: DOMRect; label: string; draft?: boolean } | null>(null);
-  const [composer, setComposer] = useState<{ node: string; label: string } | null>(null);
+  const [composer, setComposer] = useState<{ node: string; label: string; x: number; y: number } | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
   // 0.14.0 — the anchored thread popover (a marker click reopens the box at its
@@ -348,7 +348,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       const t = resolve(e.target as Element);
       if (!t) return;
       e.preventDefault(); e.stopPropagation();
-      setComposer({ node: t.node, label: t.label });
+      setComposer({ node: t.node, label: t.label, x: e.clientX, y: e.clientY });
     };
     document.addEventListener("pointermove", move, true);
     document.addEventListener("click", click, true);
@@ -468,7 +468,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       )}
 
       {/* composer popover — drafts survive closing (0.14.0) */}
-      {composer && <Composer label={composer.label} draftKey={composer.node} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
+      {composer && <Composer label={composer.label} draftKey={composer.node} at={{ x: composer.x, y: composer.y }} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
 
       {/* 0.14.0 — the anchored thread popover */}
       {thread && (() => {
@@ -477,7 +477,12 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         return (
           <ThreadPopover label={list[0]!.label} comments={list} S={S} accent={accent} meta={meta}
             repliesFor={repliesFor} onReply={onReply ? addReply : undefined}
-            onAddAnother={() => { setComposer({ node: thread, label: list[0]!.label }); setThread(null); }}
+            onAddAnother={() => {
+              const el = findNodeEl(thread);
+              const r = el?.getBoundingClientRect();
+              setComposer({ node: thread, label: list[0]!.label, x: r ? r.left + Math.min(80, r.width / 2) : window.innerWidth / 2, y: r ? r.top + r.height / 2 : window.innerHeight / 2 });
+              setThread(null);
+            }}
             onClose={() => setThread(null)} />
         );
       })()}
@@ -530,7 +535,7 @@ function startDrag(e: ReactPointerEvent, pos: { x: number; y: number }, setPos: 
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
 }
 
-function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
+function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; at: { x: number; y: number }; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
   const [text, setTextRaw] = useState(() => draftFor(draftKey));
   const restored = useRef(!!draftFor(draftKey));
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -544,9 +549,15 @@ function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: s
   // delete = discard the draft AND close; keeping (with the draft) is the
   // backdrop click — the only two exits, both explicit about the draft's fate.
   const deleteDraft = () => { saveDraft(draftKey, ""); onCancel(); };
+  // 0.14.0 — the composer opens WHERE the reviewer clicked (Figma-style), not
+  // center-screen; clamped to the viewport, flipping above when near the bottom.
+  const W = 300, H = 120;
+  const left = Math.max(8, Math.min(at.x, (typeof window !== "undefined" ? window.innerWidth : W) - W - 8));
+  const below = at.y + 10;
+  const top = typeof window !== "undefined" && below + H > window.innerHeight ? Math.max(8, at.y - H - 10) : below;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onCancel}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 300, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 16, padding: 6, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ position: "fixed", inset: 0, background: "transparent", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onCancel}>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: "fixed", left, top, width: W, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 16, padding: 6, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ fontSize: 9.5, fontWeight: 700, color: accent, margin: "2px 6px 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={label}>{label}{restored.current ? <span style={{ color: S.fgDim, fontWeight: 500 }}> · draft</span> : null}</div>
         <div style={{ position: "relative" }}>
           <textarea ref={taRef} value={text} rows={1} placeholder="Add a comment"
