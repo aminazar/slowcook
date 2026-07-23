@@ -255,6 +255,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   // the reviewer focuses on what's open; a toggle reveals the archive. Unread
   // activity overrides hiding — an applied thread with news still surfaces.
   const [showApplied, setShowApplied] = useState(false);
+  // 0.14.0 — hovering a sidebar comment draws ONE dashed connector to its
+  // anchor (all-at-once lines were considered and rejected: spaghetti, and
+  // off-screen anchors make permanent lines meaningless).
+  const [sideHover, setSideHover] = useState<{ node: string; y: number } | null>(null);
   const isApplied = (c: ReviewComment) => meta?.[c.id]?.status === "applied";
   const addReply = (c: ReviewComment, text: string) => {
     if (!onReply || !text.trim()) return;
@@ -430,8 +434,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         if (!showApplied && !hot && list.length > 0 && list.every(isApplied)) return null;
         return (
           <button key={m.node} onClick={() => { gotoNode(m.node); setThread(m.node); markSeen(ids); }}
-            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", border: "1.5px solid #fff", fontSize: 10, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)" }}
-            title={`${m.count} comment${m.count > 1 ? "s" : ""}${hot ? " · new activity" : ""} — click to open the thread`}>{m.count}</button>
+            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, background: accent, color: "#fff", border: "1.5px solid #fff", fontSize: 9.5, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}
+            title={`${m.count} comment${m.count > 1 ? "s" : ""}${hot ? " · new activity" : ""} — click to open the thread`}>{m.count === 1 && typeof list[0]?.remoteId === "number" ? `#${list[0].remoteId}` : m.count}</button>
         );
       })}
 
@@ -478,8 +482,32 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         );
       })()}
 
+      {/* 0.14.0 — the hover connector: sidebar comment ⇢ its anchor */}
+      {listOpen && sideHover && (() => {
+        const el = findNodeEl(sideHover.node);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const sbLeft = window.innerWidth - Math.min(340, window.innerWidth * 0.9);
+        const offTop = r.bottom < 0, offBottom = r.top > window.innerHeight;
+        const y2 = offTop ? 10 : offBottom ? window.innerHeight - 10 : r.top + r.height / 2;
+        const x2 = offTop || offBottom ? sbLeft - 60 : Math.min(r.right, sbLeft - 8);
+        return (
+          <>
+            {!offTop && !offBottom && (
+              <div style={{ position: "fixed", left: r.left - 3, top: r.top - 3, width: r.width + 6, height: r.height + 6, border: `2px dashed ${accent}`, opacity: 0.6, borderRadius: 6, pointerEvents: "none", zIndex: Z + 2 }} />
+            )}
+            <svg style={{ position: "fixed", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: Z + 2 }}>
+              <line x1={sbLeft} y1={sideHover.y} x2={x2} y2={y2} stroke={accent} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.55} />
+              {(offTop || offBottom) && (
+                <path d={offTop ? `M${x2 - 5},${y2 + 8} L${x2},${y2} L${x2 + 5},${y2 + 8}` : `M${x2 - 5},${y2 - 8} L${x2},${y2} L${x2 + 5},${y2 - 8}`} stroke={accent} strokeWidth={1.5} fill="none" opacity={0.7} />
+              )}
+            </svg>
+          </>
+        );
+      })()}
+
       {/* sidebar list */}
-      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} isApplied={isApplied} showApplied={showApplied} onToggleApplied={() => setShowApplied((v) => !v)} />}
+      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} isApplied={isApplied} showApplied={showApplied} onToggleApplied={() => setShowApplied((v) => !v)} onHoverComment={(node, y) => setSideHover(node ? { node, y } : null)} />}
     </div>,
     document.body,
   );
@@ -609,7 +637,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
   );
 }
 
-function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply, isApplied, showApplied, onToggleApplied }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void; isApplied: (c: ReviewComment) => boolean; showApplied: boolean; onToggleApplied: () => void }): JSX.Element {
+function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply, isApplied, showApplied, onToggleApplied, onHoverComment }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void; isApplied: (c: ReviewComment) => boolean; showApplied: boolean; onToggleApplied: () => void; onHoverComment?: (node: string | null, y: number) => void }): JSX.Element {
   const open = comments.filter((c) => !isApplied(c));
   const applied = comments.filter(isApplied);
   const visible = showApplied ? [...open, ...applied] : open;
@@ -625,7 +653,10 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
         ) : visible.length === 0 ? (
           <div style={{ padding: 16, opacity: 0.6, textAlign: "center", fontSize: 12 }}>All {applied.length} comments applied — nothing open. 🎉</div>
         ) : visible.map((c) => (
-          <div key={c.id} style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+          <div key={c.id}
+            onMouseEnter={(e) => onHoverComment?.(c.node, (e.currentTarget as HTMLElement).getBoundingClientRect().top + 14)}
+            onMouseLeave={() => onHoverComment?.(null, 0)}
+            style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <button onClick={() => onGoto(c.node)} style={{ display: "block", textAlign: "left", width: "100%", background: "transparent", border: "none", cursor: "pointer", color: accent, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, padding: 0, marginBottom: 4 }}>📍 {c.label}</button>
             <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}><MdLite text={c.text} /></div>
             {(() => {
