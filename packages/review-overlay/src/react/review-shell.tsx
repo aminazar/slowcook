@@ -498,17 +498,32 @@ function startDrag(e: ReactPointerEvent, pos: { x: number; y: number }, setPos: 
 function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
   const [text, setTextRaw] = useState(() => draftFor(draftKey));
   const restored = useRef(!!draftFor(draftKey));
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // focus with the cursor at the END of a restored draft, not the start
+  useEffect(() => {
+    const ta = taRef.current;
+    if (ta) { ta.focus(); const n = ta.value.length; ta.setSelectionRange(n, n); }
+  }, []);
   const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
   const submit = (t: string) => { saveDraft(draftKey, ""); onSubmit(t); };
+  // delete = discard the draft AND close; keeping (with the draft) is the
+  // backdrop click — the only two exits, both explicit about the draft's fate.
+  const deleteDraft = () => { saveDraft(draftKey, ""); onCancel(); };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onCancel}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: accent, marginBottom: 8 }}>Comment on · {label}{restored.current ? <span style={{ color: S.fgDim, textTransform: "none", letterSpacing: 0, fontWeight: 500 }}> — draft restored</span> : null}</div>
-        <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="What should change here? (an AI will draft the edit — coming next)"
+        <textarea ref={taRef} value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="What should change here? (an AI will draft the edit — coming next)"
           style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: 10, borderRadius: 8, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "vertical" }} />
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
-          <button onClick={onCancel} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", font: "inherit", fontWeight: 600 }}>{text.trim() ? "Close (draft saved)" : "Cancel"}</button>
+        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+          <span style={{ fontSize: 10.5, color: S.fgDim }}>click outside to close — the draft keeps</span>
+          <span style={{ display: "flex", gap: 8 }}>
+          <button onClick={deleteDraft} title="Discard the draft and close"
+            style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", font: "inherit", fontWeight: 600 }}>
+            {text.trim() ? "Delete draft" : "Close"}
+          </button>
           <button onClick={() => submit(text)} disabled={!text.trim()} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, font: "inherit", fontWeight: 700 }}>Comment</button>
+          </span>
         </div>
       </div>
     </div>
