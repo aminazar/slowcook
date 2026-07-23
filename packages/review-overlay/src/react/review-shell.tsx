@@ -80,6 +80,10 @@ export interface ReviewShellProps {
   /** 0.12.0 — transport hook: called when a comment is posted. May return a
    *  remote id/url (e.g. a GitHub issue) merged into the stored comment. */
   onComment?: (c: ReviewComment) => void | Promise<void | { url?: string; remoteId?: string | number }>;
+  /** 0.14.0 — reply transport: when provided, every comment (sidebar + the
+   *  anchored thread popover) grows a reply box. Replies render optimistically;
+   *  the host's transport (e.g. a GitHub issue comment) reconciles via `meta`. */
+  onReply?: (c: ReviewComment, text: string) => void | Promise<void>;
   /** 0.12.0 — per-comment external state (replies/status), keyed by comment id. */
   meta?: Record<string, ReviewCommentMeta>;
   /** 0.12.0 — extra per-comment UI (e.g. a before/after diff toggle). */
@@ -184,7 +188,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon = "✎",
-    onComment, meta, renderCommentExtra, sidebarFooter, intro,
+    onComment, onReply, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -201,6 +205,48 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [composer, setComposer] = useState<{ node: string; label: string } | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
+  // 0.14.0 — the anchored thread popover (a marker click reopens the box at its
+  // anchor instead of dumping the reviewer into the sidebar).
+  const [thread, setThread] = useState<string | null>(null);
+  // 0.14.0 — optimistic replies (shown until the host's meta reconciles them).
+  const [pendingReplies, setPendingReplies] = useState<Record<string, { author: string; text: string }[]>>({});
+  // 0.14.0 — unread signal: per-comment signature of external state (status +
+  // reply count) vs the last-seen signature, persisted so "what changed since I
+  // last looked" survives reloads. GitHub can't notify a reviewer of activity
+  // performed with their own credential — the shell has to.
+  const seenKey = "review-shell-seen";
+  const [seen, setSeen] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(seenKey) ?? "{}") as Record<string, string>; } catch { return {}; }
+  });
+  const sig = (c: ReviewComment): string => {
+    const m = meta?.[c.id];
+    return `${m?.status ?? ""}|${(m?.replies?.length ?? 0)}`;
+  };
+  const hasExternal = (c: ReviewComment): boolean => {
+    const m = meta?.[c.id];
+    return !!m && (!!m.status || (m.replies?.length ?? 0) > 0);
+  };
+  const unread = comments.filter((c) => hasExternal(c) && seen[c.id] !== sig(c));
+  const markSeen = (ids: string[]) => {
+    if (!ids.length) return;
+    setSeen((prev) => {
+      const next = { ...prev };
+      for (const id of ids) { const c = comments.find((x) => x.id === id); if (c) next[id] = sig(c); }
+      try { localStorage.setItem(seenKey, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const addReply = (c: ReviewComment, text: string) => {
+    if (!onReply || !text.trim()) return;
+    setPendingReplies((p) => ({ ...p, [c.id]: [...(p[c.id] ?? []), { author, text: text.trim() }] }));
+    void Promise.resolve(onReply(c, text.trim())).catch(() => { /* best-effort; the optimistic reply stays visible */ });
+  };
+  /** replies to show = host meta ∪ optimistic-pending (deduped by text). */
+  const repliesFor = (c: ReviewComment): { author: string; text: string }[] => {
+    const remote = meta?.[c.id]?.replies ?? [];
+    const pending = (pendingReplies[c.id] ?? []).filter((p) => !remote.some((r) => r.text === p.text));
+    return [...remote, ...pending];
+  };
 
   // 0.12.1 first-appearance intro: idle → staged (center) → strike (meteor) → settling → done
   const introKey = intro?.storageKey ?? "review-shell-intro-seen";
@@ -355,12 +401,17 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         </div>
       )}
 
-      {/* anchored markers */}
-      {markers.map((m) => (
-        <button key={m.node} onClick={() => { setListOpen(true); gotoNode(m.node); }}
-          style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", border: "1.5px solid #fff", fontSize: 10, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,.35)" }}
-          title={`${m.count} comment${m.count > 1 ? "s" : ""}`}>{m.count}</button>
-      ))}
+      {/* anchored markers — click reopens the thread AT its anchor (0.14.0);
+          a halo marks threads with unseen activity */}
+      {markers.map((m) => {
+        const ids = (byNode.get(m.node) ?? []).map((c) => c.id);
+        const hot = unread.some((c) => ids.includes(c.id));
+        return (
+          <button key={m.node} onClick={() => { gotoNode(m.node); setThread(m.node); markSeen(ids); }}
+            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", border: "1.5px solid #fff", fontSize: 10, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)" }}
+            title={`${m.count} comment${m.count > 1 ? "s" : ""}${hot ? " · new activity" : ""} — click to open the thread`}>{m.count}</button>
+        );
+      })}
 
       {/* the floating pill */}
       {pos && (
@@ -379,9 +430,12 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             <button onClick={() => setMode("read")} style={seg(mode === "read")}>{toggleLabels[0]}</button>
             <button onClick={() => setMode("comment")} style={seg(mode === "comment")}>{toggleLabels[1]}</button>
           </span>
-          <button onClick={() => setListOpen((o) => !o)} title="All comments"
-            style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 12, padding: "3px 8px" }}>
+          <button onClick={() => { setListOpen((o) => !o); markSeen(unread.map((c) => c.id)); }} title={unread.length ? `${unread.length} update${unread.length > 1 ? "s" : ""} since you last looked` : "All comments"}
+            style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 12, padding: "3px 8px" }}>
             🗨 {comments.length}
+            {unread.length > 0 && (
+              <span style={{ position: "absolute", top: -7, right: -7, minWidth: 16, height: 16, borderRadius: 999, background: accent, color: "#fff", fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", border: "1.5px solid #fff", boxShadow: `0 0 8px ${accent}aa` }}>{unread.length}</span>
+            )}
           </button>
           {accessory}
         </div>
@@ -390,8 +444,20 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       {/* composer popover */}
       {composer && <Composer label={composer.label} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
 
+      {/* 0.14.0 — the anchored thread popover */}
+      {thread && (() => {
+        const list = byNode.get(thread) ?? [];
+        if (!list.length) return null;
+        return (
+          <ThreadPopover label={list[0]!.label} comments={list} S={S} accent={accent} meta={meta}
+            repliesFor={repliesFor} onReply={onReply ? addReply : undefined}
+            onAddAnother={() => { setComposer({ node: thread, label: list[0]!.label }); setThread(null); }}
+            onClose={() => setThread(null)} />
+        );
+      })()}
+
       {/* sidebar list */}
-      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} />}
+      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} />}
     </div>,
     document.body,
   );
@@ -431,7 +497,64 @@ function Composer({ label, S, accent, onSubmit, onCancel }: { label: string; S: 
   );
 }
 
-function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode }): JSX.Element {
+// 0.14.0 — a small inline reply box (sidebar + thread popover).
+function ReplyBox({ S, accent, onSend }: { S: ReturnType<typeof sheetTheme>; accent: string; onSend: (t: string) => void }): JSX.Element {
+  const [text, setText] = useState("");
+  const send = () => { if (text.trim()) { onSend(text); setText(""); } };
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply…"
+        onKeyDown={(e) => { if (e.key === "Enter") send(); }}
+        style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit" }} />
+      <button onClick={send} disabled={!text.trim()}
+        style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, fontSize: 11.5, fontWeight: 700 }}>↩</button>
+    </div>
+  );
+}
+
+// 0.14.0 — the anchored thread popover: a marker click reopens the conversation
+// for that anchor (comments, status, replies, reply box) instead of routing the
+// reviewer to the sidebar.
+function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, onAddAnother, onClose }: {
+  label: string; comments: ReviewComment[]; S: ReturnType<typeof sheetTheme>; accent: string;
+  meta?: Record<string, ReviewCommentMeta>;
+  repliesFor: (c: ReviewComment) => { author: string; text: string }[];
+  onReply?: (c: ReviewComment, text: string) => void;
+  onAddAnother: () => void; onClose: () => void;
+}): JSX.Element {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: "92vw", maxHeight: "80vh", overflow: "auto", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: accent }}>📍 {label}</span>
+          <button onClick={onClose} aria-label="Close thread" style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+        {comments.map((c) => {
+          const m = meta?.[c.id];
+          return (
+            <div key={c.id} style={{ border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, lineHeight: 1.45 }}>{c.text}</div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
+                <span style={{ fontSize: 10, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
+                {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
+                {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>thread ↗</a>}
+              </div>
+              {repliesFor(c).map((r, i) => (
+                <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginTop: 6, fontSize: 12, lineHeight: 1.45 }}>
+                  <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span><br />{r.text}
+                </div>
+              ))}
+              {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} />}
+            </div>
+          );
+        })}
+        <button onClick={onAddAnother} style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px dashed ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ Add another comment here</button>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void }): JSX.Element {
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, maxWidth: "90vw", background: S.sheet, color: S.fg, borderLeft: `1px solid ${S.border}`, boxShadow: "-12px 0 40px rgba(0,0,0,.4)", pointerEvents: "auto", zIndex: Z + 4, display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
       <div style={{ padding: "13px 16px", borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -447,7 +570,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
             <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}>{c.text}</div>
             {(() => {
               const m = meta?.[c.id];
-              if (!m && !c.url) return null;
+              if (!m && !c.url && repliesFor(c).length === 0) return null;
               return (
                 <div style={{ marginTop: 6 }}>
                   {(m?.status || c.url || m?.url) && (
@@ -456,7 +579,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                       {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>thread ↗</a>}
                     </div>
                   )}
-                  {(m?.replies ?? []).map((r, i) => (
+                  {repliesFor(c).map((r, i) => (
                     <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginBottom: 5, fontSize: 12, lineHeight: 1.45, color: S.fg }}>
                       <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span><br />{r.text}
                     </div>
@@ -464,6 +587,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                 </div>
               );
             })()}
+            {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} />}
             {renderExtra?.(c)}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
               <span style={{ fontSize: 10.5, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
