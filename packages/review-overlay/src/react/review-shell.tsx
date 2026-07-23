@@ -251,6 +251,11 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       return next;
     });
   };
+  // 0.14.0 — applied threads hide by default (parity with the LCR overlay):
+  // the reviewer focuses on what's open; a toggle reveals the archive. Unread
+  // activity overrides hiding — an applied thread with news still surfaces.
+  const [showApplied, setShowApplied] = useState(false);
+  const isApplied = (c: ReviewComment) => meta?.[c.id]?.status === "applied";
   const addReply = (c: ReviewComment, text: string) => {
     if (!onReply || !text.trim()) return;
     setPendingReplies((p) => ({ ...p, [c.id]: [...(p[c.id] ?? []), { author, text: text.trim() }] }));
@@ -419,8 +424,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       {/* anchored markers — click reopens the thread AT its anchor (0.14.0);
           a halo marks threads with unseen activity */}
       {markers.map((m) => {
-        const ids = (byNode.get(m.node) ?? []).map((c) => c.id);
+        const list = byNode.get(m.node) ?? [];
+        const ids = list.map((c) => c.id);
         const hot = unread.some((c) => ids.includes(c.id));
+        if (!showApplied && !hot && list.length > 0 && list.every(isApplied)) return null;
         return (
           <button key={m.node} onClick={() => { gotoNode(m.node); setThread(m.node); markSeen(ids); }}
             style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", border: "1.5px solid #fff", fontSize: 10, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)" }}
@@ -445,9 +452,9 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             <button onClick={() => setMode("read")} style={seg(mode === "read")}>{toggleLabels[0]}</button>
             <button onClick={() => setMode("comment")} style={seg(mode === "comment")}>{toggleLabels[1]}</button>
           </span>
-          <button onClick={() => { setListOpen((o) => !o); markSeen(unread.map((c) => c.id)); }} title={unread.length ? `${unread.length} update${unread.length > 1 ? "s" : ""} since you last looked` : "All comments"}
+          <button onClick={() => { setListOpen((o) => !o); markSeen(unread.map((c) => c.id)); }} title={unread.length ? `${unread.length} update${unread.length > 1 ? "s" : ""} since you last looked` : `${comments.filter((c) => !isApplied(c)).length} open · ${comments.filter(isApplied).length} applied`}
             style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 12, padding: "3px 8px" }}>
-            🗨 {comments.length}
+            🗨 {comments.filter((c) => !isApplied(c)).length}
             {unread.length > 0 && (
               <span style={{ position: "absolute", top: -7, right: -7, minWidth: 16, height: 16, borderRadius: 999, background: accent, color: "#fff", fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", border: "1.5px solid #fff", boxShadow: `0 0 8px ${accent}aa` }}>{unread.length}</span>
             )}
@@ -472,7 +479,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       })()}
 
       {/* sidebar list */}
-      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} />}
+      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} isApplied={isApplied} showApplied={showApplied} onToggleApplied={() => setShowApplied((v) => !v)} />}
     </div>,
     document.body,
   );
@@ -602,17 +609,22 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
   );
 }
 
-function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void }): JSX.Element {
+function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply, isApplied, showApplied, onToggleApplied }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void; isApplied: (c: ReviewComment) => boolean; showApplied: boolean; onToggleApplied: () => void }): JSX.Element {
+  const open = comments.filter((c) => !isApplied(c));
+  const applied = comments.filter(isApplied);
+  const visible = showApplied ? [...open, ...applied] : open;
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, maxWidth: "90vw", background: S.sheet, color: S.fg, borderLeft: `1px solid ${S.border}`, boxShadow: "-12px 0 40px rgba(0,0,0,.4)", pointerEvents: "auto", zIndex: Z + 4, display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
       <div style={{ padding: "13px 16px", borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontWeight: 700 }}>{title} comments ({comments.length})</span>
+        <span style={{ fontWeight: 700 }}>{title} comments ({open.length} open{applied.length ? ` · ${applied.length} applied` : ""})</span>
         <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
       </div>
       <div style={{ overflow: "auto", flex: 1, padding: 10 }}>
         {comments.length === 0 ? (
           <div style={{ padding: 16, opacity: 0.6, textAlign: "center", fontSize: 12 }}>No comments yet. Switch to <b style={{ color: accent }}>Comment</b> and click a labelled part of the page.</div>
-        ) : comments.map((c) => (
+        ) : visible.length === 0 ? (
+          <div style={{ padding: 16, opacity: 0.6, textAlign: "center", fontSize: 12 }}>All {applied.length} comments applied — nothing open. 🎉</div>
+        ) : visible.map((c) => (
           <div key={c.id} style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <button onClick={() => onGoto(c.node)} style={{ display: "block", textAlign: "left", width: "100%", background: "transparent", border: "none", cursor: "pointer", color: accent, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, padding: 0, marginBottom: 4 }}>📍 {c.label}</button>
             <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}><MdLite text={c.text} /></div>
@@ -645,6 +657,12 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
           </div>
         ))}
       </div>
+      {applied.length > 0 && (
+        <button onClick={onToggleApplied}
+          style={{ margin: "0 10px 10px", padding: "7px 0", borderRadius: 8, border: `1px dashed ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}>
+          {showApplied ? "Hide applied" : `Show ${applied.length} applied`}
+        </button>
+      )}
       {footer && <div style={{ padding: 12, borderTop: `1px solid ${S.border}` }}>{footer}</div>}
     </div>
   );
