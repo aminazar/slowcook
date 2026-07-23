@@ -10,6 +10,7 @@
 // real backend. The LCR mock-review overlay stays as-is for vibe/plate.
 import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties, type JSX, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { MdLite } from "./md-lite.js";
 import { usePrefersDark, sheetTheme } from "./theme.js";
 import { clampPillPosition } from "../selector.js";
 import { CometSheen } from "./comet.js";
@@ -533,7 +534,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
           const m = meta?.[c.id];
           return (
             <div key={c.id} style={{ border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 13, lineHeight: 1.45 }}>{c.text}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.45 }}><MdLite text={c.text} /></div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
                 <span style={{ fontSize: 10, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
                 {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
@@ -541,7 +542,8 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
               </div>
               {repliesFor(c).map((r, i) => (
                 <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginTop: 6, fontSize: 12, lineHeight: 1.45 }}>
-                  <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span><br />{r.text}
+                  <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span>
+                  <MdLite text={r.text} />
                 </div>
               ))}
               {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} />}
@@ -567,7 +569,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
         ) : comments.map((c) => (
           <div key={c.id} style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <button onClick={() => onGoto(c.node)} style={{ display: "block", textAlign: "left", width: "100%", background: "transparent", border: "none", cursor: "pointer", color: accent, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, padding: 0, marginBottom: 4 }}>📍 {c.label}</button>
-            <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}>{c.text}</div>
+            <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}><MdLite text={c.text} /></div>
             {(() => {
               const m = meta?.[c.id];
               if (!m && !c.url && repliesFor(c).length === 0) return null;
@@ -581,7 +583,8 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                   )}
                   {repliesFor(c).map((r, i) => (
                     <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginBottom: 5, fontSize: 12, lineHeight: 1.45, color: S.fg }}>
-                      <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span><br />{r.text}
+                      <span style={{ fontSize: 10, color: S.fgDim }}>@{r.author}</span>
+                      <MdLite text={r.text} />
                     </div>
                   ))}
                 </div>
