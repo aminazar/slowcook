@@ -538,7 +538,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
                 <span style={{ fontSize: 10, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
                 {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
-                {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>thread ↗</a>}
+                {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
               </div>
               {repliesFor(c).map((r, i) => (
                 <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginTop: 6, fontSize: 12, lineHeight: 1.45 }}>
@@ -578,7 +578,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                   {(m?.status || c.url || m?.url) && (
                     <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
                       {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
-                      {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>thread ↗</a>}
+                      {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
                     </div>
                   )}
                   {repliesFor(c).map((r, i) => (
