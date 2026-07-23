@@ -533,13 +533,26 @@ function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: s
 // 0.14.0 — a small inline reply box (sidebar + thread popover).
 function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetTheme>; accent: string; onSend: (t: string) => void; draftKey: string }): JSX.Element {
   const [text, setTextRaw] = useState(() => draftFor(draftKey));
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // grow with content (capped) — a long reply must never scroll out of a
+  // single-line box. Enter sends; Shift+Enter makes a new line.
+  const autosize = () => {
+    const t = taRef.current;
+    if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 130)}px`; }
+  };
+  useEffect(autosize, []);
   const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
-  const send = () => { if (text.trim()) { onSend(text); setText(""); } };
+  const send = () => {
+    if (!text.trim()) return;
+    onSend(text); setText("");
+    const t = taRef.current; if (t) { t.value = ""; t.style.height = "auto"; }
+  };
   return (
-    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply…"
-        onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-        style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit" }} />
+    <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "flex-end" }}>
+      <textarea ref={taRef} value={text} rows={1} placeholder="Reply… (Shift+Enter for a new line)"
+        onChange={(e) => { setText(e.target.value); autosize(); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+        style={{ flex: 1, fontSize: 12, lineHeight: 1.45, padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 130 }} />
       <button onClick={send} disabled={!text.trim()}
         style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, fontSize: 11.5, fontWeight: 700 }}>↩</button>
     </div>
