@@ -546,16 +546,21 @@ function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: s
   const deleteDraft = () => { saveDraft(draftKey, ""); onCancel(); };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onCancel}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 320, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 9, padding: 8, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontSize: 9.5, fontWeight: 700, color: accent, marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={label}>{label}{restored.current ? <span style={{ color: S.fgDim, fontWeight: 500 }}> · draft</span> : null}</div>
-        <textarea ref={taRef} value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="What should change here?"
-          style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, lineHeight: 1.45, padding: "5px 7px", borderRadius: 6, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "vertical" }} />
-        <div style={{ display: "flex", gap: 5, justifyContent: "flex-end", marginTop: 5 }}>
-          <button onClick={deleteDraft} title={text.trim() ? "Discard the draft and close (click outside keeps it)" : "Close (click outside also closes)"}
-            style={{ padding: "3px 9px", borderRadius: 6, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
-            {text.trim() ? "Delete draft" : "Close"}
-          </button>
-          <button onClick={() => submit(text)} disabled={!text.trim()} style={{ padding: "3px 11px", borderRadius: 6, border: "none", background: accent, color: "#fff", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, fontSize: 11, fontWeight: 700 }}>Comment</button>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 300, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 16, padding: 6, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: accent, margin: "2px 6px 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={label}>{label}{restored.current ? <span style={{ color: S.fgDim, fontWeight: 500 }}> · draft</span> : null}</div>
+        <div style={{ position: "relative" }}>
+          <textarea ref={taRef} value={text} rows={1} placeholder="Add a comment"
+            onChange={(e) => { setText(e.target.value); const t = taRef.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 140)}px`; } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim()) submit(text); } }}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, lineHeight: 1.5, padding: "7px 58px 7px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 140, display: "block" }} />
+          <div style={{ position: "absolute", right: 6, bottom: 5, display: "flex", gap: 4 }}>
+            {text.trim() && (
+              <button onClick={deleteDraft} title="Delete draft & close (click outside keeps it)"
+                style={{ width: 22, height: 22, borderRadius: 999, border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 12, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            )}
+            <button onClick={() => submit(text)} disabled={!text.trim()} title="Comment (Enter)"
+              style={{ width: 22, height: 22, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: 12, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
+          </div>
         </div>
       </div>
     </div>
@@ -580,13 +585,13 @@ function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetT
     const t = taRef.current; if (t) { t.value = ""; t.style.height = "auto"; }
   };
   return (
-    <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "flex-end" }}>
-      <textarea ref={taRef} value={text} rows={1} placeholder="Reply… (Shift+Enter for a new line)"
+    <div style={{ position: "relative", marginTop: 6 }}>
+      <textarea ref={taRef} value={text} rows={1} placeholder="Reply"
         onChange={(e) => { setText(e.target.value); autosize(); }}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-        style={{ flex: 1, fontSize: 12, lineHeight: 1.45, padding: "5px 8px", borderRadius: 6, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 130 }} />
-      <button onClick={send} disabled={!text.trim()}
-        style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, fontSize: 11.5, fontWeight: 700 }}>↩</button>
+        style={{ width: "100%", boxSizing: "border-box", fontSize: 12, lineHeight: 1.5, padding: "5px 30px 5px 10px", borderRadius: 12, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 130, display: "block" }} />
+      <button onClick={send} disabled={!text.trim()} title="Reply (Enter)"
+        style={{ position: "absolute", right: 5, bottom: 4, width: 20, height: 20, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: 11, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
     </div>
   );
 }
