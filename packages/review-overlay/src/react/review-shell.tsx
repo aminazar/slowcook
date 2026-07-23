@@ -38,6 +38,20 @@ export const localStorageStore = (key: string): CommentStore => ({
 
 export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; url?: string; remoteId?: string | number; }
 
+// 0.14.0 — drafts: text typed into a composer/reply box survives a stray
+// backdrop click (and a reload). Keyed by anchor node (composer) or
+// `reply:<commentId>` (reply box); cleared on submit.
+const DRAFTS_KEY = "review-shell-drafts";
+const loadDrafts = (): Record<string, string> => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}") as Record<string, string>; } catch { return {}; } };
+export const draftFor = (key: string): string => loadDrafts()[key] ?? "";
+export const saveDraft = (key: string, text: string): void => {
+  try {
+    const d = loadDrafts();
+    if (text.trim()) d[key] = text; else delete d[key];
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(d));
+  } catch { /* ignore */ }
+};
+
 /** 0.12.0 — external per-comment state supplied by the host (agent replies,
  *  lifecycle status like "applied"), keyed by comment id. */
 export interface ReviewCommentMeta {
@@ -202,7 +216,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const persist = (next: ReviewComment[]) => { setComments(next); store.save(next); };
   const [mode, setMode] = useState<"read" | "comment">("read");
   const [listOpen, setListOpen] = useState(false);
-  const [hover, setHover] = useState<{ rect: DOMRect; label: string } | null>(null);
+  const [hover, setHover] = useState<{ rect: DOMRect; label: string; draft?: boolean } | null>(null);
   const [composer, setComposer] = useState<{ node: string; label: string } | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
@@ -318,7 +332,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     const move = (e: PointerEvent) => {
       if (isSelf(e.target as Element)) { setHover(null); return; }
       const t = resolve(e.target as Element);
-      setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label } : null);
+      setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
     };
     const click = (e: MouseEvent) => {
       if (isSelf(e.target as Element)) return;
@@ -398,7 +412,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       {/* hover highlight (comment mode) */}
       {mode === "comment" && hover && (
         <div style={{ position: "fixed", left: hover.rect.left - 3, top: hover.rect.top - 3, width: hover.rect.width + 6, height: hover.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}14`, pointerEvents: "none", zIndex: Z + 1 }}>
-          <span style={{ position: "absolute", top: -20, left: 0, fontSize: 10, fontWeight: 700, color: "#1a1a1a", background: accent, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>💬 {hover.label}</span>
+          <span style={{ position: "absolute", top: -20, left: 0, fontSize: 10, fontWeight: 700, color: "#1a1a1a", background: accent, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>💬 {hover.label}{hover.draft ? " · ✎ draft saved" : ""}</span>
         </div>
       )}
 
@@ -442,8 +456,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         </div>
       )}
 
-      {/* composer popover */}
-      {composer && <Composer label={composer.label} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
+      {/* composer popover — drafts survive closing (0.14.0) */}
+      {composer && <Composer label={composer.label} draftKey={composer.node} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
 
       {/* 0.14.0 — the anchored thread popover */}
       {thread && (() => {
@@ -481,17 +495,20 @@ function startDrag(e: ReactPointerEvent, pos: { x: number; y: number }, setPos: 
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
 }
 
-function Composer({ label, S, accent, onSubmit, onCancel }: { label: string; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
-  const [text, setText] = useState("");
+function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
+  const [text, setTextRaw] = useState(() => draftFor(draftKey));
+  const restored = useRef(!!draftFor(draftKey));
+  const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
+  const submit = (t: string) => { saveDraft(draftKey, ""); onSubmit(t); };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onCancel}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: accent, marginBottom: 8 }}>Comment on · {label}</div>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: accent, marginBottom: 8 }}>Comment on · {label}{restored.current ? <span style={{ color: S.fgDim, textTransform: "none", letterSpacing: 0, fontWeight: 500 }}> — draft restored</span> : null}</div>
         <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="What should change here? (an AI will draft the edit — coming next)"
           style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: 10, borderRadius: 8, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "vertical" }} />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
-          <button onClick={onCancel} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", font: "inherit", fontWeight: 600 }}>Cancel</button>
-          <button onClick={() => onSubmit(text)} disabled={!text.trim()} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, font: "inherit", fontWeight: 700 }}>Comment</button>
+          <button onClick={onCancel} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", font: "inherit", fontWeight: 600 }}>{text.trim() ? "Close (draft saved)" : "Cancel"}</button>
+          <button onClick={() => submit(text)} disabled={!text.trim()} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, font: "inherit", fontWeight: 700 }}>Comment</button>
         </div>
       </div>
     </div>
@@ -499,8 +516,9 @@ function Composer({ label, S, accent, onSubmit, onCancel }: { label: string; S: 
 }
 
 // 0.14.0 — a small inline reply box (sidebar + thread popover).
-function ReplyBox({ S, accent, onSend }: { S: ReturnType<typeof sheetTheme>; accent: string; onSend: (t: string) => void }): JSX.Element {
-  const [text, setText] = useState("");
+function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetTheme>; accent: string; onSend: (t: string) => void; draftKey: string }): JSX.Element {
+  const [text, setTextRaw] = useState(() => draftFor(draftKey));
+  const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
   const send = () => { if (text.trim()) { onSend(text); setText(""); } };
   return (
     <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
@@ -546,7 +564,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
                   <MdLite text={r.text} />
                 </div>
               ))}
-              {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} />}
+              {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} draftKey={`reply:${c.id}`} />}
             </div>
           );
         })}
@@ -590,7 +608,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                 </div>
               );
             })()}
-            {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} />}
+            {onReply && <ReplyBox S={S} accent={accent} onSend={(t) => onReply(c, t)} draftKey={`reply:${c.id}`} />}
             {renderExtra?.(c)}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
               <span style={{ fontSize: 10.5, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
