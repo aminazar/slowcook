@@ -411,6 +411,33 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       }).catch(() => { /* transport is best-effort; the comment stays local */ });
     }
   };
+  // 0.14.0 — unposted comments retry automatically. A comment filed before
+  // sign-in (transport had no credential) must never be lost or re-typed:
+  // on mount and every 45s, any comment without a remoteId re-runs the host
+  // transport; successes patch the store. An in-flight guard prevents
+  // double-posting if a retry overlaps a slow first attempt.
+  const inflight = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!onComment) return;
+    const retry = () => {
+      for (const c of store.load()) {
+        if (c.remoteId !== undefined || inflight.current.has(c.id)) continue;
+        inflight.current.add(c.id);
+        void Promise.resolve(onComment(c)).then((ref) => {
+          if (ref && (ref.url || ref.remoteId !== undefined)) {
+            const next = store.load().map((x) => (x.id === c.id ? { ...x, url: ref.url, remoteId: ref.remoteId } : x));
+            store.save(next);
+            setComments(next);
+          }
+        }).catch(() => { /* stays unposted; next tick retries */ }).finally(() => inflight.current.delete(c.id));
+      }
+    };
+    const t = setTimeout(retry, 1500); // after mount settles
+    const iv = setInterval(retry, 45_000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const gotoNode = (node: string) => {
     const el = findNodeEl(node);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); flash(el, accent); }
