@@ -99,6 +99,12 @@ export interface ReviewShellProps {
    *  anchored thread popover) grows a reply box. Replies render optimistically;
    *  the host's transport (e.g. a GitHub issue comment) reconciles via `meta`. */
   onReply?: (c: ReviewComment, text: string) => void | Promise<void>;
+  /** 0.14.0 — REMOTE HYDRATION: localStorage is a cache, not the record. When
+   *  provided, the shell calls this on mount and every 60s; the returned list
+   *  (e.g. parsed from GitHub issues) REPLACES posted comments — so history
+   *  survives new browsers/sessions and other reviewers' comments appear
+   *  (multi-user review). Local comments not yet posted are preserved. */
+  hydrate?: () => Promise<ReviewComment[] | null>;
   /** 0.12.0 — per-comment external state (replies/status), keyed by comment id. */
   meta?: Record<string, ReviewCommentMeta>;
   /** 0.12.0 — extra per-comment UI (e.g. a before/after diff toggle). */
@@ -203,7 +209,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon = "✎",
-    onComment, onReply, meta, renderCommentExtra, sidebarFooter, intro,
+    onComment, onReply, hydrate, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -371,6 +377,52 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     return m;
   }, [comments]);
 
+  // 0.14.0 — unposted comments retry automatically. A comment filed before
+  // sign-in (transport had no credential) must never be lost or re-typed:
+  // on mount and every 45s, any comment without a remoteId re-runs the host
+  // transport; successes patch the store. An in-flight guard prevents
+  // double-posting if a retry overlaps a slow first attempt.
+  const inflight = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!onComment) return;
+    const retry = () => {
+      for (const c of store.load()) {
+        if (c.remoteId !== undefined || inflight.current.has(c.id)) continue;
+        inflight.current.add(c.id);
+        void Promise.resolve(onComment(c)).then((ref) => {
+          if (ref && (ref.url || ref.remoteId !== undefined)) {
+            const next = store.load().map((x) => (x.id === c.id ? { ...x, url: ref.url, remoteId: ref.remoteId } : x));
+            store.save(next);
+            setComments(next);
+          }
+        }).catch(() => { /* stays unposted; next tick retries */ }).finally(() => inflight.current.delete(c.id));
+      }
+    };
+    const t = setTimeout(retry, 1500); // after mount settles
+    const iv = setInterval(retry, 45_000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 0.14.0 — hydrate from the durable store (multi-user, cross-session).
+  useEffect(() => {
+    if (!hydrate) return;
+    let dead = false;
+    const pull = async () => {
+      const remote = await hydrate().catch(() => null);
+      if (!remote || dead) return;
+      const localOnly = store.load().filter((c) => c.remoteId === undefined && !remote.some((r) => r.id === c.id));
+      const merged = [...remote, ...localOnly];
+      store.save(merged);
+      setComments(merged);
+    };
+    void pull();
+    const iv = setInterval(pull, 60_000);
+    return () => { dead = true; clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+
   if (!enabled || typeof document === "undefined") return null;
   // Gate (b): nothing to review on this page → don't show the pill. (Recomputed on
   // the marker-scan tick, so it follows SPA navigation.)
@@ -411,33 +463,6 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       }).catch(() => { /* transport is best-effort; the comment stays local */ });
     }
   };
-  // 0.14.0 — unposted comments retry automatically. A comment filed before
-  // sign-in (transport had no credential) must never be lost or re-typed:
-  // on mount and every 45s, any comment without a remoteId re-runs the host
-  // transport; successes patch the store. An in-flight guard prevents
-  // double-posting if a retry overlaps a slow first attempt.
-  const inflight = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!onComment) return;
-    const retry = () => {
-      for (const c of store.load()) {
-        if (c.remoteId !== undefined || inflight.current.has(c.id)) continue;
-        inflight.current.add(c.id);
-        void Promise.resolve(onComment(c)).then((ref) => {
-          if (ref && (ref.url || ref.remoteId !== undefined)) {
-            const next = store.load().map((x) => (x.id === c.id ? { ...x, url: ref.url, remoteId: ref.remoteId } : x));
-            store.save(next);
-            setComments(next);
-          }
-        }).catch(() => { /* stays unposted; next tick retries */ }).finally(() => inflight.current.delete(c.id));
-      }
-    };
-    const t = setTimeout(retry, 1500); // after mount settles
-    const iv = setInterval(retry, 45_000);
-    return () => { clearTimeout(t); clearInterval(iv); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const gotoNode = (node: string) => {
     const el = findNodeEl(node);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); flash(el, accent); }
@@ -732,7 +757,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
             {renderExtra?.(c)}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
               <span style={{ fontSize: 10.5, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
-              <button onClick={() => onDelete(c.id)} style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 11 }}>Delete</button>
+              {c.remoteId === undefined && <button onClick={() => onDelete(c.id)} style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 11 }}>Delete</button>}
             </div>
           </div>
         ))}
