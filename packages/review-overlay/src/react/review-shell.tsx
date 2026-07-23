@@ -396,7 +396,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     if (r.width === 0 && r.height === 0) return;
     markers.push({ node, count: list.length, x: r.right - 7, y: r.top + 7 });
   });
-  const orphanOpen = comments.filter((c) => orphanNodes.includes(c.node) && !isApplied(c));
+  void orphanNodes; // orphans surface in the sidebar as anchorless — no extra pill chrome (Amin)
 
   const addComment = (text: string) => {
     if (!composer || !text.trim()) return;
@@ -461,12 +461,6 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             <button onClick={() => setMode("read")} style={seg(mode === "read")}>{toggleLabels[0]}</button>
             <button onClick={() => setMode("comment")} style={seg(mode === "comment")}>{toggleLabels[1]}</button>
           </span>
-          {orphanOpen.length > 0 && (
-            <button onClick={() => setListOpen(true)} title={`${orphanOpen.length} open comment${orphanOpen.length > 1 ? "s" : ""} whose anchor was removed from the page — still active, see the list`}
-              style={{ display: "flex", alignItems: "center", gap: 3, background: "transparent", border: `1px dashed ${accent}`, borderRadius: 8, color: accent, cursor: "pointer", fontSize: 11, padding: "3px 7px", fontWeight: 700 }}>
-              ⚓ {orphanOpen.length}
-            </button>
-          )}
           <button onClick={() => { setListOpen((o) => !o); markSeen(unread.map((c) => c.id)); }} title={unread.length ? `${unread.length} update${unread.length > 1 ? "s" : ""} since you last looked` : `${comments.filter((c) => !isApplied(c)).length} open · ${comments.filter(isApplied).length} applied`}
             style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 12, padding: "3px 8px" }}>
             🗨 {comments.filter((c) => !isApplied(c)).length}
@@ -682,7 +676,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
             onMouseLeave={() => onHoverComment?.(null, 0)}
             style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             {nodeExists && !nodeExists(c.node) ? (
-              <div title="the element this comment anchored to was removed from the page in a later round — the thread stays active here" style={{ color: S.fgDim, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>⚓ {c.label} <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· anchor removed</span></div>
+              <div title="no element on the page carries this comment's anchor (removed in a later round, or filed page-level) — the thread stays active here" style={{ color: S.fgDim, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>{c.label} <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· anchorless</span></div>
             ) : (
               <button onClick={() => onGoto(c.node)} style={{ display: "block", textAlign: "left", width: "100%", background: "transparent", border: "none", cursor: "pointer", color: accent, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, padding: 0, marginBottom: 4 }}>📍 {c.label}</button>
             )}
