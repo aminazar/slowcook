@@ -546,19 +546,16 @@ function Composer({ label, draftKey, S, accent, onSubmit, onCancel }: { label: s
   const deleteDraft = () => { saveDraft(draftKey, ""); onCancel(); };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onCancel}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: accent, marginBottom: 8 }}>Comment on · {label}{restored.current ? <span style={{ color: S.fgDim, textTransform: "none", letterSpacing: 0, fontWeight: 500 }}> — draft restored</span> : null}</div>
-        <textarea ref={taRef} value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="What should change here? (an AI will draft the edit — coming next)"
-          style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: 10, borderRadius: 8, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "vertical" }} />
-        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-          <span style={{ fontSize: 10.5, color: S.fgDim }}>click outside to close — the draft keeps</span>
-          <span style={{ display: "flex", gap: 8 }}>
-          <button onClick={deleteDraft} title="Discard the draft and close"
-            style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", font: "inherit", fontWeight: 600 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 320, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 9, padding: 8, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: accent, marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={label}>{label}{restored.current ? <span style={{ color: S.fgDim, fontWeight: 500 }}> · draft</span> : null}</div>
+        <textarea ref={taRef} value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="What should change here?"
+          style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, lineHeight: 1.45, padding: "5px 7px", borderRadius: 6, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "vertical" }} />
+        <div style={{ display: "flex", gap: 5, justifyContent: "flex-end", marginTop: 5 }}>
+          <button onClick={deleteDraft} title={text.trim() ? "Discard the draft and close (click outside keeps it)" : "Close (click outside also closes)"}
+            style={{ padding: "3px 9px", borderRadius: 6, border: `1px solid ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
             {text.trim() ? "Delete draft" : "Close"}
           </button>
-          <button onClick={() => submit(text)} disabled={!text.trim()} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: accent, color: "#1a1a1a", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, font: "inherit", fontWeight: 700 }}>Comment</button>
-          </span>
+          <button onClick={() => submit(text)} disabled={!text.trim()} style={{ padding: "3px 11px", borderRadius: 6, border: "none", background: accent, color: "#fff", cursor: text.trim() ? "pointer" : "not-allowed", opacity: text.trim() ? 1 : 0.5, fontSize: 11, fontWeight: 700 }}>Comment</button>
         </div>
       </div>
     </div>
@@ -606,15 +603,15 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
 }): JSX.Element {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: "92vw", maxHeight: "80vh", overflow: "auto", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: accent }}>📍 {label}</span>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 400, maxWidth: "92vw", maxHeight: "80vh", overflow: "auto", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 9, padding: 9, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: accent }}>📍 {label}</span>
           <button onClick={onClose} aria-label="Close thread" style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
         </div>
         {comments.map((c) => {
           const m = meta?.[c.id];
           return (
-            <div key={c.id} style={{ border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+            <div key={c.id} style={{ border: `1px solid ${S.border}`, borderRadius: 7, padding: 7, marginBottom: 6 }}>
               <div style={{ fontSize: 13, lineHeight: 1.45 }}><MdLite text={c.text} /></div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
                 <span style={{ fontSize: 10, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
@@ -631,7 +628,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
             </div>
           );
         })}
-        <button onClick={onAddAnother} style={{ width: "100%", padding: "8px 0", borderRadius: 8, border: `1px dashed ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>+ Add another comment here</button>
+        <button onClick={onAddAnother} style={{ width: "100%", padding: "4px 0", borderRadius: 6, border: `1px dashed ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ add another</button>
       </div>
     </div>
   );
