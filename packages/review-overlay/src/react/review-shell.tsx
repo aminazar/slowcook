@@ -411,8 +411,13 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     const pull = async () => {
       const remote = await hydrate().catch(() => null);
       if (!remote || dead) return;
-      const localOnly = store.load().filter((c) => c.remoteId === undefined && !remote.some((r) => r.id === c.id));
-      const merged = [...remote, ...localOnly];
+      const local = store.load();
+      // GitHub's LIST endpoint is eventually consistent: a just-filed issue
+      // can be absent for a minute. Never drop a posted local comment the
+      // lagging list hasn't caught up with — union, not replacement.
+      const localPostedMissing = local.filter((c) => c.remoteId !== undefined && !remote.some((r) => r.remoteId === c.remoteId));
+      const localUnposted = local.filter((c) => c.remoteId === undefined && !remote.some((r) => r.id === c.id));
+      const merged = [...remote, ...localPostedMissing, ...localUnposted];
       store.save(merged);
       setComments(merged);
     };
@@ -472,6 +477,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
   return createPortal(
     <div data-review-widget="" style={{ position: "fixed", inset: 0, zIndex: Z, pointerEvents: "none" }}>
+      <style>{`@keyframes rs-working { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.55); } }`}</style>
       {introPhase === "strike" && pos && (
         <IntroMeteor target={{ x: pos.x + 125, y: pos.y + 22 }} accent={accent} />
       )}
@@ -488,10 +494,14 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         const list = byNode.get(m.node) ?? [];
         const ids = list.map((c) => c.id);
         const hot = unread.some((c) => ids.includes(c.id));
-        if (!showApplied && !hot && list.length > 0 && list.every(isApplied)) return null;
+        // no-silent-machine: an anchor whose thread an agent is actively
+        // working pulses (status 'working' via meta) — the founder sees the
+        // machine moving right where they commented.
+        const working = list.some((c) => meta?.[c.id]?.status === "working");
+        if (!showApplied && !hot && !working && list.length > 0 && list.every(isApplied)) return null;
         return (
           <button key={m.node} onClick={() => { gotoNode(m.node); setThread(m.node); markSeen(ids); }}
-            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, background: accent, color: "#fff", border: "1.5px solid #fff", fontSize: 9.5, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}
+            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, background: accent, color: "#fff", border: "1.5px solid #fff", fontSize: 9.5, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)", whiteSpace: "nowrap", animation: working ? "rs-working 1s ease-in-out infinite" : undefined }}
             title={`${m.count} comment${m.count > 1 ? "s" : ""}${hot ? " · new activity" : ""} — click to open the thread`}>{m.count === 1 && typeof list[0]?.remoteId === "number" ? `#${list[0].remoteId}` : m.count}</button>
         );
       })}
