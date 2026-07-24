@@ -105,6 +105,9 @@ export interface ReviewShellProps {
    *  survives new browsers/sessions and other reviewers' comments appear
    *  (multi-user review). Local comments not yet posted are preserved. */
   hydrate?: () => Promise<ReviewComment[] | null>;
+  /** 0.14.0 — bump to trigger an immediate hydration pull (e.g. on a push
+   *  event from a webhook relay); the 60s interval remains the fallback. */
+  hydrateKey?: number;
   /** 0.12.0 — per-comment external state (replies/status), keyed by comment id. */
   meta?: Record<string, ReviewCommentMeta>;
   /** 0.12.0 — extra per-comment UI (e.g. a before/after diff toggle). */
@@ -209,7 +212,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon = "✎",
-    onComment, onReply, hydrate, meta, renderCommentExtra, sidebarFooter, intro,
+    onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -425,7 +428,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     const iv = setInterval(pull, 60_000);
     return () => { dead = true; clearInterval(iv); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hydrateKey]);
 
 
   if (!enabled || typeof document === "undefined") return null;
