@@ -599,7 +599,15 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
   // focus with the cursor at the END of a restored draft, not the start
   useEffect(() => {
     const ta = taRef.current;
-    if (ta) { ta.focus(); const n = ta.value.length; ta.setSelectionRange(n, n); }
+    if (!ta) return;
+    // a restored multi-line draft must open FULL-SIZE with the cursor visibly
+    // at the end — autosize + scroll-to-bottom + selection, together.
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
+    ta.focus();
+    const n = ta.value.length;
+    ta.setSelectionRange(n, n);
+    ta.scrollTop = ta.scrollHeight;
   }, []);
   const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
   const submit = (t: string) => { saveDraft(draftKey, ""); onSubmit(t); };
@@ -645,7 +653,12 @@ function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetT
     const t = taRef.current;
     if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 130)}px`; }
   };
-  useEffect(autosize, []);
+  useEffect(() => {
+    autosize();
+    const t = taRef.current;
+    if (t && t.value) { const n = t.value.length; t.setSelectionRange(n, n); t.scrollTop = t.scrollHeight; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
   const send = () => {
     if (!text.trim()) return;
