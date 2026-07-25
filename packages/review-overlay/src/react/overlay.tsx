@@ -24,7 +24,7 @@
 
 "use client";
 
-import { useEffect, useState, useRef, useCallback, type JSX, type ReactNode } from "react";
+import { useEffect, useState, useRef, useCallback, createElement, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { extractSelector, resolveAnchor, isPillOffViewport, clampPillPosition } from "../selector.js";
 import { CometSheen } from "./comet.js";
@@ -127,6 +127,14 @@ export interface SlowcookReviewOverlayProps {
    * Only used in `lcr` mode; enables per-reviewer "Sign in with GitHub".
    */
   authBase?: string;
+  /**
+   * 0.16.0 — Ask co-pilot: base URL of the Claude-agent chat backend (an SSE
+   * endpoint that streams a per-reviewer agent session). Falls back to
+   * `NEXT_PUBLIC_SLOWCOOK_ASK_BASE`. Empty hides the Ask tab. The panel reuses
+   * the reviewer's device-flow token as the Bearer credential, so the backend
+   * gates on GitHub identity.
+   */
+  askBase?: string;
   /** Overlay package version, included in the JSON payload. */
   overlayVersion?: string;
   /**
@@ -221,6 +229,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     (env("NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE") === "lcr" ? "lcr" : "scenarios");
   // 0.6.0 — LCR multi-person review: box-hosted device-flow helper base URL.
   const authBase = props.authBase ?? env("NEXT_PUBLIC_SLOWCOOK_AUTH_BASE") ?? "";
+  const askBase = props.askBase ?? env("NEXT_PUBLIC_SLOWCOOK_ASK_BASE") ?? "";
   const overlayVersion = props.overlayVersion ?? "0.6.0";
   const repoCoord: RepoCoord = { owner, repo };
   // 0.7.0 — docs studio config.
@@ -317,6 +326,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // branch a scope-change commits to.
   const [docsPanelOpen, setDocsPanelOpen] = useState<boolean>(false);
   const [resolvedBranch, setResolvedBranch] = useState<string>(branchProp);
+  // 0.16.0 — Ask co-pilot chat panel open state.
+  const [askPanelOpen, setAskPanelOpen] = useState<boolean>(false);
   // 0.2.0 — track viewport width for the icon-only mobile collapse + the
   // picker-route hide. Updates on resize + initial mount.
   const [isMobile, setIsMobile] = useState<boolean>(false);
@@ -1014,6 +1025,8 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
         onListClick={() => { setListPanelOpen(true); markAllSeen(); }}
         docsEnabled={reviewMode === "lcr" && docPaths.length > 0}
         onDocsClick={() => setDocsPanelOpen(true)}
+        askEnabled={Boolean(askBase)}
+        onAskClick={() => setAskPanelOpen(true)}
         surfaces={reviewMode === "lcr" ? surfaces : []}
         surfaceManifest={surfaceManifest}
         onNavigate={(home) => {
@@ -1078,6 +1091,19 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
           apiBase={getProxyApiBase() ?? undefined}
           onClose={() => setDocsPanelOpen(false)}
           onFeedback={(t) => setFeedback(t)}
+        />
+      )}
+      {/* 0.16.0 — Ask co-pilot: two-way chat with a repo-aware Claude agent. */}
+      {askPanelOpen && (
+        <AskPanel
+          repo={repoCoord}
+          askBase={askBase}
+          identity={reviewerIdentity}
+          getToken={() => (typeof window !== "undefined" ? loadReviewerToken(window.localStorage, repoCoord) : null)}
+          onSignIn={() => openLogin()}
+          onSessionExpired={() => expireSession(`Your GitHub session expired — sign in again to chat.`)}
+          surfaceManifest={surfaceManifest}
+          onClose={() => setAskPanelOpen(false)}
         />
       )}
       {generalComposerOpen && (
@@ -1376,6 +1402,8 @@ function ModeToggle(props: {
   onListClick: () => void;
   docsEnabled: boolean;
   onDocsClick: () => void;
+  askEnabled: boolean;
+  onAskClick: () => void;
   surfaces: ReviewSurface[];
   surfaceManifest: Manifest | null;
   onNavigate: (home: string) => void;
@@ -1387,7 +1415,7 @@ function ModeToggle(props: {
   onSignOut: () => void;
   accessory?: ReactNode;
 }): JSX.Element {
-  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, surfaces, surfaceManifest, onNavigate, reviewMode, identity, onSignIn, onSignOut, accessory } = props;
+  const { mode, armed, onArm, onCancelArm, onChange, disabled, isMobile, isApproved, commentCount, newCount, onListClick, docsEnabled, onDocsClick, askEnabled, onAskClick, surfaces, surfaceManifest, onNavigate, reviewMode, identity, onSignIn, onSignOut, accessory } = props;
   // 0.5.1 — initialise with the default; load saved position from
   // localStorage AFTER mount. Eliminates a hydration mismatch where
   // SSR/first-client render disagreed on the position value.
@@ -1492,19 +1520,20 @@ function ModeToggle(props: {
         gap: 4,
         // 0.4.2 — green-tinted when approved; else follows the system theme.
         background: isApproved ? (dark ? "rgba(20, 83, 45, 0.92)" : "rgba(220, 245, 228, 0.96)") : T.bg,
-        padding: "5px 6px",
-        borderRadius: 16,
+        // 0.16.1 — Refine-pill visual language: capsule + soft drop shadow.
+        padding: "6px 10px 6px 7px",
+        borderRadius: 999,
         border: isApproved ? `1px solid rgba(34, 197, 94, 0.55)` : `1px solid ${T.border}`,
         boxShadow: isApproved
-          ? `0 4px 14px rgba(34, 197, 94, 0.30), inset 0 1px 0 rgba(255,255,255,0.06)`
-          : T.shadow,
+          ? `0 6px 20px rgba(34, 197, 94, 0.30), inset 0 1px 0 rgba(255,255,255,0.06)`
+          : `0 6px 20px rgba(0,0,0,.35)`,
         fontFamily: "system-ui, -apple-system, sans-serif",
         fontSize: 13,
         color: T.fg,
         userSelect: "none",
       }}
     >
-      <CometSheen pillRef={pillRef} radius={16} />
+      <CometSheen pillRef={pillRef} radius={999} />
       {/* 0.9.1 — Grip on the LEFTMOST edge, FULL height: alignSelf stretch +
           a tiled dot texture so it visually covers the ENTIRE left border,
           however many lines the status wraps to. Drag to move; if a long status
@@ -1548,20 +1577,32 @@ function ModeToggle(props: {
           a review session: the page still navigates freely; you arm a pick with
           the "📍 Pin a comment" button below. (Was "Commenting" — but comment
           mode no longer traps clicks, so it now reads "Reviewing".) */}
-      <ToggleButton
-        active={mode === "comment"}
-        onClick={() => onChangeSafe(mode === "comment" ? "nav" : "comment")}
-        disabled={disabled}
-        label={mode === "comment" ? "rev" : "nav"}
-        title={
-          mode === "comment"
-            ? "Review mode — navigate freely + pin comments; click to switch to nav"
-            : (newCount ? `Switch to review — ${newCount} new update(s)` : "Switch to review — pin comments + the testing-surface router")
-        }
-        accent
-        fg={T.fg}
-        badge={newCount}
-      />
+      {/* 0.16.1 — Refine-style segmented toggle (was the single rev/nav disk). */}
+      <div style={{ display: "inline-flex", alignItems: "center", background: T.sub, borderRadius: 9, padding: 2, gap: 1 }}>
+        {([["nav", "Nav"], ["comment", "Review"]] as const).map(([m, lbl]) => (
+          <button
+            key={m}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChangeSafe(m)}
+            title={m === "comment"
+              ? (newCount ? `Review — pin comments (${newCount} new update(s))` : "Review — pin comments + the testing-surface router")
+              : "Browse without reviewing"}
+            style={{
+              position: "relative", padding: "3px 10px", borderRadius: 7, border: "none",
+              fontSize: 12, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+              background: mode === m ? ACCENT : "transparent",
+              color: mode === m ? "#1a1a1a" : T.fgDim,
+              font: "inherit",
+            }}
+          >
+            {lbl}
+            {m === "comment" && newCount > 0 && mode !== "comment" ? (
+              <span style={{ position: "absolute", top: -4, right: -4, minWidth: 14, height: 14, borderRadius: 999, background: ACCENT, color: "#1a1a1a", fontSize: 9, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 3px", border: `1.5px solid ${T.bg}` }}>{newCount}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
       {/* 0.8.0 — arm a single element-pick. While armed the next page tap selects
           an element to comment on (then auto-disarms); tap again to cancel. */}
       {mode === "comment" && (
@@ -1648,8 +1689,24 @@ function ModeToggle(props: {
 
       {/* Row 2 — secondary controls, review mode only: Docs · identity · timer.
           Nav mode renders none of these, so the pill is as narrow as the switch. */}
-      {mode === "comment" && (docsEnabled || reviewMode === "lcr" || accessory != null) && (
+      {mode === "comment" && (docsEnabled || askEnabled || reviewMode === "lcr" || accessory != null) && (
       <div style={{ display: "flex", alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap", gap: 4 }}>
+        {/* 0.16.0 — Ask: two-way chat with a repo-aware Claude agent. */}
+        {askEnabled && (
+          <button
+            type="button"
+            onClick={() => { setConfirmLogout(false); onAskClick(); }}
+            disabled={disabled}
+            title="Ask the QA co-pilot — a repo-aware Claude agent (explain code, record a decision, open a PR)"
+            style={{
+              background: T.sub, color: T.fg, border: "none", padding: "5px 10px", borderRadius: 999,
+              cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+              font: "inherit", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5,
+            }}
+          >
+            💬 Ask
+          </button>
+        )}
         {/* 0.7.0 — Docs (textual review): read + edit the spec docs. */}
         {docsEnabled && (
           <button
@@ -3049,6 +3106,192 @@ function GeneralComposer(props: {
  * and (write-access only) commits the edit to the branch as a "scope change"
  * that `refine` reconciles. Non-write reviewers get read + preview.
  */
+/**
+ * 0.16.0 — Ask co-pilot. A two-way chat with a repo-aware Claude agent running
+ * on the review box (see the `askBase` SSE backend). Reuses the reviewer's
+ * device-flow token as the Bearer credential; the backend gates on GitHub
+ * write access and runs a per-conversation agent session that can read the
+ * code, record decisions, and open PRs (attributed to the reviewer).
+ */
+interface AskMessage { id: string; role: "user" | "assistant"; text: string; tools: string[]; }
+
+function AskPanel(props: {
+  repo: RepoCoord;
+  askBase: string;
+  identity: StoredReviewerIdentity | null;
+  getToken: () => string | null;
+  onSignIn: () => void;
+  onSessionExpired: () => void;
+  surfaceManifest: Manifest | null;
+  onClose: () => void;
+}): JSX.Element {
+  const { askBase, identity, getToken, onSignIn, onSessionExpired, onClose } = props;
+  const [messages, setMessages] = useState<AskMessage[]>([]);
+  const [input, setInput] = useState<string>("");
+  const [busy, setBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<boolean>(false);
+  const convId = useRef<string>(
+    "c" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36),
+  );
+  const abortRef = useRef<AbortController | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => () => { try { abortRef.current?.abort(); } catch { /* noop */ } }, []);
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [messages]);
+
+  const base = askBase.replace(/\/$/, "");
+
+  async function send() {
+    const text = input.trim();
+    if (!text || busy) return;
+    const token = getToken();
+    if (!token) { onSignIn(); return; }
+    setError(null);
+    setInput("");
+    const userMsg: AskMessage = { id: "u" + Date.now(), role: "user", text, tools: [] };
+    const asstId = "a" + Date.now();
+    setMessages((m) => [...m, userMsg, { id: asstId, role: "assistant", text: "", tools: [] }]);
+    setBusy(true);
+    abortRef.current = new AbortController();
+    const append = (patch: (a: AskMessage) => AskMessage) =>
+      setMessages((m) => m.map((x) => (x.id === asstId ? patch(x) : x)));
+    try {
+      const res = await fetch(`${base}/__slowcook/ask/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
+        body: JSON.stringify({
+          conversationId: convId.current,
+          message: text,
+          context: { route: typeof window !== "undefined" ? window.location.pathname : undefined },
+        }),
+        signal: abortRef.current.signal,
+      });
+      if (res.status === 401 || res.status === 403) {
+        setError(res.status === 403
+          ? "This chat is for reviewers with write access to the repo."
+          : "Your GitHub session expired — sign in again to chat.");
+        if (res.status === 401) onSessionExpired();
+        setBusy(false);
+        return;
+      }
+      if (!res.ok || !res.body) { setError(`Chat backend error (${res.status}).`); setBusy(false); return; }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, nl); buf = buf.slice(nl + 2);
+          const line = frame.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (ev.type === "text" || ev.type === "delta") append((a) => ({ ...a, text: a.text + ev.text }));
+          else if (ev.type === "tool") append((a) => ({ ...a, tools: [...a.tools, ev.name] }));
+          else if (ev.type === "status") append((a) => (a.text ? a : { ...a, text: "" }));
+          else if (ev.type === "error") { setError(ev.text || "Agent error."); }
+          else if (ev.type === "done" && ev.branch) append((a) => ({ ...a, tools: [...a.tools, `branch ${ev.branch}`] }));
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setError(String((e as Error).message || e).slice(0, 200));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return createElement(
+    "div",
+    {
+      "data-slowcook-overlay-ui": "1", role: "dialog", "aria-label": "Ask co-pilot",
+      onClick: (e: React.MouseEvent) => e.stopPropagation(),
+      style: {
+        position: "fixed", zIndex: 2147483602,
+        // compact window under the pill's default corner; ⛶ expands full-screen
+        ...(expanded
+          ? { inset: 12 }
+          : { top: 100, left: 12, width: 430, maxWidth: "94vw", height: "min(560px, 78vh)" }),
+        background: "rgba(15,15,24,0.97)", color: "white", pointerEvents: "auto",
+        fontFamily: "system-ui, -apple-system, sans-serif", fontSize: 13,
+        display: "flex", flexDirection: "column",
+        borderRadius: 16, border: "1px solid rgba(255,255,255,0.14)",
+        boxShadow: "0 14px 44px rgba(0,0,0,.45)", overflow: "hidden",
+      } as React.CSSProperties,
+    },
+    createElement("style", { dangerouslySetInnerHTML: { __html:
+      ".sc-ask-md p{margin:0 0 8px}.sc-ask-md p:last-child{margin-bottom:0}" +
+      ".sc-ask-md ul,.sc-ask-md ol{margin:4px 0 8px;padding-left:20px}.sc-ask-md li{margin:2px 0}" +
+      ".sc-ask-md code{background:rgba(255,255,255,0.12);padding:1px 5px;border-radius:5px;font-size:12px}" +
+      ".sc-ask-md pre{background:rgba(0,0,0,0.45);padding:9px 11px;border-radius:9px;overflow-x:auto;margin:6px 0}" +
+      ".sc-ask-md pre code{background:transparent;padding:0}" +
+      ".sc-ask-md h1,.sc-ask-md h2,.sc-ask-md h3,.sc-ask-md h4{margin:10px 0 6px;font-size:13.5px;font-weight:800}" +
+      ".sc-ask-md a{color:#ffb4b4}.sc-ask-md blockquote{margin:6px 0;padding:2px 10px;border-left:3px solid rgba(255,107,107,0.6);opacity:.85}" +
+      ".sc-ask-md table{border-collapse:collapse;margin:6px 0}.sc-ask-md td,.sc-ask-md th{border:1px solid rgba(255,255,255,0.18);padding:3px 8px;font-size:12px}"
+    } }),
+    // header
+    createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)" } as React.CSSProperties },
+      createElement("span", { style: { fontWeight: 700, fontSize: 14 } }, "💬 Ask · QA co-pilot"),
+      identity ? createElement("span", { style: { fontSize: 11, opacity: 0.6 } }, `@${identity.login}`) : null,
+      createElement("span", { style: { marginLeft: "auto" } }),
+      createElement("button", { type: "button", onClick: () => setExpanded((v) => !v), "aria-label": expanded ? "Shrink" : "Expand", title: expanded ? "Back to the small window" : "Expand", style: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 6px" } }, expanded ? "❐" : "⛶"),
+      createElement("button", { type: "button", onClick: onClose, "aria-label": "Close", style: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 22, lineHeight: 1 } }, "×"),
+    ),
+    // message list
+    createElement("div", { ref: bodyRef, style: { flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 12 } as React.CSSProperties },
+      messages.length === 0
+        ? createElement("div", { style: { opacity: 0.6, fontSize: 12.5, lineHeight: 1.6, maxWidth: 620 } },
+            "Ask about the ScreenMe code, a QA finding, or a REQ decision. I can read the repo, record a decision, or open a PR (attributed to you). ",
+            "e.g. ", createElement("em", null, "“why did develop remove the shipped order status?”"), " or ",
+            createElement("em", null, "“for REQ-033, keep shipped removed — record that.”"))
+        : messages.map((m) =>
+            createElement("div", { key: m.id, style: { alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%" } as React.CSSProperties },
+              m.role === "assistant" && m.text
+                ? createElement("div", {
+                    className: "sc-ask-md",
+                    style: {
+                      background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                      borderRadius: 12, padding: "9px 13px", wordBreak: "break-word", lineHeight: 1.55,
+                    } as React.CSSProperties,
+                    dangerouslySetInnerHTML: { __html: renderMarkdown(m.text) },
+                  })
+                : createElement("div", {
+                    style: {
+                      background: m.role === "user" ? "rgba(255,107,107,0.18)" : "rgba(255,255,255,0.06)",
+                      border: "1px solid " + (m.role === "user" ? "rgba(255,107,107,0.4)" : "rgba(255,255,255,0.12)"),
+                      borderRadius: 12, padding: "9px 13px", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.55,
+                    } as React.CSSProperties,
+                  }, m.text || (busy && m.role === "assistant" ? "…" : "")),
+              m.tools.length > 0
+                ? createElement("div", { style: { fontSize: 10.5, opacity: 0.55, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 } as React.CSSProperties },
+                    m.tools.map((t, i) => createElement("span", { key: i }, t.startsWith("branch ") ? `🔀 ${t}` : `🔧 ${t}`)))
+                : null,
+            )),
+    ),
+    error ? createElement("div", { style: { padding: "8px 16px", color: "#ffb4b4", fontSize: 12, borderTop: "1px solid rgba(255,107,107,0.3)" } as React.CSSProperties }, error) : null,
+    // composer
+    createElement("div", { style: { display: "flex", gap: 8, padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.1)" } as React.CSSProperties },
+      createElement("textarea", {
+        value: input,
+        onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value),
+        onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } },
+        placeholder: identity ? "Ask anything about ScreenMe… (Enter to send, Shift+Enter for newline)" : "Sign in with GitHub to chat",
+        disabled: busy,
+        rows: 2,
+        style: { flex: 1, resize: "none", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "white", padding: "9px 12px", font: "inherit", fontSize: 13 } as React.CSSProperties,
+      }),
+      createElement("button", {
+        type: "button", onClick: () => void send(), disabled: busy || !input.trim(),
+        style: { alignSelf: "stretch", padding: "0 18px", borderRadius: 10, border: "none", cursor: busy || !input.trim() ? "not-allowed" : "pointer", opacity: busy || !input.trim() ? 0.5 : 1, background: "#FF6B6B", color: "white", fontWeight: 800, fontSize: 13 } as React.CSSProperties,
+      }, busy ? "…" : "Send"),
+    ),
+  );
+}
+
 function DocsPanel(props: {
   repo: RepoCoord;
   docPaths: string[];
