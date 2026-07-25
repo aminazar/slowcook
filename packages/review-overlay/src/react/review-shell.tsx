@@ -431,6 +431,29 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   }, [hydrateKey]);
 
 
+  // 0.14.0 — keyboard: C toggles comment mode (mnemonic, Gmail/GitHub
+  // tradition); Escape peels ONE layer at a time — composer (draft kept) →
+  // thread → sidebar → back to read. Letters never fire while typing.
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if (e.key === "Escape") {
+        if (composer) { setComposer(null); return; }           // draft already saved per keystroke
+        if (thread) { setThread(null); return; }
+        if (listOpen) { setListOpen(false); return; }
+        if (mode === "comment") { setMode("read"); return; }
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "c" || e.key === "C") { setMode((m) => (m === "comment" ? "read" : "comment")); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [enabled, mode, composer, thread, listOpen]);
+
+
   if (!enabled || typeof document === "undefined") return null;
   // Gate (b): nothing to review on this page → don't show the pill. (Recomputed on
   // the marker-scan tick, so it follows SPA navigation.)
@@ -471,28 +494,6 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       }).catch(() => { /* transport is best-effort; the comment stays local */ });
     }
   };
-  // 0.14.0 — keyboard: C toggles comment mode (mnemonic, Gmail/GitHub
-  // tradition); Escape peels ONE layer at a time — composer (draft kept) →
-  // thread → sidebar → back to read. Letters never fire while typing.
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if (e.key === "Escape") {
-        if (composer) { setComposer(null); return; }           // draft already saved per keystroke
-        if (thread) { setThread(null); return; }
-        if (listOpen) { setListOpen(false); return; }
-        if (mode === "comment") { setMode("read"); return; }
-        return;
-      }
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "c" || e.key === "C") { setMode((m) => (m === "comment" ? "read" : "comment")); }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [enabled, mode, composer, thread, listOpen]);
-
   const gotoNode = (node: string) => {
     const el = findNodeEl(node);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); flash(el, accent); }
