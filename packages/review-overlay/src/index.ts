@@ -69,3 +69,16 @@ export {
   type OverlayCommentRecord,
   type ScenarioCommentStats,
 } from "./github.js";
+
+export {
+  loadReviewerToken,
+  saveReviewerToken,
+  loadReviewerIdentity,
+  saveReviewerIdentity,
+  clearReviewerSession,
+  requestDeviceCode,
+  pollAccessToken,
+  identifyReviewer,
+  checkRepoWriteAccess,
+  type StoredReviewerIdentity,
+} from "./reviewer-session.js";
