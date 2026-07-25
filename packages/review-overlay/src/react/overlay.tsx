@@ -3115,16 +3115,18 @@ function GeneralComposer(props: {
  */
 interface AskMessage { id: string; role: "user" | "assistant"; text: string; tools: string[]; }
 
-function AskPanel(props: {
+export interface AskPanelProps {
   repo: RepoCoord;
   askBase: string;
   identity: StoredReviewerIdentity | null;
   getToken: () => string | null;
   onSignIn: () => void;
   onSessionExpired: () => void;
-  surfaceManifest: Manifest | null;
+  surfaceManifest?: Manifest | null;
   onClose: () => void;
-}): JSX.Element {
+}
+
+export function AskPanel(props: AskPanelProps): JSX.Element {
   const { askBase, identity, getToken, onSignIn, onSessionExpired, onClose } = props;
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState<string>("");
