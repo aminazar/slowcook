@@ -471,6 +471,28 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       }).catch(() => { /* transport is best-effort; the comment stays local */ });
     }
   };
+  // 0.14.0 — keyboard: C toggles comment mode (mnemonic, Gmail/GitHub
+  // tradition); Escape peels ONE layer at a time — composer (draft kept) →
+  // thread → sidebar → back to read. Letters never fire while typing.
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if (e.key === "Escape") {
+        if (composer) { setComposer(null); return; }           // draft already saved per keystroke
+        if (thread) { setThread(null); return; }
+        if (listOpen) { setListOpen(false); return; }
+        if (mode === "comment") { setMode("read"); return; }
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "c" || e.key === "C") { setMode((m) => (m === "comment" ? "read" : "comment")); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [enabled, mode, composer, thread, listOpen]);
+
   const gotoNode = (node: string) => {
     const el = findNodeEl(node);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); flash(el, accent); }
@@ -523,8 +545,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>
           </span>
           <span style={{ display: "flex", gap: 2, background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", borderRadius: 9, padding: 2 }}>
-            <button onClick={() => setMode("read")} style={seg(mode === "read")}>{toggleLabels[0]}</button>
-            <button onClick={() => setMode("comment")} style={seg(mode === "comment")}>{toggleLabels[1]}</button>
+            <button onClick={() => setMode("read")} title="Esc" style={seg(mode === "read")}>{toggleLabels[0]}</button>
+            <button onClick={() => setMode("comment")} title="C" style={seg(mode === "comment")}>{toggleLabels[1]}</button>
           </span>
           <button onClick={() => { setListOpen((o) => !o); markSeen(unread.map((c) => c.id)); }} title={unread.length ? `${unread.length} update${unread.length > 1 ? "s" : ""} since you last looked` : `${comments.filter((c) => !isApplied(c)).length} open · ${comments.filter(isApplied).length} applied`}
             style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 12, padding: "3px 8px" }}>
