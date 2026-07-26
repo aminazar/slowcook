@@ -31,6 +31,7 @@ export { TESTGEN_SYSTEM } from "./prompts/testgen.js";
 export { RECONCILE_SYSTEM } from "./prompts/reconcile.js";
 export { SEED_SYSTEM, ADAPTOR_SYSTEM } from "./prompts/seed.js";
 export { JOURNEYS_SYSTEM } from "./prompts/journeys.js";
+export { TELL_STEP_SYSTEM } from "./prompts/tell.js";
 export { BRAND_SYSTEM } from "./prompts/brand.js";
 export { MENU_SYSTEM, type MenuStoryDraft } from "./prompts/menu.js";
 export {

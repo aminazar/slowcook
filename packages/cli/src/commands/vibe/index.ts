@@ -329,6 +329,10 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   // compile from a standing concept.yaml when present (machine-executability
   // gaps become backprop claims); LLM synthesis from specs otherwise.
   if (argv[0] === "journeys") { const { runJourneys } = await import("./journeys.js"); return runJourneys(argv.slice(1)); }
+  // `slowcook vibe tell` — the STORYTELLER: walk journeys, build one
+  // affordance at a time, seed data by walking (the five laws).
+  // `vibe surfaces` is its alias so the ladder's language stays true.
+  if (argv[0] === "tell" || argv[0] === "surfaces") { const { runTell } = await import("./tell.js"); return runTell(argv.slice(1)); }
 
   const args = parseArgs(argv);
 
@@ -568,7 +572,7 @@ function buildPrBody(
  * to `.brewing/lcr-plan.json` for the generation passes. Deterministic, no LLM.
  */
 /** Compile the LCR plan from the repo's active specs (shared by plan + schema). */
-function loadPlan(cwd: string): LcrPlan | null {
+export function loadPlan(cwd: string): LcrPlan | null {
   const specs = listActiveSpecs(cwd);
   if (specs.length === 0) return null;
   const planSpecs: PlanSpecInput[] = specs.map((s) => ({
