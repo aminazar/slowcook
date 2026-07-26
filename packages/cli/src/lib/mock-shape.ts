@@ -34,6 +34,9 @@ const MockShapeConfigSchema = z.object({
    *    shows on every route and each comment captures its route so plate
    *    amends per-page. GUCDI mocks set this.
    */
+  /** Storyteller stage: the journeys artifact + walk-produced worlds. */
+  journeys_file: z.string().default(".brewing/journeys.yaml"),
+  worlds_dir: z.string().default("mock/src/lib/worlds"),
   review_mode: z.enum(["scenarios", "lcr"]).default("scenarios"),
   /**
    * 0.6.0 — override the OAuth App Client ID reviewers sign in with (LCR
@@ -58,6 +61,8 @@ const NEXTJS_DEFAULT: MockShapeConfig = {
   design_system_dir: "mock/src/design-system",
   scenarios_dir: "mock/scenarios",
   scenario_registry_file: "mock/src/lib/scenario-registry.ts",
+  journeys_file: ".brewing/journeys.yaml",
+  worlds_dir: "mock/src/lib/worlds",
   review_mode: "scenarios",
   review_oauth_scope: "public_repo",
 };
@@ -71,6 +76,8 @@ const VITE_DEFAULT: MockShapeConfig = {
   router_file: "mock/src/App.tsx",
   scenarios_dir: "mock/scenarios",
   scenario_registry_file: "mock/src/lib/scenario-registry.ts",
+  journeys_file: ".brewing/journeys.yaml",
+  worlds_dir: "mock/src/lib/worlds",
   review_mode: "scenarios",
   review_oauth_scope: "public_repo",
 };
