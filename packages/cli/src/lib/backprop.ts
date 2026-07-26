@@ -62,7 +62,15 @@ export interface FileClaimsResult { mirrored: number; issued: number; skippedDup
 export async function fileBackpropClaims(cwd: string, claims: BackpropClaim[], opts?: { now?: () => string }): Promise<FileClaimsResult> {
   const existing = loadClaims(cwd);
   const openKeys = new Set(existing.filter((c) => c.status === "open").map(claimKey));
-  const fresh = claims.filter((c) => !openKeys.has(claimKey(c)));
+  // Dedupe against the mirror AND within the batch — one screen missing a
+  // route is ONE claim, however many journeys trip over it.
+  const fresh: BackpropClaim[] = [];
+  for (const c of claims) {
+    const k = claimKey(c);
+    if (openKeys.has(k)) continue;
+    openKeys.add(k);
+    fresh.push(c);
+  }
   const now = opts?.now ?? (() => new Date().toISOString());
 
   const stored: StoredClaim[] = fresh.map((c, i) => ({
