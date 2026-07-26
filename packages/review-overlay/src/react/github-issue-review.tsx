@@ -133,7 +133,9 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
   }, []);
   const { loadTok } = makeGh(coord);
   const authed = !!loadTok();
-  const who = (() => { try { return loadReviewerIdentity(localStorage, coord)?.login; } catch { return undefined; } })();
+  const identity = (() => { try { return loadReviewerIdentity(localStorage, coord); } catch { return null; } })();
+  const who = identity?.login;
+  const avatar = identity?.avatarUrl ?? (who ? `https://github.com/${who}.png?size=64` : undefined);
 
   const finish = async (token: string) => {
     try {
@@ -184,8 +186,12 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
     <>
       <button onClick={() => setOpen((o) => !o)}
         title={authBad ? "GitHub sign-in expired — sign in again" : authed ? `Signed in${who ? ` as ${who}` : ""}` : "Sign in to review"}
-        style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px", opacity: authed && !authBad ? 0.55 : 1, position: "relative" }}>
-        {authed && !authBad ? "🔓" : "🔑"}
+        style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px", display: "inline-flex", alignItems: "center", position: "relative" }}>
+        {/* signed in → YOUR avatar, sized to the pill (16px, round) — the
+            lock only while signed out or expired */}
+        {authed && !authBad && avatar
+          ? <img src={avatar} alt={who ?? "signed in"} width={16} height={16} style={{ width: 16, height: 16, borderRadius: 999, objectFit: "cover", display: "block" }} />
+          : <span style={{ opacity: authed && !authBad ? 0.55 : 1 }}>{authed && !authBad ? "🔓" : "🔑"}</span>}
         {authBad && <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: 999, background: "#e0483f" }} />}
       </button>
       {open && (
