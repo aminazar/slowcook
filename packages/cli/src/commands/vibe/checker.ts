@@ -80,6 +80,12 @@ export async function runCheck(argv: string[]): Promise<void> {
   mkdirSync(worldsDir, { recursive: true });
   const schemaPath = resolve(cwd, mock.mock_root, "src/lib/schema.ts");
   const schemaTs = existsSync(schemaPath) ? readFileSync(schemaPath, "utf8") : "";
+  // The world FORMAT comes from an existing walk-produced world, not an
+  // assumed adaptor: the generated variants must match the module shape of
+  // whatever worlds the app actually boots (event logs, sql seeds, either).
+  const sampleWorld = existsSync(worldsDir)
+    ? readdirSync(worldsDir).filter((f) => f.endsWith(".ts") && !f.startsWith("gen-")).map((f) => readFileSync(join(worldsDir, f), "utf8")).sort((a, b) => b.length - a.length)[0] ?? ""
+    : "";
   for (const [world, brief] of Object.entries(WORLD_BRIEFS)) {
     const p = join(worldsDir, `${world}.ts`);
     if (existsSync(p) && !regenWorlds) continue;
@@ -90,7 +96,9 @@ export async function runCheck(argv: string[]): Promise<void> {
       model,
       maxTokens: 32000,
       stream: true,
-      messages: [{ role: "user", content: `## Generated Drizzle schema\n\`\`\`ts\n${schemaTs}\n\`\`\`\n\n## WORLD BRIEF (override the default density guidance)\n${brief}\n\nWrite seed.ts now — but name the exported function seedWorld and import type { DB } from "../db" (this file lives in src/lib/worlds/).` }],
+      messages: [{ role: "user", content: sampleWorld
+        ? `## An EXISTING world file — your output MUST be a module of exactly this shape (same imports, same exported symbols, same element structure), only with DIFFERENT data per the brief\n\`\`\`ts\n${sampleWorld.slice(0, 20000)}\n\`\`\`\n\n## WORLD BRIEF (override the default density guidance)\n${brief}\n\nWrite the new world module now. Output ONLY the TypeScript file contents.`
+        : `## Generated Drizzle schema\n\`\`\`ts\n${schemaTs}\n\`\`\`\n\n## WORLD BRIEF (override the default density guidance)\n${brief}\n\nWrite seed.ts now — but name the exported function seedWorld and import type { DB } from "../db" (this file lives in src/lib/worlds/).` }],
     });
     totalUsd += res.costUsd;
     writeFileSync(p, res.text.replace(/```(?:ts|typescript)?\n?/g, "").replace(/```/g, ""));
@@ -157,7 +165,7 @@ export function retargetPlan(w: CompiledWalk, world: string, baseUrl: string): Q
   const worldSensitive = new Set(
     w.plan.steps
       .map((s, i) => ({ s, i }))
-      .filter(({ s }) => s.action === "assert" && /__slowcook\.data\./.test(s.expr ?? "") )
+      .filter(({ s }) => s.action === "assert" && /__slowcook\.data\b/.test(s.expr ?? "") )
       .map(({ i }) => i),
   );
   return {
