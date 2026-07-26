@@ -541,6 +541,30 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
           transition: introPhase === "settling" ? "left .8s cubic-bezier(.22,.8,.36,1), top .8s cubic-bezier(.22,.8,.36,1), transform .8s cubic-bezier(.22,.8,.36,1), box-shadow .8s ease" : introPhase === "strike" ? "box-shadow .25s ease 1s, transform .3s cubic-bezier(.34,1.56,.64,1) 1s" : undefined,
         }} onPointerDownCapture={() => { if (introPhase !== "done") finishIntro(); }}>
           <CometSheen pillRef={pillRef} radius={999} />
+          {/* The overlay pill's dot-grip, ported (Amin: dragging the shell on a
+              phone was near-impossible — the title was the only handle). Full
+              pill height, tiled dots, touchAction none so a finger drag pans
+              the pill instead of the page. */}
+          <span
+            role="button"
+            aria-label="Drag to move"
+            title="Drag to move"
+            onPointerDown={(e) => startDrag(e, pos, setPos)}
+            style={{
+              width: 11,
+              alignSelf: "stretch",
+              minHeight: 22,
+              cursor: "grab",
+              opacity: 0.5,
+              touchAction: "none",
+              flexShrink: 0,
+              borderRadius: 7,
+              color: S.fg,
+              backgroundImage: "radial-gradient(currentColor 1.05px, transparent 1.15px)",
+              backgroundSize: "5px 5px",
+              backgroundPosition: "center",
+            }}
+          />
           <span onPointerDown={(e) => startDrag(e, pos, setPos)} title="Drag to move" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "grab", color: S.fg }}>
             <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
             <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>
@@ -624,8 +648,8 @@ function startDrag(e: ReactPointerEvent, pos: { x: number; y: number }, setPos: 
   e.preventDefault();
   const sx = e.clientX, sy = e.clientY, ox = pos.x, oy = pos.y;
   const move = (ev: PointerEvent) => setPos(clampToViewport({ x: ox + ev.clientX - sx, y: oy + ev.clientY - sy }));
-  const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
-  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+  const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", up); };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
 }
 
 function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; at: { x: number; y: number }; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
