@@ -15,5 +15,5 @@ export interface GateViolation {
    * - `overflow`: page has horizontal scroll at a mobile viewport
    * - `focus-visible`: focusable element has no visible :focus-visible ring
    */
-  category: "contrast" | "tap-target" | "overflow" | "focus-visible";
+  category: "contrast" | "tap-target" | "overflow" | "focus-visible" | "content" | "visual";
 }
