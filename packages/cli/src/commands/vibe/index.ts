@@ -325,6 +325,10 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   // LCR app (Vite + router + persona shell + a stub page per route) from the plan,
   // and set review_mode: lcr. The LLM `vibe surfaces` pass fills the page bodies.
   if (argv[0] === "app") return runApp(argv.slice(1));
+  // `slowcook vibe journeys` — the storyteller's contract. Deterministic
+  // compile from a standing concept.yaml when present (machine-executability
+  // gaps become backprop claims); LLM synthesis from specs otherwise.
+  if (argv[0] === "journeys") { const { runJourneys } = await import("./journeys.js"); return runJourneys(argv.slice(1)); }
 
   const args = parseArgs(argv);
 
@@ -694,7 +698,7 @@ async function runSchema(argv: string[]): Promise<void> {
 
 /** Compact behavioural digest of the specs for the seed/adaptor prompts:
  *  persona, surfaces+states, invariants, acceptance scenarios. */
-function buildSpecsDigest(cwd: string): string {
+export function buildSpecsDigest(cwd: string): string {
   const out: string[] = [];
   for (const s of listActiveSpecs(cwd)) {
     const lines: string[] = [`### story-${s.story_id} — ${s.title}`];
