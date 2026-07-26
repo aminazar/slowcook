@@ -122,7 +122,13 @@ export function compileWalkPlan(
 
   for (const s of steps) {
     setClock(); // law 1: time advances before the step happens
-    if (s.route !== lastRoute) gotoRoute(s.route);
+    // Parametric routes (/order/:id) cannot be teleported to — navigation
+    // into them must come from a clicked affordance; the walker only records
+    // that the story now stands there.
+    if (s.route !== lastRoute) {
+      if (s.route.includes(":")) lastRoute = s.route;
+      else gotoRoute(s.route);
+    }
     if (s.action !== "goto") {
       const aff = s.affordance!;
       affordances.push({ step: s.id, id: aff, route: s.route, destructive: !!s.destructive });
