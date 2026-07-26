@@ -152,6 +152,18 @@ export class GitHubAdapter implements ForgeAdapter {
     };
   }
 
+  /** Create a repository issue (backprop claims, storyteller announcements). */
+  async createIssue(input: { title: string; body: string; labels?: string[] }): Promise<{ number: number; url: string }> {
+    const { data } = await this.octokit.issues.create({
+      owner: this.owner,
+      repo: this.repo,
+      title: input.title,
+      body: input.body,
+      labels: input.labels,
+    });
+    return { number: data.number, url: data.html_url };
+  }
+
   async createIssueComment(number: number, body: string): Promise<Comment> {
     const { data } = await this.octokit.issues.createComment({
       owner: this.owner,
