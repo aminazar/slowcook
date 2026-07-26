@@ -5,3 +5,4 @@ export { usePrefersDark, detectPageDark, pillTheme, sheetTheme } from "./theme.j
 export { useScenarioCommentStats, type UseScenarioCommentStatsArgs } from "./use-scenario-comment-stats.js";
 export { useStoryMarker, readCurrentStory } from "./use-story-marker.js";
 export { installBreadcrumbRecorder, breadcrumbs, pushBreadcrumb, clearBreadcrumbs, type Breadcrumb } from "./breadcrumbs.js";
+export { GitHubIssueReview, parseAgentReply, buildIssueBody, parseIssue, type GitHubIssueReviewProps, type IssueLike, type AgentReply } from "./github-issue-review.js";
