@@ -77,6 +77,9 @@ export interface ReviewShellProps {
   icon?: ReactNode;
   /** Initial corner (draggable thereafter). */
   corner?: Corner;
+  /** Extra space (px) reserved below the pill's resting spot — for hosts
+   *  with their own fixed bottom chrome (tab bars, docks). Default 0. */
+  bottomInset?: number;
   /** The two mode labels — [browse, comment]. */
   toggleLabels?: [string, string];
   /** Attribute carrying the semantic node id (default `data-review-node`). */
@@ -234,7 +237,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon,
     onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
-    corner = "bottom-left", toggleLabels = ["Read", "Comment"],
+    corner = "bottom-left", bottomInset = 0, toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
     author = "PM", accessory, statusRow,
   } = props;
@@ -318,15 +321,15 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   // Initial pill position: center-stage during the intro, else the chosen corner.
   useEffect(() => {
     if (pos || typeof window === "undefined") return;
-    const m = 16, w = 250, h = 44;
+    const m = 16, w = 250, h = statusRow ? 74 : 44;
     if (introPhase === "staged") {
       setPos({ x: Math.round(window.innerWidth / 2 - w / 2), y: Math.round(window.innerHeight / 2 - h / 2) });
       return;
     }
     const x = corner.includes("left") ? m : window.innerWidth - w - m;
-    const y = corner.includes("top") ? m : window.innerHeight - h - m;
+    const y = corner.includes("top") ? m : window.innerHeight - h - m - bottomInset;
     setPos({ x, y });
-  }, [corner, pos, introPhase]);
+  }, [corner, pos, introPhase, bottomInset]);
 
   // intro choreography: 1s on stage → the meteor strikes (1.05s flight) →
   // a beat to admire → settle to the corner.
@@ -334,9 +337,9 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     if (introPhase === "staged") { const t = setTimeout(() => setIntroPhase("strike"), 1000); return () => clearTimeout(t); }
     if (introPhase === "strike") { const t = setTimeout(() => setIntroPhase("settling"), 2400); return () => clearTimeout(t); }
     if (introPhase === "settling") {
-      const m = 16, w = 250, h = 44;
+      const m = 16, w = 250, h = statusRow ? 74 : 44;
       const x = corner.includes("left") ? m : window.innerWidth - w - m;
-      const y = corner.includes("top") ? m : window.innerHeight - h - m;
+      const y = corner.includes("top") ? m : window.innerHeight - h - m - bottomInset;
       setPos({ x, y });
       const t = setTimeout(() => finishIntro(), 800);
       return () => clearTimeout(t);
