@@ -3130,44 +3130,133 @@ export interface AskPanelProps {
 
 export function AskPanel(props: AskPanelProps): JSX.Element {
   const { askBase, identity, getToken, onSignIn, onSessionExpired, onClose } = props;
-  const [messages, setMessages] = useState<AskMessage[]>([]);
+  const repoKey = `${props.repo.owner}/${props.repo.repo}`;
+  const winKey = `slowcook.review-overlay.ask.win.${repoKey}`;
+
+  // ── per-account conversation persistence ─────────────────────────────────
+  // History is keyed by the GitHub login behind the token, so switching
+  // accounts in the same browser switches history. The conversation id is
+  // stable across reopens/reloads — the ask backend resumes the SAME agent
+  // session from it, so context carries over, not just the transcript.
+  interface AskConversation { id: string; title: string; createdAt: number; messages: AskMessage[]; }
+  const [login, setLogin] = useState<string | null>(identity?.login ?? null);
+  const [convs, setConvs] = useState<AskConversation[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
   const [input, setInput] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<boolean>(false);
-  const convId = useRef<string>(
-    "c" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36),
-  );
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const loginRef = useRef<string | null>(login);
+  loginRef.current = login;
+
+  const convsKey = (l: string | null) => `slowcook.review-overlay.ask.${repoKey}.${l ?? "anon"}`;
+  const newConv = (): AskConversation => ({
+    id: "c" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36),
+    title: "New chat", createdAt: Date.now(), messages: [],
+  });
+
+  const persist = useCallback((l: string | null, list: AskConversation[], active: string) => {
+    try {
+      window.localStorage.setItem(convsKey(l), JSON.stringify({ activeId: active, convs: list.slice(-30) }));
+    } catch { /* quota — drop silently */ }
+  }, [repoKey]);
+
+  const loadFor = useCallback((l: string | null) => {
+    let list: AskConversation[] = [];
+    let active = "";
+    try {
+      const raw = window.localStorage.getItem(convsKey(l));
+      if (raw) { const d = JSON.parse(raw); list = d.convs ?? []; active = d.activeId ?? ""; }
+    } catch { /* corrupted — start fresh */ }
+    if (list.length === 0) { const c = newConv(); list = [c]; active = c.id; }
+    if (!list.some((c) => c.id === active)) active = list[list.length - 1]!.id;
+    setConvs(list); setActiveId(active);
+  }, [repoKey]);
+
+  // initial load under the anon (or identity) key; then re-key by the token's
+  // real login so history is genuinely per-account.
+  useEffect(() => {
+    loadFor(loginRef.current);
+    const token = getToken();
+    if (!token || loginRef.current) return;
+    void fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => { if (u?.login) { setLogin(u.login); loadFor(u.login); } })
+      .catch(() => { /* offline — stay on anon key */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // window position/size restore
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(winKey);
+      if (raw) { const d = JSON.parse(raw); if (d.pos) setPos(d.pos); if (d.size) setSize(d.size); }
+    } catch { /* ignore */ }
+  }, [winKey]);
+  const saveWin = useCallback((p: { left: number; top: number } | null, sz: { w: number; h: number } | null) => {
+    try { window.localStorage.setItem(winKey, JSON.stringify({ pos: p, size: sz })); } catch { /* ignore */ }
+  }, [winKey]);
+
+  // observe user resizes (CSS resize handle) and persist them
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || expanded) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.offsetWidth, h = el.offsetHeight;
+      setSize((cur) => (cur && Math.abs(cur.w - w) < 2 && Math.abs(cur.h - h) < 2 ? cur : { w, h }));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [expanded]);
+  useEffect(() => { if (size || pos) saveWin(pos, size); }, [pos, size, saveWin]);
 
   useEffect(() => () => { try { abortRef.current?.abort(); } catch { /* noop */ } }, []);
+  const active = convs.find((c) => c.id === activeId);
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [messages]);
+  }, [active?.messages]);
 
   const base = askBase.replace(/\/$/, "");
 
+  const mutateActive = (fn: (c: AskConversation) => AskConversation) => {
+    setConvs((list) => {
+      const next = list.map((c) => (c.id === activeId ? fn(c) : c));
+      persist(loginRef.current, next, activeId);
+      return next;
+    });
+  };
+
   async function send() {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || !active) return;
     const token = getToken();
     if (!token) { onSignIn(); return; }
     setError(null);
     setInput("");
     const userMsg: AskMessage = { id: "u" + Date.now(), role: "user", text, tools: [] };
     const asstId = "a" + Date.now();
-    setMessages((m) => [...m, userMsg, { id: asstId, role: "assistant", text: "", tools: [] }]);
+    mutateActive((c) => ({
+      ...c,
+      title: c.messages.length === 0 ? text.slice(0, 48) : c.title,
+      messages: [...c.messages, userMsg, { id: asstId, role: "assistant", text: "", tools: [] }],
+    }));
     setBusy(true);
     abortRef.current = new AbortController();
     const append = (patch: (a: AskMessage) => AskMessage) =>
-      setMessages((m) => m.map((x) => (x.id === asstId ? patch(x) : x)));
+      mutateActive((c) => ({ ...c, messages: c.messages.map((x) => (x.id === asstId ? patch(x) : x)) }));
     try {
       const res = await fetch(`${base}/__slowcook/ask/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
         body: JSON.stringify({
-          conversationId: convId.current,
+          conversationId: active.id,
           message: text,
           context: { route: typeof window !== "undefined" ? window.location.pathname : undefined },
         }),
@@ -3197,7 +3286,6 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
           let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
           if (ev.type === "text" || ev.type === "delta") append((a) => ({ ...a, text: a.text + ev.text }));
           else if (ev.type === "tool") append((a) => ({ ...a, tools: [...a.tools, ev.name] }));
-          else if (ev.type === "status") append((a) => (a.text ? a : { ...a, text: "" }));
           else if (ev.type === "error") { setError(ev.text || "Agent error."); }
           else if (ev.type === "done" && ev.branch) append((a) => ({ ...a, tools: [...a.tools, `branch ${ev.branch}`] }));
         }
@@ -3209,25 +3297,58 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
     }
   }
 
+  const copyMessage = (m: AskMessage) => {
+    try {
+      void navigator.clipboard.writeText(m.text).then(() => {
+        setCopiedId(m.id);
+        setTimeout(() => setCopiedId((cur) => (cur === m.id ? null : cur)), 1400);
+      });
+    } catch { /* clipboard unavailable */ }
+  };
+
+  const startDrag = (e: React.PointerEvent) => {
+    if (expanded) return;
+    const t = e.target as HTMLElement;
+    if (t.closest("button") || t.closest("select")) return; // header controls stay clickable
+    const el = panelRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    dragRef.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onDrag = (e: React.PointerEvent) => {
+    if (!dragRef.current || !panelRef.current) return;
+    const w = panelRef.current.offsetWidth, h = panelRef.current.offsetHeight;
+    const left = Math.min(Math.max(0, e.clientX - dragRef.current.dx), window.innerWidth - Math.min(w, 200));
+    const top = Math.min(Math.max(0, e.clientY - dragRef.current.dy), window.innerHeight - 48);
+    setPos({ left, top });
+  };
+  const endDrag = () => { dragRef.current = null; };
+
+  const frame: React.CSSProperties = expanded
+    ? { inset: 12 }
+    : pos
+      ? { left: pos.left, top: pos.top, width: size?.w ?? 430, height: size?.h ?? Math.min(560, window.innerHeight * 0.78) }
+      : {
+          ...(props.placement === "bottom-left" ? { bottom: 64 } : { top: 100 }),
+          left: 12, width: size?.w ?? 430, maxWidth: "94vw", height: size?.h ?? "min(560px, 78vh)",
+        };
+
   return createElement(
     "div",
     {
       "data-slowcook-overlay-ui": "1", role: "dialog", "aria-label": "Ask co-pilot",
+      ref: panelRef,
       onClick: (e: React.MouseEvent) => e.stopPropagation(),
       style: {
         position: "fixed", zIndex: 2147483602,
-        // compact window under the pill's default corner; ⛶ expands full-screen
-        ...(expanded
-          ? { inset: 12 }
-          : {
-              ...(props.placement === "bottom-left" ? { bottom: 64 } : { top: 100 }),
-              left: 12, width: 430, maxWidth: "94vw", height: "min(560px, 78vh)",
-            }),
+        ...frame,
         background: "rgba(15,15,24,0.97)", color: "white", pointerEvents: "auto",
         fontFamily: "system-ui, -apple-system, sans-serif", fontSize: 13,
         display: "flex", flexDirection: "column",
         borderRadius: 16, border: "1px solid rgba(255,255,255,0.14)",
         boxShadow: "0 14px 44px rgba(0,0,0,.45)", overflow: "hidden",
+        resize: expanded ? "none" : "both", minWidth: 340, minHeight: 320,
       } as React.CSSProperties,
     },
     createElement("style", { dangerouslySetInnerHTML: { __html:
@@ -3240,23 +3361,46 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
       ".sc-ask-md a{color:#ffb4b4}.sc-ask-md blockquote{margin:6px 0;padding:2px 10px;border-left:3px solid rgba(255,107,107,0.6);opacity:.85}" +
       ".sc-ask-md table{border-collapse:collapse;margin:6px 0}.sc-ask-md td,.sc-ask-md th{border:1px solid rgba(255,255,255,0.18);padding:3px 8px;font-size:12px}"
     } }),
-    // header
-    createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)" } as React.CSSProperties },
-      createElement("span", { style: { fontWeight: 700, fontSize: 14 } }, "💬 Ask · QA co-pilot"),
-      identity ? createElement("span", { style: { fontSize: 11, opacity: 0.6 } }, `@${identity.login}`) : null,
-      createElement("span", { style: { marginLeft: "auto" } }),
-      createElement("button", { type: "button", onClick: () => setExpanded((v) => !v), "aria-label": expanded ? "Shrink" : "Expand", title: expanded ? "Back to the small window" : "Expand", style: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 6px" } }, expanded ? "❐" : "⛶"),
+    // header — drag handle + conversation switcher
+    createElement("div", {
+      onPointerDown: startDrag, onPointerMove: onDrag, onPointerUp: endDrag, onPointerCancel: endDrag,
+      style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 10px 16px", borderBottom: "1px solid rgba(255,255,255,0.1)", cursor: expanded ? "default" : "grab", touchAction: "none", flexShrink: 0 } as React.CSSProperties,
+    },
+      createElement("span", { style: { fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" } }, "💬 Ask"),
+      login ? createElement("span", { style: { fontSize: 11, opacity: 0.6, whiteSpace: "nowrap" } }, `@${login}`) : null,
+      convs.length > 0
+        ? createElement("select", {
+            value: activeId,
+            onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
+              setActiveId(e.target.value);
+              persist(loginRef.current, convs, e.target.value);
+            },
+            style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.08)", color: "white", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 7, padding: "3px 6px", fontSize: 12 } as React.CSSProperties,
+          }, ...convs.slice().reverse().map((c) =>
+            createElement("option", { key: c.id, value: c.id, style: { color: "#111" } },
+              c.title.length > 46 ? c.title.slice(0, 46) + "…" : c.title)))
+        : createElement("span", { style: { flex: 1 } }),
+      createElement("button", {
+        type: "button", title: "New chat",
+        onClick: () => {
+          const c = newConv();
+          setConvs((list) => { const next = [...list, c]; persist(loginRef.current, next, c.id); return next; });
+          setActiveId(c.id);
+        },
+        style: { background: "transparent", border: "1px solid rgba(255,255,255,0.25)", color: "rgba(255,255,255,0.8)", cursor: "pointer", fontSize: 12, borderRadius: 7, padding: "2px 8px", whiteSpace: "nowrap" },
+      }, "＋ New"),
+      createElement("button", { type: "button", onClick: () => setExpanded((v) => !v), "aria-label": expanded ? "Shrink" : "Expand", title: expanded ? "Back to the window" : "Expand", style: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 4px" } }, expanded ? "❐" : "⛶"),
       createElement("button", { type: "button", onClick: onClose, "aria-label": "Close", style: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 22, lineHeight: 1 } }, "×"),
     ),
     // message list
     createElement("div", { ref: bodyRef, style: { flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 12 } as React.CSSProperties },
-      messages.length === 0
+      !active || active.messages.length === 0
         ? createElement("div", { style: { opacity: 0.6, fontSize: 12.5, lineHeight: 1.6, maxWidth: 620 } },
             "Ask about the ScreenMe code, a QA finding, or a REQ decision. I can read the repo, record a decision, or open a PR (attributed to you). ",
-            "e.g. ", createElement("em", null, "“why did develop remove the shipped order status?”"), " or ",
-            createElement("em", null, "“for REQ-033, keep shipped removed — record that.”"))
-        : messages.map((m) =>
-            createElement("div", { key: m.id, style: { alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%" } as React.CSSProperties },
+            "e.g. ", createElement("em", null, "\u201cwhy did develop remove the shipped order status?\u201d"), " or ",
+            createElement("em", null, "\u201cfor REQ-033, keep shipped removed \u2014 record that.\u201d"))
+        : active.messages.map((m) =>
+            createElement("div", { key: m.id, style: { alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "86%" } as React.CSSProperties },
               m.role === "assistant" && m.text
                 ? createElement("div", {
                     className: "sc-ask-md",
@@ -3272,21 +3416,28 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
                       border: "1px solid " + (m.role === "user" ? "rgba(255,107,107,0.4)" : "rgba(255,255,255,0.12)"),
                       borderRadius: 12, padding: "9px 13px", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.55,
                     } as React.CSSProperties,
-                  }, m.text || (busy && m.role === "assistant" ? "…" : "")),
-              m.tools.length > 0
-                ? createElement("div", { style: { fontSize: 10.5, opacity: 0.55, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 } as React.CSSProperties },
-                    m.tools.map((t, i) => createElement("span", { key: i }, t.startsWith("branch ") ? `🔀 ${t}` : `🔧 ${t}`)))
-                : null,
+                  }, m.text || (busy && m.role === "assistant" ? "\u2026" : "")),
+              createElement("div", { style: { fontSize: 10.5, opacity: 0.55, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" } as React.CSSProperties },
+                m.role === "assistant" && m.text
+                  ? createElement("button", {
+                      type: "button",
+                      title: "Copy this response",
+                      onClick: () => copyMessage(m),
+                      style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: copiedId === m.id ? "#7ee2a8" : "rgba(255,255,255,0.65)", cursor: "pointer", fontSize: 10.5, borderRadius: 6, padding: "1px 7px" },
+                    }, copiedId === m.id ? "\u2713 copied" : "\u29c9 copy")
+                  : null,
+                ...m.tools.map((t, i) => createElement("span", { key: i }, t.startsWith("branch ") ? `\ud83d\udd00 ${t}` : `\ud83d\udd27 ${t}`)),
+              ),
             )),
     ),
-    error ? createElement("div", { style: { padding: "8px 16px", color: "#ffb4b4", fontSize: 12, borderTop: "1px solid rgba(255,107,107,0.3)" } as React.CSSProperties }, error) : null,
+    error ? createElement("div", { style: { padding: "8px 16px", color: "#ffb4b4", fontSize: 12, borderTop: "1px solid rgba(255,107,107,0.3)", flexShrink: 0 } as React.CSSProperties }, error) : null,
     // composer
-    createElement("div", { style: { display: "flex", gap: 8, padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.1)" } as React.CSSProperties },
+    createElement("div", { style: { display: "flex", gap: 8, padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.1)", flexShrink: 0 } as React.CSSProperties },
       createElement("textarea", {
         value: input,
         onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value),
         onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } },
-        placeholder: identity ? "Ask anything about ScreenMe… (Enter to send, Shift+Enter for newline)" : "Sign in with GitHub to chat",
+        placeholder: getTokenSafe(getToken) ? "Ask anything about ScreenMe\u2026 (Enter to send, Shift+Enter for newline)" : "Sign in with GitHub to chat",
         disabled: busy,
         rows: 2,
         style: { flex: 1, resize: "none", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "white", padding: "9px 12px", font: "inherit", fontSize: 13 } as React.CSSProperties,
@@ -3294,9 +3445,14 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
       createElement("button", {
         type: "button", onClick: () => void send(), disabled: busy || !input.trim(),
         style: { alignSelf: "stretch", padding: "0 18px", borderRadius: 10, border: "none", cursor: busy || !input.trim() ? "not-allowed" : "pointer", opacity: busy || !input.trim() ? 0.5 : 1, background: "#FF6B6B", color: "white", fontWeight: 800, fontSize: 13 } as React.CSSProperties,
-      }, busy ? "…" : "Send"),
+      }, busy ? "\u2026" : "Send"),
     ),
   );
+}
+
+/** Render-safe token presence check (never throws during SSR). */
+function getTokenSafe(getToken: () => string | null): boolean {
+  try { return !!getToken(); } catch { return false; }
 }
 
 function DocsPanel(props: {
