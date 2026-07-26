@@ -227,7 +227,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
-    enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon = "✎",
+    enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon,
     onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
