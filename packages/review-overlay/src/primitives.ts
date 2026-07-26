@@ -5,6 +5,7 @@
 // on these. Nothing here knows about GitHub, PRs, stories, or agents.
 export {
   ReviewShell,
+  SlowcookMark,
   localStorageStore,
   type ReviewShellProps,
   type ReviewComment,
