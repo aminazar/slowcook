@@ -241,3 +241,51 @@ export function parseGwt(s: string): { given: string; when: string; then: string
   const clean = (x: string) => x.trim().replace(/[,;.]+$/, "");
   return { given: clean(m[1]!), when: clean(m[2]!), then: clean(m[3]!) };
 }
+
+/* ────────────────────────────── storyteller (P3): journeys → EPSS */
+
+/** Merge a walked journey's scenarios/states into an existing plan's epss[].
+ *  The MAIN walk contributes one scenario (state = the start world's given);
+ *  each BRANCH contributes a scenario whose state is the branch's `given` —
+ *  bifurcations grow EPSS naturally. Dedupes on epic+persona+scenario+state.
+ *  Pure — the caller persists the plan and regenerates the manifest. */
+export function mergeJourneyEpss(
+  plan: LcrPlan,
+  journey: {
+    id: string;
+    epic: string;
+    persona: string;
+    title: string;
+    start_world: string;
+    steps: { route: string }[];
+  },
+  branches: { id: string; given: string; entryRoute: string }[],
+): LcrPlan {
+  const key = (e: EpssScenario) => `${e.epic}::${e.persona}::${e.scenario}::${e.state}`;
+  const seen = new Set(plan.epss.map(key));
+  const add: EpssScenario[] = [];
+  const entry = journey.steps[0]?.route ?? "/";
+  const main: EpssScenario = {
+    epic: journey.epic,
+    persona: journey.persona,
+    scenario: journey.title,
+    state: `world: ${journey.start_world}`,
+    then: `journey ${journey.id} walks green`,
+    route: entry,
+    storyId: `journey:${journey.id}`,
+  };
+  if (!seen.has(key(main))) add.push(main);
+  for (const b of branches) {
+    const sc: EpssScenario = {
+      epic: journey.epic,
+      persona: journey.persona,
+      scenario: journey.title,
+      state: b.given,
+      then: `branch ${b.id} walks green`,
+      route: b.entryRoute,
+      storyId: `journey:${journey.id}`,
+    };
+    if (!seen.has(key(sc))) add.push(sc);
+  }
+  return { ...plan, epss: [...plan.epss, ...add] };
+}

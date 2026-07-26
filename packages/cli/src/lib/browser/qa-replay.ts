@@ -46,9 +46,16 @@ export function planNeed(_plan: QaPlan): DriverNeed {
 const abs = (base: string | undefined, url: string) =>
   /^[a-z]+:\/\//i.test(url) || url.startsWith("data:") ? url : `${(base ?? "").replace(/\/$/, "")}${url.startsWith("/") ? "" : "/"}${url}`;
 
+/** Optional per-step hooks — the storyteller (vibe tell) runs page gates
+ *  after each step; absent hooks change nothing. */
+export interface ReplayHooks {
+  /** Runs after a step SUCCEEDS, with the live page. Throwing fails the step. */
+  afterStep?: (i: number, step: QaStep, page: import("./driver.js").DriverPage) => Promise<void>;
+}
+
 /** Replay a plan on a driver. Stops at the first failed step (like a real test),
  *  returns a per-step trace + total wall-time. */
-export async function replayPlan(driver: BrowserDriver, plan: QaPlan): Promise<ReplayResult> {
+export async function replayPlan(driver: BrowserDriver, plan: QaPlan, hooks?: ReplayHooks): Promise<ReplayResult> {
   const t0 = Date.now();
   const steps: StepResult[] = [];
   const session = await driver.launch();
@@ -72,6 +79,7 @@ export async function replayPlan(driver: BrowserDriver, plan: QaPlan): Promise<R
             break;
           }
         }
+        if (hooks?.afterStep) await hooks.afterStep(i, s, page);
         steps.push({ i, action: s.action, ok: true });
       } catch (e) {
         ok = false; failedAt = i;

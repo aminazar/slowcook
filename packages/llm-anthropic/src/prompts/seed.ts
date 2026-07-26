@@ -72,7 +72,8 @@ Rules:
   each affordance visibly changes adaptor state, so a missing mutation is a
   broken walk. Mutations accept an optional \`at?: string\` ISO timestamp
   (the storyteller's clock) and stamp created/updated columns with it when
-  the schema has them; default to a fixed epoch, never Date.now().
+  the schema has them; default \`at ?? (globalThis as any).__slowcook?.clock ??
+  "1970-01-01T00:00:00.000Z"\` — never Date.now().
 - The interface is the contract; the const is the SQLite-backed impl. Name the
   interface DataSource so prod can implement it identically.
 - No business logic beyond what scenarios require. No random/Date.now().

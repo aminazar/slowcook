@@ -226,7 +226,8 @@ async function seedWorld(db: DB, world: string): Promise<void> {
     console.warn(\`[slowcook] world "\${world}" not found under src/lib/worlds/ — booting empty\`);
     return;
   }
-  const mod = (await loader()) as { seedWorld?: (db: DB) => Promise<void> | void };
+  const mod = (await loader()) as { seedWorld?: (db: DB) => Promise<void> | void; seedSql?: string[] };
+  if (mod.seedSql && _sqlite) for (const stmt of mod.seedSql) (_sqlite as unknown as { run(s: string): void }).run(stmt);
   await mod.seedWorld?.(db);
 }
 
@@ -257,6 +258,26 @@ export function getDb(): Promise<DB> {
           data,
           world: currentWorld(),
           snapshot: snapshotHash,
+          // the storyteller's clock (law 1): the walker advances it; the
+          // adaptor's mutations stamp rows with it (never Date.now()).
+          clock: "1970-01-01T00:00:00.000Z",
+          // dump the current state as INSERT statements — how a finished
+          // walk becomes a WORLD (a snapshot module under ./worlds/).
+          dumpSql: () => {
+            const sq = _sqlite as unknown as { exec(q: string): { columns: string[]; values: unknown[][] }[] };
+            if (!sq) return [] as string[];
+            const out: string[] = [];
+            const tables = sq.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")[0]?.values ?? [];
+            for (const [name] of tables as [string][]) {
+              const res = sq.exec(\`SELECT * FROM "\${name}"\`)[0];
+              if (!res) continue;
+              for (const row of res.values) {
+                const vals = row.map((v) => (v === null ? "NULL" : typeof v === "number" ? String(v) : \`'\${String(v).replace(/'/g, "''")}'\`)).join(", ");
+                out.push(\`INSERT INTO "\${name}" (\${res.columns.map((c) => \`"\${c}"\`).join(", ")}) VALUES (\${vals});\`);
+              }
+            }
+            return out;
+          },
         };
       }
       return db;
