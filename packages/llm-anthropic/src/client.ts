@@ -74,7 +74,11 @@ export class AnthropicClient implements LlmClient {
   private readonly client: Anthropic;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    // ANTHROPIC_AUTH_TOKEN=oauth:<token> routes through Bearer auth (the
+    // Claude Code credential path) instead of x-api-key.
+    this.client = apiKey.startsWith("oauth:")
+      ? new Anthropic({ apiKey: null as unknown as string, authToken: apiKey.slice(6), defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" } })
+      : new Anthropic({ apiKey });
   }
 
   async complete(args: LlmRequest): Promise<LlmResponse> {
