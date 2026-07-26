@@ -381,8 +381,23 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     const resolve = (target: Element | null): { el: HTMLElement; node: string; label: string } | null => {
       if (!target) return null;
       const anchored = target.closest?.(sel) as HTMLElement | null;
-      if (anchored) return { el: anchored, node: anchored.getAttribute(anchorAttribute)!, label: anchored.getAttribute(labelAttribute) || anchored.getAttribute(anchorAttribute)! };
-      if (!anchorFallback) return null;
+      const anchoredHit = anchored
+        ? { el: anchored, node: anchored.getAttribute(anchorAttribute)!, label: anchored.getAttribute(labelAttribute) || anchored.getAttribute(anchorAttribute)! }
+        : null;
+      if (!anchorFallback) return anchoredHit;
+      // 0.17.0 — PRECISION over containment (Amin: "why can't I point at
+      // internal elements?"): with the fallback on, a click INSIDE an
+      // anchored zone pins the precise element (a zone-contextualized dom:
+      // path); the zone itself only wins when you click its own chrome
+      // (header/padding). Semantic pins stay one click away — the zone
+      // header is always the zone.
+      if (anchoredHit && target !== anchoredHit.el) {
+        const box = fallbackContainer(target) as HTMLElement;
+        if (box !== anchoredHit.el && anchoredHit.el.contains(box)) {
+          return { el: box, node: `dom:${domPath(box)}`, label: `${anchoredHit.label} · ${fallbackLabel(box)}` };
+        }
+      }
+      if (anchoredHit) return anchoredHit;
       const box = fallbackContainer(target) as HTMLElement;
       return { el: box, node: `dom:${domPath(box)}`, label: fallbackLabel(box) };
     };

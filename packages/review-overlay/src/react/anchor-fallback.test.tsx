@@ -76,7 +76,7 @@ describe("anchorFallback (0.14.0)", () => {
     expect(ta).not.toBeNull(); // the composer opened — the target was never refused
   });
 
-  it("a real data-review-node ancestor still wins over the fallback", () => {
+  it("inside an anchored zone the PRECISE element wins under the fallback (0.17.0)", () => {
     const anchored = document.createElement("div");
     anchored.setAttribute("data-review-node", "known/box");
     anchored.setAttribute("data-review-label", "Known box");
