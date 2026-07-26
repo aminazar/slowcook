@@ -140,12 +140,15 @@ export function walkSteps(j: Journey, branchId: string | null): JourneyStep[] {
   const find = (steps: JourneyStep[], prefix: JourneyStep[]): JourneyStep[] | null => {
     let acc = prefix;
     for (const s of steps) {
-      acc = [...acc, s];
+      // A branch is a SIBLING of its owning step — the road forks INSTEAD of
+      // it, so the shared prefix is the steps BEFORE the fork, never the
+      // forking step itself (a guide-me walk must not procure first).
       for (const b of s.branches ?? []) {
         if (b.id === branchId) return [...acc, ...b.steps];
         const nested = find(b.steps, acc);
         if (nested) return nested;
       }
+      acc = [...acc, s];
     }
     return null;
   };
