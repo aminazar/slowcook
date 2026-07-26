@@ -253,6 +253,9 @@ export interface GitHubIssueReviewProps {
   requireTargets?: boolean;
   anchorFallback?: boolean;
   sidebarFooter?: ReactNode;
+  /** Extra pill accessory rendered BEFORE the built-in sign-in key (e.g. an
+   *  Ask-agent button). */
+  accessory?: ReactNode;
 }
 
 export function GitHubIssueReview(p: GitHubIssueReviewProps) {
@@ -330,7 +333,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       hydrate={hydrate}
       hydrateKey={p.hydrateKey}
       meta={meta}
-      accessory={<SignIn coord={coord} authBase={p.authBase} onDone={() => bump((n) => n + 1)} />}
+      accessory={<>{p.accessory}<SignIn coord={coord} authBase={p.authBase} onDone={() => bump((n) => n + 1)} /></>}
       sidebarFooter={p.sidebarFooter}
     />
   );
