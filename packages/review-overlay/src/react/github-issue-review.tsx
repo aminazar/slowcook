@@ -322,7 +322,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       toggleLabels={["Read", "Comment"]}
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
-      icon={p.icon ?? "✎"}
+      icon={p.icon}
       author={p.author ?? "Reviewer"}
       store={localStorageStore(p.storageKey ?? `${p.owner}/${p.repo}:issue-review`)}
       onComment={onComment}

@@ -123,6 +123,21 @@ export interface ReviewShellProps {
 }
 
 const DASH_CORAL = "#FF6B6B";
+
+/** The slowcook pot — the shell's default pill mark. */
+export function SlowcookMark({ size = 18 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={DASH_CORAL} aria-label="slowcook" style={{ display: "block", flexShrink: 0 }}>
+      <path d="M8 3 Q9 4 8 5.5 Q7 7 8 8.5 M12 2 Q13 3.5 12 5 Q11 6.5 12 8 M16 3 Q17 4 16 5.5 Q15 7 16 8.5"
+        stroke={DASH_CORAL} strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.85" />
+      <rect x="4" y="9.5" width="16" height="2.2" rx="1.1" />
+      <rect x="11" y="8.4" width="2" height="1.4" rx="0.4" />
+      <path d="M5 12.2 H19 V18.5 a2.5 2.5 0 0 1 -2.5 2.5 H7.5 a2.5 2.5 0 0 1 -2.5 -2.5 Z" />
+      <rect x="2" y="13.5" width="2.5" height="3" rx="0.6" />
+      <rect x="19.5" y="13.5" width="2.5" height="3" rx="0.6" />
+    </svg>
+  );
+}
 const Z = 2147483000;
 
 const attrSel = (attr: string, val: string) => `[${attr}="${val.replace(/(["\\])/g, "\\$1")}"]`;
@@ -573,7 +588,11 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             }}
           />
           <span onPointerDown={(e) => startDrag(e, pos, setPos)} title="Drag to move" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "grab", color: S.fg }}>
-            <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
+            {/* the slowcook pot is the default mark (Amin: no anonymous red
+                dot); a custom icon still gets the accent disc */}
+            {icon
+              ? <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
+              : <SlowcookMark size={18} />}
             <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>
           </span>
           {/* ONE mode button (Amin): shows the CURRENT mode, click to flip.
