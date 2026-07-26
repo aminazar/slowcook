@@ -1,4 +1,10 @@
 export { checkContrast } from "./contrast.js";
+export { checkButtonDoctrine, classifyButtonLabel } from "./button-doctrine.js";
+export type { ButtonFacts } from "./button-doctrine.js";
+export { checkVoice, classifyVoice, DEFAULT_BANNED } from "./voice.js";
+export type { VoiceOptions, VoiceFacts } from "./voice.js";
+export { checkBrandPresence, classifyBrand } from "./brand-presence.js";
+export type { BrandFacts } from "./brand-presence.js";
 export { checkTapTargets } from "./tap-targets.js";
 export { checkNoOverflow } from "./overflow.js";
 export type { GateViolation } from "./types.js";
@@ -31,4 +37,24 @@ export async function runGate1(page: Page): Promise<GateViolation[]> {
     checkNoOverflow(page),
   ]);
   return [...contrast, ...tapTargets, ...overflow];
+}
+
+/**
+ * The storyteller's per-page composite (vibe tell / vibe check hooks):
+ * doctrine + voice + brand, all driver-agnostic (string-evaluate seam).
+ * runGate1 (contrast/tap/overflow) stays Playwright-typed and separate.
+ */
+export async function runTellGates(
+  page: { evaluate<T>(expression: string): Promise<T> },
+  opts?: { voice?: import("./voice.js").VoiceOptions },
+): Promise<GateViolation[]> {
+  const { checkButtonDoctrine } = await import("./button-doctrine.js");
+  const { checkVoice } = await import("./voice.js");
+  const { checkBrandPresence } = await import("./brand-presence.js");
+  const [buttons, voice, brand] = await Promise.all([
+    checkButtonDoctrine(page),
+    checkVoice(page, opts?.voice),
+    checkBrandPresence(page),
+  ]);
+  return [...buttons, ...voice, ...brand];
 }
