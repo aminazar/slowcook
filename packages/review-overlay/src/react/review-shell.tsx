@@ -583,7 +583,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             onClick={() => setMode(mode === "read" ? "comment" : "read")}
             title={mode === "read" ? `${toggleLabels[1]} mode — C` : `${toggleLabels[0]} mode — Esc`}
             style={{
-              minWidth: `calc(${Math.max(...toggleLabels.map((l) => l.length))}ch + 22px)`,
+              width: `calc(${Math.max(...toggleLabels.map((l) => l.length))}ch + 30px)`,
               padding: "4px 10px", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
               textAlign: "center",
               border: `1px solid ${mode === "comment" ? accent : S.border}`,
