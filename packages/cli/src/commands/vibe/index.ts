@@ -708,6 +708,7 @@ export function buildSpecsDigest(cwd: string): string {
       for (const su of s.surfaces) lines.push(`  - ${su.route}${su.home ? " [home]" : ""}${su.states?.length ? ` — states: ${su.states.join(", ")}` : ""}`);
     }
     if (s.invariants?.length) lines.push("invariants:\n" + s.invariants.map((i) => `  - ${i}`).join("\n"));
+    if (s.api_contract?.length) lines.push("api_contract:\n" + s.api_contract.map((a) => `  - ${JSON.stringify(a)}`).join("\n"));
     if (s.acceptance_scenarios?.length) lines.push("scenarios:\n" + s.acceptance_scenarios.map((a) => `  - ${a}`).join("\n"));
     out.push(lines.join("\n"));
   }
@@ -748,7 +749,13 @@ async function runSeed(argv: string[]): Promise<void> {
   writeFileSync(join(libDir, "schema.ts"), schemaTs);
   writeFileSync(join(libDir, "ddl.ts"), ddlTs);
   writeFileSync(join(libDir, "db.ts"), dbBootstrapTs());
-  console.log(`vibe seed — wrote deterministic runtime: schema.ts · ddl.ts · db.ts (${plan.entities.length} tables, real sql.js)`);
+  // Worlds (storyteller stage): "empty" = schema only; "default" wraps the
+  // LCR seed. Walk-produced snapshots land beside them.
+  const worldsDir = join(libDir, "worlds");
+  mkdirSync(worldsDir, { recursive: true });
+  writeFileSync(join(worldsDir, "empty.ts"), `// @convention storyteller world — the nothing-state. Stories start here.\nimport type { DB } from "../db";\nexport async function seedWorld(_db: DB): Promise<void> { /* schema only */ }\n`);
+  writeFileSync(join(worldsDir, "default.ts"), `// @convention storyteller world — the LCR default seed, world-shaped.\nimport type { DB } from "../db";\nimport { seed } from "../seed";\nexport async function seedWorld(db: DB): Promise<void> { await seed(db); }\n`);
+  console.log(`vibe seed — wrote deterministic runtime: schema.ts · ddl.ts · db.ts · worlds/{empty,default}.ts (${plan.entities.length} tables, real sql.js)`);
 
   if (dryRun) { console.log("  [dry-run] skipping the LLM seed + adaptor passes."); return; }
 
