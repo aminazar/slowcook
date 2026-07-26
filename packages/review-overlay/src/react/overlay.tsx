@@ -3123,6 +3123,8 @@ export interface AskPanelProps {
   onSignIn: () => void;
   onSessionExpired: () => void;
   surfaceManifest?: Manifest | null;
+  /** Corner the compact window hugs (near the host pill). Default top-left. */
+  placement?: "top-left" | "bottom-left";
   onClose: () => void;
 }
 
@@ -3217,7 +3219,10 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
         // compact window under the pill's default corner; ⛶ expands full-screen
         ...(expanded
           ? { inset: 12 }
-          : { top: 100, left: 12, width: 430, maxWidth: "94vw", height: "min(560px, 78vh)" }),
+          : {
+              ...(props.placement === "bottom-left" ? { bottom: 64 } : { top: 100 }),
+              left: 12, width: 430, maxWidth: "94vw", height: "min(560px, 78vh)",
+            }),
         background: "rgba(15,15,24,0.97)", color: "white", pointerEvents: "auto",
         fontFamily: "system-ui, -apple-system, sans-serif", fontSize: 13,
         display: "flex", flexDirection: "column",
