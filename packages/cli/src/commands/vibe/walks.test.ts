@@ -118,3 +118,18 @@ it("compiles the imagination floor around an imagine-declared step", () => {
   expect(exprs.some((e) => e.includes('__sc_im = ') && e.includes("survey-reads-repo"))).toBe(true);
   expect(exprs.some((e) => e.includes('imagined("survey-reads-repo") : -1) > window.__sc_im'))).toBe(true);
 });
+
+it("never gotos a parametric route — clicks carry the story there", () => {
+  const j = {
+    id: "review", epic: "review", persona: "founder", title: "t", start_world: "w",
+    red_route_rank: 1, source: { kind: "authored" as const, ref: "x" },
+    steps: [
+      { id: "s1", text: "open", route: "/line", action: "click" as const, affordance: "open-artifact", expect: [] },
+      { id: "s2", text: "pin", route: "/order/:id", action: "click" as const, affordance: "pin-comment", expect: [] },
+    ],
+  };
+  const plan = compileWalkPlan(j as never, undefined, { diceSeed: 1, clockStart: "2026-01-01T09:00:00.000Z" });
+  const gotos = plan.plan.steps.filter((s) => s.action === "goto").map((s) => s.url ?? "");
+  expect(gotos).toHaveLength(1);
+  expect(gotos[0]).toContain("/line");
+});
