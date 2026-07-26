@@ -156,9 +156,12 @@ export function compileWalkPlan(
       // imagination floor (post): the world must have ANSWERED — the named
       // imagination appended at least one event through the adaptor.
       if (s.imagine) qa.push({ action: "assert", expr: `(window.__slowcook.imagined ? window.__slowcook.imagined(${JSON.stringify(s.imagine)}) : -1) > window.__sc_im` });
-      if (s.action !== "fill") {
+      if (s.action !== "fill" && !s.expect.some((e) => e.kind === "dom")) {
         // floor: SOMETHING must have changed in the adaptor for state-
         // changing actions (fill alone may legitimately not commit).
+        // A step whose acceptance is a DOM expectation is a NAVIGATION /
+        // unfold step — its consequence is rendered, not stored; the dom
+        // expect IS its acceptance and the state floor does not apply.
         qa.push({ action: "assert", expr: `window.__slowcook.snapshot() !== window.__sc_pre` });
       }
     } else {

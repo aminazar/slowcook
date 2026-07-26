@@ -133,3 +133,14 @@ it("never gotos a parametric route — clicks carry the story there", () => {
   expect(gotos).toHaveLength(1);
   expect(gotos[0]).toContain("/line");
 });
+
+it("skips the state floor when the step's acceptance is a DOM expectation (navigation/unfold clicks)", () => {
+  const j = {
+    id: "nav", epic: "nav", persona: "founder", title: "t", start_world: "w",
+    red_route_rank: 1, source: { kind: "authored" as const, ref: "x" },
+    steps: [{ id: "s1", text: "open the door", route: "/account", action: "click" as const, affordance: "new-project", expect: [{ kind: "dom" as const, expr: "!!document.querySelector('x')" }] }],
+  };
+  const plan = compileWalkPlan(j as never, undefined, { diceSeed: 1, clockStart: "2026-01-01T09:00:00.000Z" });
+  const exprs = plan.plan.steps.map((s) => s.expr ?? "");
+  expect(exprs.some((e) => e.includes("snapshot() !== window.__sc_pre"))).toBe(false);
+});
