@@ -50,9 +50,10 @@ const mount = (anchorFallback: boolean) => act(() => {
 });
 
 const enterCommentMode = () => act(() => {
-  // the second toggle segment is the comment mode
+  // ONE mode button now: it shows the CURRENT mode ("Read"); clicking flips
+  // it into comment mode.
   const labels = [...document.querySelectorAll("[data-review-widget] button")];
-  (labels.find((b) => b.textContent === "Comment") as HTMLButtonElement).click();
+  (labels.find((b) => b.textContent === "Read") as HTMLButtonElement).click();
 });
 
 const clickPage = (el: Element) => act(() => {

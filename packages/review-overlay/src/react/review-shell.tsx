@@ -325,12 +325,21 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [introPhase, corner]);
 
-  // Keep the pill on-screen if the window resizes smaller (0.10.1).
+  // Keep the pill on-screen when the viewport changes (0.10.1; hardened for
+  // mobile — rotation and the visual viewport (URL bar, keyboard) don't always
+  // fire window.resize, and a pill parked near an edge could end up outside
+  // the visible area).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onResize = () => setPos((p) => (p ? clampToViewport(p) : p));
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    window.visualViewport?.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+      window.visualViewport?.removeEventListener("resize", onResize);
+    };
   }, []);
 
   // Comment-mode interactions: hover-highlight a node, click to open the composer.
@@ -499,8 +508,6 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); flash(el, accent); }
   };
 
-  const seg = (active: boolean): CSSProperties => ({ padding: "3px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: active ? accent : "transparent", color: active ? "#1a1a1a" : S.fgDim });
-
   return createPortal(
     <div data-review-widget="" style={{ position: "fixed", inset: 0, zIndex: Z, pointerEvents: "none" }}>
       <style>{`@keyframes rs-working { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.55); } }`}</style>
@@ -569,10 +576,23 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
             <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>
           </span>
-          <span style={{ display: "flex", gap: 2, background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", borderRadius: 9, padding: 2 }}>
-            <button onClick={() => setMode("read")} title="Esc" style={seg(mode === "read")}>{toggleLabels[0]}</button>
-            <button onClick={() => setMode("comment")} title="C" style={seg(mode === "comment")}>{toggleLabels[1]}</button>
-          </span>
+          {/* ONE mode button (Amin): shows the CURRENT mode, click to flip.
+              Fixed width (sized to the longer label) so the pill never
+              resizes; neutral in read, accent-filled in comment. */}
+          <button
+            onClick={() => setMode(mode === "read" ? "comment" : "read")}
+            title={mode === "read" ? `${toggleLabels[1]} mode — C` : `${toggleLabels[0]} mode — Esc`}
+            style={{
+              minWidth: `calc(${Math.max(...toggleLabels.map((l) => l.length))}ch + 22px)`,
+              padding: "4px 10px", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
+              textAlign: "center",
+              border: `1px solid ${mode === "comment" ? accent : S.border}`,
+              background: mode === "comment" ? accent : (dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"),
+              color: mode === "comment" ? "#fff" : S.fgDim,
+              transition: "background .12s, color .12s, border-color .12s",
+            }}>
+            {mode === "read" ? toggleLabels[0] : toggleLabels[1]}
+          </button>
           <button onClick={() => { setListOpen((o) => !o); markSeen(unread.map((c) => c.id)); }} title={unread.length ? `${unread.length} update${unread.length > 1 ? "s" : ""} since you last looked` : `${comments.filter((c) => !isApplied(c)).length} open · ${comments.filter(isApplied).length} applied`}
             style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 12, padding: "3px 8px" }}>
             🗨 {comments.filter((c) => !isApplied(c)).length}
