@@ -251,6 +251,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [hover, setHover] = useState<{ rect: DOMRect; label: string; draft?: boolean } | null>(null);
   const [composer, setComposer] = useState<{ node: string; label: string; x: number; y: number } | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  // minimise-to-logo (Amin): grip + mark only, mark tinted accent while shrunk
+  const [minimized, setMinimized] = useState(false);
   const [, setTick] = useState(0);
   // 0.14.0 — the anchored thread popover (a marker click reopens the box at its
   // anchor instead of dumping the reviewer into the sidebar).
@@ -593,13 +595,15 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
       {/* the floating pill */}
       {pos && (
-        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", flexWrap: statusRow ? "wrap" : undefined, gap: 8, padding: "6px 8px 6px 10px", borderRadius: statusRow ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
+        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", flexDirection: "column", padding: "6px 8px 6px 10px", borderRadius: statusRow && !minimized ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
+          width: "max-content", maxWidth: "calc(100vw - 24px)",
           boxShadow: introPhase === "strike" ? `0 6px 20px rgba(0,0,0,.35), 0 0 34px 6px ${accent}88` : "0 6px 20px rgba(0,0,0,.35)",
           pointerEvents: "auto", zIndex: Z + 9, fontFamily: "system-ui, sans-serif", userSelect: "none",
           transform: introPhase === "staged" || introPhase === "strike" ? "scale(1.25)" : "scale(1)",
           transition: introPhase === "settling" ? "left .8s cubic-bezier(.22,.8,.36,1), top .8s cubic-bezier(.22,.8,.36,1), transform .8s cubic-bezier(.22,.8,.36,1), box-shadow .8s ease" : introPhase === "strike" ? "box-shadow .25s ease 1s, transform .3s cubic-bezier(.34,1.56,.64,1) 1s" : undefined,
         }} onPointerDownCapture={() => { if (introPhase !== "done") finishIntro(); }}>
           <CometSheen pillRef={pillRef} radius={999} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* The overlay pill's dot-grip, ported (Amin: dragging the shell on a
               phone was near-impossible — the title was the only handle). Full
               pill height, tiled dots, touchAction none so a finger drag pans
@@ -626,12 +630,24 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
           />
           <span onPointerDown={(e) => startDrag(e, pos, setPos)} title="Drag to move" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "grab", color: S.fg }}>
             {/* the slowcook pot is the default mark (Amin: no anonymous red
-                dot); a custom icon still gets the accent disc */}
-            {icon
-              ? <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
-              : <SlowcookMark size={18} />}
-            <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>
+                dot); a custom icon still gets the accent disc. Clicking the
+                mark minimises the pill to grip+logo (logo tinted accent);
+                clicking again restores — pointerdown is swallowed so the
+                toggle never starts a drag. */}
+            <span
+              role="button"
+              aria-label={minimized ? "Restore the pill" : "Minimise the pill"}
+              title={minimized ? "Restore" : "Minimise"}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setMinimized((v) => !v)}
+              style={{ cursor: "pointer", display: "flex", alignItems: "center", color: minimized ? accent : undefined }}>
+              {icon
+                ? <span style={{ width: 18, height: 18, borderRadius: 999, background: accent, color: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{icon}</span>
+                : <SlowcookMark size={18} />}
+            </span>
+            {!minimized && <span style={{ fontSize: 12.5, fontWeight: 800 }}>{title}</span>}
           </span>
+          {!minimized && <>
           {/* ONE mode button (Amin): shows the CURRENT mode, click to flip.
               Fixed width (sized to the longer label) so the pill never
               resizes; neutral in read, accent-filled in comment. */}
@@ -657,8 +673,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             )}
           </button>
           {accessory}
-          {statusRow && (
-            <div style={{ flexBasis: "100%", marginTop: 2, paddingTop: 4, borderTop: `1px solid ${S.border}`, fontSize: 10, color: S.fgDim, display: "flex", justifyContent: "center" }}>
+          </>}
+          </div>
+          {statusRow && !minimized && (
+            <div style={{ marginTop: 2, paddingTop: 4, borderTop: `1px solid ${S.border}`, fontSize: 10, color: S.fgDim, display: "flex", justifyContent: "center", minWidth: 0, overflow: "hidden" }}>
               {statusRow}
             </div>
           )}
