@@ -121,3 +121,7 @@ Per-story scenario mode stays as legacy opt-in; the whole-app LCR is the new def
 route/marker coverage (the persona-surface trace already does most of this). `plate`,
 `recon`, `brew --mode plate` migrate from `slowcook/mockup/story-<id>` per-story
 branches to the single LCR branch incrementally — tracked as follow-ups.
+
+## Next slice — RESOLVED (2026-07-26)
+
+The `vibe surfaces` pass shipped as the STORYTELLER (`vibe journeys` / `vibe tell` / `vibe check`, with `vibe surfaces` aliasing `tell --all`): journey-driven, one affordance per step, seeded by walking. Canonical design: docs/design/storyteller.md.

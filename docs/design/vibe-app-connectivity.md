@@ -71,3 +71,5 @@ is *functionally identical* to seeded, so the port is uniformity with no behavio
   adaptor with mutations) in progress (members + wallet done, rest incremental).
 - **OSS `vibe app`:** to implement per the above — chrome, nav graph, adaptor
   wiring, traversable EPSS. dash is the worked example to port from.
+
+> **Status (2026-07-26):** shipped via the storyteller (docs/design/storyteller.md) — worlds + `window.__slowcook` seam (`vibe seed`/P2), traversable journeys (`vibe tell`/P3).
