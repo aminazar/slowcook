@@ -27,4 +27,11 @@ describe("backprop claims", () => {
     expect(res.skippedDuplicates).toBe(1);
     expect(loadClaims(cwd)).toHaveLength(2);
   });
+
+  it("dedupes WITHIN a batch — one gap tripped by many journeys is one claim", async () => {
+    const res = await fileBackpropClaims(cwd, [claim("no route"), claim("no route"), claim("no route"), claim("other")]);
+    expect(res.mirrored).toBe(2);
+    expect(res.skippedDuplicates).toBe(2);
+    expect(openClaimCount(cwd)).toBe(2);
+  });
 });
