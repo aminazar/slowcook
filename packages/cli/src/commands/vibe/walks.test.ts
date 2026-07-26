@@ -106,3 +106,15 @@ describe("scoreAffordances / selectTopAffordances", () => {
     expect(top.map((t) => t.id)).toEqual(["hot"]); // ceil(3*0.2)=1
   });
 });
+
+it("compiles the imagination floor around an imagine-declared step", () => {
+  const j = {
+    id: "adopt", epic: "adopt", persona: "founder", title: "t", start_world: "empty",
+    red_route_rank: 1, source: { kind: "authored" as const, ref: "x" },
+    steps: [{ id: "s1", text: "connect", route: "/k", action: "submit" as const, affordance: "connect", input: "acme/shop", imagine: "survey-reads-repo", expect: [] }],
+  };
+  const plan = compileWalkPlan(j as never, undefined, { diceSeed: 1, clockStart: "2026-01-01T09:00:00.000Z" });
+  const exprs = plan.plan.steps.filter((s) => s.action === "assert").map((s) => s.expr ?? "");
+  expect(exprs.some((e) => e.includes('__sc_im = ') && e.includes("survey-reads-repo"))).toBe(true);
+  expect(exprs.some((e) => e.includes('imagined("survey-reads-repo") : -1) > window.__sc_im'))).toBe(true);
+});

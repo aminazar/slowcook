@@ -130,6 +130,8 @@ export function compileWalkPlan(
       qa.push({ action: "assert", expr: `!!document.querySelector(${JSON.stringify(AFF(aff))})` });
       // mere-change floor stash (law 5's backstop)
       qa.push({ action: "assert", expr: "(window.__sc_pre = window.__slowcook.snapshot()), true" });
+      // imagination floor (pre): count the imagined events already appended
+      if (s.imagine) qa.push({ action: "assert", expr: `(window.__sc_im = (window.__slowcook.imagined ? window.__slowcook.imagined(${JSON.stringify(s.imagine)}) : 0)), true` });
       if (s.action === "fill" || s.action === "submit") {
         qa.push({ action: "fill", selector: AFF(aff), value: s.input ?? "" });
         if (s.action === "submit") qa.push({ action: "click", selector: `${AFF(aff)} [type="submit"], [data-affordance="${aff}-submit"]` });
@@ -145,6 +147,9 @@ export function compileWalkPlan(
       qa.push({ action: "wait", ms: 120 });
       // law 5: acceptance-derived asserts — the SPECIFIED change
       for (const e of s.expect) qa.push({ action: "assert", expr: e.expr });
+      // imagination floor (post): the world must have ANSWERED — the named
+      // imagination appended at least one event through the adaptor.
+      if (s.imagine) qa.push({ action: "assert", expr: `(window.__slowcook.imagined ? window.__slowcook.imagined(${JSON.stringify(s.imagine)}) : -1) > window.__sc_im` });
       if (s.action !== "fill") {
         // floor: SOMETHING must have changed in the adaptor for state-
         // changing actions (fill alone may legitimately not commit).

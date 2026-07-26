@@ -45,6 +45,12 @@ const stepBase = z.object({
   input: z.string().optional(),
   /** Destructive/spend steps get a compiled confirm-step interaction. */
   destructive: z.boolean().optional(),
+  /** IMAGINATION invoked when this step crosses a boundary the mock cannot
+   *  cross for real (repo contents, agent reasoning, payments, deploys,
+   *  monitoring, other humans): the named module that appends the imagined
+   *  consequence through the adaptor. Affordances are what the user does;
+   *  imaginations are how the world answers. */
+  imagine: z.string().optional(),
   /** Acceptance-derived assertions (law 5): the state must change AS SPECIFIED. */
   expect: z.array(JourneyExpectSchema).default([]),
 });
