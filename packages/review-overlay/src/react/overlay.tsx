@@ -3395,10 +3395,7 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
     // message list
     createElement("div", { ref: bodyRef, style: { flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: 12 } as React.CSSProperties },
       !active || active.messages.length === 0
-        ? createElement("div", { style: { opacity: 0.6, fontSize: 12.5, lineHeight: 1.6, maxWidth: 620 } },
-            "Ask about the ScreenMe code, a QA finding, or a REQ decision. I can read the repo, record a decision, or open a PR (attributed to you). ",
-            "e.g. ", createElement("em", null, "\u201cwhy did develop remove the shipped order status?\u201d"), " or ",
-            createElement("em", null, "\u201cfor REQ-033, keep shipped removed \u2014 record that.\u201d"))
+        ? null
         : active.messages.map((m) =>
             createElement("div", { key: m.id, style: { alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "86%" } as React.CSSProperties },
               m.role === "assistant" && m.text
