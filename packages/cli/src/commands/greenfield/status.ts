@@ -38,6 +38,15 @@ export interface GreenfieldLcr {
   appPresent: boolean;
   /** Declared surfaces whose route resolves to a real route in the app router. */
   surfacesBuilt: number;
+  /** Storyteller stage: `.brewing/journeys.yaml` exists (`vibe journeys`). */
+  journeysCompiled: boolean;
+  /** Walk artifacts present vs walks the journeys require (`vibe tell`). */
+  journeysWalked: number;
+  journeysTotal: number;
+  /** `vibe check` report exists and had zero replay failures (null = not run). */
+  checkerPassed: boolean | null;
+  /** Open backprop claims (from the .brewing mirror). */
+  backpropOpen: number;
 }
 
 export interface GreenfieldInput {
@@ -69,15 +78,19 @@ export function computeGreenfieldStatus(input: GreenfieldInput): GreenfieldStatu
   const prdDone = prdInitiatives > 0;
   const storiesDone = specs.length > 0 && anchored === specs.length;
   const brandDone = brandPresent;
-  // The LCR is done when the app exists and every declared surface is reachable.
-  const lcrDone = lcr.surfacesDeclared > 0 && lcr.appPresent && lcr.surfacesBuilt === lcr.surfacesDeclared;
+  // The LCR is done when the app exists, every declared surface is reachable,
+  // and the storyteller stage has run its course: journeys compiled and walked,
+  // the mock-checker green, and no backprop claims left open.
+  const surfacesDone = lcr.surfacesDeclared > 0 && lcr.appPresent && lcr.surfacesBuilt === lcr.surfacesDeclared;
+  const storytellerDone = lcr.journeysCompiled && lcr.journeysWalked >= lcr.journeysTotal && lcr.checkerPassed === true && lcr.backpropOpen === 0;
+  const lcrDone = surfacesDone && storytellerDone;
   const traceDone = traceViolations === 0;
   const questionsDone = addressable === 0;
 
   const lcrDetail =
     lcr.surfacesDeclared === 0
       ? "no UI surfaces declared"
-      : `${lcr.entities} entities · schema ${lcr.schemaPresent ? "✓" : "✗"} · adaptor ${lcr.dataAdaptorPresent ? "✓" : "✗"} · app ${lcr.appPresent ? "✓" : "✗"} · ${lcr.surfacesBuilt}/${lcr.surfacesDeclared} surfaces`;
+      : `${lcr.entities} entities · schema ${lcr.schemaPresent ? "✓" : "✗"} · adaptor ${lcr.dataAdaptorPresent ? "✓" : "✗"} · app ${lcr.appPresent ? "✓" : "✗"} · ${lcr.surfacesBuilt}/${lcr.surfacesDeclared} surfaces${lcr.journeysCompiled ? ` · walks ${lcr.journeysWalked}/${lcr.journeysTotal} · check ${lcr.checkerPassed === true ? "✓" : lcr.checkerPassed === false ? "✗" : "—"}` : ""}`;
 
   const stages: GreenfieldStage[] = [
     { name: "PRD", done: prdDone, detail: `${prdInitiatives} initiative(s)` },
@@ -102,7 +115,12 @@ export function computeGreenfieldStatus(input: GreenfieldInput): GreenfieldStatu
     else if (!lcr.schemaPresent) nextAction = "Run `slowcook vibe schema` to generate the LCR data adaptor's Drizzle schema.";
     else if (!lcr.dataAdaptorPresent) nextAction = "Run `slowcook vibe seed` to build the SQLite data adaptor (seed + queries).";
     else if (!lcr.appPresent) nextAction = "Run `slowcook vibe app` to scaffold the clickable LCR (router + persona shell + pages).";
-    else nextAction = `${lcr.surfacesBuilt}/${lcr.surfacesDeclared} surfaces built — run \`slowcook vibe surfaces\` to generate the remaining pages, then \`slowcook run-mock\` to review.`;
+    else if (!lcr.journeysCompiled) nextAction = "Run `slowcook vibe journeys` to compile the storyteller's journeys artifact.";
+    else if (lcr.journeysWalked < lcr.journeysTotal) nextAction = `${lcr.journeysWalked}/${lcr.journeysTotal} walks told — run \`slowcook vibe tell\` (the storyteller builds one affordance at a time as it walks).`;
+    else if (lcr.checkerPassed === null) nextAction = "All journeys walked — run `slowcook vibe check` (top-20% replays ×3 worlds + ux-optimising).";
+    else if (lcr.checkerPassed === false) nextAction = "The mock-checker found breakage — read .brewing/journeys/check-report.json, apply/resolve, re-run `slowcook vibe check`.";
+    else if (lcr.backpropOpen > 0) nextAction = `${lcr.backpropOpen} open backprop claim(s) — resolve them upstream (prd/stories/concept/wire), then re-run the affected walks.`;
+    else nextAction = "Storyteller stage complete — run `slowcook run-mock` for the human review loop.";
   } else if (!traceDone) nextAction = "Resolve `trace check` violations (orphans / dangling refs).";
   else if (!questionsDone) nextAction = `Resolve ${addressable} addressable open question(s) before the scope is complete.`;
   else nextAction = "Scope complete ✓ — ready for backend: refine → recipe → brew → chef (data-source swap from the LCR's SQLite+ORM).";

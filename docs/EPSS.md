@@ -227,3 +227,7 @@ flow that surfaces the ≥24h-refund / <24h-charge cancellation model.)
   *variant*) is a component in one state; the tool is a navigable matrix of
   *(thing × state)* with shared naming across design + code. EPSS applies the same
   shape to the whole app. <https://storybook.js.org/docs/sharing/design-integrations>
+
+## Journeys as a scenario/state source (storyteller, 2026-07-26)
+
+Walked journeys merge into the EPSS plan: each journey contributes a scenario (state = its start world), each BIFURCATION contributes a scenario whose state is the branch's Given — the palette grows as the story forks. Machine-executability rides on DOM conventions: `data-affordance` (walkable controls), `data-price`, `data-confirm-step`, `data-doc`. See docs/design/storyteller.md.

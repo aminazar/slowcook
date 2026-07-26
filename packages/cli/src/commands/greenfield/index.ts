@@ -18,6 +18,39 @@ import { computeGreenfieldStatus, type GreenfieldSpecFact } from "./status.js";
 import { compileLcrPlan, type PlanSpecInput } from "../vibe/lcr-plan.js";
 
 /** Concrete route paths declared in a react-router file (path="..."). */
+function storytellerFacts(repoRoot: string): { journeysCompiled: boolean; journeysWalked: number; journeysTotal: number; checkerPassed: boolean | null; backpropOpen: number } {
+  const journeysPath = join(repoRoot, ".brewing/journeys.yaml");
+  const journeysCompiled = existsSync(journeysPath);
+  let journeysTotal = 0;
+  let journeysWalked = 0;
+  if (journeysCompiled) {
+    try {
+      // count walks without importing the full schema machinery: main walks +
+      // branch ids (a branch id line inside journeys.yaml's branches lists).
+      const raw = readFileSync(journeysPath, "utf8");
+      const mains = (raw.match(/^  - id: /gm) ?? []).length;
+      const branches = (raw.match(/^ {10}- id: /gm) ?? []).length;
+      journeysTotal = mains + branches;
+    } catch { /* unreadable — leave totals at 0 */ }
+    const jdir = join(repoRoot, ".brewing/journeys");
+    if (existsSync(jdir)) journeysWalked = readdirSync(jdir).filter((f) => f.endsWith(".qaplan.json")).length;
+  }
+  let checkerPassed: boolean | null = null;
+  const reportPath = join(repoRoot, ".brewing/journeys/check-report.json");
+  if (existsSync(reportPath)) {
+    try {
+      const report = JSON.parse(readFileSync(reportPath, "utf8")) as { runs?: { ok: boolean }[] };
+      checkerPassed = (report.runs ?? []).every((r) => r.ok);
+    } catch { checkerPassed = null; }
+  }
+  let backpropOpen = 0;
+  const claimsPath = join(repoRoot, ".brewing/backprop-claims.json");
+  if (existsSync(claimsPath)) {
+    try { backpropOpen = (JSON.parse(readFileSync(claimsPath, "utf8")) as { status: string }[]).filter((c) => c.status === "open").length; } catch { /* 0 */ }
+  }
+  return { journeysCompiled, journeysWalked, journeysTotal, checkerPassed, backpropOpen };
+}
+
 function readRouterPaths(file: string): string[] {
   if (!existsSync(file)) return [];
   const src = readFileSync(file, "utf8");
@@ -104,6 +137,7 @@ export async function greenfield(argv: string[], _cliVersion: string): Promise<v
       dataAdaptorPresent: existsSync(join(libDir, "db.ts")),
       appPresent,
       surfacesBuilt,
+      ...storytellerFacts(cwd),
     },
   });
 

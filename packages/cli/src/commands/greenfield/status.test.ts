@@ -9,6 +9,11 @@ const builtLcr: GreenfieldLcr = {
   dataAdaptorPresent: true,
   appPresent: true,
   surfacesBuilt: 2,
+  journeysCompiled: true,
+  journeysWalked: 3,
+  journeysTotal: 3,
+  checkerPassed: true,
+  backpropOpen: 0,
 };
 
 const base: GreenfieldInput = {
@@ -61,8 +66,17 @@ describe("computeGreenfieldStatus", () => {
     expect(noApp.nextAction).toMatch(/vibe app/);
 
     const partial = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, surfacesBuilt: 1 } });
-    expect(partial.nextAction).toMatch(/1\/2 surfaces built/);
     expect(partial.stages.find((st) => st.name === "LCR (whole-app)")!.done).toBe(false);
+
+    // the storyteller sub-ladder (2026-07-26)
+    const noJourneys = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, journeysCompiled: false, journeysWalked: 0, journeysTotal: 0, checkerPassed: null } });
+    expect(noJourneys.nextAction).toMatch(/vibe journeys/);
+    const walking = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, journeysWalked: 1, checkerPassed: null } });
+    expect(walking.nextAction).toMatch(/1\/3 walks told/);
+    const unchecked = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, checkerPassed: null } });
+    expect(unchecked.nextAction).toMatch(/vibe check/);
+    const claims = computeGreenfieldStatus({ ...base, lcr: { ...builtLcr, backpropOpen: 2 } });
+    expect(claims.nextAction).toMatch(/2 open backprop claim/);
   });
 
   it("blocks the LCR on data-model conflicts before schema-gen", () => {
