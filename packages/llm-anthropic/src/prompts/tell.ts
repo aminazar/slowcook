@@ -37,4 +37,7 @@ RULES
 
 OUTPUT: one or more <file path="..."> blocks with COMPLETE file contents
 (the page; plus queries.ts ONLY if the required mutation is missing from the
-interface — extend, never rewrite). No prose outside the blocks.`;
+interface — extend, never rewrite). No prose outside the blocks.
+## Imaginations
+Where the step crosses a boundary the mock cannot cross for real (repo contents, agent reasoning, payments, deploys, monitoring, another human acting), the step declares imagine: <id> and the canned consequence lives in ONE place: the imaginations module (imaginations/<id>), a pure function of the session input that appends events through the adaptor, each tagged so the log shows what was imagined. NEVER inline fixture content in a page or handler — user input always flows through the adaptor untouched (assert the input-echo), and everything canned is a named imagination.
+`;

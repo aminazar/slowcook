@@ -42,6 +42,7 @@ interface ConceptJourney {
     action?: string;
     input?: string;
     destructive?: boolean;
+    imagine?: string;
     expect?: { kind: string; expr: string; world_sensitive?: boolean }[];
     branches?: { id: string; given: string; steps: ConceptJourney["steps"] }[];
   }[];
@@ -115,6 +116,7 @@ export function compileFromConcept(doc: ConceptDoc, conceptRef: string): Compile
           ...(cs.affordance ? { affordance: cs.affordance } : {}),
           ...(cs.input ? { input: cs.input } : {}),
           ...(cs.destructive ? { destructive: true } : {}),
+          ...(cs.imagine ? { imagine: cs.imagine } : {}),
           expect: (cs.expect ?? []).map((e) => ({ kind: e.kind as "query" | "dom", expr: e.expr, ...(e.world_sensitive !== undefined ? { world_sensitive: e.world_sensitive } : {}) })),
           ...(cs.branches?.length
             ? { branches: cs.branches.map((b) => ({ id: b.id, given: b.given, steps: mapSteps(b.steps ?? [], `${b.id}-`) })) }
