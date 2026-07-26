@@ -340,6 +340,20 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [introPhase, corner]);
 
+  // Mount-settle clamp (devtools mobile emulation, slow URL-bar viewports):
+  // the corner position is computed from a viewport that may still be
+  // changing size, and if it settles without firing resize the pill can be
+  // born off-screen with nothing to rescue it. Re-clamp shortly after the
+  // first position lands.
+  const hasPos = pos !== null;
+  useEffect(() => {
+    if (!hasPos || typeof window === "undefined") return;
+    const t1 = setTimeout(() => setPos((p) => (p ? clampToViewport(p) : p)), 350);
+    const t2 = setTimeout(() => setPos((p) => (p ? clampToViewport(p) : p)), 1500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPos]);
+
   // Keep the pill on-screen when the viewport changes (0.10.1; hardened for
   // mobile — rotation and the visual viewport (URL bar, keyboard) don't always
   // fire window.resize, and a pill parked near an edge could end up outside
