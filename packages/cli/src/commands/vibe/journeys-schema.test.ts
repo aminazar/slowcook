@@ -47,15 +47,33 @@ describe("journeys schema", () => {
     expect(walks.map((w) => w.walkId)).toEqual([walkId("first-run", null), walkId("first-run", "empty-title")]);
   });
 
-  it("walkSteps: a branch walk shares the prefix through the branching step", () => {
+  it("walkSteps: a branch walk shares the prefix BEFORE the branching step (sibling fork)", () => {
     const steps = walkSteps(journey, "empty-title");
-    expect(steps.map((s) => s.id)).toEqual(["s1", "s2", "b1"]);
+    expect(steps.map((s) => s.id)).toEqual(["s1", "b1"]);
   });
 
   it("walkSteps: sibling branches do not pollute each other's prefixes", () => {
     const j2 = JSON.parse(JSON.stringify(journey)) as Journey;
     j2.steps[2]!.branches = [{ id: "undo", given: "the member changes their mind", steps: [{ id: "u1", text: "Restores the task", route: "/", action: "click", affordance: "undo-complete", expect: [{ kind: "dom", expr: "true" }] }] }];
-    expect(walkSteps(j2, "undo").map((s) => s.id)).toEqual(["s1", "s2", "s3", "u1"]);
-    expect(walkSteps(j2, "empty-title").map((s) => s.id)).toEqual(["s1", "s2", "b1"]);
+    expect(walkSteps(j2, "undo").map((s) => s.id)).toEqual(["s1", "s2", "u1"]);
+    expect(walkSteps(j2, "empty-title").map((s) => s.id)).toEqual(["s1", "b1"]);
   });
+});
+
+it("a branch walk excludes its owning step — the fork replaces it", () => {
+  const j = {
+    schema_version: 1 as const,
+    journeys: [{
+      id: "acquire", epic: "acquire", persona: "founder", title: "t", start_world: "w",
+      red_route_rank: 2, source: { kind: "authored" as const, ref: "x" },
+      steps: [
+        { id: "s1", text: "see the card", route: "/trust", action: "goto" as const, expect: [] },
+        { id: "s2", text: "choose procure", route: "/trust", action: "click" as const, affordance: "route-procure", expect: [],
+          branches: [{ id: "guide-me", given: "free route", steps: [{ id: "b1", text: "choose guide", route: "/trust", action: "click" as const, affordance: "route-guide", expect: [] }] }] },
+      ],
+    }],
+  };
+  const parsed = JourneysFileSchema.parse(j);
+  const steps = walkSteps(parsed.journeys[0]!, "guide-me");
+  expect(steps.map((s) => s.id)).toEqual(["s1", "b1"]);
 });
