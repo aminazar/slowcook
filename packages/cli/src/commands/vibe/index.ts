@@ -333,6 +333,9 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
   // affordance at a time, seed data by walking (the five laws).
   // `vibe surfaces` is its alias so the ladder's language stays true.
   if (argv[0] === "tell" || argv[0] === "surfaces") { const { runTell } = await import("./tell.js"); return runTell(argv.slice(1)); }
+  // `slowcook vibe check` — the MOCK-CHECKER: top-20% affordance replays ×3
+  // generated worlds + the ux-optimising pass (fewer clicks · fold defaults).
+  if (argv[0] === "check") { const { runCheck } = await import("./checker.js"); return runCheck(argv.slice(1)); }
 
   const args = parseArgs(argv);
 
