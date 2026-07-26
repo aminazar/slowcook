@@ -57,6 +57,7 @@ export async function checkVoice(page: { evaluate<T>(expression: string): Promis
     const nodes = Array.from(document.querySelectorAll('p, li, span, div, td, figcaption, label, h1, h2, h3, h4'));
     for (const el of nodes) {
       if (el.closest('[data-doc]')) continue;                 // sanctioned docs areas
+      if (el.closest('[data-review-chrome],[data-review-widget]')) continue;       // the review pill is REVIEW chrome, not product UI
       if (el.children.length > 0) continue;                   // leaf text blocks only
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;

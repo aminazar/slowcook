@@ -56,6 +56,7 @@ export async function checkButtonDoctrine(page: { evaluate<T>(expression: string
       return el.tagName.toLowerCase() + id;
     };
     return controls.filter((el) => {
+      if (el.closest('[data-review-chrome],[data-review-widget]')) return false; // the review pill is REVIEW chrome, not product UI
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') return false;
       const r = el.getBoundingClientRect();

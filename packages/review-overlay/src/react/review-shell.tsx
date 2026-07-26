@@ -92,6 +92,10 @@ export interface ReviewShellProps {
   /** comment persistence — inject your own; defaults to localStorage. */
   store?: CommentStore;
   accessory?: ReactNode;
+  /** 0.18.0 — a compact SECOND ROW inside the pill (small font, full width).
+   *  Keeps the main row narrow on phones; typically a clickable status that
+   *  opens a host-rendered palette (the classic pill's EPSS line). */
+  statusRow?: ReactNode;
   /** 0.12.0 — transport hook: called when a comment is posted. May return a
    *  remote id/url (e.g. a GitHub issue) merged into the stored comment. */
   onComment?: (c: ReviewComment) => void | Promise<void | { url?: string; remoteId?: string | number }>;
@@ -232,7 +236,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
-    author = "PM", accessory,
+    author = "PM", accessory, statusRow,
   } = props;
   const pillRef = useRef<HTMLDivElement | null>(null);
   const dark = usePrefersDark();
@@ -586,7 +590,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
       {/* the floating pill */}
       {pos && (
-        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 10px", borderRadius: 999, background: S.sheet, border: `1px solid ${S.border}`,
+        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", alignItems: "center", flexWrap: statusRow ? "wrap" : undefined, gap: 8, padding: "6px 8px 6px 10px", borderRadius: statusRow ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
           boxShadow: introPhase === "strike" ? `0 6px 20px rgba(0,0,0,.35), 0 0 34px 6px ${accent}88` : "0 6px 20px rgba(0,0,0,.35)",
           pointerEvents: "auto", zIndex: Z + 9, fontFamily: "system-ui, sans-serif", userSelect: "none",
           transform: introPhase === "staged" || introPhase === "strike" ? "scale(1.25)" : "scale(1)",
@@ -650,6 +654,11 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             )}
           </button>
           {accessory}
+          {statusRow && (
+            <div style={{ flexBasis: "100%", marginTop: 2, paddingTop: 4, borderTop: `1px solid ${S.border}`, fontSize: 10, color: S.fgDim, display: "flex", justifyContent: "center" }}>
+              {statusRow}
+            </div>
+          )}
         </div>
       )}
 
