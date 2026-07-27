@@ -488,18 +488,24 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       pressStart = null;
     };
     const move = (e: PointerEvent) => {
-      if (e.pointerType === "touch") {
-        // scrolling cancels the press and clears any lit component
-        if (pressStart && (Math.abs(e.clientX - pressStart.x) > 10 || Math.abs(e.clientY - pressStart.y) > 10)) { cancelPress(); setHover(null); }
-        return; // touch never hover-highlights from movement
+      if (pressStart && (Math.abs(e.clientX - pressStart.x) > 10 || Math.abs(e.clientY - pressStart.y) > 10)) {
+        cancelPress();
+        if (e.pointerType === "touch") setHover(null);
+        setPagePress(false);
       }
+      if (e.pointerType === "touch") return; // touch never hover-highlights from movement
       if (isSelf(e.target as Element)) { setHover(null); return; }
       const t = resolve(e.target as Element);
       setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
     };
     const down = (e: PointerEvent) => {
-      if (e.pointerType !== "touch") return; // desktop keeps its hover
       if (isSelf(e.target as Element)) return;
+      if (e.pointerType !== "touch") {
+        // a mouse HOLD means the same thing a thumb's hold means
+        pressStart = { x: e.clientX, y: e.clientY };
+        pageTimer = window.setTimeout(() => { pageTimer = null; setHover(null); setPagePress(true); }, 1000);
+        return;
+      }
       const target = e.target as Element;
       pressStart = { x: e.clientX, y: e.clientY };
       pressTimer = window.setTimeout(() => {
@@ -526,6 +532,13 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       e.preventDefault(); e.stopPropagation();
       setHover(null); // one highlight at a time — the composer's rect takes over
       if (pagePressRef.current) { pagePressRef.current = false; setPagePress(false); openPageComposer(); return; }
+      // THE MARGIN: what the pointer found is the page, not a thing on it —
+      // body/html/#root, or a shell container filling the viewport (every
+      // real component is smaller than the whole page).
+      const tag = t.el.tagName;
+      const r0 = t.el.getBoundingClientRect();
+      const fillsPage = r0.width >= window.innerWidth * 0.92 && r0.height >= window.innerHeight * 0.85;
+      if (tag === "BODY" || tag === "HTML" || t.el.id === "root" || fillsPage) { openPageComposer(); return; }
       setComposer({ node: t.node, label: t.label, x: e.clientX, y: e.clientY, rect: t.el.getBoundingClientRect() });
     };
     document.addEventListener("pointermove", move, true);
@@ -620,8 +633,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "c" || e.key === "C") { setMode((m) => (m === "comment" ? "read" : "comment")); }
-      // P — the whole page (this walk), from either mode
-      if (e.key === "p" || e.key === "P") { e.preventDefault(); setMode("comment"); openPageComposer(); }
+
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -753,7 +765,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             {COARSE ? (
               <>Tap a component to comment on it. Press longer (over a second) to comment on the whole page.</>
             ) : (
-              <>Click, or press <b>C</b>, to comment on the component under your pointer. <b>P</b> comments on the whole page. <b>Esc</b> goes back to read.</>
+              <>Click a component to comment on it. Hold the press, or click the page margin, to comment on the whole page. <b>Esc</b> goes back to read; <b>C</b> toggles comment mode.</>
             )}
           </span>
           <button onClick={() => { setTipSeen(true); try { localStorage.setItem("review-shell-tip-seen", "1"); } catch { /* ignore */ } }}
