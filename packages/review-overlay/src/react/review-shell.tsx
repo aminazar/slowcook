@@ -149,6 +149,24 @@ export function SlowcookMark({ size = 18 }: { size?: number }): JSX.Element {
 const Z = 2147483000;
 // iOS Safari zooms the page when a focused input's font-size is under 16px
 const IOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+// touch targets grow on coarse pointers (phones/tablets) — desktop stays compact
+const COARSE = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+// ── the status visual language (Amin's review): ONE colour system shared by
+// anchors and the sidebar. Local drafts are grey and dashed; applied is
+// green; waiting-* is amber; working SWIRLS slowly through colour (never a
+// size pulse); filed keeps the accent. Text stays theme-fg — the colour
+// rides on borders, dots, and tints, so both day and night stay readable.
+const ST_GREEN = "#2e9e5b", ST_AMBER = "#c8871f", ST_GREY = "#8a8a92";
+type StatusCue = { color: string; swirl?: boolean; dashed?: boolean; name: string };
+function statusCue(status: string | undefined, accent: string, hasRemote: boolean): StatusCue {
+  if (!hasRemote) return { color: ST_GREY, dashed: true, name: "local draft" };
+  const s = (status ?? "filed").toLowerCase();
+  if (s === "applied") return { color: ST_GREEN, name: "applied" };
+  if (s === "working") return { color: accent, swirl: true, name: "working" };
+  if (s.startsWith("waiting")) return { color: ST_AMBER, name: s };
+  if (s === "local only" || s === "not posted") return { color: ST_GREY, dashed: true, name: s };
+  return { color: accent, name: s };
+}
 
 const attrSel = (attr: string, val: string) => `[${attr}="${val.replace(/(["\\])/g, "\\$1")}"]`;
 
@@ -251,7 +269,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [mode, setMode] = useState<"read" | "comment">("read");
   const [listOpen, setListOpen] = useState(false);
   const [hover, setHover] = useState<{ rect: DOMRect; label: string; draft?: boolean } | null>(null);
-  const [composer, setComposer] = useState<{ node: string; label: string; x: number; y: number } | null>(null);
+  const [composer, setComposer] = useState<{ node: string; label: string; x: number; y: number; rect?: DOMRect } | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   // minimise-to-logo (Amin): grip + mark only, mark tinted accent while shrunk
   const [minimized, setMinimized] = useState(false);
@@ -422,7 +440,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       const t = resolve(e.target as Element);
       if (!t) return;
       e.preventDefault(); e.stopPropagation();
-      setComposer({ node: t.node, label: t.label, x: e.clientX, y: e.clientY });
+      setComposer({ node: t.node, label: t.label, x: e.clientX, y: e.clientY, rect: t.el.getBoundingClientRect() });
     };
     document.addEventListener("pointermove", move, true);
     document.addEventListener("click", click, true);
@@ -566,9 +584,13 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
   return createPortal(
     <div data-review-widget="" style={{ position: "fixed", inset: 0, zIndex: Z, pointerEvents: "none" }}>
-      <style>{`@keyframes rs-working { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.55); } }`}</style>
+      <style>{`@keyframes rs-swirl { 0% { filter: hue-rotate(0deg) saturate(1.15); } 50% { filter: hue-rotate(180deg) saturate(1.5); } 100% { filter: hue-rotate(360deg) saturate(1.15); } }`}</style>
       {introPhase === "strike" && pos && (
         <IntroMeteor target={{ x: pos.x + 125, y: pos.y + 22 }} accent={accent} />
+      )}
+      {/* the CHOSEN anchor stays highlighted while the composer is open */}
+      {composer?.rect && (
+        <div style={{ position: "fixed", left: composer.rect.left - 3, top: composer.rect.top - 3, width: composer.rect.width + 6, height: composer.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}1f`, pointerEvents: "none", zIndex: Z + 1 }} />
       )}
       {/* hover highlight (comment mode) */}
       {mode === "comment" && hover && (
@@ -588,9 +610,12 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         // machine moving right where they commented.
         const working = list.some((c) => meta?.[c.id]?.status === "working");
         if (!showApplied && !hot && !working && list.length > 0 && list.every(isApplied)) return null;
+        // the anchor's dominant cue: working > waiting > filed > draft > applied
+        const cues = list.map((c) => statusCue(meta?.[c.id]?.status, accent, typeof c.remoteId === "number"));
+        const cue = cues.find((x) => x.swirl) ?? cues.find((x) => x.color === ST_AMBER) ?? cues.find((x) => !x.dashed && x.color === accent) ?? cues.find((x) => x.dashed) ?? cues[0]!;
         return (
           <button key={m.node} onClick={() => { gotoNode(m.node); setThread(m.node); markSeen(ids); }}
-            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, background: accent, color: "#fff", border: "1.5px solid #fff", fontSize: 9.5, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${accent}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)", whiteSpace: "nowrap", animation: working ? "rs-working 1s ease-in-out infinite" : undefined }}
+            style={{ position: "fixed", left: m.x, top: m.y, transform: "translate(-50%, -50%)", minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, background: cue.color, color: "#fff", border: cue.dashed ? "1.5px dashed #fff" : "1.5px solid #fff", fontSize: 9.5, fontWeight: 800, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: hot ? `0 0 0 3px ${cue.color}66, 0 2px 6px rgba(0,0,0,.35)` : "0 2px 6px rgba(0,0,0,.35)", whiteSpace: "nowrap", animation: cue.swirl ? "rs-swirl 6s linear infinite" : undefined }}
             title={`${m.count} comment${m.count > 1 ? "s" : ""}${hot ? " · new activity" : ""} — click to open the thread`}>{m.count === 1 && typeof list[0]?.remoteId === "number" ? `#${list[0].remoteId}` : m.count}</button>
         );
       })}
@@ -698,7 +723,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
             onAddAnother={() => {
               const el = findNodeEl(thread);
               const r = el?.getBoundingClientRect();
-              setComposer({ node: thread, label: list[0]!.label, x: r ? r.left + Math.min(80, r.width / 2) : window.innerWidth / 2, y: r ? r.top + r.height / 2 : window.innerHeight / 2 });
+              setComposer({ node: thread, label: list[0]!.label, x: r ? r.left + Math.min(80, r.width / 2) : window.innerWidth / 2, y: r ? r.top + r.height / 2 : window.innerHeight / 2, rect: r ?? undefined });
               setThread(null);
             }}
             onClose={() => setThread(null)} />
@@ -789,14 +814,14 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
           <textarea ref={taRef} value={text} rows={1} placeholder="Add a comment"
             onChange={(e) => { setText(e.target.value); const t = taRef.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 140)}px`; } }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim()) submit(text); } }}
-            style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: "7px 58px 7px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 140, display: "block" }} />
-          <div style={{ position: "absolute", right: 6, bottom: 5, display: "flex", gap: 4 }}>
+            style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: COARSE ? "9px 96px 9px 12px" : "7px 58px 7px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 140, display: "block" }} />
+          <div style={{ position: "absolute", right: 6, bottom: 5, display: "flex", gap: COARSE ? 14 : 4 }}>
             {text.trim() && (
               <button onClick={deleteDraft} title="Delete draft & close (click outside keeps it)"
-                style={{ width: 22, height: 22, borderRadius: 999, border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 12, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                style={{ width: COARSE ? 36 : 22, height: COARSE ? 36 : 22, borderRadius: 999, border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: COARSE ? 15 : 12, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
             )}
             <button onClick={() => submit(text)} disabled={!text.trim()} title="Comment (Enter)"
-              style={{ width: 22, height: 22, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: 12, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
+              style={{ width: COARSE ? 36 : 22, height: COARSE ? 36 : 22, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: COARSE ? 15 : 12, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
           </div>
         </div>
       </div>
@@ -900,13 +925,18 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
           <div key={c.id}
             onMouseEnter={(e) => { if (!nodeExists || nodeExists(c.node)) onHoverComment?.(c.node, (e.currentTarget as HTMLElement).getBoundingClientRect().top + 14); }}
             onMouseLeave={() => onHoverComment?.(null, 0)}
-            style={{ background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+            style={(() => { const cue = statusCue(meta?.[c.id]?.status, accent, typeof c.remoteId === "number"); return { background: "rgba(127,127,127,0.06)", border: `1px solid ${S.border}`, borderLeft: `3px ${cue.dashed ? "dashed" : "solid"} ${cue.color}`, borderRadius: 8, padding: 10, marginBottom: 8 }; })()}>
             {nodeExists && !nodeExists(c.node) ? (
               <div title="no element on the page carries this comment's anchor (removed in a later round, or filed page-level) — the thread stays active here" style={{ color: S.fgDim, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>{c.label} <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· anchorless</span></div>
             ) : (
               <button onClick={() => onGoto(c.node)} style={{ display: "block", textAlign: "left", width: "100%", background: "transparent", border: "none", cursor: "pointer", color: accent, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, padding: 0, marginBottom: 4 }}>📍 {c.label}</button>
             )}
             <div style={{ fontSize: 13, color: S.fg, lineHeight: 1.4 }}><MdLite text={c.text} /></div>
+            {c.remoteId === undefined && !meta?.[c.id]?.status && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 8px", borderRadius: 999, background: `${ST_GREY}26`, color: S.fg }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: ST_GREY }} />local draft
+              </span>
+            )}
             {(() => {
               const m = meta?.[c.id];
               if (!m && !c.url && repliesFor(c).length === 0) return null;
@@ -914,7 +944,11 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                 <div style={{ marginTop: 6 }}>
                   {(m?.status || c.url || m?.url) && (
                     <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                      {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
+                      {m?.status && (() => { const cue = statusCue(m.status, accent, typeof c.remoteId === "number"); return (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 8px", borderRadius: 999, background: `${cue.color}26`, color: S.fg }}>
+                          <span style={{ width: 7, height: 7, borderRadius: 999, background: cue.color, animation: cue.swirl ? "rs-swirl 6s linear infinite" : undefined }} />{cue.name}
+                        </span>
+                      ); })()}
                       {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
                     </div>
                   )}
@@ -931,7 +965,7 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
             {renderExtra?.(c)}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
               <span style={{ fontSize: 10.5, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
-              {c.remoteId === undefined && <button onClick={() => onDelete(c.id)} style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 11 }}>Delete</button>}
+              {c.remoteId === undefined && <button onClick={() => onDelete(c.id)} style={{ background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 11, padding: COARSE ? "8px 16px" : "2px 8px", marginLeft: COARSE ? 12 : 6 }}>Delete</button>}
             </div>
           </div>
         ))}
