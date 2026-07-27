@@ -304,7 +304,9 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [pagePress, setPagePress] = useState(false);
   const pagePressRef = useRef(false);
   useEffect(() => { pagePressRef.current = pagePress; }, [pagePress]);
-  const [tipSeen, setTipSeen] = useState(() => { try { return !!localStorage.getItem("review-shell-tip-seen"); } catch { return true; } });
+  // versioned: when the gestures change, the tip earns one more showing
+  const TIP_KEY = "review-shell-tip-seen-v2";
+  const [tipSeen, setTipSeen] = useState(() => { try { return !!localStorage.getItem(TIP_KEY); } catch { return true; } });
   // minimise-to-logo (Amin): grip + mark only, mark tinted accent while shrunk
   const [minimized, setMinimized] = useState(false);
   const [, setTick] = useState(0);
@@ -771,7 +773,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
               <>Click a component to comment on it. Hold the press, or click the page margin, to comment on the whole page. <b>Esc</b> goes back to read; <b>C</b> toggles comment mode.</>
             )}
           </span>
-          <button onClick={() => { setTipSeen(true); try { localStorage.setItem("review-shell-tip-seen", "1"); } catch { /* ignore */ } }}
+          <button onClick={() => { setTipSeen(true); try { localStorage.setItem(TIP_KEY, "1"); } catch { /* ignore */ } }}
             aria-label="got it" title="got it"
             style={{ background: accent, color: "#fff", border: "none", borderRadius: 999, padding: COARSE ? "8px 14px" : "4px 10px", fontSize: 11, fontWeight: 800, cursor: "pointer", flexShrink: 0 }}>got it</button>
         </div>
