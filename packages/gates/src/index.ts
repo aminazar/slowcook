@@ -4,6 +4,7 @@ export type { ButtonFacts } from "./button-doctrine.js";
 export { checkVoice, classifyVoice, DEFAULT_BANNED } from "./voice.js";
 export type { VoiceOptions, VoiceFacts } from "./voice.js";
 export { checkBrandPresence, classifyBrand } from "./brand-presence.js";
+export { checkMockUx, judgeMockUx, MOCK_UX_PROBE, type MockUxFacts } from "./mock-ux.js";
 export type { BrandFacts } from "./brand-presence.js";
 export { checkTapTargets } from "./tap-targets.js";
 export { checkNoOverflow } from "./overflow.js";
@@ -51,10 +52,12 @@ export async function runTellGates(
   const { checkButtonDoctrine } = await import("./button-doctrine.js");
   const { checkVoice } = await import("./voice.js");
   const { checkBrandPresence } = await import("./brand-presence.js");
-  const [buttons, voice, brand] = await Promise.all([
+  const { checkMockUx } = await import("./mock-ux.js");
+  const [buttons, voice, brand, ux] = await Promise.all([
     checkButtonDoctrine(page),
     checkVoice(page, opts?.voice),
     checkBrandPresence(page),
+    checkMockUx(page),
   ]);
-  return [...buttons, ...voice, ...brand];
+  return [...buttons, ...voice, ...brand, ...ux];
 }
