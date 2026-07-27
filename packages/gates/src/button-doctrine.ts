@@ -65,7 +65,7 @@ export async function checkButtonDoctrine(page: { evaluate<T>(expression: string
       const clone = el.cloneNode(true);
       clone.querySelectorAll('[data-price]').forEach((p) => p.remove());
       const aria = el.getAttribute('aria-label') || '';
-      const label = (clone.textContent || el.value || aria || '').trim();
+      const label = (aria || clone.textContent || el.value || '').trim();
       return { selector: sel(el), label, hasPriceTag: !!el.querySelector('[data-price]') };
     });
   })()`);
