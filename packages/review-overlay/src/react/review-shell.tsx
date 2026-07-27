@@ -675,7 +675,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", flexDirection: "column", padding: "6px 8px 6px 10px", borderRadius: statusRow && !minimized ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
           width: "max-content", maxWidth: "calc(100vw - 24px)",
           boxShadow: introPhase === "strike" ? `0 6px 20px rgba(0,0,0,.35), 0 0 34px 6px ${accent}88` : "0 6px 20px rgba(0,0,0,.35)",
-          pointerEvents: "auto", zIndex: Z + 9, fontFamily: "system-ui, sans-serif", userSelect: "none",
+          pointerEvents: "auto", zIndex: Z + 3, fontFamily: "system-ui, sans-serif", userSelect: "none",
           transform: introPhase === "staged" || introPhase === "strike" ? "scale(1.25)" : "scale(1)",
           transition: introPhase === "settling" ? "left .8s cubic-bezier(.22,.8,.36,1), top .8s cubic-bezier(.22,.8,.36,1), transform .8s cubic-bezier(.22,.8,.36,1), box-shadow .8s ease" : introPhase === "strike" ? "box-shadow .25s ease 1s, transform .3s cubic-bezier(.34,1.56,.64,1) 1s" : undefined,
         }} onPointerDownCapture={() => { if (introPhase !== "done") finishIntro(); }}>
