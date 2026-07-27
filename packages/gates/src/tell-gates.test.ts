@@ -1,3 +1,4 @@
+import { judgeMockUx } from "./index.js";
 // The storyteller gates' pure classifiers — domain-neutral fixtures with a
 // deliberately bloated button, a leaked explanation, and an off-brand page.
 import { describe, it, expect } from "vitest";
@@ -49,5 +50,35 @@ describe("brand presence", () => {
   it("fails the off-brand page and passes a tokened one", () => {
     expect(classifyBrand({ tokenCount: 0, bodyFont: "Times", distinctColors: 2 })).toHaveLength(3);
     expect(classifyBrand({ tokenCount: 14, bodyFont: '"Inter", sans-serif', distinctColors: 9 })).toEqual([]);
+  });
+});
+
+describe("mock-ux doctrine (the checkable half of the wire→mock lessons)", () => {
+  it("rejects a money range, keeps a single percentile number", () => {
+    expect(judgeMockUx({ ranges: [{ selector: "div.row", text: "est $4.10–$7.80" }], repeatedChips: [], wideText: [], proseInputs: [], orphanReplies: [] }))
+      .toHaveLength(1);
+    expect(judgeMockUx({ ranges: [], repeatedChips: [], wideText: [], proseInputs: [], orphanReplies: [] }))
+      .toHaveLength(0);
+  });
+
+  it("calls a chip repeated on every row a header in disguise", () => {
+    const v = judgeMockUx({ ranges: [], repeatedChips: [{ text: "ready", count: 4 }], wideText: [], proseInputs: [], orphanReplies: [] });
+    expect(v[0].evidence).toMatch(/header in disguise/);
+  });
+
+  it("fails full-bleed prose and single-line conversational inputs", () => {
+    const v = judgeMockUx({
+      ranges: [], repeatedChips: [],
+      wideText: [{ selector: "p", width: 1320, text: "the founder supplies upstream evidence" }],
+      proseInputs: [{ selector: "input", hint: "reply — or ask your own question" }],
+      orphanReplies: [],
+    });
+    expect(v).toHaveLength(2);
+    expect(v.map((x) => x.evidence).join(" ")).toMatch(/column.*paragraphs|paragraphs.*column/s);
+  });
+
+  it("fails a reply field with nothing to reply to", () => {
+    const v = judgeMockUx({ ranges: [], repeatedChips: [], wideText: [], proseInputs: [], orphanReplies: [{ selector: "textarea", hint: "reply" }] });
+    expect(v[0].evidence).toMatch(/nothing above to reply to/);
   });
 });
