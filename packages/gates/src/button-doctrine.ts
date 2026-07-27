@@ -1,7 +1,8 @@
 /**
  * Button doctrine (storyteller P4) — a button is a VERB:
  *  - label ≤3 words, no sentence punctuation, not empty
- *  - money never in the label text; it rides inside a `[data-price]` child
+ *  - money never INSIDE the act at all (no.615): the price rides BESIDE
+ *    the button as a `[data-price]` sibling — no est word, no per-unit suffix
  *    (the sanctioned price-tag element), which is excluded from the count
  *
  * The behavioral half (destructive actions must surface a confirm step) is
@@ -39,8 +40,11 @@ export function classifyButtonLabel(f: ButtonFacts): GateViolation[] {
   if (SENTENCE_PUNCT_RE.test(label)) {
     out.push({ gate: "button-doctrine", selector: f.selector, evidence: `label reads as a sentence ("${label.slice(0, 60)}")`, category: "content" });
   }
+  if (f.hasPriceTag) {
+    out.push({ gate: "button-doctrine", selector: f.selector, evidence: `money inside the act ("${label.slice(0, 60)}") — the price rides BESIDE the button as a [data-price] sibling, never in it (no.615)`, category: "content" });
+  }
   if (MONEY_RE.test(label)) {
-    out.push({ gate: "button-doctrine", selector: f.selector, evidence: `money in the label text ("${label.slice(0, 60)}") — price belongs in a [data-price] child`, category: "content" });
+    out.push({ gate: "button-doctrine", selector: f.selector, evidence: `money in the label text ("${label.slice(0, 60)}") — the price rides beside the button in a [data-price] sibling`, category: "content" });
   }
   return out;
 }
