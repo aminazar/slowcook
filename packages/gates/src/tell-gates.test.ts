@@ -17,8 +17,9 @@ describe("button doctrine", () => {
     expect(v.some((x) => x.evidence.includes("words"))).toBe(true);
     expect(v.some((x) => x.evidence.includes("money in the label"))).toBe(true);
   });
-  it("allows money only via the price tag (excluded from label facts)", () => {
-    expect(classifyButtonLabel(f("Top up", true))).toEqual([]);
+  it("money never rides inside the act — even via the price tag (no.615)", () => {
+    expect(classifyButtonLabel(f("Top up", true))).toHaveLength(1);
+    expect(classifyButtonLabel(f("Top up"))).toEqual([]);
     expect(classifyButtonLabel(f("Pay $5"))).toHaveLength(1);
   });
   it("fails sentences and empty labels", () => {

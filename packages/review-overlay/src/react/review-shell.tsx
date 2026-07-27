@@ -435,16 +435,25 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       const t = resolve(e.target as Element);
       setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
     };
+    // the highlight lands on PRESS (Amin, mobile): the finger sees its
+    // anchor the moment it touches, before the tap commits
+    const down = (e: PointerEvent) => {
+      if (isSelf(e.target as Element)) return;
+      const t = resolve(e.target as Element);
+      setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
+    };
     const click = (e: MouseEvent) => {
       if (isSelf(e.target as Element)) return;
       const t = resolve(e.target as Element);
       if (!t) return;
       e.preventDefault(); e.stopPropagation();
+      setHover(null); // one highlight at a time — the composer's rect takes over
       setComposer({ node: t.node, label: t.label, x: e.clientX, y: e.clientY, rect: t.el.getBoundingClientRect() });
     };
     document.addEventListener("pointermove", move, true);
+    document.addEventListener("pointerdown", down, true);
     document.addEventListener("click", click, true);
-    return () => { document.removeEventListener("pointermove", move, true); document.removeEventListener("click", click, true); };
+    return () => { document.removeEventListener("pointermove", move, true); document.removeEventListener("pointerdown", down, true); document.removeEventListener("click", click, true); };
   }, [enabled, mode, sel, anchorAttribute, labelAttribute, anchorFallback]);
 
   // Reposition markers on scroll/resize/route (interval covers SPA nav).
@@ -593,7 +602,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         <div style={{ position: "fixed", left: composer.rect.left - 3, top: composer.rect.top - 3, width: composer.rect.width + 6, height: composer.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}1f`, pointerEvents: "none", zIndex: Z + 1 }} />
       )}
       {/* hover highlight (comment mode) */}
-      {mode === "comment" && hover && (
+      {mode === "comment" && hover && !composer && (
         <div style={{ position: "fixed", left: hover.rect.left - 3, top: hover.rect.top - 3, width: hover.rect.width + 6, height: hover.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}14`, pointerEvents: "none", zIndex: Z + 1 }}>
           <span style={{ position: "absolute", top: -20, left: 0, fontSize: 10, fontWeight: 700, color: "#1a1a1a", background: accent, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>💬 {hover.label}{hover.draft ? " · ✎ draft saved" : ""}</span>
         </div>
