@@ -80,6 +80,9 @@ export interface ReviewShellProps {
   /** Extra space (px) reserved below the pill's resting spot — for hosts
    *  with their own fixed bottom chrome (tab bars, docks). Default 0. */
   bottomInset?: number;
+  /** What a WHOLE-PAGE comment is called here (dash passes the walk id).
+   *  Defaults to the document title. */
+  pageLabel?: string;
   /** The two mode labels — [browse, comment]. */
   toggleLabels?: [string, string];
   /** Attribute carrying the semantic node id (default `data-review-node`). */
@@ -255,7 +258,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon,
-    onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro,
+    onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", bottomInset = 0, toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -298,6 +301,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [pagePress, setPagePress] = useState(false);
+  const pagePressRef = useRef(false);
+  useEffect(() => { pagePressRef.current = pagePress; }, [pagePress]);
+  const [tipSeen, setTipSeen] = useState(() => { try { return !!localStorage.getItem("review-shell-tip-seen"); } catch { return true; } });
   // minimise-to-logo (Amin): grip + mark only, mark tinted accent while shrunk
   const [minimized, setMinimized] = useState(false);
   const [, setTick] = useState(0);
@@ -361,6 +368,19 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const finishIntro = () => {
     try { localStorage.setItem(introKey, String(Date.now())); } catch { /* ignore */ }
     setIntroPhase("done");
+  };
+
+  // a comment on the WHOLE PAGE (the walk): its node is the location, not
+  // an element — it has no marker, and lists in the sidebar by its label.
+  const pageNode = () => `page:${typeof location !== "undefined" ? location.pathname + location.hash : "/"}`;
+  const openPageComposer = () => {
+    setHover(null);
+    setComposer({
+      node: pageNode(),
+      label: pageLabel ?? (typeof document !== "undefined" ? document.title : "the page"),
+      x: typeof window !== "undefined" ? window.innerWidth / 2 : 0,
+      y: typeof window !== "undefined" ? Math.min(220, window.innerHeight / 3) : 0,
+    });
   };
 
   const sel = `[${anchorAttribute}]`;
@@ -460,8 +480,13 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     // touch anchoring is a PRESS gesture (Amin): a 400ms hold highlights;
     // a moving finger is a SCROLL and must never light components up.
     let pressTimer: number | null = null;
+    let pageTimer: number | null = null;
     let pressStart: { x: number; y: number } | null = null;
-    const cancelPress = () => { if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; } pressStart = null; };
+    const cancelPress = () => {
+      if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
+      if (pageTimer !== null) { clearTimeout(pageTimer); pageTimer = null; }
+      pressStart = null;
+    };
     const move = (e: PointerEvent) => {
       if (e.pointerType === "touch") {
         // scrolling cancels the press and clears any lit component
@@ -482,14 +507,25 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         const t = resolve(target);
         setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
       }, 400);
+      // held past a second: the press is about the WHOLE PAGE (the walk)
+      pageTimer = window.setTimeout(() => {
+        pageTimer = null;
+        setHover(null);
+        setPagePress(true);
+      }, 1000);
     };
-    const up = () => { if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; } pressStart = null; };
+    const up = () => {
+      if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
+      if (pageTimer !== null) { clearTimeout(pageTimer); pageTimer = null; }
+      pressStart = null;
+    };
     const click = (e: MouseEvent) => {
       if (isSelf(e.target as Element)) return;
       const t = resolve(e.target as Element);
       if (!t) return;
       e.preventDefault(); e.stopPropagation();
       setHover(null); // one highlight at a time — the composer's rect takes over
+      if (pagePressRef.current) { pagePressRef.current = false; setPagePress(false); openPageComposer(); return; }
       setComposer({ node: t.node, label: t.label, x: e.clientX, y: e.clientY, rect: t.el.getBoundingClientRect() });
     };
     document.addEventListener("pointermove", move, true);
@@ -584,6 +620,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "c" || e.key === "C") { setMode((m) => (m === "comment" ? "read" : "comment")); }
+      // P — the whole page (this walk), from either mode
+      if (e.key === "p" || e.key === "P") { e.preventDefault(); setMode("comment"); openPageComposer(); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -663,6 +701,14 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       {composer?.rect && (
         <div style={{ position: "fixed", left: composer.rect.left - 3, top: composer.rect.top - 3, width: composer.rect.width + 6, height: composer.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}1f`, pointerEvents: "none", zIndex: Z + 1 }} />
       )}
+      {/* the WHOLE-PAGE press: the viewport itself is the anchor */}
+      {pagePress && !composer && (
+        <div style={{ position: "fixed", inset: 6, border: `2px dashed ${accent}`, borderRadius: 12, background: `${accent}0d`, pointerEvents: "none", zIndex: Z + 1 }}>
+          <span style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", fontSize: 10, fontWeight: 800, color: "#1a1a1a", background: accent, borderRadius: 4, padding: "2px 8px", whiteSpace: "nowrap" }}>
+            💬 the whole page{pageLabel ? ` · ${pageLabel}` : ""}
+          </span>
+        </div>
+      )}
       {/* hover highlight (comment mode) */}
       {mode === "comment" && hover && !composer && (
         <div style={{ position: "fixed", left: hover.rect.left - 3, top: hover.rect.top - 3, width: hover.rect.width + 6, height: hover.rect.height + 6, border: `2px solid ${accent}`, borderRadius: 6, background: `${accent}14`, pointerEvents: "none", zIndex: Z + 1 }}>
@@ -680,7 +726,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         // working pulses (status 'working' via meta) — the founder sees the
         // machine moving right where they commented.
         const working = list.some((c) => meta?.[c.id]?.status === "working");
-        if (!showApplied && !hot && !working && list.length > 0 && list.every(isApplied)) return null;
+        // APPLIED IS DONE (Amin): an applied anchor leaves the page — no
+        // unread-activity exception; "show applied" in the sidebar is the
+        // only way it returns. A thread the machine is still working stays.
+        if (!showApplied && !working && list.length > 0 && list.every(isApplied)) return null;
         // the anchor's dominant cue: working > waiting > filed > draft > applied
         const cues = list.map((c) => statusCue(meta?.[c.id]?.status, accent, typeof c.remoteId === "number"));
         const cue = cues.find((x) => x.swirl) ?? cues.find((x) => x.color === ST_AMBER) ?? cues.find((x) => !x.dashed && x.color === accent) ?? cues.find((x) => x.dashed) ?? cues[0]!;
@@ -697,6 +746,21 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
           title={`draft — typed, not sent: "${d.text.slice(0, 60)}" — click to continue`}
           style={{ position: "fixed", left: d.x, top: d.y, transform: "translate(-50%, -50%)", width: 20, height: 20, borderRadius: 999, background: S.sheet, color: ST_GREY, border: `1.5px dashed ${ST_GREY}`, fontSize: 10, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}>✎</button>
       ))}
+      {/* first time in comment mode: how this works, once, per device */}
+      {mode === "comment" && !tipSeen && !composer && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: COARSE ? 96 : 84, maxWidth: "min(92vw, 420px)", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 14, boxShadow: "0 14px 40px rgba(0,0,0,.35)", padding: "10px 12px", zIndex: Z + 6, pointerEvents: "auto", fontFamily: "system-ui, sans-serif", display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <span style={{ fontSize: 12.5, lineHeight: 1.5, flex: 1 }}>
+            {COARSE ? (
+              <>Tap a component to comment on it. Press longer (over a second) to comment on the whole page.</>
+            ) : (
+              <>Click, or press <b>C</b>, to comment on the component under your pointer. <b>P</b> comments on the whole page. <b>Esc</b> goes back to read.</>
+            )}
+          </span>
+          <button onClick={() => { setTipSeen(true); try { localStorage.setItem("review-shell-tip-seen", "1"); } catch { /* ignore */ } }}
+            aria-label="got it" title="got it"
+            style={{ background: accent, color: "#fff", border: "none", borderRadius: 999, padding: COARSE ? "8px 14px" : "4px 10px", fontSize: 11, fontWeight: 800, cursor: "pointer", flexShrink: 0 }}>got it</button>
+        </div>
+      )}
       {/* the floating pill */}
       {pos && (
         <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", flexDirection: "column", padding: "6px 8px 6px 10px", borderRadius: statusRow && !minimized ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
