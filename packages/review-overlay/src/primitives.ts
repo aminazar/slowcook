@@ -14,4 +14,5 @@ export {
   type Corner,
 } from "./react/review-shell.js";
 export { usePrefersDark, detectPageDark, pillTheme, sheetTheme } from "./react/theme.js";
+export { AttachedWindow, type AttachedWindowProps } from "./react/attached-window.js";
 export { installBreadcrumbRecorder, breadcrumbs, pushBreadcrumb, clearBreadcrumbs, type Breadcrumb } from "./react/breadcrumbs.js";
