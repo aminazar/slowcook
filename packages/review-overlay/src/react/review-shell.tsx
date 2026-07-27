@@ -864,7 +864,7 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
           <textarea ref={taRef} value={text} rows={1} placeholder="Add a comment"
             onChange={(e) => { setText(e.target.value); const t = taRef.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 140)}px`; } }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim()) submit(text); } }}
-            style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: COARSE ? "9px 96px 9px 12px" : "7px 58px 7px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 140, display: "block" }} />
+            style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: COARSE ? "9px 12px 46px 12px" : "7px 12px 30px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 180, display: "block" }} />
           <div style={{ position: "absolute", right: 6, bottom: 5, display: "flex", gap: COARSE ? 14 : 4 }}>
             {text.trim() && (
               <button onClick={deleteDraft} title="Delete draft & close (click outside keeps it)"
@@ -906,7 +906,7 @@ function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetT
       <textarea ref={taRef} value={text} rows={1} placeholder="Reply"
         onChange={(e) => { setText(e.target.value); autosize(); }}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-        style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12, lineHeight: 1.5, padding: "5px 30px 5px 10px", borderRadius: 12, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 130, display: "block" }} />
+        style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12, lineHeight: 1.5, padding: COARSE ? "5px 10px 40px 10px" : "5px 10px 26px 10px", borderRadius: 12, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 160, display: "block" }} />
       <button onClick={send} disabled={!text.trim()} title="Reply (Enter)"
         style={{ position: "absolute", right: 5, bottom: 4, width: 20, height: 20, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: 11, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
     </div>
