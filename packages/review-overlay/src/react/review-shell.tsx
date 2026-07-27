@@ -780,7 +780,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       )}
       {/* the floating pill */}
       {pos && (
-        <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", flexDirection: "column", padding: "6px 8px 6px 10px", borderRadius: statusRow && !minimized ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
+        <div ref={pillRef} data-review-pill="" style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", flexDirection: "column", padding: "6px 8px 6px 10px", borderRadius: statusRow && !minimized ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
           width: "max-content", maxWidth: "calc(100vw - 24px)",
           boxShadow: introPhase === "strike" ? `0 6px 20px rgba(0,0,0,.35), 0 0 34px 6px ${accent}88` : "0 6px 20px rgba(0,0,0,.35)",
           pointerEvents: "auto", zIndex: Z + 3, fontFamily: "system-ui, sans-serif", userSelect: "none",
