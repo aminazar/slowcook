@@ -430,18 +430,33 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       const box = fallbackContainer(target) as HTMLElement;
       return { el: box, node: `dom:${domPath(box)}`, label: fallbackLabel(box) };
     };
+    // touch anchoring is a PRESS gesture (Amin): a 400ms hold highlights;
+    // a moving finger is a SCROLL and must never light components up.
+    let pressTimer: number | null = null;
+    let pressStart: { x: number; y: number } | null = null;
+    const cancelPress = () => { if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; } pressStart = null; };
     const move = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        // scrolling cancels the press and clears any lit component
+        if (pressStart && (Math.abs(e.clientX - pressStart.x) > 10 || Math.abs(e.clientY - pressStart.y) > 10)) { cancelPress(); setHover(null); }
+        return; // touch never hover-highlights from movement
+      }
       if (isSelf(e.target as Element)) { setHover(null); return; }
       const t = resolve(e.target as Element);
       setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
     };
-    // the highlight lands on PRESS (Amin, mobile): the finger sees its
-    // anchor the moment it touches, before the tap commits
     const down = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return; // desktop keeps its hover
       if (isSelf(e.target as Element)) return;
-      const t = resolve(e.target as Element);
-      setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
+      const target = e.target as Element;
+      pressStart = { x: e.clientX, y: e.clientY };
+      pressTimer = window.setTimeout(() => {
+        pressTimer = null;
+        const t = resolve(target);
+        setHover(t ? { rect: t.el.getBoundingClientRect(), label: t.label, draft: !!draftFor(t.node) } : null);
+      }, 400);
     };
+    const up = () => { if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; } pressStart = null; };
     const click = (e: MouseEvent) => {
       if (isSelf(e.target as Element)) return;
       const t = resolve(e.target as Element);
@@ -452,8 +467,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     };
     document.addEventListener("pointermove", move, true);
     document.addEventListener("pointerdown", down, true);
+    document.addEventListener("pointerup", up, true);
+    document.addEventListener("pointercancel", up, true);
     document.addEventListener("click", click, true);
-    return () => { document.removeEventListener("pointermove", move, true); document.removeEventListener("pointerdown", down, true); document.removeEventListener("click", click, true); };
+    return () => { cancelPress(); document.removeEventListener("pointermove", move, true); document.removeEventListener("pointerdown", down, true); document.removeEventListener("pointerup", up, true); document.removeEventListener("pointercancel", up, true); document.removeEventListener("click", click, true); };
   }, [enabled, mode, sel, anchorAttribute, labelAttribute, anchorFallback]);
 
   // Reposition markers on scroll/resize/route (interval covers SPA nav).
