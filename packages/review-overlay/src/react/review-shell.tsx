@@ -270,6 +270,33 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const [listOpen, setListOpen] = useState(false);
   const [hover, setHover] = useState<{ rect: DOMRect; label: string; draft?: boolean } | null>(null);
   const [composer, setComposer] = useState<{ node: string; label: string; x: number; y: number; rect?: DOMRect } | null>(null);
+  const COMPOSER_KEY = "review-shell-open-composer";
+  useEffect(() => {
+    try {
+      if (composer) sessionStorage.setItem(COMPOSER_KEY, JSON.stringify({ node: composer.node, label: composer.label }));
+      else sessionStorage.removeItem(COMPOSER_KEY);
+    } catch { /* ignore */ }
+  }, [composer]);
+  const savedComposer = useRef<{ node: string; label: string } | null>(null);
+  if (savedComposer.current === null && typeof sessionStorage !== "undefined") {
+    try { savedComposer.current = JSON.parse(sessionStorage.getItem(COMPOSER_KEY) ?? "null") ?? { node: "", label: "" }; } catch { savedComposer.current = { node: "", label: "" }; }
+  }
+  useEffect(() => {
+    const saved = savedComposer.current && savedComposer.current.node ? savedComposer.current : null;
+    if (!saved) return;
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries += 1;
+      const el = findNodeEl(saved!.node);
+      if (el) {
+        clearInterval(iv);
+        const r = el.getBoundingClientRect();
+        setComposer({ node: saved!.node, label: saved!.label, x: r.left + Math.min(80, r.width / 2), y: r.top + r.height / 2, rect: r });
+      } else if (tries > 12) clearInterval(iv); // the anchor may be gone for real
+    }, 700);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   // minimise-to-logo (Amin): grip + mark only, mark tinted accent while shrunk
   const [minimized, setMinimized] = useState(false);
