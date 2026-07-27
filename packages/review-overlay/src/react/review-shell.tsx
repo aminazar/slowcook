@@ -973,11 +973,17 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
             onChange={(e) => { setText(e.target.value); const t = taRef.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 140)}px`; } }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim()) submit(text); } }}
             style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: COARSE ? "9px 12px 46px 12px" : "7px 12px 30px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 180, display: "block" }} />
-          <div style={{ position: "absolute", right: 6, bottom: 5, display: "flex", gap: COARSE ? 14 : 4 }}>
-            {text.trim() && (
+          {/* DISCARD SITS OPPOSITE SEND (Amin): a destructive act next to the
+              primary one is a mis-tap waiting to happen — especially with a
+              thumb. Delete lives at the far left of the strip, send at the
+              far right, the field's whole width between them. */}
+          {text.trim() && (
+            <div style={{ position: "absolute", left: 8, bottom: 5 }}>
               <button onClick={deleteDraft} title="Delete draft & close (click outside keeps it)"
                 style={{ width: COARSE ? 36 : 22, height: COARSE ? 36 : 22, borderRadius: 999, border: "none", background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: COARSE ? 15 : 12, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-            )}
+            </div>
+          )}
+          <div style={{ position: "absolute", right: 6, bottom: 5 }}>
             <button onClick={() => submit(text)} disabled={!text.trim()} title="Comment (Enter)"
               style={{ width: COARSE ? 36 : 22, height: COARSE ? 36 : 22, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: COARSE ? 15 : 12, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
           </div>
