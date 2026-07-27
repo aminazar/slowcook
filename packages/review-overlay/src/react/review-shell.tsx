@@ -590,6 +590,24 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   });
   void orphanNodes; // orphans surface in the sidebar as anchorless — no extra pill chrome (Amin)
 
+  // composer DRAFTS (typed, never sent) are real work — they get their own
+  // hollow ✎ anchor and a sidebar section (Amin: drafts must be seen).
+  const draftEntries = Object.entries(loadDrafts()).filter(([, txt]) => txt.trim());
+  const sidebarDrafts = draftEntries.filter(([node]) => !node.startsWith("reply:")).map(([node, txt]) => {
+    const el = findNodeEl(node);
+    return { node, text: txt, label: byNode.get(node)?.[0]?.label ?? (el ? fallbackLabel(el) : node) };
+  });
+  const draftMarkers: { node: string; text: string; x: number; y: number; label: string }[] = [];
+  for (const [node, txt] of draftEntries) {
+    if (node.startsWith("reply:")) continue; // reply drafts live in their thread
+    if (byNode.has(node)) continue; // the node's comment marker already stands
+    const el = findNodeEl(node);
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    draftMarkers.push({ node, text: txt, x: r.right - 7, y: r.top + 7, label: fallbackLabel(el) });
+  }
+
   const addComment = (text: string) => {
     if (!composer || !text.trim()) return;
     const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now() };
@@ -646,6 +664,12 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
         );
       })}
 
+      {/* hollow ✎ anchors — composer drafts, typed but never sent */}
+      {draftMarkers.map((d) => (
+        <button key={`draft-${d.node}`} onClick={() => { gotoNode(d.node); const el = findNodeEl(d.node); const r = el?.getBoundingClientRect(); setComposer({ node: d.node, label: d.label, x: r ? r.left + Math.min(80, r.width / 2) : window.innerWidth / 2, y: r ? r.top + r.height / 2 : window.innerHeight / 2, rect: r ?? undefined }); }}
+          title={`draft — typed, not sent: "${d.text.slice(0, 60)}" — click to continue`}
+          style={{ position: "fixed", left: d.x, top: d.y, transform: "translate(-50%, -50%)", width: 20, height: 20, borderRadius: 999, background: S.sheet, color: ST_GREY, border: `1.5px dashed ${ST_GREY}`, fontSize: 10, cursor: "pointer", pointerEvents: "auto", zIndex: Z + 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}>✎</button>
+      ))}
       {/* the floating pill */}
       {pos && (
         <div ref={pillRef} style={{ position: "fixed", left: pos.x, top: pos.y, display: "flex", flexDirection: "column", padding: "6px 8px 6px 10px", borderRadius: statusRow && !minimized ? 18 : 999, background: S.sheet, border: `1px solid ${S.border}`,
@@ -781,7 +805,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       })()}
 
       {/* sidebar list */}
-      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} isApplied={isApplied} showApplied={showApplied} onToggleApplied={() => setShowApplied((v) => !v)} onHoverComment={(node, y) => setSideHover(node ? { node, y } : null)} nodeExists={(n) => !!findNodeEl(n)} />}
+      {listOpen && <Sidebar comments={comments} title={title} S={S} accent={accent} onClose={() => setListOpen(false)} drafts={sidebarDrafts} onContinueDraft={(node, label) => { setListOpen(false); gotoNode(node); const el = findNodeEl(node); const r = el?.getBoundingClientRect(); setComposer({ node, label, x: r ? r.left + Math.min(80, r.width / 2) : window.innerWidth / 2, y: r ? r.top + r.height / 2 : window.innerHeight / 2, rect: r ?? undefined }); }} onDeleteDraft={(node) => { saveDraft(node, ""); setTick((n) => n + 1); }} onDelete={(id) => persist(comments.filter((c) => c.id !== id))} onGoto={gotoNode} meta={meta} renderExtra={renderCommentExtra} footer={sidebarFooter} repliesFor={repliesFor} onReply={onReply ? addReply : undefined} isApplied={isApplied} showApplied={showApplied} onToggleApplied={() => setShowApplied((v) => !v)} onHoverComment={(node, y) => setSideHover(node ? { node, y } : null)} nodeExists={(n) => !!findNodeEl(n)} />}
     </div>,
     document.body,
   );
@@ -932,7 +956,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
   );
 }
 
-function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply, isApplied, showApplied, onToggleApplied, onHoverComment, nodeExists }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void; isApplied: (c: ReviewComment) => boolean; showApplied: boolean; onToggleApplied: () => void; onHoverComment?: (node: string | null, y: number) => void; nodeExists?: (node: string) => boolean }): JSX.Element {
+function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, renderExtra, footer, repliesFor, onReply, isApplied, showApplied, onToggleApplied, onHoverComment, nodeExists, drafts, onContinueDraft, onDeleteDraft }: { comments: ReviewComment[]; title: string; S: ReturnType<typeof sheetTheme>; accent: string; onClose: () => void; onDelete: (id: string) => void; onGoto: (node: string) => void; meta?: Record<string, ReviewCommentMeta>; renderExtra?: (c: ReviewComment) => ReactNode; footer?: ReactNode; repliesFor: (c: ReviewComment) => { author: string; text: string }[]; onReply?: (c: ReviewComment, text: string) => void; isApplied: (c: ReviewComment) => boolean; showApplied: boolean; onToggleApplied: () => void; onHoverComment?: (node: string | null, y: number) => void; nodeExists?: (node: string) => boolean; drafts?: { node: string; label: string; text: string }[]; onContinueDraft?: (node: string, label: string) => void; onDeleteDraft?: (node: string) => void }): JSX.Element {
   const open = comments.filter((c) => !isApplied(c));
   const applied = comments.filter(isApplied);
   const visible = showApplied ? [...open, ...applied] : open;
@@ -996,6 +1020,21 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
           </div>
         ))}
       </div>
+      {drafts && drafts.length > 0 && (
+        <div style={{ padding: "0 10px 8px" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, color: S.fgDim, margin: "2px 0 6px" }}>Drafts — typed, not sent</div>
+          {drafts.map((d) => (
+            <div key={d.node} style={{ background: "rgba(127,127,127,0.06)", border: `1px dashed ${ST_GREY}`, borderLeft: `3px dashed ${ST_GREY}`, borderRadius: 8, padding: 8, marginBottom: 6 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: S.fgDim, marginBottom: 3 }}>✎ {d.label}</div>
+              <div style={{ fontSize: 12, color: S.fg, fontStyle: "italic", opacity: 0.85, lineHeight: 1.4, marginBottom: 5 }}>{d.text.slice(0, 120)}{d.text.length > 120 ? "…" : ""}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => onContinueDraft?.(d.node, d.label)} style={{ background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: accent, cursor: "pointer", fontSize: 11, padding: COARSE ? "8px 16px" : "2px 8px" }}>Continue</button>
+                <button onClick={() => onDeleteDraft?.(d.node)} style={{ background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, color: S.fgDim, cursor: "pointer", fontSize: 11, padding: COARSE ? "8px 16px" : "2px 8px" }}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {applied.length > 0 && (
         <button onClick={onToggleApplied}
           style={{ margin: "0 10px 10px", padding: "7px 0", borderRadius: 8, border: `1px dashed ${S.border}`, background: "transparent", color: S.fgDim, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}>
