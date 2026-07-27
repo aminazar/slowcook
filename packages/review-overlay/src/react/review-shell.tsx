@@ -384,7 +384,10 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   };
 
   const sel = `[${anchorAttribute}]`;
-  const isSelf = (el: Element | null) => !!el?.closest?.("[data-review-widget]");
+  // the shell's own portal AND any host-declared review chrome (dash's EPSS
+  // spotlight): comment mode must never eat a click meant for the tooling
+  // that opened on top of the page.
+  const isSelf = (el: Element | null) => !!el?.closest?.("[data-review-widget],[data-review-chrome]");
 
   useEffect(() => { installBreadcrumbRecorder(); }, []);
   // Initial pill position: center-stage during the intro, else the chosen corner.
