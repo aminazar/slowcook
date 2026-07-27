@@ -67,7 +67,14 @@ export async function replayPlan(driver: BrowserDriver, plan: QaPlan, hooks?: Re
       const s = plan.steps[i]!;
       try {
         switch (s.action) {
-          case "goto": await page.goto(abs(plan.baseUrl, s.url ?? ""), { waitUntil: "load" }); break;
+          case "goto": {
+            const target = abs(plan.baseUrl, s.url ?? "");
+            // already standing there (a click navigated honestly): a same-URL
+            // goto would RELOAD and wipe the session's events — skip it.
+            if (typeof (page as { url?: () => string }).url === "function" && (page as { url: () => string }).url() === target) break;
+            await page.goto(target, { waitUntil: "load" });
+            break;
+          }
           case "click": await page.click(s.selector ?? ""); break;
           case "fill": await page.fill(s.selector ?? "", s.value ?? ""); break;
           case "wait": await page.waitFor(s.ms ?? 100); break;
