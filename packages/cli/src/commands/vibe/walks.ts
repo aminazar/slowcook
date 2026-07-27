@@ -117,6 +117,9 @@ export function compileWalkPlan(
     const url = firstGoto ? `${route}${route.includes("?") ? "&" : "?"}world=${encodeURIComponent(world)}` : route;
     firstGoto = false;
     qa.push({ action: "goto", url });
+    // hash navigation is same-document: the goto resolves before the router
+    // re-renders — settle before anything asserts (the account-money race).
+    qa.push({ action: "wait" });
     lastRoute = route;
   };
 
@@ -150,6 +153,10 @@ export function compileWalkPlan(
         qa.push({ action: "assert", expr: `!!document.querySelector(${JSON.stringify(CONFIRM)})` });
         qa.push({ action: "click", selector: CONFIRM });
       }
+      // a click may navigate (Links are honest navigation, #318) — the
+      // compiler can no longer trust its route bookkeeping; the next step
+      // re-gotos, and the replayer skips it when already there.
+      if (!s.route.includes(":")) lastRoute = "";
       qa.push({ action: "wait", ms: 120 });
       // law 5: acceptance-derived asserts — the SPECIFIED change
       for (const e of s.expect) qa.push({ action: "assert", expr: e.expr });
