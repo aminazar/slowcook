@@ -80,6 +80,10 @@ export interface ReviewShellProps {
   /** Extra space (px) reserved below the pill's resting spot — for hosts
    *  with their own fixed bottom chrome (tab bars, docks). Default 0. */
   bottomInset?: number;
+  /** Called with accumulated ACTIVE review seconds (visible + focused +
+   *  interacted within the last minute), roughly every 30s and on the way
+   *  out. Hosts persist it wherever a report can be read from any device. */
+  onActiveTime?: (seconds: number) => void;
   /** What a WHOLE-PAGE comment is called here (dash passes the walk id).
    *  Defaults to the document title. */
   pageLabel?: string;
@@ -258,7 +262,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon,
-    onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel,
+    onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel, onActiveTime,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", bottomInset = 0, toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -596,6 +600,35 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     return () => { clearTimeout(t); clearInterval(iv); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ACTIVE REVIEW TIME (Amin's screen-time report): counted here, banked by
+  // the host. A tab left open on a desk is not review; a tab being read is.
+  useEffect(() => {
+    if (!onActiveTime) return;
+    let lastTouch = Date.now();
+    let banked = 0;
+    const touch = () => { lastTouch = Date.now(); };
+    for (const ev of ["pointerdown", "keydown", "wheel", "scroll", "touchstart", "mousemove"]) {
+      window.addEventListener(ev, touch, { passive: true });
+    }
+    const TICK = 5;
+    const tick = setInterval(() => {
+      const awake = document.visibilityState === "visible" && document.hasFocus() && Date.now() - lastTouch < 60_000;
+      if (awake) banked += TICK;
+    }, TICK * 1000);
+    const flush = () => { if (banked > 0) { onActiveTime(banked); banked = 0; } };
+    const flusher = setInterval(flush, 30_000);
+    const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      flush();
+      clearInterval(tick); clearInterval(flusher);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flush);
+      for (const ev of ["pointerdown", "keydown", "wheel", "scroll", "touchstart", "mousemove"]) window.removeEventListener(ev, touch);
+    };
+  }, [onActiveTime]);
 
   // 0.14.0 — hydrate from the durable store (multi-user, cross-session).
   useEffect(() => {
