@@ -1085,7 +1085,9 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
                 <span style={{ fontSize: 10, color: S.fgDim }}>@{c.author} · {ago(c.createdAt)}</span>
                 {m?.status && <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "1px 7px", borderRadius: 999, background: m.status === "applied" ? "#1f6f3f" : "rgba(127,127,127,.2)", color: m.status === "applied" ? "#c6f0d4" : S.fgDim }}>{m.status}</span>}
-                {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
+                {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+                        style={{ fontSize: 10.5, color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", minHeight: COARSE ? 32 : 18, padding: COARSE ? "0 8px" : "0 2px", borderRadius: 8, border: COARSE ? `1px solid ${S.border}` : "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
               </div>
               {repliesFor(c).map((r, i) => (
                 <div key={i} style={{ borderLeft: `2px solid ${accent}55`, paddingLeft: 8, marginTop: 6, fontSize: 12, lineHeight: 1.45 }}>
@@ -1152,7 +1154,9 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
                           <span style={{ width: 7, height: 7, borderRadius: 999, background: cue.color, animation: cue.swirl ? "rs-swirl 6s linear infinite" : undefined }} />{cue.name}
                         </span>
                       ); })()}
-                      {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: accent, textDecoration: "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
+                      {(m?.url ?? c.url) && <a href={m?.url ?? c.url} target="_blank" rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+                        style={{ fontSize: 10.5, color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", minHeight: COARSE ? 32 : 18, padding: COARSE ? "0 8px" : "0 2px", borderRadius: 8, border: COARSE ? `1px solid ${S.border}` : "none" }}>{typeof c.remoteId === "number" ? `#${c.remoteId} ↗` : "thread ↗"}</a>}
                     </div>
                   )}
                   {repliesFor(c).map((r, i) => (
