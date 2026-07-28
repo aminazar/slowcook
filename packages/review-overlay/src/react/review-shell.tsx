@@ -1072,7 +1072,7 @@ function ThreadPopover({ label, comments, S, accent, meta, repliesFor, onReply, 
 }): JSX.Element {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", zIndex: Z + 5 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 400, maxWidth: "92vw", maxHeight: "80vh", overflow: "auto", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 9, padding: 9, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 400, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", overflowWrap: "anywhere", wordBreak: "break-word", minWidth: 0, background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 9, padding: 9, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: accent }}>📍 {label}</span>
           <button onClick={onClose} aria-label="Close thread" style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
@@ -1113,7 +1113,13 @@ function Sidebar({ comments, title, S, accent, onClose, onDelete, onGoto, meta, 
         <span style={{ fontWeight: 700 }}>{title} comments ({open.length} open{applied.length ? ` · ${applied.length} applied` : ""})</span>
         <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: S.fgDim, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
       </div>
-      <div style={{ overflow: "auto", flex: 1, padding: 10 }}>
+      <div style={{
+        overflowY: "auto", overflowX: "hidden", flex: 1, padding: 10, minWidth: 0,
+        // the page must not move when this list reaches its end
+        overscrollBehavior: "contain",
+        // long tokens wrap instead of widening the pane
+        overflowWrap: "anywhere", wordBreak: "break-word",
+      }}>
         {comments.length === 0 ? (
           <div style={{ padding: 16, opacity: 0.6, textAlign: "center", fontSize: 12 }}>No comments yet. Switch to <b style={{ color: accent }}>Comment</b> and click a labelled part of the page.</div>
         ) : visible.length === 0 ? (
