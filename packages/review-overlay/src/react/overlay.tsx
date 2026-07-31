@@ -3233,7 +3233,7 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
     });
   };
 
-  async function send() {
+  async function send(retry = 0) {
     const text = input.trim();
     if (!text || busy || !active) return;
     const token = getToken();
@@ -3268,6 +3268,21 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
           : "Your GitHub session expired — sign in again to chat.");
         if (res.status === 401) onSessionExpired();
         setBusy(false);
+        return;
+      }
+      if (res.status === 409) {
+        // The previous turn on this chat is still finishing server-side. Roll
+        // back the optimistic bubbles, keep the text, and auto-retry as it
+        // frees up — the reviewer never sees a raw error or loses their message.
+        mutateActive((c) => ({ ...c, messages: c.messages.filter((x) => x.id !== userMsg.id && x.id !== asstId) }));
+        setInput(text);
+        setBusy(false);
+        if (retry < 10) {
+          setError("Finishing your previous message — I'll send this in a moment…");
+          setTimeout(() => { void send(retry + 1); }, 4000);
+        } else {
+          setError("Still finishing your previous message — press Send again shortly.");
+        }
         return;
       }
       if (!res.ok || !res.body) { setError(`Chat backend error (${res.status}).`); setBusy(false); return; }
