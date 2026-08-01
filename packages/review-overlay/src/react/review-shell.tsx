@@ -36,7 +36,7 @@ export const localStorageStore = (key: string): CommentStore => ({
   save: (v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ } },
 });
 
-export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; url?: string; remoteId?: string | number; /** 0.23.0 — the route the pin was filed on; markers render only there (dash no.675). Absent (older pins) ⇒ everywhere. */ route?: string; }
+export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; url?: string; remoteId?: string | number; /** 0.23.0 — the route the pin was filed on; markers render only there (dash no.675). Absent (older pins) ⇒ everywhere. */ route?: string; /** 0.24.1 — the anchor's viewport rect at SUBMIT time, resolved by the shell's own anchor scheme (a11y/fallback included) — the evidence crop's target. Absent ⇒ page-level. */ rect?: { x: number; y: number; width: number; height: number }; }
 
 // 0.14.0 — drafts: text typed into a composer/reply box survives a stray
 // backdrop click (and a reload). Keyed by anchor node (composer) or
@@ -756,7 +756,14 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
   const addComment = (text: string) => {
     if (!composer || !text.trim()) return;
-    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now(), route: typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : undefined };
+    // the anchor's rect rides the comment (0.24.1): resolved HERE, by the
+    // shell's own scheme — a11y anchors and fallbacks included — at submit
+    // time, because the page may have scrolled since the pin. The turnkey's
+    // evidence crop was falling back to full-viewport on real products,
+    // where no data-review-node attribute exists for it to re-resolve.
+    const anchorEl = findNodeEl(composer.node);
+    const ar = anchorEl?.getBoundingClientRect();
+    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now(), route: typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : undefined, ...(ar && ar.width > 0 ? { rect: { x: ar.x, y: ar.y, width: ar.width, height: ar.height } } : {}) };
     persist([c, ...comments]);
     setComposer(null);
     if (onComment) {
