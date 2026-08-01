@@ -98,6 +98,31 @@ export interface ReviewCommentPayload {
   surface?: SurfaceContext | null;
   /** App language at comment time, e.g. "fa" | "en" (document.documentElement.lang). */
   lang?: string;
+  /**
+   * 0.19.0 — the EVIDENCE TAIL: the browser's last ~60s (API calls with
+   * status/timing/X-Request-Id/Server-Timing, failure bodies truncated,
+   * console errors, route changes, coarse actions). Lets an investigating
+   * agent join a pixel complaint to the dev backend's own logs by request
+   * id without a repro. Additive — older parsers ignore it.
+   */
+  evidence?: EvidenceTail;
+}
+
+export interface EvidenceTail {
+  window_ms: number;
+  entries: EvidenceEntry[];
+}
+
+export interface EvidenceEntry {
+  t: number;
+  kind: "fetch" | "error" | "route" | "mark" | "action";
+  msg: string;
+  status?: number;
+  requestId?: string;
+  ms?: number;
+  serverTiming?: string;
+  body?: string;
+  requestBody?: string;
 }
 
 export const PAYLOAD_MARKER = "slowcook:review-overlay";
@@ -196,8 +221,12 @@ function isPlateReplyPayload(v: unknown): v is PlateReplyPayload {
 
 export interface FormatArgs {
   payload: ReviewCommentPayload;
-  /** Optional inline screenshot data URL (image/png). */
+  /** Optional inline screenshot data URL (image/png or jpeg). Small crops only —
+   *  a GitHub comment body caps at ~65k chars. */
   screenshotDataUrl?: string;
+  /** 0.19.0 — the uploaded screenshot's blob URL (Contents API asset). Renders
+   *  as a link; on private repos the viewer's own session authenticates it. */
+  screenshotUrl?: string;
 }
 
 /**
@@ -205,6 +234,8 @@ export interface FormatArgs {
  * JSON is wrapped in an HTML comment with a stable marker so plate's
  * parser can locate + decode it idempotently.
  */
+const fence = (s: string): string => s.replace(/`/g, "\u0060").replace(/\n/g, " ").slice(0, 500);
+
 export function formatReviewComment(args: FormatArgs): string {
   const { payload, screenshotDataUrl } = args;
   const lines: string[] = [];
@@ -239,6 +270,34 @@ export function formatReviewComment(args: FormatArgs): string {
 
   if (screenshotDataUrl) {
     lines.push(`![screenshot](${screenshotDataUrl})`);
+    lines.push("");
+  }
+  if (args.screenshotUrl) {
+    lines.push(`📸 [screenshot — the commented element, ringed](${args.screenshotUrl})`);
+    lines.push("");
+  }
+
+  // THE EVIDENCE TAIL (0.19.0) — collapsed, human-scannable, and duplicated
+  // inside the hidden JSON so plate reads structure, not markdown.
+  if (payload.evidence && payload.evidence.entries.length) {
+    const ev = payload.evidence;
+    lines.push(`<details><summary>evidence — last ${Math.round(ev.window_ms / 1000)}s (${ev.entries.length} entries)</summary>`);
+    lines.push("");
+    for (const e of ev.entries) {
+      const at = new Date(e.t).toISOString().slice(11, 19);
+      const bits = [
+        `\`${at}\` ${e.kind === "fetch" ? "🌐" : e.kind === "error" ? "🟥" : e.kind === "action" ? "👆" : "➡️"} ${e.msg}`,
+        e.status != null ? `**${e.status}**` : "",
+        e.ms != null ? `${e.ms}ms` : "",
+        e.requestId ? `req \`${e.requestId}\`` : "",
+        e.serverTiming ? `⏱ \`${e.serverTiming}\`` : "",
+      ].filter(Boolean);
+      lines.push(`- ${bits.join(" · ")}`);
+      if (e.requestBody) lines.push(`  - req: \`${fence(e.requestBody)}\``);
+      if (e.body) lines.push(`  - res: \`${fence(e.body)}\``);
+    }
+    lines.push("");
+    lines.push("</details>");
     lines.push("");
   }
 
@@ -320,6 +379,8 @@ export interface LcrIssue {
 export function formatLcrIssue(args: {
   payload: ReviewCommentPayload;
   screenshotDataUrl?: string;
+  /** 0.19.0 — uploaded screenshot asset (Contents API blob URL). */
+  screenshotUrl?: string;
   canApply?: boolean;
 }): LcrIssue {
   const canApply = args.canApply !== false;
@@ -345,6 +406,7 @@ export function formatLcrIssue(args: {
   lines.push(`> ${payload.prose.split("\n").join("\n> ")}`);
   lines.push("");
   if (args.screenshotDataUrl) { lines.push(`![screenshot](${args.screenshotDataUrl})`); lines.push(""); }
+  if (args.screenshotUrl) { lines.push(`📸 [screenshot — the commented element, ringed](${args.screenshotUrl})`); lines.push(""); }
   lines.push(canApply
     ? `_Filed from the LCR review overlay — labelled \`${VIBE_LABEL}\` for vibe to apply to the mock._`
     : `_Filed from the LCR review overlay by a reviewer without repo write access — labelled \`${COMMUNITY_LABEL}\` and gathered for the team to review (not auto-applied)._`);

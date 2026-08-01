@@ -730,3 +730,64 @@ export async function commitDocFile(args: RepoCoord & {
   const j = (await res.json()) as { commit?: { html_url?: string; sha?: string } };
   return { ok: true, htmlUrl: j.commit?.html_url, commit: j.commit?.sha };
 }
+
+// ── review assets (0.19.0) ────────────────────────────────────────────────
+//
+// A screenshot crop that fits a comment body inline is the exception; the
+// rule is an UPLOAD. GitHub has no public API for comment attachments, so the
+// asset is COMMITTED — Contents API, documented and PAT-scoped — to a
+// dedicated `review-assets` branch (created on first use off the repo's
+// default branch). The comment links the blob URL: on a private repo the
+// viewer's own session authenticates the click-through, which an inline
+// <img> to raw.githubusercontent.com would not survive.
+
+export interface UploadAssetArgs extends RepoCoord {
+  pat: string;
+  /** e.g. "qa/2026-08-01T09-14-02-login-button.jpg" */
+  path: string;
+  /** Raw base64 (no data: prefix). */
+  contentBase64: string;
+  branch?: string; // default "review-assets"
+  apiBase?: string;
+  fetchImpl?: typeof fetch;
+}
+
+export type UploadAssetResult = { ok: true; blobUrl: string } | { ok: false; status: number; message: string };
+
+export async function uploadReviewAsset(args: UploadAssetArgs): Promise<UploadAssetResult> {
+  const apiBase = args.apiBase ?? "https://api.github.com";
+  const f = args.fetchImpl ?? globalThis.fetch;
+  const branch = args.branch ?? "review-assets";
+  const H = { Authorization: `Bearer ${args.pat}`, Accept: "application/vnd.github+json" };
+  const repo = `${apiBase}/repos/${args.owner}/${args.repo}`;
+
+  // ensure the branch exists — race-tolerant: a 422 "already exists" from a
+  // concurrent reviewer is success by another name
+  const head = await f(`${repo}/git/ref/heads/${encodeURIComponent(branch)}`, { headers: H });
+  if (head.status === 404) {
+    const def = await f(repo, { headers: H });
+    if (!def.ok) return { ok: false, status: def.status, message: `repo lookup failed` };
+    const defBranch = ((await def.json()) as { default_branch: string }).default_branch;
+    const sha = await f(`${repo}/git/ref/heads/${encodeURIComponent(defBranch)}`, { headers: H });
+    if (!sha.ok) return { ok: false, status: sha.status, message: `default branch ref failed` };
+    const obj = ((await sha.json()) as { object: { sha: string } }).object.sha;
+    const made = await f(`${repo}/git/refs`, {
+      method: "POST", headers: { ...H, "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: obj }),
+    });
+    if (!made.ok && made.status !== 422) return { ok: false, status: made.status, message: `branch create failed` };
+  } else if (!head.ok) {
+    return { ok: false, status: head.status, message: `branch lookup failed` };
+  }
+
+  const put = await f(`${repo}/contents/${args.path.split("/").map(encodeURIComponent).join("/")}`, {
+    method: "PUT", headers: { ...H, "Content-Type": "application/json" },
+    body: JSON.stringify({ message: `review asset: ${args.path}`, content: args.contentBase64, branch }),
+  });
+  if (!put.ok) {
+    let message = `upload failed`;
+    try { message = ((await put.json()) as { message?: string }).message ?? message; } catch { /* body optional */ }
+    return { ok: false, status: put.status, message };
+  }
+  return { ok: true, blobUrl: `https://github.com/${args.owner}/${args.repo}/blob/${branch}/${args.path}?raw=1` };
+}

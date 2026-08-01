@@ -6,6 +6,39 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.19.0 — review evidence: the ringed crop and the 60-second tail
+
+`@slowcook-ai/review-overlay` 0.19.0 (additive; new `evidence` prop, new payload field).
+
+Built for QA MODE ON A REAL BACKEND — the review target is a running product
+in dev mode, not a mock, so a comment must carry the conditions nobody can
+reproduce later.
+
+- **`evidence={{ screenshot, networkTail }}`** on `SlowcookReviewOverlay`
+  (or `NEXT_PUBLIC_SLOWCOOK_EVIDENCE=1` for both).
+- **Screenshot**: tab capture (`getDisplayMedia`) — pixel-perfect, no new
+  dependency; ONE share-tab prompt per review session, on the first submit;
+  declining yields comments without screenshots, never a nag. The capture is
+  a CROP around the commented element with a highlight ring and click marker
+  drawn on the pixels (whole viewport for page-level comments). Small crops
+  ride inline; larger ones are committed via the **Contents API** to a
+  `review-assets` branch and linked — on a private repo the viewer's own
+  session authenticates the click-through.
+- **Network/console tail**: the breadcrumb recorder (0.13.0) grew evidence
+  teeth — XHR beside fetch, `Server-Timing` and `X-Request-Id` captured per
+  call, unhandled rejections and window errors, a coarse ACTION trail
+  (clicks/submits by accessible name, never input values), and response +
+  request BODIES ON FAILURE ONLY, truncated to 2KB, auth headers never
+  recorded. Every comment attaches the last 60s as a collapsed `<details>`
+  block AND inside the hidden JSON payload (`payload.evidence`) for plate.
+- **The join that matters**: have the dev backend echo `X-Request-Id` and
+  emit `Server-Timing` (one middleware line each) and an investigating agent
+  goes from a pixel complaint to the exact server log lines without a repro.
+- New exports: `breadcrumbTail`, `startCaptureSession`, `cropGeometry`,
+  `uploadReviewAsset`. 12 new tests; 138 green in the package.
+
+---
+
 ## cli 0.28.1 — fix: `packages/cli` build broken by an illegal `DriverPage` cast
 
 `@slowcook-ai/cli` (bug fix; unblocks every consumer pinned to `local`).
