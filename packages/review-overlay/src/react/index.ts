@@ -6,5 +6,6 @@ export { useScenarioCommentStats, type UseScenarioCommentStatsArgs } from "./use
 export { useStoryMarker, readCurrentStory } from "./use-story-marker.js";
 export { installBreadcrumbRecorder, breadcrumbs, pushBreadcrumb, clearBreadcrumbs, type Breadcrumb } from "./breadcrumbs.js";
 export { useReviewEvidence, rectForNode, type EvidenceConfig, type GatheredEvidence } from "./use-evidence.js";
+export { AttachedWindow, type AttachedWindowProps } from "./attached-window.js";
 export { GitHubIssueReview, parseAgentReply, buildIssueBody, parseIssue, type GitHubIssueReviewProps, type IssueLike, type AgentReply } from "./github-issue-review.js";
 export { AskPanel, type AskPanelProps } from "./overlay.js";

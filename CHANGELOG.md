@@ -6,6 +6,40 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.24.0 — dash's sign-in, ported whole; the review-time panel is standard
+
+`@slowcook-ai/review-overlay` 0.24.0. Amin's correction that reframed the
+method: the pill's requirements were applied IN SESSION straight onto dash's
+code — the implementation is the requirements record, so the faithful move
+is porting the real components, not re-deriving features from comments.
+This release replaces the turnkey's hand-rolled sign-in with dash's
+`gh-auth` SignIn, adapted only at the seams:
+
+- **Centered on the pill, riding it**: the popover is `AttachedWindow` —
+  the package's own pill-window (portals to body, shares the pill's centre,
+  follows drags, escapes transformed ancestors). It existed since 0.18 and
+  the turnkey simply wasn't using it. Now exported publicly too.
+- **The device code lands on your clipboard FIRST** — the "Open
+  github.com/login/device" link stays disabled until "copied to your
+  clipboard — paste it on GitHub" confirms.
+- **Two routes, two tabs** — device code · classic token, with the token
+  tab's redirect-then-paste flow and its checking/rejected states. The tab
+  bar hides entirely when no `authBase` is configured.
+- **The review-time panel** ("signed in, the key opens your review time"):
+  today / last-7-days / daily-average, pins filed, the seven-day bar chart.
+  Fed by `screentimeBase` (dash's relay contract, counts every device) or —
+  new, standard — this browser's own bank (`bankScreentime`/`bankPin`,
+  day-bucketed in localStorage), which says honestly that it is one
+  browser's count.
+
+Per Amin's abstraction ruling, restated as the package's law: mock-context
+chrome (walk stepper, spotlight, EPSS status) never renders outside a mock
+— host accessories or manifest-gated — while the abstracted core (pill,
+sidebar, drafting, attached window, sign-in, evidence, timer) is standard
+everywhere.
+
+---
+
 ## review-overlay 0.23.1 — parity sweep 2: the rulings only the code comments held
 
 `@slowcook-ai/review-overlay` 0.23.1 (additive). The 0.23.0 audit worked
