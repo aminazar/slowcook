@@ -133,6 +133,17 @@ function makeGh(coord: RepoCoord) {
   return { gh, loadTok };
 }
 
+/** Pure popover placement (0.22.2, extracted for the environment-matrix
+ *  tests): anchored to the trigger's rect, clamped to the viewport, opening
+ *  upward when the pill sits in the lower half — the common corner. */
+export function placePopover(
+  r: { top: number; bottom: number; right: number },
+  vw: number, vh: number, W = 300,
+): { left: number; top?: number; bottom?: number } {
+  const left = Math.max(8, Math.min(r.right - W, vw - W - 8));
+  return r.top > vh / 2 ? { left, bottom: vh - r.top + 8 } : { left, top: r.bottom + 8 };
+}
+
 function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: string; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   // 0.22.2 — the popover ANCHORS TO THE PILL (it was fixed at right:16
@@ -146,10 +157,7 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) { setAnchor(null); return; }
-    const W = 300, vw = window.innerWidth, vh = window.innerHeight;
-    const left = Math.max(8, Math.min(r.right - W, vw - W - 8));
-    // open upward when the pill sits in the lower half — the common corner
-    setAnchor(r.top > vh / 2 ? { left, bottom: vh - r.top + 8 } : { left, top: r.bottom + 8 });
+    setAnchor(placePopover(r, window.innerWidth, window.innerHeight));
   };
   const C = dark
     ? { bg: "#1f1f1f", fg: "#e9e9e9", dim: "#8d8d8d", border: "#5c5c5c", inputBg: "#2b2b2b", inputBorder: "#555", btnBg: "#e9e9e9", btnFg: "#1a1a1a", shadow: "0 14px 44px rgba(0,0,0,.5)" }
