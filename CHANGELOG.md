@@ -6,7 +6,7 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## cli — fix: `packages/cli` build broken by an illegal `DriverPage` cast
+## cli 0.28.1 — fix: `packages/cli` build broken by an illegal `DriverPage` cast
 
 `@slowcook-ai/cli` (bug fix; unblocks every consumer pinned to `local`).
 
