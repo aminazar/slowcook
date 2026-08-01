@@ -1015,6 +1015,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       <style dangerouslySetInnerHTML={{ __html: SHADOW_RESET_CSS }} />
     <div
       data-slowcook-overlay-ui="1"
+      dir="ltr"
       style={{
         position: "fixed",
         inset: 0,

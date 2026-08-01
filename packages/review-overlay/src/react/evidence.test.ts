@@ -254,3 +254,39 @@ describe("sign-in popover environments", () => {
     expect(afterPalette.match(/#1f1f1f|#2b2b2b|#8d8d8d/g)).toBeNull();
   });
 });
+
+// 0.23.0 — the dash-parity sweep: page-scoped pins and the RTL-proof roots.
+describe("dash-parity sweep (0.23.0)", () => {
+  it("the issue body carries the pin's route and context, and the route survives hydration", async () => {
+    const { buildIssueBody, parseIssue } = await import("./github-issue-review.js");
+    const body = buildIssueBody(
+      { id: "c1", node: "orders/total", label: "Order total", text: "wrong", author: "A", createdAt: 1, route: "/orders" },
+      "qa — spa-patient",
+      { context: { url: "http://x/orders?id=9", viewport: "390×844", scheme: "dark" } },
+    );
+    expect(body).toContain("**Route:** `/orders`");
+    expect(body).toContain("**Viewport:** 390×844 · dark mode");
+    const back = parseIssue({ number: 3, title: "t", body, state: "open", html_url: "u", created_at: "t", user: { login: "a" }, comments: 0 });
+    expect(back?.route).toBe("/orders"); // page-scoped markers need it back
+    expect(back?.text).toBe("wrong");    // context lines never leak into prose
+  });
+
+  it("both portal roots pin dir=ltr — an RTL host page cannot mangle the chrome", async () => {
+    const { readFileSync } = await import("node:fs");
+    const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
+    expect(shell).toContain('data-review-widget="" dir="ltr"');
+    const overlay = readFileSync(new URL("./overlay.tsx", import.meta.url), "utf8");
+    const root = overlay.slice(overlay.indexOf("return createPortal("), overlay.indexOf("return createPortal(") + 400);
+    expect(root).toContain('dir="ltr"');
+    // reviewer PROSE stays dir=auto — a Farsi comment must type correctly
+    expect(shell.match(/<textarea dir="auto"/g)?.length).toBe(2);
+  });
+
+  it("a pin files with its route and the marker filter honours it", async () => {
+    const { readFileSync } = await import("node:fs");
+    const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
+    expect(shell).toContain("route: typeof location");             // recorded at file time
+    expect(shell).toContain("!c.route || c.route === herePath");   // legacy pins render everywhere
+    expect(shell).toContain("verifyRemote(c.remoteId!)");          // deleted pins get to leave
+  });
+});
