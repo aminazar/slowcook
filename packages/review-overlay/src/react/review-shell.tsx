@@ -119,6 +119,10 @@ export interface ReviewShellProps {
    *  survives new browsers/sessions and other reviewers' comments appear
    *  (multi-user review). Local comments not yet posted are preserved. */
   hydrate?: () => Promise<ReviewComment[] | null>;
+  /** 0.23.1 — routes that INHERITED another's meaning keep its pins
+   *  (dash no.675: the projects list moved off /account and every pin filed
+   *  there went dark). Map: filed-on route → routes that may show it. */
+  routeHeirs?: Record<string, string[]>;
   /** 0.23.0 — is a remote-backed comment still alive? Called only for local
    *  comments MISSING from a hydrate (GitHub's list lags). true ⇒ keep
    *  (default when absent/throws — lag-safe); false ⇒ the pin leaves, as a
@@ -267,7 +271,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon,
-    onComment, onReply, hydrate, verifyRemote, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel, onActiveTime,
+    onComment, onReply, hydrate, verifyRemote, routeHeirs, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel, onActiveTime,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", bottomInset = 0, toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -658,7 +662,19 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     };
     void pull();
     const iv = setInterval(pull, 60_000);
-    return () => { dead = true; clearInterval(iv); };
+    // coming back to the tab re-reads the board — a count is only as true as
+    // its last sync — but no more than once per 45s: focus fires on every
+    // app switch and keyboard open on a phone, and each sync walks every pin
+    let lastFocusPull = Date.now();
+    const onReturn = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFocusPull < 45_000) return;
+      lastFocusPull = Date.now();
+      void pull();
+    };
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => { dead = true; clearInterval(iv); window.removeEventListener("focus", onReturn); document.removeEventListener("visibilitychange", onReturn); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrateKey]);
 
@@ -708,8 +724,9 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   // A PIN BELONGS TO THE PAGE IT WAS FILED ON (dash no.675, 0.23.0): a node
   // id repeated across pages must not surface another page's thread here.
   const herePath = typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : "";
+  const showsPinsOf = (filedOn: string): boolean => (routeHeirs?.[filedOn] ?? [filedOn]).includes(herePath);
   byNode.forEach((all, node) => {
-    const list = all.filter((c) => !c.route || c.route === herePath);
+    const list = all.filter((c) => !c.route || showsPinsOf(c.route));
     if (!list.length) return;
     const el = findNodeEl(node);
     if (!el) { orphanNodes.push(node); return; }

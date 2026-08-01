@@ -6,6 +6,37 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.23.1 — parity sweep 2: the rulings only the code comments held
+
+`@slowcook-ai/review-overlay` 0.23.1 (additive). The 0.23.0 audit worked
+from commit titles; this pass read every ruling comment in dash's two
+harnesses verbatim. Five more lifted:
+
+- **Sync on tab return, rate-guarded** ("I see 13 open comments, why aren't
+  they picked up" — a page left open all morning showed the morning's
+  board): focus/visibility re-reads the board, but never more than once per
+  45s — focus fires on every app switch on a phone, and the unguarded
+  version tripped GitHub's secondary rate limit within minutes.
+- **A signed-out sync says so** ("13" → "57" while GitHub held ONE): the
+  sync chip now reads `signed out` instead of quietly serving the local
+  archive.
+- **Route heirs** (no.675's second half): a route that inherited another's
+  meaning keeps its pins — `routeHeirs` map on both shell and turnkey.
+- **`bottomInset` pass-through** (no.588: the pill rests ABOVE a phone
+  bottom-nav, never on it) — the shell always had it; the turnkey now
+  exposes it.
+- **Pins signed by the signed-in reviewer**: `author` defaults to the
+  sign-in identity's login, not "Reviewer".
+
+Verified equivalent, no change: three-state verifyRemote semantics (unknown
+KEEPS the pin — losing a real review is worse than showing a stale one);
+closed-issue replies fetched (done-reports live on applied threads).
+Stays host-side: walk stepper rules (goes-to-route, refuse-once-then-pass,
+ring-the-action, rewind-the-world), spotlight, HMR-aware reload, SSE push
+hydration, stage-exit approval + handoff panels.
+
+---
+
 ## review-overlay 0.23.0 — the dash-parity sweep: every pill ruling, audited and standard
 
 `@slowcook-ai/review-overlay` 0.23.0 (additive). Amin: "ALL of the dash mock

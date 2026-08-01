@@ -286,7 +286,26 @@ describe("dash-parity sweep (0.23.0)", () => {
     const { readFileSync } = await import("node:fs");
     const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
     expect(shell).toContain("route: typeof location");             // recorded at file time
-    expect(shell).toContain("!c.route || c.route === herePath");   // legacy pins render everywhere
+    expect(shell).toContain("!c.route || showsPinsOf(c.route)");   // legacy pins render everywhere; heirs honoured
     expect(shell).toContain("verifyRemote(c.remoteId!)");          // deleted pins get to leave
+  });
+});
+
+// 0.23.1 — the second parity pass: the rulings only the CODE comments held.
+describe("dash-parity sweep 2 (0.23.1)", () => {
+  it("route heirs let a moved route keep its pins; focus sync is rate-guarded", async () => {
+    const { readFileSync } = await import("node:fs");
+    const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
+    expect(shell).toContain("routeHeirs?.[filedOn] ?? [filedOn]");   // no.675, both halves
+    expect(shell).toContain('window.addEventListener("focus", onReturn)'); // sync on tab return
+    expect(shell).toContain("45_000");                                // …but never bursts GitHub
+  });
+
+  it("a signed-out sync says so instead of quietly serving the local archive", async () => {
+    const { readFileSync } = await import("node:fs");
+    const turnkey = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
+    expect(turnkey).toContain('setSyncError("signed out")');
+    expect(turnkey).toContain("bottomInset={p.bottomInset}");          // no.588 pass-through
+    expect(turnkey).toContain("loadReviewerIdentity(localStorage, coord)?.login"); // pins signed by the signed-in reviewer
   });
 });
