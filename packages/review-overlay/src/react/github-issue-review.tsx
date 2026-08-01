@@ -318,6 +318,12 @@ export interface GitHubIssueReviewProps {
    *  sync chip). The row itself is standard now: every consumer gets the ⟳
    *  sync-age/tap-to-re-read chip dash's boards proved. */
   statusExtra?: ReactNode;
+  /** 0.23.1 — lift the pill above a host bottom bar (dash no.588: the pill
+   *  rests ABOVE the phone bottom-nav, never on it). Pixels. */
+  bottomInset?: number;
+  /** 0.23.1 — routes that inherited another's meaning keep its pins
+   *  (dash no.675). Map: filed-on route → routes that may show it. */
+  routeHeirs?: Record<string, string[]>;
 }
 
 export function GitHubIssueReview(p: GitHubIssueReviewProps) {
@@ -401,7 +407,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   };
 
   const hydrate = async (): Promise<ReviewComment[] | null> => {
-    if (!loadTok()) return null;
+    if (!loadTok()) { setSyncError("signed out"); return null; }
     const r = await gh(`/repos/${p.owner}/${p.repo}/issues?labels=${encodeURIComponent(scopeLabel)}&state=all&per_page=100`).catch(() => null);
     if (!r?.ok) { setSyncError(r ? `GitHub ${r.status}` : "network error"); return null; }
     setSyncError(null); setSyncedAt(Date.now());
@@ -435,12 +441,14 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
       icon={p.icon}
-      author={p.author ?? "Reviewer"}
+      author={p.author ?? (() => { try { return loadReviewerIdentity(localStorage, coord)?.login ?? "Reviewer"; } catch { return "Reviewer"; } })()}
       store={localStorageStore(p.storageKey ?? `${p.owner}/${p.repo}:issue-review`)}
       onComment={onComment}
       onReply={onReply}
       hydrate={hydrate}
       verifyRemote={verifyRemote}
+      routeHeirs={p.routeHeirs}
+      bottomInset={p.bottomInset}
       hydrateKey={(p.hydrateKey ?? 0) + rehydrate}
       meta={meta}
       statusRow={
