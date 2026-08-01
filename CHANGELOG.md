@@ -6,6 +6,20 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.22.1 — exports gain a `default` condition (Next/webpack resolution)
+
+`@slowcook-ai/review-overlay` 0.22.1 (bug fix; delgoosh/monorepo#869).
+
+The exports map carried only `types` + `import`, so any resolver asking with
+a `require` condition set — Next's webpack server pass — found NO matching
+condition and reported `Package path ./react is not exported`. The Vite SPAs
+resolved on `import` and never noticed. Every entry now also carries
+`default` (same ESM file): it matches any condition set, webpack bundles the
+ESM fine, and Node ≥20.19 can even `require()` ESM natively. No build
+change, no new artifact — one condition per entry.
+
+---
+
 ## review-overlay 0.22.0 — the dash harness becomes standard QA chrome
 
 `@slowcook-ai/review-overlay` 0.22.0 (additive).
