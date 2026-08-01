@@ -190,3 +190,25 @@ describe("dev-mode evidence (0.20.0)", () => {
     expect(back?.evidence?.sockets?.["sse:tick"]).toBe(30);
   });
 });
+
+describe("buildIssueBody with evidence (0.21.0)", () => {
+  it("appends screenshot, evidence block and machine marker after the prose", async () => {
+    const { buildIssueBody } = await import("./github-issue-review.js");
+    const { renderEvidenceMarkdown } = await import("../comment-format.js");
+    const ev = { window_ms: 60_000, entries: [{ t: 1754038741000, kind: "fetch" as const, msg: "POST /api/x", status: 500, requestId: "req-1" }] };
+    const body = buildIssueBody(
+      { id: "c1", node: "orders/total", label: "Order total", text: "wrong after refund", author: "Amin", createdAt: 1 },
+      "qa — spa-patient",
+      { evidenceMd: [...renderEvidenceMarkdown(ev), "", "<!-- slowcook-evidence", JSON.stringify(ev), "-->"], screenshotUrl: "https://github.com/o/r/blob/review-assets/qa/x.jpg?raw=1" },
+    );
+    expect(body.indexOf("> wrong after refund")).toBeLessThan(body.indexOf("screenshot"));
+    expect(body).toContain("req `req-1`");
+    expect(body).toContain("<!-- slowcook-evidence");
+    expect(body.trim().endsWith("_Filed from the review shell._")).toBe(true);
+    // the parser must still recognise the body (hydration round trip)
+    const { parseIssue } = await import("./github-issue-review.js");
+    const back = parseIssue({ number: 7, title: "[review] Order total — wrong…", body, state: "open", html_url: "u", created_at: "t", user: { login: "amin" }, comments: 0 });
+    expect(back?.node).toBe("orders/total");
+    expect(back?.text).toBe("wrong after refund"); // EXACT — the appendix must not leak into the sidebar prose
+  });
+});

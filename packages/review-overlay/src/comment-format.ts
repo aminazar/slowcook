@@ -244,6 +244,39 @@ export interface FormatArgs {
  */
 const fence = (s: string): string => s.replace(/`/g, "\u0060").replace(/\n/g, " ").slice(0, 500);
 
+/** The ONE evidence renderer (0.21.0) — used by the PR-comment overlay and
+ *  the issue-filing shell alike, so both transports read identically. */
+export function renderEvidenceMarkdown(ev: EvidenceTail): string[] {
+  const lines: string[] = [];
+  lines.push(`<details><summary>evidence — last ${Math.round(ev.window_ms / 1000)}s (${ev.entries.length} entries)</summary>`);
+  lines.push("");
+  if (ev.identity?.frontend || ev.identity?.backend) {
+    lines.push(`**Running:** ${[ev.identity.frontend ? `frontend \`${ev.identity.frontend}\`` : "", ev.identity.backend ? `backend \`${ev.identity.backend}\`` : ""].filter(Boolean).join(" · ")}`);
+    lines.push("");
+  }
+  for (const e of ev.entries) {
+    const at = new Date(e.t).toISOString().slice(11, 19);
+    const bits = [
+      `\`${at}\` ${e.kind === "fetch" ? "🌐" : e.kind === "error" ? "🟥" : e.kind === "action" ? "👆" : "➡️"} ${e.msg}`,
+      e.status != null ? `**${e.status}**` : "",
+      e.ms != null ? `${e.ms}ms` : "",
+      e.requestId ? `req \`${e.requestId}\`` : "",
+      e.serverTiming ? `⏱ \`${e.serverTiming}\`` : "",
+    ].filter(Boolean);
+    lines.push(`- ${bits.join(" · ")}`);
+    if (e.requestBody) lines.push(`  - req: \`${fence(e.requestBody)}\``);
+    if (e.body) lines.push(`  - res: \`${fence(e.body)}\``);
+    if (e.debug) for (const [k, v] of Object.entries(e.debug)) lines.push(`  - \`${k}: ${fence(v)}\``);
+  }
+  if (ev.sockets && Object.keys(ev.sockets).length) {
+    lines.push("");
+    lines.push(`**Sockets:** ${Object.entries(ev.sockets).map(([k, n]) => `\`${k}\` ×${n}`).join(" · ")}`);
+  }
+  lines.push("");
+  lines.push("</details>");
+  return lines;
+}
+
 export function formatReviewComment(args: FormatArgs): string {
   const { payload, screenshotDataUrl } = args;
   const lines: string[] = [];
@@ -288,33 +321,7 @@ export function formatReviewComment(args: FormatArgs): string {
   // THE EVIDENCE TAIL (0.19.0) — collapsed, human-scannable, and duplicated
   // inside the hidden JSON so plate reads structure, not markdown.
   if (payload.evidence && payload.evidence.entries.length) {
-    const ev = payload.evidence;
-    lines.push(`<details><summary>evidence — last ${Math.round(ev.window_ms / 1000)}s (${ev.entries.length} entries)</summary>`);
-    lines.push("");
-    if (ev.identity?.frontend || ev.identity?.backend) {
-      lines.push(`**Running:** ${[ev.identity.frontend ? `frontend \`${ev.identity.frontend}\`` : "", ev.identity.backend ? `backend \`${ev.identity.backend}\`` : ""].filter(Boolean).join(" · ")}`);
-      lines.push("");
-    }
-    for (const e of ev.entries) {
-      const at = new Date(e.t).toISOString().slice(11, 19);
-      const bits = [
-        `\`${at}\` ${e.kind === "fetch" ? "🌐" : e.kind === "error" ? "🟥" : e.kind === "action" ? "👆" : "➡️"} ${e.msg}`,
-        e.status != null ? `**${e.status}**` : "",
-        e.ms != null ? `${e.ms}ms` : "",
-        e.requestId ? `req \`${e.requestId}\`` : "",
-        e.serverTiming ? `⏱ \`${e.serverTiming}\`` : "",
-      ].filter(Boolean);
-      lines.push(`- ${bits.join(" · ")}`);
-      if (e.requestBody) lines.push(`  - req: \`${fence(e.requestBody)}\``);
-      if (e.body) lines.push(`  - res: \`${fence(e.body)}\``);
-      if (e.debug) for (const [k, v] of Object.entries(e.debug)) lines.push(`  - \`${k}: ${fence(v)}\``);
-    }
-    if (ev.sockets && Object.keys(ev.sockets).length) {
-      lines.push("");
-      lines.push(`**Sockets:** ${Object.entries(ev.sockets).map(([k, n]) => `\`${k}\` ×${n}`).join(" · ")}`);
-    }
-    lines.push("");
-    lines.push("</details>");
+    lines.push(...renderEvidenceMarkdown(payload.evidence));
     lines.push("");
   }
 
