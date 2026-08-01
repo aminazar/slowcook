@@ -212,3 +212,44 @@ describe("buildIssueBody with evidence (0.21.0)", () => {
     expect(back?.text).toBe("wrong after refund"); // EXACT — the appendix must not leak into the sidebar prose
   });
 });
+
+// THE ENVIRONMENT MATRIX (0.22.2) — the three defects delgoosh's deployment
+// found were all environments dash never exercised: a draggable pill far
+// from the hardcoded corner, a light-theme host, an RTL page. New consumers
+// must bring tests, not discoveries.
+describe("sign-in popover environments", () => {
+  it("anchors to the pill wherever it was dragged, clamped to the viewport", async () => {
+    const { placePopover } = await import("./github-issue-review.js");
+    // pill dragged to the top-left: popover opens BELOW, left-clamped
+    expect(placePopover({ top: 20, bottom: 52, right: 120 }, 1280, 800))
+      .toEqual({ left: 8, top: 60 });
+    // pill at the bottom-right (the old hardcoded assumption): opens above, right-aligned
+    expect(placePopover({ top: 740, bottom: 772, right: 1264 }, 1280, 800))
+      .toEqual({ left: 964, bottom: 68 });
+    // narrow phone viewport: the popover stays fully inside the gutters
+    const phone = placePopover({ top: 700, bottom: 732, right: 380 }, 390, 800);
+    expect(phone.left).toBeGreaterThanOrEqual(8);
+    expect(phone.left + 300).toBeLessThanOrEqual(390 - 8);
+  });
+
+  it("popover chrome pins dir=ltr so an RTL host cannot mangle it", async () => {
+    // the regression was structural: the popover div inherited dir from the
+    // page. The emitted source must pin it — checked as a build artifact
+    // property because jsdom does not compute bidi layout.
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
+    const popover = src.slice(src.indexOf("{open && ("));
+    expect(popover).toContain('dir="ltr"');
+    expect(popover).toContain('textAlign: "left"');
+  });
+
+  it("popover palette derives from the host theme, not a hardcoded dark", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
+    const signIn = src.slice(src.indexOf("function SignIn"), src.indexOf("the turnkey component"));
+    expect(signIn).toContain("usePrefersDark()");
+    // no hardcoded panel colors outside the C palette object
+    const afterPalette = signIn.slice(signIn.indexOf("return ("));
+    expect(afterPalette.match(/#1f1f1f|#2b2b2b|#8d8d8d/g)).toBeNull();
+  });
+});
