@@ -22,6 +22,55 @@ import { createPortal } from "react-dom";
 import { renderEvidenceMarkdown } from "../comment-format.js";
 import { uploadReviewAsset } from "../github.js";
 import { useReviewEvidence, rectForNode, type EvidenceConfig } from "./use-evidence.js";
+import { AttachedWindow } from "./attached-window.js";
+
+/** The review-time report (dash's relay contract, ported): what reviewing
+ *  amounted to — today/week/average seconds, pins, the seven-day shape. */
+export interface ScreentimeReport {
+  todaySeconds: number;
+  weekSeconds: number;
+  dailyAverageSeconds: number;
+  todayComments?: number;
+  weekComments?: number;
+  daysCounted?: number;
+  days: { date: string; seconds: number; comments?: number }[];
+}
+
+// ── the local screentime bank (no relay required): day-bucketed seconds and
+//    pins per repo, in localStorage. A relay (`screentimeBase`) supersedes it
+//    for cross-device counting; this keeps the panel honest on one browser.
+const bankKey = (c: RepoCoord) => `slowcook.review-screentime.${c.owner}/${c.repo}`;
+type Bank = Record<string, { s: number; c: number }>;
+const readBank = (c: RepoCoord): Bank => { try { return JSON.parse(localStorage.getItem(bankKey(c)) ?? "{}") as Bank; } catch { return {}; } };
+const writeBank = (c: RepoCoord, b: Bank): void => { try { localStorage.setItem(bankKey(c), JSON.stringify(b)); } catch { /* full */ } };
+const today = (): string => new Date().toISOString().slice(0, 10);
+export const bankScreentime = (c: RepoCoord, seconds: number): void => {
+  const b = readBank(c); const d = today();
+  b[d] = { s: (b[d]?.s ?? 0) + seconds, c: b[d]?.c ?? 0 };
+  writeBank(c, b);
+};
+export const bankPin = (c: RepoCoord): void => {
+  const b = readBank(c); const d = today();
+  b[d] = { s: b[d]?.s ?? 0, c: (b[d]?.c ?? 0) + 1 };
+  writeBank(c, b);
+};
+export const localScreentimeReport = (c: RepoCoord): ScreentimeReport => {
+  const b = readBank(c);
+  const days = Object.entries(b).sort(([a], [z]) => z.localeCompare(a)).slice(0, 7)
+    .map(([date, v]) => ({ date, seconds: v.s, comments: v.c }));
+  const d = today();
+  const weekSeconds = days.reduce((n, x) => n + x.seconds, 0);
+  const counted = days.filter((x) => x.seconds > 0).length || 1;
+  return {
+    todaySeconds: b[d]?.s ?? 0,
+    weekSeconds,
+    dailyAverageSeconds: Math.round(weekSeconds / counted),
+    todayComments: b[d]?.c ?? 0,
+    weekComments: days.reduce((n, x) => n + (x.comments ?? 0), 0),
+    daysCounted: counted,
+    days,
+  };
+};
 import { usePrefersDark } from "./theme.js";
 import {
   ReviewShell, localStorageStore,
@@ -151,25 +200,10 @@ export function placePopover(
   return r.top > vh / 2 ? { left, bottom: vh - r.top + 8 } : { left, top: r.bottom + 8 };
 }
 
-function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: string; onDone: () => void }) {
+function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }: { coord: RepoCoord; authBase?: string; accent: string; onDone: () => void; screentimeBase?: string; localReport: () => ScreentimeReport }) {
   const [open, setOpen] = useState(false);
-  // 0.22.2 — the popover ANCHORS TO THE PILL (it was fixed at right:16
-  // bottom:64, a spot the draggable pill may be nowhere near), FOLLOWS THE
-  // HOST THEME (it was hardcoded dark), and pins dir="ltr" (its chrome is
-  // English; on an RTL host page it inherited rtl and read mangled —
-  // delgoosh's Persian QA surfaces found all three).
-  const dark = usePrefersDark();
-  const btnRef = useRef<HTMLButtonElement | null>(null);
-  const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
-  const place = () => {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (!r) { setAnchor(null); return; }
-    setAnchor(placePopover(r, window.innerWidth, window.innerHeight));
-  };
-  const C = dark
-    ? { bg: "#1f1f1f", fg: "#e9e9e9", dim: "#8d8d8d", border: "#5c5c5c", inputBg: "#2b2b2b", inputBorder: "#555", btnBg: "#e9e9e9", btnFg: "#1a1a1a", shadow: "0 14px 44px rgba(0,0,0,.5)" }
-    : { bg: "#ffffff", fg: "#1a1a1a", dim: "#6b6b6b", border: "#d0d0d0", inputBg: "#f5f5f5", inputBorder: "#bbb", btnBg: "#1a1a1a", btnFg: "#ffffff", shadow: "0 14px 44px rgba(0,0,0,.18)" };
   const [tok, setTok] = useState("");
+  const [patState, setPatState] = useState<"idle" | "checking" | "bad">("idle");
   const [flow, setFlow] = useState<{ step: "idle" | "starting" | "failed"; why?: string } | { step: "code"; userCode: string; verificationUri: string }>({ step: "idle" });
   const [, bump] = useState(0);
   useEffect(() => {
@@ -182,6 +216,11 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
   const identity = (() => { try { return loadReviewerIdentity(localStorage, coord); } catch { return null; } })();
   const who = identity?.login;
   const avatar = identity?.avatarUrl ?? (who ? `https://github.com/${who}.png?size=64` : undefined);
+  const dark = usePrefersDark();
+  const C = dark
+    ? { fg: "#e9e9e9", dim: "#8d8d8d", border: "#5c5c5c", inset: "#2b2b2b", danger: "#e0645c", success: "#4fbf76" }
+    : { fg: "#1a1a1a", dim: "#6b6b6b", border: "#d0d0d0", inset: "#f2f2f2", danger: "#c03528", success: "#2e9e5b" };
+  const mono = { fontFamily: "ui-monospace, monospace" } as const;
 
   const finish = async (token: string) => {
     try {
@@ -195,11 +234,11 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
   };
 
   const startDevice = async () => {
-    if (!authBase) return;
+    if (!authBase && authBase !== "") return;
     setFlow({ step: "starting" });
     let grant;
     try { grant = await requestDeviceCode(authBase); } catch {
-      setFlow({ step: "failed", why: "The sign-in helper didn't answer — the token fallback below works." });
+      setFlow({ step: "failed", why: "The sign-in helper didn't answer — the token tab still works." });
       return;
     }
     setFlow({ step: "code", userCode: grant.userCode, verificationUri: grant.verificationUri });
@@ -211,10 +250,8 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
       try { poll = await pollAccessToken(authBase, grant.deviceCode); } catch { continue; }
       if (poll.status === "authorized") { await finish(poll.token); return; }
       if (poll.status === "slow_down") wait = poll.intervalSeconds;
-      if (poll.status === "expired" || poll.status === "denied") {
-        setFlow({ step: "failed", why: poll.status === "expired" ? "The code expired — start again." : "GitHub reported the request was declined." });
-        return;
-      }
+      if (poll.status === "expired") { setFlow({ step: "failed", why: "The code expired — start again." }); return; }
+      if (poll.status === "denied") { setFlow({ step: "failed", why: "GitHub reported the request was declined." }); return; }
     }
     setFlow({ step: "failed", why: "The code expired — start again." });
   };
@@ -222,57 +259,191 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
   const savePatTok = async () => {
     const t = tok.trim();
     if (!t) return;
+    setPatState("checking");
     const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${t}` } }).catch(() => null);
-    if (r?.ok) await finish(t);
+    if (!r?.ok) { setPatState("bad"); return; }
+    setPatState("idle");
+    await finish(t);
   };
 
-  const tokenUrl = `https://github.com/settings/tokens/new?scopes=repo&description=${encodeURIComponent(`review ${coord.owner}/${coord.repo}`)}`;
-  const mono = { fontFamily: "ui-monospace, monospace" } as const;
+  // THE REVIEW-TIME PANEL (dash, ported whole): signed in, the key opens what
+  // your reviewing amounted to — time, pins, and the seven-day shape. With a
+  // relay (`screentimeBase`) the ledger counts every device; without one it
+  // is this browser's own bank, and it says so.
+  const [report, setReport] = useState<ScreentimeReport | null>(null);
+  useEffect(() => {
+    if (!open || !authed) { setReport(null); return; }
+    if (!screentimeBase) { setReport(localReport()); return; }
+    const t = loadTok();
+    void fetch(`${screentimeBase}/screentime?project=${encodeURIComponent(coord.repo)}`, { headers: t ? { authorization: `Bearer ${t}` } : undefined })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setReport(j ?? localReport()))
+      .catch(() => setReport(localReport()));
+  }, [open, authed, screentimeBase]);
+
+  // two routes, two tabs (dash): the device code, or a classic token that
+  // starts with a redirect and comes back to a password field
+  const deviceAvailable = authBase !== undefined && authBase !== "" ? true : Boolean(authBase === "");
+  const hasDevice = Boolean(authBase);
+  const [tab, setTab] = useState<"code" | "token">(hasDevice ? "code" : "token");
+  void deviceAvailable;
+  const [copied, setCopied] = useState(false);
+  const [tokenSent, setTokenSent] = useState(false);
+  // the code arrives → put it on the clipboard FIRST, then let the button
+  // open GitHub — the affirmation gates the link (dash)
+  useEffect(() => {
+    if (flow.step !== "code") { setCopied(false); return; }
+    void navigator.clipboard?.writeText(flow.userCode).then(() => setCopied(true)).catch(() => setCopied(true));
+  }, [flow.step, flow.step === "code" ? flow.userCode : ""]);
+
+  const fmt = (secs: number): string => (secs >= 3600 ? `${Math.floor(secs / 3600)}h ${Math.round((secs % 3600) / 60)}m` : `${Math.round(secs / 60)}m`);
+
   return (
     <>
-      <button ref={btnRef} onClick={() => { place(); setOpen((o) => !o); }}
+      <button onClick={() => setOpen((o) => !o)}
         title={authBad ? "GitHub sign-in expired — sign in again" : authed ? `Signed in${who ? ` as ${who}` : ""}` : "Sign in to review"}
         style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px", display: "inline-flex", alignItems: "center", position: "relative" }}>
-        {/* signed in → YOUR avatar, sized to the pill (16px, round) — the
-            lock only while signed out or expired */}
         {authed && !authBad && avatar
           ? <img src={avatar} alt={who ?? "signed in"} width={16} height={16} style={{ width: 16, height: 16, borderRadius: 999, objectFit: "cover", display: "block" }} />
           : <span style={{ opacity: authed && !authBad ? 0.55 : 1 }}>{authed && !authBad ? "🔓" : "🔑"}</span>}
         {authBad && <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: 999, background: "#e0483f" }} />}
       </button>
-      {open && createPortal(
-        <div dir="ltr" style={{ position: "fixed", left: anchor?.left ?? 16, ...(anchor?.top !== undefined ? { top: anchor.top } : { bottom: anchor?.bottom ?? 64 }), width: 300, textAlign: "left", background: C.bg, color: C.fg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, zIndex: 2147483200, fontFamily: "system-ui, sans-serif", boxShadow: C.shadow }}>
+      <AttachedWindow open={open} onClose={() => setOpen(false)} width={300}>
+        <div dir="ltr" style={{ textAlign: "left", color: C.fg }}>
           <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 2 }}>{authBad ? "Sign-in expired — sign in again" : authed ? `Signed in${who ? ` as ${who}` : ""}` : "Sign in to review"}</div>
           <div style={{ fontSize: 10, color: C.dim, ...mono, marginBottom: 10 }}>{coord.owner}/{coord.repo}</div>
-          {authBase && flow.step !== "code" && (
-            <button onClick={() => void startDevice()} disabled={flow.step === "starting"}
-              style={{ display: "block", width: "100%", textAlign: "center", background: C.btnBg, color: C.btnFg, borderRadius: 8, padding: "7px 0", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 11.5, marginBottom: 8 }}>
-              {flow.step === "starting" ? "Asking GitHub…" : "Sign in with GitHub"}
-            </button>
-          )}
-          {flow.step === "code" && (
-            <div style={{ textAlign: "center", marginBottom: 8 }}>
-              <div style={{ fontSize: 10, color: C.dim, marginBottom: 4 }}>Enter this code on GitHub:</div>
-              <div style={{ ...mono, fontSize: 20, fontWeight: 800, letterSpacing: 2, marginBottom: 6, userSelect: "all" }}>{flow.userCode}</div>
-              <a href={flow.verificationUri} target="_blank" rel="noreferrer"
-                style={{ display: "block", background: C.btnBg, color: C.btnFg, borderRadius: 8, padding: "6px 0", textDecoration: "none", fontWeight: 700, fontSize: 11.5 }}>
-                Open github.com/login/device ↗
-              </a>
-              <div style={{ fontSize: 9.5, color: C.dim, marginTop: 5 }}>waiting for GitHub…</div>
+
+          {authed && !authBad ? (
+            <div data-screentime style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                <b style={{ flex: 1, fontSize: 12.5 }}>your review time</b>
+                <span style={{ fontSize: 10, color: C.dim, ...mono }}>{coord.repo}</span>
+              </div>
+              {!report ? (
+                <span style={{ fontSize: 10.5, color: C.dim, ...mono }}>reading the ledger…</span>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                    {(((report.daysCounted ?? 1) > 1
+                      ? [["today", report.todaySeconds], ["last 7 days", report.weekSeconds], [`daily average · ${report.daysCounted} days`, report.dailyAverageSeconds]]
+                      : [["today", report.todaySeconds]]) as [string, number][]).map(([label, secs]) => (
+                      <span key={label} style={{ display: "grid", gap: 1 }}>
+                        <b style={{ fontSize: 15, ...mono }}>{fmt(secs)}</b>
+                        <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>{label}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                    {(((report.daysCounted ?? 1) > 1
+                      ? [["pins today", report.todayComments ?? 0], ["pins this week", report.weekComments ?? 0]]
+                      : [["pins today", report.todayComments ?? 0]]) as [string, number][]).map(([label, n]) => (
+                      <span key={label} style={{ display: "grid", gap: 1 }}>
+                        <b style={{ fontSize: 15, ...mono }}>{n}</b>
+                        <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>{label}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    {report.days.slice(0, 7).map((d: { date: string; seconds: number }) => {
+                      const max = Math.max(1, ...report.days.map((x: { seconds: number }) => x.seconds));
+                      return (
+                        <span key={d.date} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <span style={{ fontSize: 9.5, color: C.dim, width: 62, ...mono }}>{d.date.slice(5)}</span>
+                          <span style={{ flex: 1, height: 6, borderRadius: 999, background: C.inset }}>
+                            <span style={{ display: "block", height: 6, borderRadius: 999, width: `${Math.round((d.seconds / max) * 100)}%`, background: accent }} />
+                          </span>
+                          <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>{Math.round(d.seconds / 60)}m</span>
+                        </span>
+                      );
+                    })}
+                    {report.days.length === 0 && (
+                      <span style={{ fontSize: 10.5, color: C.dim, ...mono }}>no review time banked yet — it counts while you are actually reading</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>
+                    {screentimeBase ? "counted across every device you review from" : "this browser only — point screentimeBase at a relay to count every device"}
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+          <>
+          {hasDevice && (
+            <div style={{ display: "flex", gap: 4, marginBottom: 10, background: C.inset, borderRadius: 999, padding: 3 }}>
+              {([["code", "device code"], ["token", "classic token"]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setTab(k)}
+                  style={{ flex: 1, border: "none", borderRadius: 999, padding: "5px 0", fontSize: 10.5, fontWeight: 800, cursor: "pointer",
+                    background: tab === k ? accent : "transparent", color: tab === k ? "#fff" : C.dim }}>{label}</button>
+              ))}
             </div>
           )}
-          {flow.step === "failed" && <div style={{ fontSize: 10, color: "#c66", marginBottom: 7 }}>{flow.why}</div>}
-          <details open={!authBase}>
-            <summary style={{ fontSize: 9.5, color: C.dim, cursor: "pointer" }}>paste a token instead</summary>
-            <a href={tokenUrl} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 10.5, color: C.fg, margin: "6px 0" }}>① Create a token on GitHub ↗ (pre-filled, repo scope)</a>
-            <input type="password" value={tok} onChange={(e) => setTok(e.target.value)} placeholder="② paste ghp_… / gho_…"
-              onKeyDown={(e) => { if (e.key === "Enter") void savePatTok(); }} autoComplete="off"
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 11.5, padding: "6px 9px", borderRadius: 10, border: `1px solid ${C.inputBorder}`, background: C.inputBg, color: C.fg }} />
-          </details>
+
+          {hasDevice && tab === "code" && (
+            <>
+              {flow.step !== "code" && (
+                <button onClick={() => void startDevice()} disabled={flow.step === "starting"}
+                  style={{ display: "block", width: "100%", textAlign: "center", background: accent, color: "#fff", borderRadius: 8, padding: "7px 0", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 11.5, marginBottom: 8 }}>
+                  {flow.step === "starting" ? "Asking GitHub…" : "Get a code"}
+                </button>
+              )}
+              {flow.step === "code" && (
+                <div style={{ textAlign: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, color: C.dim, marginBottom: 4 }}>Enter this code on GitHub:</div>
+                  <div style={{ ...mono, fontSize: 20, fontWeight: 800, letterSpacing: 2, marginBottom: 4, userSelect: "all" }}>{flow.userCode}</div>
+                  <div style={{ fontSize: 9.5, color: copied ? C.success : C.dim, marginBottom: 6 }}>
+                    {copied ? "copied to your clipboard — paste it on GitHub" : "copying…"}
+                  </div>
+                  {copied ? (
+                    <a href={flow.verificationUri} target="_blank" rel="noreferrer"
+                      style={{ display: "block", background: accent, color: "#fff", borderRadius: 8, padding: "6px 0", textDecoration: "none", fontWeight: 700, fontSize: 11.5 }}>
+                      Open github.com/login/device ↗
+                    </a>
+                  ) : (
+                    <span style={{ display: "block", background: C.border, color: C.dim, borderRadius: 8, padding: "6px 0", fontWeight: 700, fontSize: 11.5, cursor: "default" }}>
+                      Open github.com/login/device ↗
+                    </span>
+                  )}
+                  <div style={{ fontSize: 9.5, color: C.dim, marginTop: 5 }}>waiting for GitHub…</div>
+                </div>
+              )}
+              {flow.step === "failed" && <div style={{ fontSize: 10, color: C.danger, marginBottom: 7, lineHeight: 1.5 }}>{flow.why}</div>}
+            </>
+          )}
+
+          {(!hasDevice || tab === "token") && (
+            <>
+              {!tokenSent ? (
+                <>
+                  <a href={`https://github.com/settings/tokens/new?scopes=repo&description=${encodeURIComponent(`review ${coord.owner}/${coord.repo}`)}`}
+                    target="_blank" rel="noreferrer" onClick={() => setTokenSent(true)}
+                    style={{ display: "block", textAlign: "center", background: accent, color: "#fff", borderRadius: 8, padding: "7px 0", textDecoration: "none", fontWeight: 700, fontSize: 11.5 }}>
+                    Create a token on GitHub ↗
+                  </a>
+                  <div style={{ fontSize: 9.5, color: C.dim, marginTop: 6, lineHeight: 1.5 }}>
+                    scope <span style={mono}>repo</span> — come back here when you have it
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 10, color: C.dim, marginBottom: 5 }}>Paste the token you just created:</div>
+                  <input dir="ltr" type="password" value={tok} onChange={(e) => { setTok(e.target.value); setPatState("idle"); }} placeholder="ghp_… / gho_…"
+                    onKeyDown={(e) => { if (e.key === "Enter") void savePatTok(); }} autoComplete="off"
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 11.5, padding: "7px 9px", borderRadius: 10, border: `1px solid ${patState === "bad" ? C.danger : C.border}`, background: C.inset, color: C.fg }} />
+                  <button onClick={() => void savePatTok()} disabled={!tok.trim() || patState === "checking"}
+                    style={{ display: "block", width: "100%", marginTop: 6, background: tok.trim() ? accent : C.inset, color: "#fff", border: "none", borderRadius: 8, padding: "7px 0", fontWeight: 800, fontSize: 11.5, cursor: tok.trim() ? "pointer" : "default" }}>
+                    {patState === "checking" ? "checking…" : "save"}
+                  </button>
+                  {patState === "bad" && <div style={{ fontSize: 10, color: C.danger, marginTop: 4 }}>GitHub rejected that token — check it was copied whole.</div>}
+                  <button onClick={() => setTokenSent(false)} style={{ border: "none", background: "transparent", color: C.dim, fontSize: 9.5, marginTop: 4, cursor: "pointer", padding: 0 }}>back</button>
+                </>
+              )}
+            </>
+          )}
           <div style={{ fontSize: 9.5, color: C.dim, marginTop: 6 }}>One sign-in covers every review surface on this site, in this browser.</div>
-        </div>,
-        document.body,
-      )}
+          </>
+          )}
+        </div>
+      </AttachedWindow>
     </>
   );
 }
@@ -324,6 +495,10 @@ export interface GitHubIssueReviewProps {
   /** 0.23.1 — routes that inherited another's meaning keep its pins
    *  (dash no.675). Map: filed-on route → routes that may show it. */
   routeHeirs?: Record<string, string[]>;
+  /** 0.24.0 — a relay origin serving GET /screentime?project= (dash's
+   *  contract): the review-time panel then counts every device. Absent ⇒
+   *  the panel reads this browser's own bank. */
+  screentimeBase?: string;
 }
 
 export function GitHubIssueReview(p: GitHubIssueReviewProps) {
@@ -386,6 +561,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       return;
     }
     const issue = await res.json() as { number: number; html_url: string };
+    bankPin(coord); // the report counts what reviewing PRODUCED, not only how long it took
     return { url: issue.html_url, remoteId: issue.number };
   };
 
@@ -437,7 +613,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       title={p.title ?? "Review"}
       toggleLabels={p.toggleLabels ?? ["Read", "Comment"]}
       pageLabel={p.pageLabel}
-      onActiveTime={(seconds) => { setActiveSec((t) => t + seconds); p.onActiveTime?.(seconds); }}
+      onActiveTime={(seconds) => { setActiveSec((t) => t + seconds); bankScreentime(coord, seconds); p.onActiveTime?.(seconds); }}
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
       icon={p.icon}
@@ -473,7 +649,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
           {p.statusExtra}
         </span>
       }
-      accessory={<>{p.accessory}<SignIn coord={coord} authBase={p.authBase} onDone={() => bump((n) => n + 1)} /></>}
+      accessory={<>{p.accessory}<SignIn coord={coord} authBase={p.authBase} accent={p.accent ?? "#A31621"} screentimeBase={p.screentimeBase} localReport={() => localScreentimeReport(coord)} onDone={() => bump((n) => n + 1)} /></>}
       sidebarFooter={p.sidebarFooter}
     />
   );

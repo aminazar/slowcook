@@ -232,26 +232,22 @@ describe("sign-in popover environments", () => {
     expect(phone.left + 300).toBeLessThanOrEqual(390 - 8);
   });
 
-  it("popover chrome pins dir=ltr so an RTL host cannot mangle it", async () => {
-    // the regression was structural: the popover div inherited dir from the
-    // page. The emitted source must pin it — checked as a build artifact
-    // property because jsdom does not compute bidi layout.
-    const { readFileSync } = await import("node:fs");
-    const src = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
-    const popover = src.slice(src.indexOf("{open && createPortal("));
-    expect(popover.length).toBeGreaterThan(100); // the anchor itself must exist
-    expect(popover).toContain('dir="ltr"');
-    expect(popover).toContain('textAlign: "left"');
-  });
-
-  it("popover palette derives from the host theme, not a hardcoded dark", async () => {
+  it("the sign-in rides AttachedWindow — centered on the pill, dir=ltr, theme-aware", async () => {
+    // 0.24.0 — the popover is dash's own: AttachedWindow (portals to body,
+    // shares the pill's centre, follows drags). Checked as source properties
+    // because jsdom computes neither layout nor bidi.
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
     const signIn = src.slice(src.indexOf("function SignIn"), src.indexOf("the turnkey component"));
-    expect(signIn).toContain("usePrefersDark()");
-    // no hardcoded panel colors outside the C palette object
-    const afterPalette = signIn.slice(signIn.indexOf("return ("));
-    expect(afterPalette.match(/#1f1f1f|#2b2b2b|#8d8d8d/g)).toBeNull();
+    expect(signIn).toContain("<AttachedWindow open={open}");
+    expect(signIn).toContain('dir="ltr"');                     // chrome pinned ltr inside the window
+    expect(signIn).toContain("usePrefersDark()");              // palette follows the host theme
+    expect(signIn.slice(signIn.indexOf("return ("))).not.toContain("#1f1f1f");
+    // the dash sign-in behaviors, ported whole:
+    expect(signIn).toContain("navigator.clipboard?.writeText(flow.userCode)"); // code → clipboard FIRST
+    expect(signIn).toContain("copied to your clipboard — paste it on GitHub"); // …and the link gates on it
+    expect(signIn).toContain('[["code", "device code"], ["token", "classic token"]]'); // two routes, two tabs
+    expect(signIn).toContain("data-screentime");               // the review-time panel exists standard
   });
 });
 
