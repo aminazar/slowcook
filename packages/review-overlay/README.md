@@ -2,6 +2,20 @@
 
 > Floating review overlay for slowcook mock previews. PMs leave element-anchored comments by clicking the element; comments POST to the mockup PR via a GitHub PAT. Plate parses them back out for amendments. Ships in slowcook 0.16-α.6.
 
+## Installing — pin exact, this is a 0.x package
+
+```sh
+pnpm add @slowcook-ai/review-overlay@latest   # or @<exact version>
+```
+
+Do NOT rely on `pnpm update` with a caret range: on `0.x`, `^0.21.0` pins
+the MINOR, so `pnpm update` reports success and leaves you on the old minor
+— three consumers have now sat on stale builds believing they upgraded
+(delgoosh/monorepo#869), and a version-lagged install is exactly how a prop
+mismatch produces a pill that silently never renders. New minors ship
+frequently; upgrade deliberately, by exact version, reading the CHANGELOG
+entry as you do.
+
 ## What it does
 
 When mounted into the consumer's mock app:
