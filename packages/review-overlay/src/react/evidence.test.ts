@@ -2,7 +2,7 @@
 // body rule, and the asset upload's two branch paths.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { cropGeometry } from "./capture.js";
-import { pushBreadcrumb, breadcrumbs, clearBreadcrumbs, breadcrumbTail } from "./breadcrumbs.js";
+import { pushBreadcrumb, breadcrumbs, clearBreadcrumbs, breadcrumbTail, frameType } from "./breadcrumbs.js";
 import { formatReviewComment, parseReviewComment, type ReviewCommentPayload } from "../comment-format.js";
 import { uploadReviewAsset } from "../github.js";
 
@@ -146,5 +146,47 @@ describe("uploadReviewAsset", () => {
     const res = await uploadReviewAsset({ owner: "o", repo: "r", pat: "p", path: "qa/z.jpg", contentBase64: "aGk=", fetchImpl });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toBe("content too large");
+  });
+});
+
+describe("dev-mode evidence (0.20.0)", () => {
+  it("frameType names a JSON frame by its type-ish key, and falls back honestly", () => {
+    expect(frameType('{"type":"order_updated","id":9}')).toBe("order_updated");
+    expect(frameType('{"event":"tick"}')).toBe("tick");
+    expect(frameType('{"foo":1,"bar":2}')).toBe("foo,bar");
+    expect(frameType("plain text")).toBe("text");
+    expect(frameType(new ArrayBuffer(4))).toBe("binary");
+  });
+
+  it("keeps debug headers on the crumb and renders them under the entry", () => {
+    clearBreadcrumbs();
+    pushBreadcrumb({ kind: "fetch", msg: "GET /api/orders", status: 200, debug: { "x-debug-user": "u_42/tenant_7/admin", "x-debug-sql-count": "12" } });
+    const payload: ReviewCommentPayload = {
+      slowcook_overlay_version: "0.20.0", story_id: null, url: "http://x/", timestamp: "t", prose: "p", element: null,
+      viewport: { width: 1280, height: 800, dpr: 1, colorScheme: "light" },
+      evidence: { window_ms: 60_000, entries: breadcrumbTail(60_000) },
+    };
+    const body = formatReviewComment({ payload });
+    expect(body).toContain("x-debug-user: u_42/tenant_7/admin");
+    expect(body).toContain("x-debug-sql-count: 12");
+    expect(parseReviewComment(body)?.evidence?.entries[0]?.debug?.["x-debug-sql-count"]).toBe("12");
+  });
+
+  it("renders identity and socket counts, and round-trips them", () => {
+    const payload: ReviewCommentPayload = {
+      slowcook_overlay_version: "0.20.0", story_id: null, url: "http://x/", timestamp: "t", prose: "p", element: null,
+      viewport: { width: 1280, height: 800, dpr: 1, colorScheme: "light" },
+      evidence: {
+        window_ms: 60_000, entries: [{ t: 1, kind: "route", msg: "/" }],
+        identity: { frontend: "a1b2c3", backend: "delgoosh-api 2.4.1" },
+        sockets: { "ws:order_updated": 12, "sse:tick": 30 },
+      },
+    };
+    const body = formatReviewComment({ payload });
+    expect(body).toContain("**Running:** frontend `a1b2c3` · backend `delgoosh-api 2.4.1`");
+    expect(body).toContain("`ws:order_updated` ×12");
+    const back = parseReviewComment(body);
+    expect(back?.evidence?.identity?.backend).toBe("delgoosh-api 2.4.1");
+    expect(back?.evidence?.sockets?.["sse:tick"]).toBe(30);
   });
 });

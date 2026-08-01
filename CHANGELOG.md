@@ -6,6 +6,35 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.20.0 — dev-mode evidence: identity, debug headers, mutation bodies, the socket rail
+
+`@slowcook-ai/review-overlay` 0.20.0 (additive on 0.19.0's evidence).
+
+The "worth it for dev mode" set, and nothing more:
+
+- **Build identity** — every tail says WHICH CODE WAS RUNNING: frontend build
+  id (`evidence.buildId` prop or `NEXT_PUBLIC_SLOWCOOK_BUILD`) + the backend's
+  version, read from the first `X-Debug-Version`/`X-Version` response header
+  seen. Dev mode's ghost bugs are stale-code bugs; this kills the class.
+- **`X-Debug-*` capture** — the conventional dev-header names
+  (`x-debug-user`, `x-debug-sql-count`, `x-debug-sql-slowest`,
+  `x-debug-cache`, `x-debug-version`) land verbatim on each call's entry.
+  Anything the backend would console.log can ride a header instead and
+  arrive attached to the exact request.
+- **`evidence.mutationBodies`** (opt-in) — request bodies for SUCCESSFUL
+  non-GET calls too: the last mutation is often THE repro input for
+  "saved wrong" bugs. Off by default; it carries the most real data.
+- **The socket rail** — WebSocket + EventSource are patched: open/close/error
+  land as crumbs, and message frames are COUNTED BY TYPE
+  (`ws:order_updated ×12`), never stored. "The UI never updated" bugs ride
+  past every HTTP hook; the counts say whether the push ever arrived.
+- Deliberately NOT built: client state snapshots (biggest payload, most
+  sensitive, and the action trail + requests already imply the state).
+- New exports: `frameType`, `socketStats`, `backendIdentity`,
+  `RecorderOptions`. 141 green in the package.
+
+---
+
 ## review-overlay 0.19.0 — review evidence: the ringed crop and the 60-second tail
 
 `@slowcook-ai/review-overlay` 0.19.0 (additive; new `evidence` prop, new payload field).

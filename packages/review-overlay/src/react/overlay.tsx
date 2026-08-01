@@ -57,7 +57,7 @@ import {
   uploadReviewAsset,
 } from "../github.js";
 import { renderMarkdown } from "./markdown.js";
-import { installBreadcrumbRecorder, breadcrumbTail } from "./breadcrumbs.js";
+import { installBreadcrumbRecorder, breadcrumbTail, backendIdentity, socketStats } from "./breadcrumbs.js";
 import { startCaptureSession, type CaptureSession } from "./capture.js";
 import { usePrefersDark, detectPageDark, pillTheme, sheetTheme, type PillTheme, type SheetTheme } from "./theme.js";
 import {
@@ -157,7 +157,15 @@ export interface SlowcookReviewOverlayProps {
    * Small crops ride inline; larger ones are committed to a `review-assets`
    * branch via the Contents API and linked.
    */
-  evidence?: { screenshot?: boolean; networkTail?: boolean };
+  evidence?: { screenshot?: boolean; networkTail?: boolean;
+    /** 0.20.0 — also record request bodies for successful non-GET calls (the
+     *  last mutation is often THE repro input). Opt-in: most real data. */
+    mutationBodies?: boolean;
+    /** 0.20.0 — the frontend build id stamped into every tail. Falls back to
+     *  NEXT_PUBLIC_SLOWCOOK_BUILD; backend identity is read from the first
+     *  X-Debug-Version / X-Version response header seen. */
+    buildId?: string;
+  };
   /**
    * 0.7.0 — the working branch a doc "scope change" commits to (where the PR
    * lives). Falls back to `NEXT_PUBLIC_SLOWCOOK_BRANCH`, then the repo default.
@@ -592,11 +600,22 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   // committed to reviewing and the one tab-share prompt reads as part of the
   // act rather than an ambush.
   const captureRef = useRef<CaptureSession | null | "declined">(null);
-  useEffect(() => { if (evidence.networkTail) installBreadcrumbRecorder(); }, [evidence.networkTail]);
+  useEffect(() => {
+    if (evidence.networkTail) installBreadcrumbRecorder({ mutationBodies: evidence.mutationBodies === true });
+  }, [evidence.networkTail, evidence.mutationBodies]);
   const gatherEvidence = useCallback(async (payload: ReviewCommentPayload, pat: string): Promise<{ screenshotDataUrl?: string; screenshotUrl?: string }> => {
     if (evidence.networkTail) {
       const entries = breadcrumbTail(60_000);
-      if (entries.length) payload.evidence = { window_ms: 60_000, entries };
+      const frontend = evidence.buildId ?? env("NEXT_PUBLIC_SLOWCOOK_BUILD");
+      const backend = backendIdentity();
+      const sockets = socketStats();
+      if (entries.length || frontend || backend || sockets) {
+        payload.evidence = {
+          window_ms: 60_000, entries,
+          ...(frontend || backend ? { identity: { ...(frontend ? { frontend } : {}), ...(backend ? { backend } : {}) } } : {}),
+          ...(sockets ? { sockets } : {}),
+        };
+      }
     }
     if (!evidence.screenshot) return {};
     if (captureRef.current === null) {
@@ -624,7 +643,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       apiBase: getProxyApiBase() ?? undefined,
     });
     return up.ok ? { screenshotUrl: up.blobUrl } : {};
-  }, [evidence.networkTail, evidence.screenshot, repoCoord]);
+  }, [evidence.networkTail, evidence.screenshot, evidence.buildId, repoCoord]);
 
   const postPayload = useCallback(
     async (payload: ReviewCommentPayload, pat: string) => {

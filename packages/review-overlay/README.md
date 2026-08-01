@@ -84,6 +84,15 @@ evidence so every comment carries the conditions nobody can reproduce later:
   values). Rendered as a collapsed `<details>` block and carried in the
   hidden JSON (`payload.evidence`) for machine triage.
 
+Dev-mode extras (0.20.0): `evidence.buildId` (or `NEXT_PUBLIC_SLOWCOOK_BUILD`)
+stamps the frontend build into every tail and the backend's
+`X-Debug-Version`/`X-Version` header names the other half; any `X-Debug-*`
+headers (user/tenant, sql count, cache) land on the exact request's entry;
+`evidence.mutationBodies: true` (opt-in) also records SUCCESSFUL non-GET
+request bodies — the last mutation is often the repro input; and
+WebSocket/SSE frames are counted by type (never stored), so "the UI never
+updated" comments say whether the push ever arrived.
+
 **Two middleware lines that make it sing** — in the dev backend:
 
 1. Echo an `X-Request-Id` header per request. The tail records it, so an

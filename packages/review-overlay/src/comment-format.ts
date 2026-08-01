@@ -111,6 +111,13 @@ export interface ReviewCommentPayload {
 export interface EvidenceTail {
   window_ms: number;
   entries: EvidenceEntry[];
+  /** 0.20.0 — which code was even running: frontend build id (env/prop) and
+   *  the backend's version-ish header, first one seen. Dev mode's ghost bugs
+   *  are stale-code bugs; this kills the class. */
+  identity?: { frontend?: string; backend?: string };
+  /** 0.20.0 — socket traffic COUNTED by frame type (ws:order_updated: 12);
+   *  frames are never stored. */
+  sockets?: Record<string, number>;
 }
 
 export interface EvidenceEntry {
@@ -123,6 +130,7 @@ export interface EvidenceEntry {
   serverTiming?: string;
   body?: string;
   requestBody?: string;
+  debug?: Record<string, string>;
 }
 
 export const PAYLOAD_MARKER = "slowcook:review-overlay";
@@ -283,6 +291,10 @@ export function formatReviewComment(args: FormatArgs): string {
     const ev = payload.evidence;
     lines.push(`<details><summary>evidence — last ${Math.round(ev.window_ms / 1000)}s (${ev.entries.length} entries)</summary>`);
     lines.push("");
+    if (ev.identity?.frontend || ev.identity?.backend) {
+      lines.push(`**Running:** ${[ev.identity.frontend ? `frontend \`${ev.identity.frontend}\`` : "", ev.identity.backend ? `backend \`${ev.identity.backend}\`` : ""].filter(Boolean).join(" · ")}`);
+      lines.push("");
+    }
     for (const e of ev.entries) {
       const at = new Date(e.t).toISOString().slice(11, 19);
       const bits = [
@@ -295,6 +307,11 @@ export function formatReviewComment(args: FormatArgs): string {
       lines.push(`- ${bits.join(" · ")}`);
       if (e.requestBody) lines.push(`  - req: \`${fence(e.requestBody)}\``);
       if (e.body) lines.push(`  - res: \`${fence(e.body)}\``);
+      if (e.debug) for (const [k, v] of Object.entries(e.debug)) lines.push(`  - \`${k}: ${fence(v)}\``);
+    }
+    if (ev.sockets && Object.keys(ev.sockets).length) {
+      lines.push("");
+      lines.push(`**Sockets:** ${Object.entries(ev.sockets).map(([k, n]) => `\`${k}\` ×${n}`).join(" · ")}`);
     }
     lines.push("");
     lines.push("</details>");

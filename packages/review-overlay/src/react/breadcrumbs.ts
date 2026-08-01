@@ -25,14 +25,62 @@ export interface Breadcrumb {
   serverTiming?: string;
   /** Failure evidence only: response body, truncated to BODY_CAP chars. */
   body?: string;
-  /** Failure evidence only: the request body that triggered it, truncated. */
+  /** Failure evidence only — or, with `mutationBodies` on, the body of any
+   *  non-GET call: the request that triggered it, truncated. */
   requestBody?: string;
+  /** 0.20.0 — any X-Debug-* response headers the dev backend chose to emit
+   *  (user/tenant/role, cache hit, slowest query…), captured verbatim. */
+  debug?: Record<string, string>;
+}
+
+export interface RecorderOptions {
+  /** Record request bodies for ALL non-GET calls, not just failures — the
+   *  last successful mutation is often THE repro input. Opt-in: it carries
+   *  the most real data of anything in the tail. */
+  mutationBodies?: boolean;
 }
 
 const RING = 80;
 const BODY_CAP = 2048;
 let buf: Breadcrumb[] = [];
 let installed = false;
+let opts: RecorderOptions = {};
+// 0.20.0 — build identity: the backend names itself once via a version-ish
+// header; ws/sse traffic is COUNTED by event type, never stored per frame.
+let backendVersion: string | undefined;
+const wsCounts = new Map<string, number>();
+
+export function backendIdentity(): string | undefined { return backendVersion; }
+
+/** The socket rail's summary — per event-type counts since install. Flushed
+ *  into the evidence tail as one synthetic entry; frames are never stored. */
+export function socketStats(): Record<string, number> | null {
+  return wsCounts.size ? Object.fromEntries(wsCounts) : null;
+}
+
+function readDebugHeaders(get: (name: string) => string | null): { debug?: Record<string, string> } {
+  // browsers expose no header iteration on XHR and CORS may hide most — probe
+  // the conventional names; the dev backend controls what it emits
+  const out: Record<string, string> = {};
+  for (const h of ["x-debug-user", "x-debug-sql-slowest", "x-debug-sql-count", "x-debug-cache", "x-debug-version"]) {
+    const v = get(h);
+    if (v) out[h] = v.slice(0, 200);
+  }
+  const version = get("x-debug-version") ?? get("x-version") ?? get("x-app-version");
+  if (version && !backendVersion) backendVersion = version.slice(0, 80);
+  return Object.keys(out).length ? { debug: out } : {};
+}
+
+export function frameType(data: unknown): string {
+  if (typeof data !== "string") return data instanceof ArrayBuffer || ArrayBuffer.isView(data as ArrayBufferView) ? "binary" : "other";
+  const t = data.trimStart();
+  if (!t.startsWith("{")) return "text";
+  try {
+    const o = JSON.parse(t) as Record<string, unknown>;
+    for (const k of ["type", "event", "kind", "op", "action"]) if (typeof o[k] === "string") return String(o[k]).slice(0, 40);
+    return Object.keys(o).slice(0, 3).join(",") || "json";
+  } catch { return "text"; }
+}
 
 export function pushBreadcrumb(b: Omit<Breadcrumb, "t">): void {
   buf.push({ t: Date.now(), ...b });
@@ -62,7 +110,8 @@ function describeRequestBody(init?: RequestInit, input?: RequestInfo | URL): str
 
 /** install once — patches fetch + XHR + console.error + rejections + history
  *  + coarse action clicks. Idempotent. */
-export function installBreadcrumbRecorder(): void {
+export function installBreadcrumbRecorder(options?: RecorderOptions): void {
+  if (options) opts = { ...opts, ...options };
   if (installed || typeof window === "undefined") return;
   installed = true;
 
@@ -80,7 +129,11 @@ export function installBreadcrumbRecorder(): void {
           requestId: res.headers.get("x-request-id") ?? undefined,
           serverTiming: res.headers.get("server-timing") ?? undefined,
           ms: Date.now() - started,
+          ...readDebugHeaders((h) => res.headers.get(h)),
         };
+        if (opts.mutationBodies && method !== "GET" && res.status < 400) {
+          crumb.requestBody = describeRequestBody(args[1], args[0]);
+        }
         // BODIES ON FAILURE ONLY — the response is cloned so the caller's
         // stream is untouched; a body that cannot be read stays unread.
         if (res.status >= 400) {
@@ -123,7 +176,9 @@ export function installBreadcrumbRecorder(): void {
             requestId: this.getResponseHeader("x-request-id") ?? undefined,
             serverTiming: this.getResponseHeader("server-timing") ?? undefined,
             ms: Date.now() - (sc.t0 ?? Date.now()),
+            ...readDebugHeaders((h) => { try { return this.getResponseHeader(h); } catch { return null; } }),
           };
+          if (opts.mutationBodies && sc.m !== "GET" && this.status > 0 && this.status < 400) crumb.requestBody = sc.body;
           if (this.status === 0) crumb.msg += " — network error";
           if (this.status >= 400 || this.status === 0) {
             crumb.requestBody = sc.body;
@@ -163,6 +218,46 @@ export function installBreadcrumbRecorder(): void {
     const f = e.target as HTMLFormElement | null;
     pushBreadcrumb({ kind: "action", msg: `submit: ${f?.getAttribute("aria-label") ?? f?.id ?? f?.action?.split("/").pop() ?? "form"}` });
   }, { capture: true, passive: true });
+
+  // THE SOCKET RAIL (0.20.0) — live updates ride WebSocket/SSE past every
+  // HTTP hook, which is exactly where "the UI never updated" bugs hide.
+  // Frames are COUNTED by type, never stored: open/close/error land as
+  // crumbs, message payloads never leave the page.
+  const WS = window.WebSocket;
+  if (WS) {
+    const Patched = function (this: WebSocket, url: string | URL, protocols?: string | string[]) {
+      const ws = protocols === undefined ? new WS(url) : new WS(url, protocols);
+      const at = path(String(url));
+      pushBreadcrumb({ kind: "mark", msg: `ws open ${at}` });
+      ws.addEventListener("close", (e) => pushBreadcrumb({ kind: "mark", msg: `ws close ${at} (${e.code})` }));
+      ws.addEventListener("error", () => pushBreadcrumb({ kind: "error", msg: `ws error ${at}` }));
+      ws.addEventListener("message", (e) => {
+        const t = `ws:${frameType(e.data)}`;
+        wsCounts.set(t, (wsCounts.get(t) ?? 0) + 1);
+      });
+      return ws;
+    } as unknown as typeof WebSocket;
+    Patched.prototype = WS.prototype;
+    Object.assign(Patched, { CONNECTING: WS.CONNECTING, OPEN: WS.OPEN, CLOSING: WS.CLOSING, CLOSED: WS.CLOSED });
+    window.WebSocket = Patched;
+  }
+  const ES = window.EventSource;
+  if (ES) {
+    const PatchedES = function (this: EventSource, url: string | URL, init?: EventSourceInit) {
+      const es = new ES(url, init);
+      const at = path(String(url));
+      pushBreadcrumb({ kind: "mark", msg: `sse open ${at}` });
+      es.addEventListener("error", () => pushBreadcrumb({ kind: "error", msg: `sse error ${at}` }));
+      es.addEventListener("message", (e) => {
+        const t = `sse:${frameType((e as MessageEvent).data)}`;
+        wsCounts.set(t, (wsCounts.get(t) ?? 0) + 1);
+      });
+      return es;
+    } as unknown as typeof EventSource;
+    PatchedES.prototype = ES.prototype;
+    Object.assign(PatchedES, { CONNECTING: ES.CONNECTING, OPEN: ES.OPEN, CLOSED: ES.CLOSED });
+    window.EventSource = PatchedES;
+  }
 }
 
 function isApiish(url: string): boolean {
