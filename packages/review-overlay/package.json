@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/review-overlay",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "description": "Floating review overlay for slowcook mock previews \u2014 element-anchored comments, screenshot, viewport metadata; submits to the mockup PR via PAT. Mounted into the mock app's root layout. Plate parses the comments back out for amendments.",
   "license": "MIT",
   "author": "aminazar",
@@ -27,15 +27,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js"
+      "import": "./dist/react/index.js",
+      "default": "./dist/react/index.js"
     },
     "./primitives": {
       "types": "./dist/primitives.d.ts",
-      "import": "./dist/primitives.js"
+      "import": "./dist/primitives.js",
+      "default": "./dist/primitives.js"
     }
   },
   "files": [
