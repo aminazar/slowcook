@@ -52,10 +52,15 @@ export function parseAgentReply(login: string, body: string): AgentReply {
   return { author: agent ? `${agent} · agent` : login, text };
 }
 
-export function buildIssueBody(c: ReviewComment, surface: string, extra?: { evidenceMd?: string[]; screenshotDataUrl?: string; screenshotUrl?: string }): string {
+export function buildIssueBody(c: ReviewComment, surface: string, extra?: { evidenceMd?: string[]; screenshotDataUrl?: string; screenshotUrl?: string; context?: { url?: string; viewport?: string; scheme?: string } }): string {
+  const ctx = extra?.context;
   const lines = [
     `**Review note (${surface})**`, "",
-    `**Node:** \`${c.node}\``, `**Card:** ${c.label}`, "",
+    `**Node:** \`${c.node}\``, `**Card:** ${c.label}`,
+    ...(c.route ? [`**Route:** \`${c.route}\``] : []),
+    ...(ctx?.url ? [`**URL:** ${ctx.url}`] : []),
+    ...(ctx?.viewport ? [`**Viewport:** ${ctx.viewport}${ctx.scheme ? ` · ${ctx.scheme} mode` : ""}`] : []),
+    "",
     `> ${c.text.replace(/\n/g, "\n> ")}`, "",
   ];
   if (extra?.screenshotDataUrl) { lines.push(`![screenshot](${extra.screenshotDataUrl})`, ""); }
@@ -90,9 +95,10 @@ export function parseIssue(i: IssueLike): (ReviewComment & { state: string; nCom
   // the filed-from footer, whichever comes first (0.21.0: evidence-carrying
   // bodies used to leak their whole appendix into the sidebar's comment text)
   const quoted = i.body.split(/\n> /).slice(1).join("\n");
+  const route = /\*\*Route:\*\* `([^`]+)`/.exec(i.body)?.[1];
   const text = (quoted.split(/\n\n(?:!\[screenshot\]|📸 \[screenshot|<details><summary>evidence|_Filed)/)[0] ?? i.title).replace(/\n> /g, "\n");
   return {
-    id: `gh-${i.number}`, node, label, text: text.trim(),
+    id: `gh-${i.number}`, node, label, text: text.trim(), ...(route ? { route } : {}),
     author: i.user.login, createdAt: Date.parse(i.created_at),
     remoteId: i.number, url: i.html_url,
     state: i.state, nComments: i.comments,
@@ -358,7 +364,14 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       method: "POST",
       body: JSON.stringify({
         title: `[review] ${c.label} — ${c.text.slice(0, 60)}${c.text.length > 60 ? "…" : ""}`,
-        body: buildIssueBody(c, surface, { evidenceMd, screenshotDataUrl: shots.screenshotDataUrl, screenshotUrl: shots.screenshotUrl }),
+        body: buildIssueBody(c, surface, {
+          evidenceMd, screenshotDataUrl: shots.screenshotDataUrl, screenshotUrl: shots.screenshotUrl,
+          context: {
+            url: typeof location !== "undefined" ? location.href : undefined,
+            viewport: typeof window !== "undefined" ? `${window.innerWidth}×${window.innerHeight}` : undefined,
+            scheme: typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+          },
+        }),
         labels: p.labels,
       }),
     }).catch(() => null);
@@ -368,6 +381,16 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
     }
     const issue = await res.json() as { number: number; html_url: string };
     return { url: issue.html_url, remoteId: issue.number };
+  };
+
+  // 0.23.0 — a pin whose ISSUE was deleted leaves the board (dash 12fdc12).
+  // 404/410 ⇒ gone; anything else (including closed — that renders as
+  // applied) or a network hiccup ⇒ keep, lag-safe.
+  const verifyRemote = async (remoteId: string | number): Promise<boolean> => {
+    if (!loadTok()) return true;
+    const r = await gh(`/repos/${p.owner}/${p.repo}/issues/${remoteId}`).catch(() => null);
+    if (!r) return true;
+    return !(r.status === 404 || r.status === 410);
   };
 
   const onReply = async (c: ReviewComment, text: string) => {
@@ -417,6 +440,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       onComment={onComment}
       onReply={onReply}
       hydrate={hydrate}
+      verifyRemote={verifyRemote}
       hydrateKey={(p.hydrateKey ?? 0) + rehydrate}
       meta={meta}
       statusRow={

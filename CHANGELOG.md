@@ -6,6 +6,44 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.23.0 — the dash-parity sweep: every pill ruling, audited and standard
+
+`@slowcook-ai/review-overlay` 0.23.0 (additive). Amin: "ALL of the dash mock
+pill's requests/changes should be applied on the OSS pill." The dash history
+was audited commit by commit; the ledger:
+
+**Lifted in THIS release:**
+- **A pin belongs to the page it was filed on** (dash 266319f / no.675):
+  comments record their route at file time; markers render only on that
+  route (older pins render everywhere); the route rides the issue body and
+  survives hydration.
+- **A deleted pin finally leaves** (dash 12fdc12): new shell prop
+  `verifyRemote` — the turnkey mount answers it with the issue's own
+  status; 404/410 drops the pin, anything else keeps it (lag-safe: GitHub's
+  list endpoint may trail a just-filed issue).
+- **The pin context block, generic half** (dash r116): Route · URL ·
+  Viewport · color scheme land on every filed issue.
+- **RTL-proof chrome** (delgoosh's Farsi surfaces): BOTH portal roots pin
+  `dir="ltr"` — the pill, sidebar, composer and markers can no longer be
+  mangled by an RTL host — while reviewer PROSE inputs are `dir="auto"` so
+  a Farsi comment types correctly.
+
+**Verified already standard** (no change needed): drafts survive stray
+clicks/reloads · Enter-sends-on-fine-pointers · discard-opposite-send ·
+one-axis sidebar scroll · tappable issue links · versioned first-time tip ·
+page-comment gesture · comment-mode click containment · iOS 16px inputs ·
+a11y anchoring + anchorFallback · device-flow/PAT sign-in with the honest
+401 dot · active-time measurement (visible since 0.22.3) · the ⟳ sync chip
+(0.22.0) · evidence (0.19–0.21) · **EPSS chrome self-gates** — status line,
+palette and switcher all require a loaded manifest with epics, so outside a
+mock they simply do not render.
+
+**Stays host-side by nature:** the EPSS walk stepper/spotlight (compiled
+from journeys), reload-on-new-build (relay build events), screentime RELAY
+banking (hosts bank `onActiveTime` where they choose), stage-handoff panels.
+
+---
+
 ## review-overlay 0.22.3 — the timer is visible, the popover is unkillable
 
 `@slowcook-ai/review-overlay` 0.22.3 (additive).
