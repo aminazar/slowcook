@@ -536,7 +536,10 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
     // evidence rides every filed issue: the crop is of the pinned node when it
     // still stands (re-resolved now — the page may have scrolled), else the
     // viewport; the tail is whatever the last 60s actually did
-    const shots: import("./use-evidence.js").GatheredEvidence = await gatherEvidence(rectForNode(c.node)).catch(() => ({}));
+    // the crop target: the SHELL's own resolution of the anchor (carried on
+    // the comment — a11y/fallback anchors included), else the attribute
+    // lookup, else the whole viewport (page-level comments).
+    const shots: import("./use-evidence.js").GatheredEvidence = await gatherEvidence(c.rect ?? rectForNode(c.node)).catch(() => ({}));
     const evidenceMd = shots.evidence ? [
       ...renderEvidenceMarkdown(shots.evidence),
       "", "<!-- slowcook-evidence", JSON.stringify(shots.evidence), "-->",

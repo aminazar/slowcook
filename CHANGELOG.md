@@ -6,6 +6,22 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.24.1 — the crop finally crops on real products
+
+`@slowcook-ai/review-overlay` 0.24.1 (bug fix, delgoosh field report: "it
+gets full screenshot attached, not cropped around the indicated element").
+
+On a real product no `data-review-node` attributes exist — anchors come from
+the shell's a11y/fallback schemes — so the turnkey's attribute lookup found
+nothing, the rect came back null, and every screenshot fell back to the
+whole viewport. Ownership fixed: the SHELL resolves the anchor (its own
+schemes, at submit time, because the page may have scrolled) and hands the
+viewport rect on the comment (`ReviewComment.rect`); the turnkey crops that,
+falling back to the attribute lookup and then the viewport (page-level
+comments, correctly).
+
+---
+
 ## review-overlay 0.24.0 — dash's sign-in, ported whole; the review-time panel is standard
 
 `@slowcook-ai/review-overlay` 0.24.0. Amin's correction that reframed the

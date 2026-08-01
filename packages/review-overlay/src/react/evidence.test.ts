@@ -338,3 +338,18 @@ describe("the abstraction law", () => {
     expect(strip(src)).not.toContain('"testing-surfaces.json"');
   });
 });
+
+// 0.24.1 — the crop finally crops on real products: the SHELL resolves the
+// anchor (a11y/fallback schemes included) and hands the rect on the comment;
+// the turnkey's attribute lookup was finding nothing on pages with no
+// data-review-node, and every screenshot fell back to the whole viewport.
+describe("the crop rect comes from the shell (0.24.1)", () => {
+  it("the comment carries its anchor rect, resolved at submit by findNodeEl", async () => {
+    const { readFileSync } = await import("node:fs");
+    const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
+    expect(shell).toContain("const anchorEl = findNodeEl(composer.node);");
+    expect(shell).toContain("rect: { x: ar.x, y: ar.y, width: ar.width, height: ar.height }");
+    const turnkey = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
+    expect(turnkey).toContain("gatherEvidence(c.rect ?? rectForNode(c.node))");
+  });
+});
