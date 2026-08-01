@@ -6,6 +6,26 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli — fix: `packages/cli` build broken by an illegal `DriverPage` cast
+
+`@slowcook-ai/cli` (bug fix; unblocks every consumer pinned to `local`).
+
+- **The cli did not compile.** `qa-replay.ts`'s goto step narrowed the page twice
+  to feature-detect Playwright's `url()`: once as `{ url?: () => string }` and
+  again as `{ url: () => string }`. The second assertion is illegal — `DriverPage`
+  declares no `url` at all, so TypeScript rejects it outright (**TS2352**) and
+  `tsc -b` failed the whole package. Narrowed once through the optional shape and
+  called via the local instead.
+- **Why it mattered downstream:** consumers whose `.brewing/slowcook-cli-version`
+  is `local` build the cli from `main` in CI, so this turned every one of their
+  PR checks red regardless of their own changes.
+- Regression tests in `packages/cli/src/lib/browser/browser.test.ts` cover the
+  three shapes: page already on the target URL (goto skipped), page elsewhere
+  (goto runs), and a page with **no** `url()` at all — the `DriverPage` shape that
+  the bad cast claimed was impossible.
+
+---
+
 ## review-overlay 0.11.0 — context-gated Refine pill + comet-light glint
 
 `@slowcook-ai/review-overlay` 0.11.0 (additive; new prop + ambient animation).

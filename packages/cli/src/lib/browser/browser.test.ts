@@ -68,6 +68,62 @@ function fakeDriver(script: { evaluate?: (expr: string) => unknown; failOn?: str
   };
 }
 
+// A page that ALSO exposes url() — Playwright's real page does, DriverPage does
+// not declare it. The goto step feature-detects it to skip a same-URL reload.
+function fakeDriverWithUrl(currentUrl: string, gotos: string[]): BrowserDriver {
+  const page = {
+    url: () => currentUrl,
+    goto: async (u: string) => { gotos.push(u); },
+    evaluate: async <T>() => true as T,
+    screenshot: async () => Buffer.from(""),
+    click: async () => {},
+    fill: async () => {},
+    textContent: async () => null,
+    title: async () => "t",
+    waitFor: async () => {},
+    close: async () => {},
+  } as DriverPage;
+  return {
+    name: "playwright",
+    caps: { emulation: true, contexts: true, actions: "full" },
+    launch: async () => ({ newPage: async () => page, close: async () => {} }),
+  };
+}
+
+describe("goto same-URL skip (feature-detected url())", () => {
+  const gotoPlan: QaPlan = {
+    name: "goto", baseUrl: "http://x",
+    steps: [{ action: "goto", url: "/login" }],
+  };
+
+  // REGRESSION (cli build was broken): the skip used to narrow `page` twice —
+  // once as `{ url?: () => string }` and again as `{ url: () => string }`. The
+  // second assertion does not compile, because DriverPage has no `url` at all
+  // (TS2352), and it took the whole `packages/cli` build down with it. Narrow
+  // once, through the optional shape, and call it.
+  it("skips the goto when the page is already standing on the target URL", async () => {
+    const gotos: string[] = [];
+    const r = await replayPlan(fakeDriverWithUrl("http://x/login", gotos), gotoPlan);
+    expect(r.ok).toBe(true);
+    expect(gotos).toEqual([]);            // skipped — no reload, events survive
+  });
+
+  it("navigates when the page is standing somewhere else", async () => {
+    const gotos: string[] = [];
+    const r = await replayPlan(fakeDriverWithUrl("http://x/elsewhere", gotos), gotoPlan);
+    expect(r.ok).toBe(true);
+    expect(gotos).toEqual(["http://x/login"]);
+  });
+
+  it("navigates when the driver page has no url() at all (DriverPage shape)", async () => {
+    // The bug shape: a driver whose page lacks url() must still navigate, not
+    // throw on the missing method.
+    const r = await replayPlan(fakeDriver({ evaluate: () => true }), gotoPlan);
+    expect(r.ok).toBe(true);
+    expect(r.steps.map((s) => s.action)).toEqual(["goto"]);
+  });
+});
+
 describe("replayPlan", () => {
   const plan: QaPlan = {
     name: "login smoke", baseUrl: "http://x",

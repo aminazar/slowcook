@@ -71,7 +71,12 @@ export async function replayPlan(driver: BrowserDriver, plan: QaPlan, hooks?: Re
             const target = abs(plan.baseUrl, s.url ?? "");
             // already standing there (a click navigated honestly): a same-URL
             // goto would RELOAD and wipe the session's events — skip it.
-            if (typeof (page as { url?: () => string }).url === "function" && (page as { url: () => string }).url() === target) break;
+            // Narrow ONCE. Casting to `{ url: () => string }` (required) does
+            // not compile: DriverPage has no `url`, so TS rejects the assertion
+            // outright (TS2352) — and the whole cli build fails with it. Only
+            // the optional-shaped cast is legal; reuse it via a local.
+            const pageUrl = (page as { url?: () => string }).url;
+            if (typeof pageUrl === "function" && pageUrl.call(page) === target) break;
             await page.goto(target, { waitUntil: "load" });
             break;
           }
