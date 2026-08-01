@@ -287,6 +287,13 @@ async function main(): Promise<void> {
       // verifies vibe + plate keep mock/ self-contained.
       await check(args.slice(1), VERSION);
       return;
+    case "reviewer-auth": {
+      // 0.28.2 — the device-flow helper standalone: QA consumers with no
+      // run-mock get the same one-code sign-in the mock boards have.
+      const { reviewerAuth } = await import("./commands/reviewer-auth/index.js");
+      await reviewerAuth(args.slice(1));
+      return;
+    }
     case "recall":
       // 0.28 — recall prior agent work (via ctxrs/ctx) before a task, so
       // brew/chef/refine agents don't start context-blind. Best-effort.

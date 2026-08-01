@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.22.2 + cli 0.28.2 — the sign-in reaches QA parity
+
+Three findings from the first RTL, real-product deployment (delgoosh):
+
+- **review-overlay 0.22.2** — the sign-in popover now ANCHORS TO THE PILL
+  (it was fixed at right:16/bottom:64, a spot the draggable pill may be
+  nowhere near), FOLLOWS THE HOST THEME via the same detection the shell
+  uses (it was hardcoded dark), and pins `dir="ltr"` (its chrome is English;
+  on an RTL host it inherited rtl and read mangled).
+- **cli 0.28.2** — `slowcook reviewer-auth`: the GitHub device-flow helper
+  standalone. run-mock always started it beside the mock; QA consumers run
+  no run-mock, so their pills fell back to PAT-paste-only. Point the
+  overlay's `authBase` at it and the one-code sign-in appears beside the
+  paste fallback. Defaults to slowcook's shipped OAuth client id (a device
+  client id is a public identifier; the granted scope is the reviewer's own
+  choice) — `--client-id` for your own app, `--expose` for a remote box.
+
+---
+
 ## review-overlay 0.22.1 — exports gain a `default` condition (Next/webpack resolution)
 
 `@slowcook-ai/review-overlay` 0.22.1 (bug fix; delgoosh/monorepo#869).
