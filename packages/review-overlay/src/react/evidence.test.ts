@@ -238,7 +238,8 @@ describe("sign-in popover environments", () => {
     // property because jsdom does not compute bidi layout.
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
-    const popover = src.slice(src.indexOf("{open && ("));
+    const popover = src.slice(src.indexOf("{open && createPortal("));
+    expect(popover.length).toBeGreaterThan(100); // the anchor itself must exist
     expect(popover).toContain('dir="ltr"');
     expect(popover).toContain('textAlign: "left"');
   });

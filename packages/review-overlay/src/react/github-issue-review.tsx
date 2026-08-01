@@ -18,6 +18,7 @@
  * GitHub-issues adapter around it.
  */
 import { useEffect, useState, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { renderEvidenceMarkdown } from "../comment-format.js";
 import { uploadReviewAsset } from "../github.js";
 import { useReviewEvidence, rectForNode, type EvidenceConfig } from "./use-evidence.js";
@@ -233,7 +234,7 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
           : <span style={{ opacity: authed && !authBad ? 0.55 : 1 }}>{authed && !authBad ? "🔓" : "🔑"}</span>}
         {authBad && <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: 999, background: "#e0483f" }} />}
       </button>
-      {open && (
+      {open && createPortal(
         <div dir="ltr" style={{ position: "fixed", left: anchor?.left ?? 16, ...(anchor?.top !== undefined ? { top: anchor.top } : { bottom: anchor?.bottom ?? 64 }), width: 300, textAlign: "left", background: C.bg, color: C.fg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, zIndex: 2147483200, fontFamily: "system-ui, sans-serif", boxShadow: C.shadow }}>
           <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 2 }}>{authBad ? "Sign-in expired — sign in again" : authed ? `Signed in${who ? ` as ${who}` : ""}` : "Sign in to review"}</div>
           <div style={{ fontSize: 10, color: C.dim, ...mono, marginBottom: 10 }}>{coord.owner}/{coord.repo}</div>
@@ -263,7 +264,8 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
               style={{ width: "100%", boxSizing: "border-box", fontSize: 11.5, padding: "6px 9px", borderRadius: 10, border: `1px solid ${C.inputBorder}`, background: C.inputBg, color: C.fg }} />
           </details>
           <div style={{ fontSize: 9.5, color: C.dim, marginTop: 6 }}>One sign-in covers every review surface on this site, in this browser.</div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
@@ -322,6 +324,10 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [rehydrate, setRehydrate] = useState(0);
+  // 0.22.3 — THE TIMER IS VISIBLE (Amin: dash measured active time but showed
+  // it nowhere). The shell's own measurement feeds a ⏱ chip on the status
+  // row; the host's onActiveTime callback still receives every flush.
+  const [activeSec, setActiveSec] = useState(0);
   const scopeLabel = p.labels[p.labels.length - 1] ?? p.labels[0] ?? "review";
   const surface = p.surface ?? `${p.owner}/${p.repo}`;
 
@@ -402,7 +408,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       title={p.title ?? "Review"}
       toggleLabels={p.toggleLabels ?? ["Read", "Comment"]}
       pageLabel={p.pageLabel}
-      onActiveTime={p.onActiveTime}
+      onActiveTime={(seconds) => { setActiveSec((t) => t + seconds); p.onActiveTime?.(seconds); }}
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
       icon={p.icon}
@@ -426,6 +432,12 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
               </button>
             );
           })()}
+          {activeSec >= 60 && (
+            <span title="active review time this session — a tab being read, not a tab on a desk"
+              style={{ fontSize: 9.5, fontFamily: "ui-monospace, monospace", opacity: 0.85, flexShrink: 0 }}>
+              ⏱{activeSec >= 3600 ? `${Math.floor(activeSec / 3600)}h${Math.floor((activeSec % 3600) / 60)}m` : `${Math.floor(activeSec / 60)}m`}
+            </span>
+          )}
           {p.statusExtra}
         </span>
       }

@@ -6,6 +6,25 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.22.3 — the timer is visible, the popover is unkillable
+
+`@slowcook-ai/review-overlay` 0.22.3 (additive).
+
+- **⏱ on the status row, standard**: the shell has measured ACTIVE review
+  time since 0.18 (a tab being read, not a tab on a desk) and showed it
+  nowhere. GitHubIssueReview now renders it — ⏱7m / ⏱1h12m — appearing
+  after the first active minute; the host's `onActiveTime` callback still
+  receives every flush for cross-session banking.
+- **The sign-in popover renders through a portal to `document.body`** — no
+  ancestor transform/filter/containing block can ever detach it from its
+  computed viewport position again.
+- Field note (delgoosh): a reported "0.22.2 regression" was a STALE VITE
+  OPTIMIZED-DEPS CACHE serving 0.22.1 bundles after the update — clear
+  `node_modules/.vite` (and `.next`) when upgrading; the anchoring and
+  status row were already in the installed 0.22.2.
+
+---
+
 ## review-overlay 0.22.2 + cli 0.28.2 — the sign-in reaches QA parity
 
 Three findings from the first RTL, real-product deployment (delgoosh):
