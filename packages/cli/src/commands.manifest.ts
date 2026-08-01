@@ -170,6 +170,12 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "checks",
   },
   {
+    name: "reviewer-auth",
+    usage: "slowcook reviewer-auth [--port 4200] [--expose] [--client-id <id>] [--scope repo]",
+    description: "Run the GitHub device-flow sign-in helper standalone — point the review overlay's authBase at it (QA on a real backend, no run-mock).",
+    group: "checks",
+  },
+  {
     name: "recall",
     usage: "slowcook recall <query> | --file <path> [--limit n] [--since 30d] [--workspace <path>] [--json]",
     description: "Recall prior agent sessions (via ctxrs/ctx) as a compact context brief — so agents don't re-investigate settled work.",

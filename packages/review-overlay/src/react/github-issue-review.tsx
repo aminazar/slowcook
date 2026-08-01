@@ -17,10 +17,11 @@
  * The shell itself stays transport-free in ./review-shell; this file is the
  * GitHub-issues adapter around it.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { renderEvidenceMarkdown } from "../comment-format.js";
 import { uploadReviewAsset } from "../github.js";
 import { useReviewEvidence, rectForNode, type EvidenceConfig } from "./use-evidence.js";
+import { usePrefersDark } from "./theme.js";
 import {
   ReviewShell, localStorageStore,
   type ReviewComment, type ReviewCommentMeta, type Corner,
@@ -134,6 +135,25 @@ function makeGh(coord: RepoCoord) {
 
 function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: string; onDone: () => void }) {
   const [open, setOpen] = useState(false);
+  // 0.22.2 — the popover ANCHORS TO THE PILL (it was fixed at right:16
+  // bottom:64, a spot the draggable pill may be nowhere near), FOLLOWS THE
+  // HOST THEME (it was hardcoded dark), and pins dir="ltr" (its chrome is
+  // English; on an RTL host page it inherited rtl and read mangled —
+  // delgoosh's Persian QA surfaces found all three).
+  const dark = usePrefersDark();
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) { setAnchor(null); return; }
+    const W = 300, vw = window.innerWidth, vh = window.innerHeight;
+    const left = Math.max(8, Math.min(r.right - W, vw - W - 8));
+    // open upward when the pill sits in the lower half — the common corner
+    setAnchor(r.top > vh / 2 ? { left, bottom: vh - r.top + 8 } : { left, top: r.bottom + 8 });
+  };
+  const C = dark
+    ? { bg: "#1f1f1f", fg: "#e9e9e9", dim: "#8d8d8d", border: "#5c5c5c", inputBg: "#2b2b2b", inputBorder: "#555", btnBg: "#e9e9e9", btnFg: "#1a1a1a", shadow: "0 14px 44px rgba(0,0,0,.5)" }
+    : { bg: "#ffffff", fg: "#1a1a1a", dim: "#6b6b6b", border: "#d0d0d0", inputBg: "#f5f5f5", inputBorder: "#bbb", btnBg: "#1a1a1a", btnFg: "#ffffff", shadow: "0 14px 44px rgba(0,0,0,.18)" };
   const [tok, setTok] = useState("");
   const [flow, setFlow] = useState<{ step: "idle" | "starting" | "failed"; why?: string } | { step: "code"; userCode: string; verificationUri: string }>({ step: "idle" });
   const [, bump] = useState(0);
@@ -195,7 +215,7 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
   const mono = { fontFamily: "ui-monospace, monospace" } as const;
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)}
+      <button ref={btnRef} onClick={() => { place(); setOpen((o) => !o); }}
         title={authBad ? "GitHub sign-in expired — sign in again" : authed ? `Signed in${who ? ` as ${who}` : ""}` : "Sign in to review"}
         style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px", display: "inline-flex", alignItems: "center", position: "relative" }}>
         {/* signed in → YOUR avatar, sized to the pill (16px, round) — the
@@ -206,35 +226,35 @@ function SignIn({ coord, authBase, onDone }: { coord: RepoCoord; authBase?: stri
         {authBad && <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: 999, background: "#e0483f" }} />}
       </button>
       {open && (
-        <div style={{ position: "fixed", right: 16, bottom: 64, width: 300, background: "#1f1f1f", color: "#e9e9e9", border: "1px solid #5c5c5c", borderRadius: 12, padding: 12, zIndex: 2147483200, fontFamily: "system-ui, sans-serif", boxShadow: "0 14px 44px rgba(0,0,0,.5)" }}>
+        <div dir="ltr" style={{ position: "fixed", left: anchor?.left ?? 16, ...(anchor?.top !== undefined ? { top: anchor.top } : { bottom: anchor?.bottom ?? 64 }), width: 300, textAlign: "left", background: C.bg, color: C.fg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, zIndex: 2147483200, fontFamily: "system-ui, sans-serif", boxShadow: C.shadow }}>
           <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 2 }}>{authBad ? "Sign-in expired — sign in again" : authed ? `Signed in${who ? ` as ${who}` : ""}` : "Sign in to review"}</div>
-          <div style={{ fontSize: 10, color: "#8d8d8d", ...mono, marginBottom: 10 }}>{coord.owner}/{coord.repo}</div>
+          <div style={{ fontSize: 10, color: C.dim, ...mono, marginBottom: 10 }}>{coord.owner}/{coord.repo}</div>
           {authBase && flow.step !== "code" && (
             <button onClick={() => void startDevice()} disabled={flow.step === "starting"}
-              style={{ display: "block", width: "100%", textAlign: "center", background: "#e9e9e9", color: "#1a1a1a", borderRadius: 8, padding: "7px 0", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 11.5, marginBottom: 8 }}>
+              style={{ display: "block", width: "100%", textAlign: "center", background: C.btnBg, color: C.btnFg, borderRadius: 8, padding: "7px 0", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 11.5, marginBottom: 8 }}>
               {flow.step === "starting" ? "Asking GitHub…" : "Sign in with GitHub"}
             </button>
           )}
           {flow.step === "code" && (
             <div style={{ textAlign: "center", marginBottom: 8 }}>
-              <div style={{ fontSize: 10, color: "#8d8d8d", marginBottom: 4 }}>Enter this code on GitHub:</div>
+              <div style={{ fontSize: 10, color: C.dim, marginBottom: 4 }}>Enter this code on GitHub:</div>
               <div style={{ ...mono, fontSize: 20, fontWeight: 800, letterSpacing: 2, marginBottom: 6, userSelect: "all" }}>{flow.userCode}</div>
               <a href={flow.verificationUri} target="_blank" rel="noreferrer"
-                style={{ display: "block", background: "#e9e9e9", color: "#1a1a1a", borderRadius: 8, padding: "6px 0", textDecoration: "none", fontWeight: 700, fontSize: 11.5 }}>
+                style={{ display: "block", background: C.btnBg, color: C.btnFg, borderRadius: 8, padding: "6px 0", textDecoration: "none", fontWeight: 700, fontSize: 11.5 }}>
                 Open github.com/login/device ↗
               </a>
-              <div style={{ fontSize: 9.5, color: "#8d8d8d", marginTop: 5 }}>waiting for GitHub…</div>
+              <div style={{ fontSize: 9.5, color: C.dim, marginTop: 5 }}>waiting for GitHub…</div>
             </div>
           )}
           {flow.step === "failed" && <div style={{ fontSize: 10, color: "#c66", marginBottom: 7 }}>{flow.why}</div>}
           <details open={!authBase}>
-            <summary style={{ fontSize: 9.5, color: "#8d8d8d", cursor: "pointer" }}>paste a token instead</summary>
-            <a href={tokenUrl} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 10.5, color: "#e9e9e9", margin: "6px 0" }}>① Create a token on GitHub ↗ (pre-filled, repo scope)</a>
+            <summary style={{ fontSize: 9.5, color: C.dim, cursor: "pointer" }}>paste a token instead</summary>
+            <a href={tokenUrl} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 10.5, color: C.fg, margin: "6px 0" }}>① Create a token on GitHub ↗ (pre-filled, repo scope)</a>
             <input type="password" value={tok} onChange={(e) => setTok(e.target.value)} placeholder="② paste ghp_… / gho_…"
               onKeyDown={(e) => { if (e.key === "Enter") void savePatTok(); }} autoComplete="off"
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 11.5, padding: "6px 9px", borderRadius: 10, border: "1px solid #555", background: "#2b2b2b", color: "#e9e9e9" }} />
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 11.5, padding: "6px 9px", borderRadius: 10, border: `1px solid ${C.inputBorder}`, background: C.inputBg, color: C.fg }} />
           </details>
-          <div style={{ fontSize: 9.5, color: "#8d8d8d", marginTop: 6 }}>One sign-in covers every review surface on this site, in this browser.</div>
+          <div style={{ fontSize: 9.5, color: C.dim, marginTop: 6 }}>One sign-in covers every review surface on this site, in this browser.</div>
         </div>
       )}
     </>
