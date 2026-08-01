@@ -271,6 +271,17 @@ export interface GitHubIssueReviewProps {
    *  screenshot crop and the 60s network/console tail, attached to every
    *  filed issue. Same shape and behavior as the overlay's `evidence`. */
   evidence?: EvidenceConfig;
+  /** 0.22.0 — dash-harness parity: active review seconds, banked however the
+   *  host wants (dash posts to a relay; a QA consumer may localStorage it). */
+  onActiveTime?: (seconds: number) => void;
+  /** 0.22.0 — what a page-level comment calls the page (dash: "the page"). */
+  pageLabel?: string;
+  /** 0.22.0 — the mode toggle's words; dash's boards read Review/Comment. */
+  toggleLabels?: [string, string];
+  /** 0.22.0 — extra content on the built-in status row (rendered after the
+   *  sync chip). The row itself is standard now: every consumer gets the ⟳
+   *  sync-age/tap-to-re-read chip dash's boards proved. */
+  statusExtra?: ReactNode;
 }
 
 export function GitHubIssueReview(p: GitHubIssueReviewProps) {
@@ -278,6 +289,11 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   const { gh, loadTok } = makeGh(coord);
   const [meta, setMeta] = useState<Record<string, ReviewCommentMeta>>({});
   const [, bump] = useState(0);
+  // 0.22.0 — the sync chip's truth: when the pins were last re-read, and the
+  // honest error when GitHub said no. Amber past 3 minutes, like dash's row.
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [rehydrate, setRehydrate] = useState(0);
   const scopeLabel = p.labels[p.labels.length - 1] ?? p.labels[0] ?? "review";
   const surface = p.surface ?? `${p.owner}/${p.repo}`;
 
@@ -330,7 +346,8 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   const hydrate = async (): Promise<ReviewComment[] | null> => {
     if (!loadTok()) return null;
     const r = await gh(`/repos/${p.owner}/${p.repo}/issues?labels=${encodeURIComponent(scopeLabel)}&state=all&per_page=100`).catch(() => null);
-    if (!r?.ok) return null;
+    if (!r?.ok) { setSyncError(r ? `GitHub ${r.status}` : "network error"); return null; }
+    setSyncError(null); setSyncedAt(Date.now());
     const issues = await r.json() as IssueLike[];
     const parsed = issues.map(parseIssue).filter((x): x is NonNullable<ReturnType<typeof parseIssue>> => !!x);
     const nextMeta: Record<string, ReviewCommentMeta> = {};
@@ -355,7 +372,9 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       requireTargets={p.requireTargets ?? true}
       anchorFallback={p.anchorFallback ?? true}
       title={p.title ?? "Review"}
-      toggleLabels={["Read", "Comment"]}
+      toggleLabels={p.toggleLabels ?? ["Read", "Comment"]}
+      pageLabel={p.pageLabel}
+      onActiveTime={p.onActiveTime}
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
       icon={p.icon}
@@ -364,8 +383,24 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       onComment={onComment}
       onReply={onReply}
       hydrate={hydrate}
-      hydrateKey={p.hydrateKey}
+      hydrateKey={(p.hydrateKey ?? 0) + rehydrate}
       meta={meta}
+      statusRow={
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center", maxWidth: "100%", minWidth: 0 }}>
+          {(() => {
+            const mins = syncedAt === null ? null : Math.floor((Date.now() - syncedAt) / 60000);
+            const stale = mins === null || mins >= 3;
+            return (
+              <button onClick={() => setRehydrate((k) => k + 1)}
+                title={syncError ?? (syncedAt ? `pins re-read ${mins}m ago — tap to re-read now` : "pins not read yet — tap to read")}
+                style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 9.5, padding: "0 2px", flexShrink: 0, maxWidth: 118, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: syncError || stale ? "#E8B84B" : "inherit", opacity: 0.85, fontFamily: "ui-monospace, monospace" }}>
+                ⟳{syncError ? syncError : syncedAt ? (mins === 0 ? "now" : `${mins}m`) : "—"}
+              </button>
+            );
+          })()}
+          {p.statusExtra}
+        </span>
+      }
       accessory={<>{p.accessory}<SignIn coord={coord} authBase={p.authBase} onDone={() => bump((n) => n + 1)} /></>}
       sidebarFooter={p.sidebarFooter}
     />

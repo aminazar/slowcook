@@ -6,6 +6,29 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.22.0 — the dash harness becomes standard QA chrome
+
+`@slowcook-ai/review-overlay` 0.22.0 (additive).
+
+Amin's read was right: the polish lived in two places — the SHELL (shared
+by everyone) and dash's mock HARNESS (statusRow, screentime, page labels),
+which no other consumer got. The generic half of that harness is now BUILT
+INTO `GitHubIssueReview`:
+
+- **the ⟳ sync chip** (standard, every consumer): when the pins were last
+  re-read, amber past 3 minutes or on an honest `GitHub 403`/network error,
+  tap to re-read now — the exact chip dash's boards proved. `statusExtra`
+  slots host content beside it.
+- **`onActiveTime`** pass-through — active review seconds, banked however
+  the host wants (dash posts to its relay; QA can localStorage it).
+- **`pageLabel`**, **`toggleLabels`** pass-throughs.
+
+Still dash-only on purpose: walk step controls (EPSS — compiled from
+journeys), the new-build reload chip (needs dash's relay build events),
+`verifyRemote` (not a shell prop; dash passes it speculatively).
+
+---
+
 ## review-overlay 0.21.0 — evidence rides the issue-filing shell too
 
 `@slowcook-ai/review-overlay` 0.21.0 (additive).
