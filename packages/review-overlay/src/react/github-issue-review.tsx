@@ -18,6 +18,9 @@
  * GitHub-issues adapter around it.
  */
 import { useEffect, useState, type ReactNode } from "react";
+import { renderEvidenceMarkdown } from "../comment-format.js";
+import { uploadReviewAsset } from "../github.js";
+import { useReviewEvidence, rectForNode, type EvidenceConfig } from "./use-evidence.js";
 import {
   ReviewShell, localStorageStore,
   type ReviewComment, type ReviewCommentMeta, type Corner,
@@ -47,13 +50,17 @@ export function parseAgentReply(login: string, body: string): AgentReply {
   return { author: agent ? `${agent} · agent` : login, text };
 }
 
-export function buildIssueBody(c: ReviewComment, surface: string): string {
-  return [
+export function buildIssueBody(c: ReviewComment, surface: string, extra?: { evidenceMd?: string[]; screenshotDataUrl?: string; screenshotUrl?: string }): string {
+  const lines = [
     `**Review note (${surface})**`, "",
     `**Node:** \`${c.node}\``, `**Card:** ${c.label}`, "",
     `> ${c.text.replace(/\n/g, "\n> ")}`, "",
-    `_Filed from the review shell._`,
-  ].join("\n");
+  ];
+  if (extra?.screenshotDataUrl) { lines.push(`![screenshot](${extra.screenshotDataUrl})`, ""); }
+  if (extra?.screenshotUrl) { lines.push(`📸 [screenshot — the commented element, ringed](${extra.screenshotUrl})`, ""); }
+  if (extra?.evidenceMd?.length) { lines.push(...extra.evidenceMd, ""); }
+  lines.push(`_Filed from the review shell._`);
+  return lines.join("\n");
 }
 
 export interface IssueLike {
@@ -77,7 +84,11 @@ export function parseIssue(i: IssueLike): (ReviewComment & { state: string; nCom
   }
   if (!node) return null;
   const label = /\*\*Card:\*\* (.+)/.exec(i.body)?.[1]?.trim() ?? i.title;
-  const text = (i.body.split(/\n> /).slice(1).join("\n").split("\n\n_Filed")[0] ?? i.title).replace(/\n> /g, "\n");
+  // the prose ends where the appendix begins — screenshot, evidence block or
+  // the filed-from footer, whichever comes first (0.21.0: evidence-carrying
+  // bodies used to leak their whole appendix into the sidebar's comment text)
+  const quoted = i.body.split(/\n> /).slice(1).join("\n");
+  const text = (quoted.split(/\n\n(?:!\[screenshot\]|📸 \[screenshot|<details><summary>evidence|_Filed)/)[0] ?? i.title).replace(/\n> /g, "\n");
   return {
     id: `gh-${i.number}`, node, label, text: text.trim(),
     author: i.user.login, createdAt: Date.parse(i.created_at),
@@ -256,6 +267,10 @@ export interface GitHubIssueReviewProps {
   /** Extra pill accessory rendered BEFORE the built-in sign-in key (e.g. an
    *  Ask-agent button). */
   accessory?: ReactNode;
+  /** 0.21.0 — REVIEW EVIDENCE (QA mode on a real backend): the ringed
+   *  screenshot crop and the 60s network/console tail, attached to every
+   *  filed issue. Same shape and behavior as the overlay's `evidence`. */
+  evidence?: EvidenceConfig;
 }
 
 export function GitHubIssueReview(p: GitHubIssueReviewProps) {
@@ -266,16 +281,34 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   const scopeLabel = p.labels[p.labels.length - 1] ?? p.labels[0] ?? "review";
   const surface = p.surface ?? `${p.owner}/${p.repo}`;
 
+  const gatherEvidence = useReviewEvidence({
+    config: p.evidence,
+    upload: async (base64, path) => {
+      const pat = loadTok();
+      if (!pat) return null;
+      const up = await uploadReviewAsset({ owner: p.owner, repo: p.repo, pat, path, contentBase64: base64 });
+      return up.ok ? up.blobUrl : null;
+    },
+  });
+
   const onComment = async (c: ReviewComment) => {
     if (!loadTok()) {
       setMeta((m) => ({ ...m, [c.id]: { status: "local only", replies: [{ author: "shell", text: "No GitHub sign-in in this browser — tap the 🔑 on the pill; the comment auto-posts after sign-in." }] } }));
       return;
     }
+    // evidence rides every filed issue: the crop is of the pinned node when it
+    // still stands (re-resolved now — the page may have scrolled), else the
+    // viewport; the tail is whatever the last 60s actually did
+    const shots: import("./use-evidence.js").GatheredEvidence = await gatherEvidence(rectForNode(c.node)).catch(() => ({}));
+    const evidenceMd = shots.evidence ? [
+      ...renderEvidenceMarkdown(shots.evidence),
+      "", "<!-- slowcook-evidence", JSON.stringify(shots.evidence), "-->",
+    ] : undefined;
     const res = await gh(`/repos/${p.owner}/${p.repo}/issues`, {
       method: "POST",
       body: JSON.stringify({
         title: `[review] ${c.label} — ${c.text.slice(0, 60)}${c.text.length > 60 ? "…" : ""}`,
-        body: buildIssueBody(c, surface),
+        body: buildIssueBody(c, surface, { evidenceMd, screenshotDataUrl: shots.screenshotDataUrl, screenshotUrl: shots.screenshotUrl }),
         labels: p.labels,
       }),
     }).catch(() => null);

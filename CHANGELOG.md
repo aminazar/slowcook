@@ -6,6 +6,27 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.21.0 — evidence rides the issue-filing shell too
+
+`@slowcook-ai/review-overlay` 0.21.0 (additive).
+
+`GitHubIssueReview` — the turnkey mount of the polished ReviewShell (the
+pill dash's refine/wire/skin sessions shaped: composer, sidebar, drafts,
+device-flow sign-in, active review-time) — gains the same `evidence` prop
+the overlay got in 0.19/0.20: the ringed crop of the pinned node
+(re-resolved at submit; viewport when it no longer stands) and the 60s
+network/console tail, rendered by ONE shared renderer
+(`renderEvidenceMarkdown`) and carried as machine JSON in a
+`<!-- slowcook-evidence -->` marker. Large crops upload via the
+review-assets branch using the shell's own sign-in token. New shared hook:
+`useReviewEvidence` + `rectForNode` — both shells now gather identically
+and cannot drift apart.
+
+This is the mount a QA-on-real-backend consumer should use — the older
+`SlowcookReviewOverlay` stays for the vibe/plate mock loop.
+
+---
+
 ## review-overlay 0.20.0 — dev-mode evidence: identity, debug headers, mutation bodies, the socket rail
 
 `@slowcook-ai/review-overlay` 0.20.0 (additive on 0.19.0's evidence).
