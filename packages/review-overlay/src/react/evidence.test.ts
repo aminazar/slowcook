@@ -305,3 +305,36 @@ describe("dash-parity sweep 2 (0.23.1)", () => {
     expect(turnkey).toContain("loadReviewerIdentity(localStorage, coord)?.login"); // pins signed by the signed-in reviewer
   });
 });
+
+// THE ABSTRACTION LAW (Amin's ruling, locked): mock-context chrome — walk
+// stepper, spotlight, EPSS status — never ships in the abstracted pill. The
+// core (pill, sidebar, drafting, attached window, sign-in, evidence, timer)
+// is context-free; mock chrome lives host-side or behind a manifest gate.
+describe("the abstraction law", () => {
+  const strip = (src: string) => src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+
+  it("the QA turnkey contains no mock-context chrome at all", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./github-issue-review.tsx", import.meta.url), "utf8");
+    expect(src).not.toMatch(/EPSS|spotlight|stepper|walkStep|testingSurfaces/i);
+  });
+
+  it("the shell's runtime is EPSS-free (mentions are documentation only)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const code = strip(readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8"));
+    expect(code).not.toMatch(/EPSS|spotlight|walkStep/);
+  });
+
+  it("the overlay's EPSS chrome is gated on a functional manifest, never a default", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./overlay.tsx", import.meta.url), "utf8");
+    // status line + palette render only with a loaded manifest carrying epics
+    expect(src).toContain("surfaceManifest && surfaceManifest.epics.length > 0");
+    expect(src).toContain("paletteOpen && surfaceManifest");
+    // the surface switcher renders only when surfaces exist
+    expect(src).toContain("surfaces.length > 0 && <SurfaceSwitcher");
+    // and no manifest URL is ever assumed — explicit prop or env, else nothing
+    expect(src).toContain('env("NEXT_PUBLIC_SLOWCOOK_SURFACES_URL") ?? ""');
+    expect(strip(src)).not.toContain('"testing-surfaces.json"');
+  });
+});
