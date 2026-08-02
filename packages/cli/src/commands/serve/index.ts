@@ -75,6 +75,9 @@ Verbs:
   down [--prune]                Stop the profile's services. --prune also drops volumes.
   logs [--service] [--follow]   Tail logs (optionally one service).
   reset [--scenario <name>]     Re-run a staging scenario's seed scripts (no-op for dev/mock).
+  watchdog                      Resident probe of each app's probe_path; recovers wedged dev
+                                servers (up but not serving). Run under systemd/pm2.
+  watchdog-once                 One probe round; exit != 0 if any watched app is wedged.
 
 Backward-compat:
   slowcook dev-env push  ≡  slowcook serve dev sync

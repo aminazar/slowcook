@@ -26,6 +26,7 @@
 import { execSync } from "node:child_process";
 import type { ProfileConfig, ServeConfig } from "./config.js";
 import { composeFiles, shouldBuildOnUp } from "./config.js";
+import { planWatchdog } from "./watchdog.js";
 import type { ShellCommand } from "./runner.js";
 
 export interface DevVerbArgs {
@@ -62,6 +63,9 @@ export function planServeDev(
       return planDown(args, profile);
     case "logs":
       return planLogs(args, profile);
+    case "watchdog":
+    case "watchdog-once":
+      return planWatchdog(args, profile);
     case "reset":
       return {
         exitCode: 0,
