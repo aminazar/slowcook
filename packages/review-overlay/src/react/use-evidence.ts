@@ -30,8 +30,10 @@ export interface UseReviewEvidenceArgs {
   upload?: (base64: string, suggestedPath: string) => Promise<string | null>;
 }
 
-/** Inline-size budget: a GitHub body caps at ~65k chars; leave room for prose
- *  and the tail. Crops above this go through `upload` instead. */
+/** Inline-size budget for hosts with NO upload seam. GitHub REFUSES to
+ *  render data: URIs in markdown (delgoosh#886 — the crop was attached and
+ *  displayed as nothing), so whenever `upload` exists it is ALWAYS used;
+ *  inline is only for renderers that honour data URLs. */
 const INLINE_CAP = 40_000;
 
 export function useReviewEvidence(args: UseReviewEvidenceArgs): (rect: { x: number; y: number; width: number; height: number } | null) => Promise<GatheredEvidence> {
@@ -63,12 +65,13 @@ export function useReviewEvidence(args: UseReviewEvidenceArgs): (rect: { x: numb
     if (session === "declined" || !session.live) return out;
     const shot = await session.capture(rect ? { ...rect, click: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } } : null);
     if (!shot) return out;
-    if (shot.dataUrl.length < INLINE_CAP) {
-      out.screenshotDataUrl = shot.dataUrl;
-    } else if (upload) {
+    if (upload) {
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       const url = await upload(shot.dataUrl.split(",")[1] ?? "", `qa/${stamp}.jpg`).catch(() => null);
       if (url) out.screenshotUrl = url;
+      else if (shot.dataUrl.length < INLINE_CAP) out.screenshotDataUrl = shot.dataUrl; // upload failed — inline beats losing the evidence
+    } else if (shot.dataUrl.length < INLINE_CAP) {
+      out.screenshotDataUrl = shot.dataUrl;
     }
     return out;
   }, [config?.networkTail, config?.screenshot, config?.buildId, upload]);

@@ -28,6 +28,24 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.24.2 — screenshots render on GitHub; the tail hears the sibling-subdomain API
+
+`@slowcook-ai/review-overlay` 0.24.2 (two field bugs, delgoosh#886).
+
+- **The crop was attached and displayed as NOTHING**: GitHub refuses to
+  render `data:` URIs in issue markdown, and 0.24.1's smaller crops fell
+  under the inline threshold — attached invisibly. Uploads (the
+  review-assets branch, which renders as an authenticated click-through)
+  are now ALWAYS preferred; inline survives only when no upload seam exists
+  or the upload itself fails — evidence beats purity.
+- **The 60s tail recorded no API calls**: the backend lives on a sibling
+  subdomain (api beside dev-therapist) and the recorder's same-ORIGIN test
+  filed it under third-party noise. New `sameSite` matcher: hostnames
+  sharing the page's registrable tail count, localhost counts, suffix-alike
+  attackers and analytics never do. Exported and tested.
+
+---
+
 ## review-overlay 0.24.1 — the crop finally crops on real products
 
 `@slowcook-ai/review-overlay` 0.24.1 (bug fix, delgoosh field report: "it

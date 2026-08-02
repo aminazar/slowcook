@@ -260,13 +260,22 @@ export function installBreadcrumbRecorder(options?: RecorderOptions): void {
   }
 }
 
+/** Same SITE, not just same origin (delgoosh#886: the API lives on a
+ *  sibling subdomain and the tail recorded nothing) — hostnames sharing the
+ *  page's registrable tail count; third parties still never do. Exported
+ *  for its tests: the two-label heuristic is deliberate (co.uk-style
+ *  suffixes would need a PSL — a dev backend on one is vanishingly rare). */
+export function sameSite(hostname: string, pageHostname: string): boolean {
+  if (hostname === pageHostname) return true;
+  if (/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(hostname)) return true;
+  const tail = pageHostname.split(".").slice(-2).join(".");
+  return tail.includes(".") && (hostname === tail || hostname.endsWith(`.${tail}`));
+}
+
 function isApiish(url: string): boolean {
   try {
     const u = new URL(url, location.origin);
-    // Same-origin, or a local dev backend on another port — never third-party
-    // (analytics beacons are noise, and noise in an evidence ring is a leak).
-    const local = u.origin === location.origin || /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(u.hostname);
-    return local && !/\.(js|css|map|png|jpe?g|svg|gif|woff2?|ico|webp|avif)([?#]|$)/.test(u.pathname);
+    return sameSite(u.hostname, location.hostname) && !/\.(js|css|map|png|jpe?g|svg|gif|woff2?|ico|webp|avif)([?#]|$)/.test(u.pathname);
   } catch { return false; }
 }
 
