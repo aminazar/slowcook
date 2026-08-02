@@ -353,3 +353,26 @@ describe("the crop rect comes from the shell (0.24.1)", () => {
     expect(turnkey).toContain("gatherEvidence(c.rect ?? rectForNode(c.node))");
   });
 });
+
+// 0.24.2 — delgoosh#886: the crop was attached as a data: URI and GitHub
+// displayed NOTHING (data URIs never render in issue markdown); and the tail
+// recorded no API calls because the backend lives on a sibling subdomain.
+describe("screenshots render and the tail hears the API (0.24.2)", () => {
+  it("upload is ALWAYS preferred; inline survives only as the no-upload/failed-upload fallback", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./use-evidence.ts", import.meta.url), "utf8");
+    const gather = src.slice(src.indexOf("if (upload) {"));
+    expect(gather.indexOf("await upload(")).toBeLessThan(gather.indexOf("out.screenshotDataUrl = shot.dataUrl"));
+    expect(src).toContain("upload failed — inline beats losing the evidence");
+  });
+
+  it("sameSite admits sibling subdomains and localhost, never third parties", async () => {
+    const { sameSite } = await import("./breadcrumbs.js");
+    expect(sameSite("api.delgoosh.com", "dev-therapist.delgoosh.com")).toBe(true);
+    expect(sameSite("delgoosh.com", "dev-therapist.delgoosh.com")).toBe(true);
+    expect(sameSite("localhost", "dev-therapist.delgoosh.com")).toBe(true);
+    expect(sameSite("evil-delgoosh.com", "dev-therapist.delgoosh.com")).toBe(false); // suffix, not substring
+    expect(sameSite("www.google-analytics.com", "dev-therapist.delgoosh.com")).toBe(false);
+    expect(sameSite("api.delgoosh.com.attacker.io", "dev-therapist.delgoosh.com")).toBe(false);
+  });
+});
