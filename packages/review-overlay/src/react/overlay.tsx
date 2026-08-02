@@ -54,8 +54,11 @@ import {
   type RepoCoord,
   type OverlayCommentRecord,
   type DocFile,
+  uploadReviewAsset,
 } from "../github.js";
 import { renderMarkdown } from "./markdown.js";
+import { installBreadcrumbRecorder, breadcrumbTail, backendIdentity, socketStats } from "./breadcrumbs.js";
+import { startCaptureSession, type CaptureSession } from "./capture.js";
 import { usePrefersDark, detectPageDark, pillTheme, sheetTheme, type PillTheme, type SheetTheme } from "./theme.js";
 import {
   loadReviewerToken,
@@ -144,6 +147,26 @@ export interface SlowcookReviewOverlayProps {
    */
   docPaths?: string[];
   /**
+   * 0.19.0 — REVIEW EVIDENCE. `networkTail` attaches the browser's last ~60s
+   * (API calls with status/timing/X-Request-Id/Server-Timing, failure bodies
+   * truncated + auth-stripped, console errors, route changes, coarse actions)
+   * to every comment. `screenshot` captures a CROP of the commented element
+   * (whole viewport for page-level comments), highlight-ringed, via tab
+   * capture — the browser asks to share the tab ONCE per review session, on
+   * the first submit; declining simply yields comments without screenshots.
+   * Small crops ride inline; larger ones are committed to a `review-assets`
+   * branch via the Contents API and linked.
+   */
+  evidence?: { screenshot?: boolean; networkTail?: boolean;
+    /** 0.20.0 — also record request bodies for successful non-GET calls (the
+     *  last mutation is often THE repro input). Opt-in: most real data. */
+    mutationBodies?: boolean;
+    /** 0.20.0 — the frontend build id stamped into every tail. Falls back to
+     *  NEXT_PUBLIC_SLOWCOOK_BUILD; backend identity is read from the first
+     *  X-Debug-Version / X-Version response header seen. */
+    buildId?: string;
+  };
+  /**
    * 0.7.0 — the working branch a doc "scope change" commits to (where the PR
    * lives). Falls back to `NEXT_PUBLIC_SLOWCOOK_BRANCH`, then the repo default.
    */
@@ -229,6 +252,11 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
     (env("NEXT_PUBLIC_SLOWCOOK_REVIEW_MODE") === "lcr" ? "lcr" : "scenarios");
   // 0.6.0 — LCR multi-person review: box-hosted device-flow helper base URL.
   const authBase = props.authBase ?? env("NEXT_PUBLIC_SLOWCOOK_AUTH_BASE") ?? "";
+  // 0.19.0 — review evidence (QA mode on a real backend).
+  const evidence = props.evidence ?? {
+    screenshot: env("NEXT_PUBLIC_SLOWCOOK_EVIDENCE") === "1",
+    networkTail: env("NEXT_PUBLIC_SLOWCOOK_EVIDENCE") === "1",
+  };
   const askBase = props.askBase ?? env("NEXT_PUBLIC_SLOWCOOK_ASK_BASE") ?? "";
   const overlayVersion = props.overlayVersion ?? "0.6.0";
   const repoCoord: RepoCoord = { owner, repo };
@@ -566,12 +594,64 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
   //  - scenarios mode → a comment on the mockup PR (vibe applies it).
   //  - lcr mode → a standalone [LCR] issue tagged with the route's story +
   //    the `vibe` label, since an LCR note is about a requirement, not a PR.
+  // 0.19.0 — the evidence rails. The recorder is installed on mount (a tail
+  // that starts at first-comment time has nothing in it); the CAPTURE session
+  // starts lazily on the first submit, because that is when the reviewer has
+  // committed to reviewing and the one tab-share prompt reads as part of the
+  // act rather than an ambush.
+  const captureRef = useRef<CaptureSession | null | "declined">(null);
+  useEffect(() => {
+    if (evidence.networkTail) installBreadcrumbRecorder({ mutationBodies: evidence.mutationBodies === true });
+  }, [evidence.networkTail, evidence.mutationBodies]);
+  const gatherEvidence = useCallback(async (payload: ReviewCommentPayload, pat: string): Promise<{ screenshotDataUrl?: string; screenshotUrl?: string }> => {
+    if (evidence.networkTail) {
+      const entries = breadcrumbTail(60_000);
+      const frontend = evidence.buildId ?? env("NEXT_PUBLIC_SLOWCOOK_BUILD");
+      const backend = backendIdentity();
+      const sockets = socketStats();
+      if (entries.length || frontend || backend || sockets) {
+        payload.evidence = {
+          window_ms: 60_000, entries,
+          ...(frontend || backend ? { identity: { ...(frontend ? { frontend } : {}), ...(backend ? { backend } : {}) } } : {}),
+          ...(sockets ? { sockets } : {}),
+        };
+      }
+    }
+    if (!evidence.screenshot) return {};
+    if (captureRef.current === null) {
+      captureRef.current = (await startCaptureSession()) ?? "declined";
+    }
+    const session = captureRef.current;
+    if (session === "declined" || !session.live) return {};
+    // re-resolve the element at SUBMIT time — the page may have scrolled since
+    // the click; a stale rect would ring the wrong pixels
+    let rect: { x: number; y: number; width: number; height: number } | null = null;
+    if (payload.element?.selector) {
+      const el = document.querySelector(payload.element.selector);
+      const r = el?.getBoundingClientRect();
+      if (r && r.width > 0) rect = { x: r.x, y: r.y, width: r.width, height: r.height };
+    }
+    const shot = await session.capture(rect ? { ...rect, click: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } } : null);
+    if (!shot) return {};
+    // small crops ride inline under GitHub's ~65k body cap; larger ones are
+    // committed to the review-assets branch and linked
+    if (shot.dataUrl.length < 40_000) return { screenshotDataUrl: shot.dataUrl };
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const up = await uploadReviewAsset({
+      owner: repoCoord.owner, repo: repoCoord.repo, pat,
+      path: `qa/${stamp}.jpg`, contentBase64: shot.dataUrl.split(",")[1] ?? "",
+      apiBase: getProxyApiBase() ?? undefined,
+    });
+    return up.ok ? { screenshotUrl: up.blobUrl } : {};
+  }, [evidence.networkTail, evidence.screenshot, evidence.buildId, repoCoord]);
+
   const postPayload = useCallback(
     async (payload: ReviewCommentPayload, pat: string) => {
+      const shots = await gatherEvidence(payload, pat);
       if (reviewMode === "lcr") {
         // Only write-access reviewers get the `vibe` (auto-apply) label; others
         // are labelled `community-review` and held for the team to triage.
-        const issue = formatLcrIssue({ payload, canApply: reviewerIdentity?.canApply === true });
+        const issue = formatLcrIssue({ payload, canApply: reviewerIdentity?.canApply === true, screenshotDataUrl: shots.screenshotDataUrl, screenshotUrl: shots.screenshotUrl });
         const res = await createIssue({
           owner: repoCoord.owner, repo: repoCoord.repo, pat,
           title: issue.title, body: issue.body, labels: issue.labels,
@@ -581,12 +661,12 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       }
       const res = await submitComment({
         owner: repoCoord.owner, repo: repoCoord.repo, pr: prNumber, pat,
-        body: formatReviewComment({ payload }),
+        body: formatReviewComment({ payload, ...shots }),
         apiBase: getProxyApiBase() ?? undefined,
       });
       return { res, kind: "comment" as const };
     },
-    [reviewMode, repoCoord, prNumber, reviewerIdentity],
+    [reviewMode, repoCoord, prNumber, reviewerIdentity, gatherEvidence],
   );
 
   useEffect(() => {
@@ -935,6 +1015,7 @@ export function SlowcookReviewOverlay(props: SlowcookReviewOverlayProps): JSX.El
       <style dangerouslySetInnerHTML={{ __html: SHADOW_RESET_CSS }} />
     <div
       data-slowcook-overlay-ui="1"
+      dir="ltr"
       style={{
         position: "fixed",
         inset: 0,

@@ -55,7 +55,7 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
 - **`vibe`** — Design-first mock generator. `vibe plan`/`schema`/`seed` build the whole-app LCR data adaptor (deterministic data model + Drizzle schema + real sql.js SQLite + LLM seed/queries). `vibe app` (deterministic) scaffolds the runnable, navigable LCR: Vite app + router (every surface reachable, BrowserRouter) + the slowcook review-overlay (persona switch + EPSS epic/persona/scenario/state router, from a generated testing-surfaces.json) + a stub page per route; sets review_mode: lcr. `vibe --spec <id>` (legacy per-story) emits a React mockup PR.
   ```
-  slowcook vibe (plan | schema [--stdout] | seed [--dry-run] | app [--force] | --spec <id> [--owner <login>] [--dry-run]) [--cwd <path>]
+  slowcook vibe (plan | schema [--stdout] | seed [--dry-run] | app [--force] | journeys [--concept <path>] [--dry-run] | tell [--journey <id>] [--seed <n>] [--dry-run] | check [--regen-worlds] [--dry-run] | --spec <id> [--owner <login>] [--dry-run]) [--cwd <path>]
   ```
 - **`plate`** — Mockup amendment agent. Triggered by /plate PR comments on slowcook-mockup PRs; force-pushes amendments.
   ```
@@ -84,9 +84,13 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
 
 ### Checks + guards
 
-- **`guard`** — Check for frozen-path violations between two git refs. CI step.
+- **`guard`** — Check for frozen-path violations between two git refs. CI step. Overrides require a stated reason AND the owning story's amendment in the same diff.
   ```
-  slowcook guard --base <ref> --head <ref> [--override] [--config <path>]
+  slowcook guard --base <ref> --head <ref> [--override --reason <why>] [--config <path>]
+  ```
+- **`amend`** — Record a frozen-contract amendment ON the owning story spec (amendments: entry) — the backprop half of guard --override.
+  ```
+  slowcook amend --story <id> --reason <why> [--pr <#>] [--files a,b]
   ```
 - **`manifest`** — Record or verify the set of discoverable tests so agents can't silently exclude them.
   ```
@@ -95,6 +99,14 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
 - **`check`** — Static structural checks. `check spec` re-runs spec validators on PR amendments; `check mock-isolation` enforces the mock-vs-prod boundary.
   ```
   slowcook check (mock-isolation|spec) [file...] [--cwd <path>]
+  ```
+- **`reviewer-auth`** — Run the GitHub device-flow sign-in helper standalone — point the review overlay's authBase at it (QA on a real backend, no run-mock).
+  ```
+  slowcook reviewer-auth [--port 4200] [--expose] [--client-id <id>] [--scope repo]
+  ```
+- **`recall`** — Recall prior agent sessions (via ctxrs/ctx) as a compact context brief — so agents don't re-investigate settled work.
+  ```
+  slowcook recall <query> | --file <path> [--limit n] [--since 30d] [--workspace <path>] [--json]
   ```
 - **`recon`** — Pre-brew structural divergence check. Surfaces missing components / testid gaps / brownfield rename hazards.
   ```
@@ -115,6 +127,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
 - **`gate`** — HITL review halt (design #9). Refuses to advance a stage until a human in the required role has approved on the PR; bot/agent reviews never satisfy it.
   ```
   slowcook gate check --stage <refine|plate|brew> --pr <n> [--repo <owner/name>]
+  ```
+- **`bench-browser`** — Benchmark the browser engines — Playwright (default) vs rustwright (option) — on the eye-capture + QA-replay workloads, per-process RSS + wall-time + oracle pass/fail agreement.
+  ```
+  slowcook bench-browser [eye|qa|both] [--iters <n>] [--plan <file.json>]
   ```
 - **`map`** — Generate / check the repo-wide code map (APIs, pages, components, helpers, types).
   ```
@@ -186,9 +202,9 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook stories status [--cwd <path>] [--owner <login>] [--repo <name>] [--json]
   ```
-- **`extract`** — Brownfield extracts (schema.mmd, tokens.md) for refine/investigate context. Fast, no node_modules.
+- **`extract`** — Brownfield extracts: schema/tokens (fast), --survey (deterministic doc/work catalog), --as-built (LLM, cited), --history (mine the agent sessions that BUILT the repo, via ctxrs/ctx).
   ```
-  slowcook extract [--schema] [--tokens] [--cwd <path>]
+  slowcook extract [--schema] [--tokens] [--survey] [--as-built] [--history] [--cwd <path>]
   ```
 
 ### Ops (preview, dev-env, etc.)

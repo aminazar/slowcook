@@ -6,6 +6,343 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## serve watchdog — dev servers that are up but not serving
+
+`slowcook serve <profile> watchdog` (new verb, dev + mock profiles): keeps
+watched dev servers actually SERVING. Field origin: the delgoosh
+blank-portal incident — an HMR storm made vite self-restart mid-flood,
+after which `/` served 200 while every module request 504'd behind nginx;
+`docker ps` healthy, app blank. No `/`-probing healthcheck can see it.
+
+- Apps opt in per-app in `serve.yaml` with `probe_path` (must exercise the
+  TRANSFORM pipeline — for vite, the entry module `/src/main.tsx`), plus
+  `recover_clear` (cache dirs, e.g. the vite pre-bundle), and tunables
+  `probe_strikes` (2), `probe_interval_s` (30), `recover_restarts` (2 —
+  the single-restart recovery has come back wedged in the field),
+  `recover_cooldown_s` (300).
+- `watchdog` runs a resident generated supervision loop (systemd-friendly,
+  ssh-wrapped like every serve command); `watchdog-once` probes one round
+  and exits nonzero when anything is wedged (cron/CI-friendly).
+- Companion doc `docs/serve-watchdog.md`: the HMR-storm anatomy + the vite
+  config recipe that shrinks the storm in the first place
+  (`server.watch.ignored` for test files, `awaitWriteFinish`,
+  `optimizeDeps.holdUntilCrawlEnd: false`).
+
+## review-overlay 0.24.2 — screenshots render on GitHub; the tail hears the sibling-subdomain API
+
+`@slowcook-ai/review-overlay` 0.24.2 (two field bugs, delgoosh#886).
+
+- **The crop was attached and displayed as NOTHING**: GitHub refuses to
+  render `data:` URIs in issue markdown, and 0.24.1's smaller crops fell
+  under the inline threshold — attached invisibly. Uploads (the
+  review-assets branch, which renders as an authenticated click-through)
+  are now ALWAYS preferred; inline survives only when no upload seam exists
+  or the upload itself fails — evidence beats purity.
+- **The 60s tail recorded no API calls**: the backend lives on a sibling
+  subdomain (api beside dev-therapist) and the recorder's same-ORIGIN test
+  filed it under third-party noise. New `sameSite` matcher: hostnames
+  sharing the page's registrable tail count, localhost counts, suffix-alike
+  attackers and analytics never do. Exported and tested.
+
+---
+
+## review-overlay 0.24.1 — the crop finally crops on real products
+
+`@slowcook-ai/review-overlay` 0.24.1 (bug fix, delgoosh field report: "it
+gets full screenshot attached, not cropped around the indicated element").
+
+On a real product no `data-review-node` attributes exist — anchors come from
+the shell's a11y/fallback schemes — so the turnkey's attribute lookup found
+nothing, the rect came back null, and every screenshot fell back to the
+whole viewport. Ownership fixed: the SHELL resolves the anchor (its own
+schemes, at submit time, because the page may have scrolled) and hands the
+viewport rect on the comment (`ReviewComment.rect`); the turnkey crops that,
+falling back to the attribute lookup and then the viewport (page-level
+comments, correctly).
+
+---
+
+## review-overlay 0.24.0 — dash's sign-in, ported whole; the review-time panel is standard
+
+`@slowcook-ai/review-overlay` 0.24.0. Amin's correction that reframed the
+method: the pill's requirements were applied IN SESSION straight onto dash's
+code — the implementation is the requirements record, so the faithful move
+is porting the real components, not re-deriving features from comments.
+This release replaces the turnkey's hand-rolled sign-in with dash's
+`gh-auth` SignIn, adapted only at the seams:
+
+- **Centered on the pill, riding it**: the popover is `AttachedWindow` —
+  the package's own pill-window (portals to body, shares the pill's centre,
+  follows drags, escapes transformed ancestors). It existed since 0.18 and
+  the turnkey simply wasn't using it. Now exported publicly too.
+- **The device code lands on your clipboard FIRST** — the "Open
+  github.com/login/device" link stays disabled until "copied to your
+  clipboard — paste it on GitHub" confirms.
+- **Two routes, two tabs** — device code · classic token, with the token
+  tab's redirect-then-paste flow and its checking/rejected states. The tab
+  bar hides entirely when no `authBase` is configured.
+- **The review-time panel** ("signed in, the key opens your review time"):
+  today / last-7-days / daily-average, pins filed, the seven-day bar chart.
+  Fed by `screentimeBase` (dash's relay contract, counts every device) or —
+  new, standard — this browser's own bank (`bankScreentime`/`bankPin`,
+  day-bucketed in localStorage), which says honestly that it is one
+  browser's count.
+
+Per Amin's abstraction ruling, restated as the package's law: mock-context
+chrome (walk stepper, spotlight, EPSS status) never renders outside a mock
+— host accessories or manifest-gated — while the abstracted core (pill,
+sidebar, drafting, attached window, sign-in, evidence, timer) is standard
+everywhere.
+
+---
+
+## review-overlay 0.23.1 — parity sweep 2: the rulings only the code comments held
+
+`@slowcook-ai/review-overlay` 0.23.1 (additive). The 0.23.0 audit worked
+from commit titles; this pass read every ruling comment in dash's two
+harnesses verbatim. Five more lifted:
+
+- **Sync on tab return, rate-guarded** ("I see 13 open comments, why aren't
+  they picked up" — a page left open all morning showed the morning's
+  board): focus/visibility re-reads the board, but never more than once per
+  45s — focus fires on every app switch on a phone, and the unguarded
+  version tripped GitHub's secondary rate limit within minutes.
+- **A signed-out sync says so** ("13" → "57" while GitHub held ONE): the
+  sync chip now reads `signed out` instead of quietly serving the local
+  archive.
+- **Route heirs** (no.675's second half): a route that inherited another's
+  meaning keeps its pins — `routeHeirs` map on both shell and turnkey.
+- **`bottomInset` pass-through** (no.588: the pill rests ABOVE a phone
+  bottom-nav, never on it) — the shell always had it; the turnkey now
+  exposes it.
+- **Pins signed by the signed-in reviewer**: `author` defaults to the
+  sign-in identity's login, not "Reviewer".
+
+Verified equivalent, no change: three-state verifyRemote semantics (unknown
+KEEPS the pin — losing a real review is worse than showing a stale one);
+closed-issue replies fetched (done-reports live on applied threads).
+Stays host-side: walk stepper rules (goes-to-route, refuse-once-then-pass,
+ring-the-action, rewind-the-world), spotlight, HMR-aware reload, SSE push
+hydration, stage-exit approval + handoff panels.
+
+---
+
+## review-overlay 0.23.0 — the dash-parity sweep: every pill ruling, audited and standard
+
+`@slowcook-ai/review-overlay` 0.23.0 (additive). Amin: "ALL of the dash mock
+pill's requests/changes should be applied on the OSS pill." The dash history
+was audited commit by commit; the ledger:
+
+**Lifted in THIS release:**
+- **A pin belongs to the page it was filed on** (dash 266319f / no.675):
+  comments record their route at file time; markers render only on that
+  route (older pins render everywhere); the route rides the issue body and
+  survives hydration.
+- **A deleted pin finally leaves** (dash 12fdc12): new shell prop
+  `verifyRemote` — the turnkey mount answers it with the issue's own
+  status; 404/410 drops the pin, anything else keeps it (lag-safe: GitHub's
+  list endpoint may trail a just-filed issue).
+- **The pin context block, generic half** (dash r116): Route · URL ·
+  Viewport · color scheme land on every filed issue.
+- **RTL-proof chrome** (delgoosh's Farsi surfaces): BOTH portal roots pin
+  `dir="ltr"` — the pill, sidebar, composer and markers can no longer be
+  mangled by an RTL host — while reviewer PROSE inputs are `dir="auto"` so
+  a Farsi comment types correctly.
+
+**Verified already standard** (no change needed): drafts survive stray
+clicks/reloads · Enter-sends-on-fine-pointers · discard-opposite-send ·
+one-axis sidebar scroll · tappable issue links · versioned first-time tip ·
+page-comment gesture · comment-mode click containment · iOS 16px inputs ·
+a11y anchoring + anchorFallback · device-flow/PAT sign-in with the honest
+401 dot · active-time measurement (visible since 0.22.3) · the ⟳ sync chip
+(0.22.0) · evidence (0.19–0.21) · **EPSS chrome self-gates** — status line,
+palette and switcher all require a loaded manifest with epics, so outside a
+mock they simply do not render.
+
+**Stays host-side by nature:** the EPSS walk stepper/spotlight (compiled
+from journeys), reload-on-new-build (relay build events), screentime RELAY
+banking (hosts bank `onActiveTime` where they choose), stage-handoff panels.
+
+---
+
+## review-overlay 0.22.3 — the timer is visible, the popover is unkillable
+
+`@slowcook-ai/review-overlay` 0.22.3 (additive).
+
+- **⏱ on the status row, standard**: the shell has measured ACTIVE review
+  time since 0.18 (a tab being read, not a tab on a desk) and showed it
+  nowhere. GitHubIssueReview now renders it — ⏱7m / ⏱1h12m — appearing
+  after the first active minute; the host's `onActiveTime` callback still
+  receives every flush for cross-session banking.
+- **The sign-in popover renders through a portal to `document.body`** — no
+  ancestor transform/filter/containing block can ever detach it from its
+  computed viewport position again.
+- Field note (delgoosh): a reported "0.22.2 regression" was a STALE VITE
+  OPTIMIZED-DEPS CACHE serving 0.22.1 bundles after the update — clear
+  `node_modules/.vite` (and `.next`) when upgrading; the anchoring and
+  status row were already in the installed 0.22.2.
+
+---
+
+## review-overlay 0.22.2 + cli 0.28.2 — the sign-in reaches QA parity
+
+Three findings from the first RTL, real-product deployment (delgoosh):
+
+- **review-overlay 0.22.2** — the sign-in popover now ANCHORS TO THE PILL
+  (it was fixed at right:16/bottom:64, a spot the draggable pill may be
+  nowhere near), FOLLOWS THE HOST THEME via the same detection the shell
+  uses (it was hardcoded dark), and pins `dir="ltr"` (its chrome is English;
+  on an RTL host it inherited rtl and read mangled).
+- **cli 0.28.2** — `slowcook reviewer-auth`: the GitHub device-flow helper
+  standalone. run-mock always started it beside the mock; QA consumers run
+  no run-mock, so their pills fell back to PAT-paste-only. Point the
+  overlay's `authBase` at it and the one-code sign-in appears beside the
+  paste fallback. Defaults to slowcook's shipped OAuth client id (a device
+  client id is a public identifier; the granted scope is the reviewer's own
+  choice) — `--client-id` for your own app, `--expose` for a remote box.
+
+---
+
+## review-overlay 0.22.1 — exports gain a `default` condition (Next/webpack resolution)
+
+`@slowcook-ai/review-overlay` 0.22.1 (bug fix; delgoosh/monorepo#869).
+
+The exports map carried only `types` + `import`, so any resolver asking with
+a `require` condition set — Next's webpack server pass — found NO matching
+condition and reported `Package path ./react is not exported`. The Vite SPAs
+resolved on `import` and never noticed. Every entry now also carries
+`default` (same ESM file): it matches any condition set, webpack bundles the
+ESM fine, and Node ≥20.19 can even `require()` ESM natively. No build
+change, no new artifact — one condition per entry.
+
+---
+
+## review-overlay 0.22.0 — the dash harness becomes standard QA chrome
+
+`@slowcook-ai/review-overlay` 0.22.0 (additive).
+
+Amin's read was right: the polish lived in two places — the SHELL (shared
+by everyone) and dash's mock HARNESS (statusRow, screentime, page labels),
+which no other consumer got. The generic half of that harness is now BUILT
+INTO `GitHubIssueReview`:
+
+- **the ⟳ sync chip** (standard, every consumer): when the pins were last
+  re-read, amber past 3 minutes or on an honest `GitHub 403`/network error,
+  tap to re-read now — the exact chip dash's boards proved. `statusExtra`
+  slots host content beside it.
+- **`onActiveTime`** pass-through — active review seconds, banked however
+  the host wants (dash posts to its relay; QA can localStorage it).
+- **`pageLabel`**, **`toggleLabels`** pass-throughs.
+
+Still dash-only on purpose: walk step controls (EPSS — compiled from
+journeys), the new-build reload chip (needs dash's relay build events),
+`verifyRemote` (not a shell prop; dash passes it speculatively).
+
+---
+
+## review-overlay 0.21.0 — evidence rides the issue-filing shell too
+
+`@slowcook-ai/review-overlay` 0.21.0 (additive).
+
+`GitHubIssueReview` — the turnkey mount of the polished ReviewShell (the
+pill dash's refine/wire/skin sessions shaped: composer, sidebar, drafts,
+device-flow sign-in, active review-time) — gains the same `evidence` prop
+the overlay got in 0.19/0.20: the ringed crop of the pinned node
+(re-resolved at submit; viewport when it no longer stands) and the 60s
+network/console tail, rendered by ONE shared renderer
+(`renderEvidenceMarkdown`) and carried as machine JSON in a
+`<!-- slowcook-evidence -->` marker. Large crops upload via the
+review-assets branch using the shell's own sign-in token. New shared hook:
+`useReviewEvidence` + `rectForNode` — both shells now gather identically
+and cannot drift apart.
+
+This is the mount a QA-on-real-backend consumer should use — the older
+`SlowcookReviewOverlay` stays for the vibe/plate mock loop.
+
+---
+
+## review-overlay 0.20.0 — dev-mode evidence: identity, debug headers, mutation bodies, the socket rail
+
+`@slowcook-ai/review-overlay` 0.20.0 (additive on 0.19.0's evidence).
+
+The "worth it for dev mode" set, and nothing more:
+
+- **Build identity** — every tail says WHICH CODE WAS RUNNING: frontend build
+  id (`evidence.buildId` prop or `NEXT_PUBLIC_SLOWCOOK_BUILD`) + the backend's
+  version, read from the first `X-Debug-Version`/`X-Version` response header
+  seen. Dev mode's ghost bugs are stale-code bugs; this kills the class.
+- **`X-Debug-*` capture** — the conventional dev-header names
+  (`x-debug-user`, `x-debug-sql-count`, `x-debug-sql-slowest`,
+  `x-debug-cache`, `x-debug-version`) land verbatim on each call's entry.
+  Anything the backend would console.log can ride a header instead and
+  arrive attached to the exact request.
+- **`evidence.mutationBodies`** (opt-in) — request bodies for SUCCESSFUL
+  non-GET calls too: the last mutation is often THE repro input for
+  "saved wrong" bugs. Off by default; it carries the most real data.
+- **The socket rail** — WebSocket + EventSource are patched: open/close/error
+  land as crumbs, and message frames are COUNTED BY TYPE
+  (`ws:order_updated ×12`), never stored. "The UI never updated" bugs ride
+  past every HTTP hook; the counts say whether the push ever arrived.
+- Deliberately NOT built: client state snapshots (biggest payload, most
+  sensitive, and the action trail + requests already imply the state).
+- New exports: `frameType`, `socketStats`, `backendIdentity`,
+  `RecorderOptions`. 141 green in the package.
+
+---
+
+## review-overlay 0.19.0 — review evidence: the ringed crop and the 60-second tail
+
+`@slowcook-ai/review-overlay` 0.19.0 (additive; new `evidence` prop, new payload field).
+
+Built for QA MODE ON A REAL BACKEND — the review target is a running product
+in dev mode, not a mock, so a comment must carry the conditions nobody can
+reproduce later.
+
+- **`evidence={{ screenshot, networkTail }}`** on `SlowcookReviewOverlay`
+  (or `NEXT_PUBLIC_SLOWCOOK_EVIDENCE=1` for both).
+- **Screenshot**: tab capture (`getDisplayMedia`) — pixel-perfect, no new
+  dependency; ONE share-tab prompt per review session, on the first submit;
+  declining yields comments without screenshots, never a nag. The capture is
+  a CROP around the commented element with a highlight ring and click marker
+  drawn on the pixels (whole viewport for page-level comments). Small crops
+  ride inline; larger ones are committed via the **Contents API** to a
+  `review-assets` branch and linked — on a private repo the viewer's own
+  session authenticates the click-through.
+- **Network/console tail**: the breadcrumb recorder (0.13.0) grew evidence
+  teeth — XHR beside fetch, `Server-Timing` and `X-Request-Id` captured per
+  call, unhandled rejections and window errors, a coarse ACTION trail
+  (clicks/submits by accessible name, never input values), and response +
+  request BODIES ON FAILURE ONLY, truncated to 2KB, auth headers never
+  recorded. Every comment attaches the last 60s as a collapsed `<details>`
+  block AND inside the hidden JSON payload (`payload.evidence`) for plate.
+- **The join that matters**: have the dev backend echo `X-Request-Id` and
+  emit `Server-Timing` (one middleware line each) and an investigating agent
+  goes from a pixel complaint to the exact server log lines without a repro.
+- New exports: `breadcrumbTail`, `startCaptureSession`, `cropGeometry`,
+  `uploadReviewAsset`. 12 new tests; 138 green in the package.
+
+---
+
+## cli 0.28.1 — fix: `packages/cli` build broken by an illegal `DriverPage` cast
+
+`@slowcook-ai/cli` (bug fix; unblocks every consumer pinned to `local`).
+
+- **The cli did not compile.** `qa-replay.ts`'s goto step narrowed the page twice
+  to feature-detect Playwright's `url()`: once as `{ url?: () => string }` and
+  again as `{ url: () => string }`. The second assertion is illegal — `DriverPage`
+  declares no `url` at all, so TypeScript rejects it outright (**TS2352**) and
+  `tsc -b` failed the whole package. Narrowed once through the optional shape and
+  called via the local instead.
+- **Why it mattered downstream:** consumers whose `.brewing/slowcook-cli-version`
+  is `local` build the cli from `main` in CI, so this turned every one of their
+  PR checks red regardless of their own changes.
+- Regression tests in `packages/cli/src/lib/browser/browser.test.ts` cover the
+  three shapes: page already on the target URL (goto skipped), page elsewhere
+  (goto runs), and a page with **no** `url()` at all — the `DriverPage` shape that
+  the bad cast claimed was impossible.
+
+---
+
 ## review-overlay 0.11.0 — context-gated Refine pill + comet-light glint
 
 `@slowcook-ai/review-overlay` 0.11.0 (additive; new prop + ambient animation).

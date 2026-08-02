@@ -98,6 +98,39 @@ export interface ReviewCommentPayload {
   surface?: SurfaceContext | null;
   /** App language at comment time, e.g. "fa" | "en" (document.documentElement.lang). */
   lang?: string;
+  /**
+   * 0.19.0 — the EVIDENCE TAIL: the browser's last ~60s (API calls with
+   * status/timing/X-Request-Id/Server-Timing, failure bodies truncated,
+   * console errors, route changes, coarse actions). Lets an investigating
+   * agent join a pixel complaint to the dev backend's own logs by request
+   * id without a repro. Additive — older parsers ignore it.
+   */
+  evidence?: EvidenceTail;
+}
+
+export interface EvidenceTail {
+  window_ms: number;
+  entries: EvidenceEntry[];
+  /** 0.20.0 — which code was even running: frontend build id (env/prop) and
+   *  the backend's version-ish header, first one seen. Dev mode's ghost bugs
+   *  are stale-code bugs; this kills the class. */
+  identity?: { frontend?: string; backend?: string };
+  /** 0.20.0 — socket traffic COUNTED by frame type (ws:order_updated: 12);
+   *  frames are never stored. */
+  sockets?: Record<string, number>;
+}
+
+export interface EvidenceEntry {
+  t: number;
+  kind: "fetch" | "error" | "route" | "mark" | "action";
+  msg: string;
+  status?: number;
+  requestId?: string;
+  ms?: number;
+  serverTiming?: string;
+  body?: string;
+  requestBody?: string;
+  debug?: Record<string, string>;
 }
 
 export const PAYLOAD_MARKER = "slowcook:review-overlay";
@@ -196,8 +229,12 @@ function isPlateReplyPayload(v: unknown): v is PlateReplyPayload {
 
 export interface FormatArgs {
   payload: ReviewCommentPayload;
-  /** Optional inline screenshot data URL (image/png). */
+  /** Optional inline screenshot data URL (image/png or jpeg). Small crops only —
+   *  a GitHub comment body caps at ~65k chars. */
   screenshotDataUrl?: string;
+  /** 0.19.0 — the uploaded screenshot's blob URL (Contents API asset). Renders
+   *  as a link; on private repos the viewer's own session authenticates it. */
+  screenshotUrl?: string;
 }
 
 /**
@@ -205,6 +242,41 @@ export interface FormatArgs {
  * JSON is wrapped in an HTML comment with a stable marker so plate's
  * parser can locate + decode it idempotently.
  */
+const fence = (s: string): string => s.replace(/`/g, "\u0060").replace(/\n/g, " ").slice(0, 500);
+
+/** The ONE evidence renderer (0.21.0) — used by the PR-comment overlay and
+ *  the issue-filing shell alike, so both transports read identically. */
+export function renderEvidenceMarkdown(ev: EvidenceTail): string[] {
+  const lines: string[] = [];
+  lines.push(`<details><summary>evidence — last ${Math.round(ev.window_ms / 1000)}s (${ev.entries.length} entries)</summary>`);
+  lines.push("");
+  if (ev.identity?.frontend || ev.identity?.backend) {
+    lines.push(`**Running:** ${[ev.identity.frontend ? `frontend \`${ev.identity.frontend}\`` : "", ev.identity.backend ? `backend \`${ev.identity.backend}\`` : ""].filter(Boolean).join(" · ")}`);
+    lines.push("");
+  }
+  for (const e of ev.entries) {
+    const at = new Date(e.t).toISOString().slice(11, 19);
+    const bits = [
+      `\`${at}\` ${e.kind === "fetch" ? "🌐" : e.kind === "error" ? "🟥" : e.kind === "action" ? "👆" : "➡️"} ${e.msg}`,
+      e.status != null ? `**${e.status}**` : "",
+      e.ms != null ? `${e.ms}ms` : "",
+      e.requestId ? `req \`${e.requestId}\`` : "",
+      e.serverTiming ? `⏱ \`${e.serverTiming}\`` : "",
+    ].filter(Boolean);
+    lines.push(`- ${bits.join(" · ")}`);
+    if (e.requestBody) lines.push(`  - req: \`${fence(e.requestBody)}\``);
+    if (e.body) lines.push(`  - res: \`${fence(e.body)}\``);
+    if (e.debug) for (const [k, v] of Object.entries(e.debug)) lines.push(`  - \`${k}: ${fence(v)}\``);
+  }
+  if (ev.sockets && Object.keys(ev.sockets).length) {
+    lines.push("");
+    lines.push(`**Sockets:** ${Object.entries(ev.sockets).map(([k, n]) => `\`${k}\` ×${n}`).join(" · ")}`);
+  }
+  lines.push("");
+  lines.push("</details>");
+  return lines;
+}
+
 export function formatReviewComment(args: FormatArgs): string {
   const { payload, screenshotDataUrl } = args;
   const lines: string[] = [];
@@ -239,6 +311,17 @@ export function formatReviewComment(args: FormatArgs): string {
 
   if (screenshotDataUrl) {
     lines.push(`![screenshot](${screenshotDataUrl})`);
+    lines.push("");
+  }
+  if (args.screenshotUrl) {
+    lines.push(`📸 [screenshot — the commented element, ringed](${args.screenshotUrl})`);
+    lines.push("");
+  }
+
+  // THE EVIDENCE TAIL (0.19.0) — collapsed, human-scannable, and duplicated
+  // inside the hidden JSON so plate reads structure, not markdown.
+  if (payload.evidence && payload.evidence.entries.length) {
+    lines.push(...renderEvidenceMarkdown(payload.evidence));
     lines.push("");
   }
 
@@ -320,6 +403,8 @@ export interface LcrIssue {
 export function formatLcrIssue(args: {
   payload: ReviewCommentPayload;
   screenshotDataUrl?: string;
+  /** 0.19.0 — uploaded screenshot asset (Contents API blob URL). */
+  screenshotUrl?: string;
   canApply?: boolean;
 }): LcrIssue {
   const canApply = args.canApply !== false;
@@ -345,6 +430,7 @@ export function formatLcrIssue(args: {
   lines.push(`> ${payload.prose.split("\n").join("\n> ")}`);
   lines.push("");
   if (args.screenshotDataUrl) { lines.push(`![screenshot](${args.screenshotDataUrl})`); lines.push(""); }
+  if (args.screenshotUrl) { lines.push(`📸 [screenshot — the commented element, ringed](${args.screenshotUrl})`); lines.push(""); }
   lines.push(canApply
     ? `_Filed from the LCR review overlay — labelled \`${VIBE_LABEL}\` for vibe to apply to the mock._`
     : `_Filed from the LCR review overlay by a reviewer without repo write access — labelled \`${COMMUNITY_LABEL}\` and gathered for the team to review (not auto-applied)._`);

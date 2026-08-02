@@ -36,7 +36,7 @@ export const localStorageStore = (key: string): CommentStore => ({
   save: (v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ } },
 });
 
-export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; url?: string; remoteId?: string | number; }
+export interface ReviewComment { id: string; node: string; label: string; text: string; author: string; createdAt: number; url?: string; remoteId?: string | number; /** 0.23.0 — the route the pin was filed on; markers render only there (dash no.675). Absent (older pins) ⇒ everywhere. */ route?: string; /** 0.24.1 — the anchor's viewport rect at SUBMIT time, resolved by the shell's own anchor scheme (a11y/fallback included) — the evidence crop's target. Absent ⇒ page-level. */ rect?: { x: number; y: number; width: number; height: number }; }
 
 // 0.14.0 — drafts: text typed into a composer/reply box survives a stray
 // backdrop click (and a reload). Keyed by anchor node (composer) or
@@ -119,6 +119,15 @@ export interface ReviewShellProps {
    *  survives new browsers/sessions and other reviewers' comments appear
    *  (multi-user review). Local comments not yet posted are preserved. */
   hydrate?: () => Promise<ReviewComment[] | null>;
+  /** 0.23.1 — routes that INHERITED another's meaning keep its pins
+   *  (dash no.675: the projects list moved off /account and every pin filed
+   *  there went dark). Map: filed-on route → routes that may show it. */
+  routeHeirs?: Record<string, string[]>;
+  /** 0.23.0 — is a remote-backed comment still alive? Called only for local
+   *  comments MISSING from a hydrate (GitHub's list lags). true ⇒ keep
+   *  (default when absent/throws — lag-safe); false ⇒ the pin leaves, as a
+   *  deleted issue should (dash: "a deleted pin can finally leave"). */
+  verifyRemote?: (remoteId: string | number) => Promise<boolean>;
   /** 0.14.0 — bump to trigger an immediate hydration pull (e.g. on a push
    *  event from a webhook relay); the 60s interval remains the fallback. */
   hydrateKey?: number;
@@ -262,7 +271,7 @@ function IntroMeteor({ target, accent }: { target: { x: number; y: number }; acc
 export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   const {
     enabled = true, requireTargets = true, anchorFallback = false, title = "Refine", accent = DASH_CORAL, icon,
-    onComment, onReply, hydrate, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel, onActiveTime,
+    onComment, onReply, hydrate, verifyRemote, routeHeirs, hydrateKey, meta, renderCommentExtra, sidebarFooter, intro, pageLabel, onActiveTime,
     store = localStorageStore("review-shell-comments"),
     corner = "bottom-left", bottomInset = 0, toggleLabels = ["Read", "Comment"],
     anchorAttribute = "data-review-node", labelAttribute = "data-review-label",
@@ -641,7 +650,11 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       // GitHub's LIST endpoint is eventually consistent: a just-filed issue
       // can be absent for a minute. Never drop a posted local comment the
       // lagging list hasn't caught up with — union, not replacement.
-      const localPostedMissing = local.filter((c) => c.remoteId !== undefined && !remote.some((r) => r.remoteId === c.remoteId));
+      let localPostedMissing = local.filter((c) => c.remoteId !== undefined && !remote.some((r) => r.remoteId === c.remoteId));
+      if (verifyRemote && localPostedMissing.length) {
+        const alive = await Promise.all(localPostedMissing.map((c) => verifyRemote(c.remoteId!).catch(() => true)));
+        localPostedMissing = localPostedMissing.filter((_, i) => alive[i]);
+      }
       const localUnposted = local.filter((c) => c.remoteId === undefined && !remote.some((r) => r.id === c.id));
       const merged = [...remote, ...localPostedMissing, ...localUnposted];
       store.save(merged);
@@ -649,7 +662,19 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     };
     void pull();
     const iv = setInterval(pull, 60_000);
-    return () => { dead = true; clearInterval(iv); };
+    // coming back to the tab re-reads the board — a count is only as true as
+    // its last sync — but no more than once per 45s: focus fires on every
+    // app switch and keyboard open on a phone, and each sync walks every pin
+    let lastFocusPull = Date.now();
+    const onReturn = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFocusPull < 45_000) return;
+      lastFocusPull = Date.now();
+      void pull();
+    };
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => { dead = true; clearInterval(iv); window.removeEventListener("focus", onReturn); document.removeEventListener("visibilitychange", onReturn); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrateKey]);
 
@@ -696,7 +721,13 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   // vanish: they collect as orphans, surfaced on the pill and in the sidebar.
   const markers: { node: string; count: number; x: number; y: number }[] = [];
   const orphanNodes: string[] = [];
-  byNode.forEach((list, node) => {
+  // A PIN BELONGS TO THE PAGE IT WAS FILED ON (dash no.675, 0.23.0): a node
+  // id repeated across pages must not surface another page's thread here.
+  const herePath = typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : "";
+  const showsPinsOf = (filedOn: string): boolean => (routeHeirs?.[filedOn] ?? [filedOn]).includes(herePath);
+  byNode.forEach((all, node) => {
+    const list = all.filter((c) => !c.route || showsPinsOf(c.route));
+    if (!list.length) return;
     const el = findNodeEl(node);
     if (!el) { orphanNodes.push(node); return; }
     const r = el.getBoundingClientRect();
@@ -725,7 +756,14 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
 
   const addComment = (text: string) => {
     if (!composer || !text.trim()) return;
-    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now() };
+    // the anchor's rect rides the comment (0.24.1): resolved HERE, by the
+    // shell's own scheme — a11y anchors and fallbacks included — at submit
+    // time, because the page may have scrolled since the pin. The turnkey's
+    // evidence crop was falling back to full-viewport on real products,
+    // where no data-review-node attribute exists for it to re-resolve.
+    const anchorEl = findNodeEl(composer.node);
+    const ar = anchorEl?.getBoundingClientRect();
+    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now(), route: typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : undefined, ...(ar && ar.width > 0 ? { rect: { x: ar.x, y: ar.y, width: ar.width, height: ar.height } } : {}) };
     persist([c, ...comments]);
     setComposer(null);
     if (onComment) {
@@ -742,7 +780,7 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   };
 
   return createPortal(
-    <div data-review-widget="" style={{ position: "fixed", inset: 0, zIndex: Z, pointerEvents: "none" }}>
+    <div data-review-widget="" dir="ltr" style={{ position: "fixed", inset: 0, zIndex: Z, pointerEvents: "none", textAlign: "left" }}>
       <style>{`@keyframes rs-swirl { 0% { filter: hue-rotate(0deg) saturate(1.15); } 50% { filter: hue-rotate(180deg) saturate(1.5); } 100% { filter: hue-rotate(360deg) saturate(1.15); } }`}</style>
       {introPhase === "strike" && pos && (
         <IntroMeteor target={{ x: pos.x + 125, y: pos.y + 22 }} accent={accent} />
@@ -1002,7 +1040,7 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
       <div onClick={(e) => e.stopPropagation()} style={{ position: "fixed", left, top, width: W, maxWidth: "92vw", background: S.sheet, color: S.fg, border: `1px solid ${S.border}`, borderRadius: 16, padding: 6, boxShadow: "0 14px 44px rgba(0,0,0,.45)", fontFamily: "system-ui, sans-serif" }}>
         <div style={{ fontSize: 9.5, fontWeight: 700, color: accent, margin: "2px 6px 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={label}>{label}{restored.current ? <span style={{ color: S.fgDim, fontWeight: 500 }}> · draft</span> : null}</div>
         <div style={{ position: "relative" }}>
-          <textarea ref={taRef} value={text} rows={1} placeholder="Add a comment"
+          <textarea dir="auto" ref={taRef} value={text} rows={1} placeholder="Add a comment"
             onChange={(e) => { setText(e.target.value); const t = taRef.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 140)}px`; } }}
             onKeyDown={(e) => { if (!COARSE && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim()) submit(text); } }}
             style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: COARSE ? "9px 12px 46px 12px" : "7px 12px 30px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 180, display: "block" }} />
@@ -1050,7 +1088,7 @@ function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetT
   };
   return (
     <div style={{ position: "relative", marginTop: 6 }}>
-      <textarea ref={taRef} value={text} rows={1} placeholder="Reply"
+      <textarea dir="auto" ref={taRef} value={text} rows={1} placeholder="Reply"
         onChange={(e) => { setText(e.target.value); autosize(); }}
         onKeyDown={(e) => { if (!COARSE && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
         style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12, lineHeight: 1.5, padding: COARSE ? "5px 10px 40px 10px" : "5px 10px 26px 10px", borderRadius: 12, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 160, display: "block" }} />

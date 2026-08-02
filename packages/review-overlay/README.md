@@ -2,6 +2,20 @@
 
 > Floating review overlay for slowcook mock previews. PMs leave element-anchored comments by clicking the element; comments POST to the mockup PR via a GitHub PAT. Plate parses them back out for amendments. Ships in slowcook 0.16-α.6.
 
+## Installing — pin exact, this is a 0.x package
+
+```sh
+pnpm add @slowcook-ai/review-overlay@latest   # or @<exact version>
+```
+
+Do NOT rely on `pnpm update` with a caret range: on `0.x`, `^0.21.0` pins
+the MINOR, so `pnpm update` reports success and leaves you on the old minor
+— three consumers have now sat on stale builds believing they upgraded
+(delgoosh/monorepo#869), and a version-lagged install is exactly how a prop
+mismatch produces a pill that silently never renders. New minors ship
+frequently; upgrade deliberately, by exact version, reading the CHANGELOG
+entry as you do.
+
 ## What it does
 
 When mounted into the consumer's mock app:
@@ -56,6 +70,54 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 ```
 
 The `enabled` gate keeps the overlay out of production-style builds. Slowcook's preview-deploy workflow (0.16-α.5) sets `NEXT_PUBLIC_SLOWCOOK_REVIEW=1` plus the owner/repo/PR env vars when it builds the mock for a `slowcook-mockup` PR.
+
+## Review evidence (0.19.0) — QA mode on a real backend
+
+When the review target is a RUNNING PRODUCT in dev mode (not a mock), turn on
+evidence so every comment carries the conditions nobody can reproduce later:
+
+```tsx
+<SlowcookReviewOverlay
+  enabled={import.meta.env.VITE_SLOWCOOK_REVIEW === "1"}
+  owner="…" repo="…" prNumber={/* the QA review issue's number */ 0}
+  evidence={{ screenshot: true, networkTail: true }}
+/>
+```
+
+- **`screenshot`** — tab capture: the browser asks to share the tab ONCE per
+  review session, on the first submit. Each comment then carries a CROP of
+  the commented element, highlight-ringed with the click marked (whole
+  viewport for page-level comments). Small crops ride inline; larger ones
+  are committed to a `review-assets` branch in your repo via the Contents
+  API and linked.
+- **`networkTail`** — the browser's last 60s attached to every comment: API
+  calls (method, path, status, duration, `X-Request-Id`, `Server-Timing`),
+  request/response bodies ON FAILURE ONLY (2KB-truncated; auth headers are
+  never recorded), console errors, unhandled rejections, route changes, and
+  a coarse action trail (clicks/submits by accessible name — never input
+  values). Rendered as a collapsed `<details>` block and carried in the
+  hidden JSON (`payload.evidence`) for machine triage.
+
+Dev-mode extras (0.20.0): `evidence.buildId` (or `NEXT_PUBLIC_SLOWCOOK_BUILD`)
+stamps the frontend build into every tail and the backend's
+`X-Debug-Version`/`X-Version` header names the other half; any `X-Debug-*`
+headers (user/tenant, sql count, cache) land on the exact request's entry;
+`evidence.mutationBodies: true` (opt-in) also records SUCCESSFUL non-GET
+request bodies — the last mutation is often the repro input; and
+WebSocket/SSE frames are counted by type (never stored), so "the UI never
+updated" comments say whether the push ever arrived.
+
+**Two middleware lines that make it sing** — in the dev backend:
+
+1. Echo an `X-Request-Id` header per request. The tail records it, so an
+   investigating agent joins a pixel complaint to the exact server log lines.
+2. Emit `Server-Timing` (e.g. `db;dur=42;desc="7 queries"`). Browsers expose
+   it to the recorder, so server-side timings ride along with zero extra
+   requests and zero payload risk.
+
+Privacy: this runs against real QA data and relays into GitHub — keep the
+target repo private. Failure-body truncation and the auth-header ban are not
+configurable off.
 
 ## Hosting the built mock — cache headers (required)
 

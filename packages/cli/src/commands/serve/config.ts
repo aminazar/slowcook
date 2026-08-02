@@ -40,6 +40,39 @@ const AppSchema = z.object({
   autoheal: z.boolean().optional().default(true),
   /** Optional: explicit container/process name override (otherwise the key). */
   container: z.string().optional(),
+  /**
+   * Deep-health probe path for `serve <profile> watchdog`. Must exercise
+   * the dev server's TRANSFORM pipeline, not just static serving: a wedged
+   * vite/next dev server keeps answering `/` with index.html 200 while
+   * every module request hangs (the delgoosh blank-portal incident,
+   * 2026-08-02 — HMR storm → mid-flood self-restart → all modules 504
+   * behind the proxy, container "healthy" throughout). For vite apps the
+   * entry module is the right probe: `probe_path: /src/main.tsx`.
+   * Apps without a probe_path are not watched.
+   */
+  probe_path: z.string().optional(),
+  /** Seconds between probe rounds. */
+  probe_interval_s: z.number().int().positive().optional().default(30),
+  /** Per-probe timeout — wedged transforms hang far longer than this. */
+  probe_timeout_s: z.number().int().positive().optional().default(10),
+  /** Consecutive failures before recovery (rides out a single blip). */
+  probe_strikes: z.number().int().positive().optional().default(2),
+  /**
+   * Paths (relative to the checkout) removed before each recovery restart —
+   * for vite apps the pre-bundle cache, e.g.
+   * `[apps/web/node_modules/.vite]`. A wedge that survives a plain restart
+   * has always cleared with cache-removal + restart.
+   */
+  recover_clear: z.array(z.string()).optional().default([]),
+  /**
+   * How many clear+restart cycles one recovery performs. Default 2: the
+   * first boot after a wedge re-optimizes against a browser-poisoned
+   * module graph and has come back wedged; the second boot from a clean
+   * cache is the state that stays healthy.
+   */
+  recover_restarts: z.number().int().positive().optional().default(2),
+  /** Seconds the app is left alone after a recovery (no restart loops). */
+  recover_cooldown_s: z.number().int().positive().optional().default(300),
 });
 
 const PersistenceSchema = z.object({
