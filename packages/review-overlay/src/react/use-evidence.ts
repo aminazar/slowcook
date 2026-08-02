@@ -30,6 +30,26 @@ export interface UseReviewEvidenceArgs {
   upload?: (base64: string, suggestedPath: string) => Promise<string | null>;
 }
 
+/** THE CHROME LEAVES THE PHOTO (Amin): a screenshot of the product must not
+ *  contain the reviewer's own tooling — the pill, markers, sidebar, attached
+ *  windows and any host-declared review chrome all hide for the exposure and
+ *  come straight back. `visibility` (not display) so nothing reflows, and the
+ *  wait matters: the capture stream runs ~5fps, so the hidden state needs
+ *  ~2 frames to actually reach the stream before the grab. */
+const CHROME_SELECTOR = "[data-review-widget], [data-review-chrome], [data-slowcook-overlay-ui]";
+const CAPTURE_SETTLE_MS = 280;
+async function withChromeHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const els = Array.from(document.querySelectorAll<HTMLElement>(CHROME_SELECTOR));
+  const prior = els.map((el) => el.style.visibility);
+  for (const el of els) el.style.visibility = "hidden";
+  await new Promise((r) => setTimeout(r, CAPTURE_SETTLE_MS));
+  try {
+    return await fn();
+  } finally {
+    els.forEach((el, i) => { el.style.visibility = prior[i] ?? ""; });
+  }
+}
+
 /** Inline-size budget for hosts with NO upload seam. GitHub REFUSES to
  *  render data: URIs in markdown (delgoosh#886 — the crop was attached and
  *  displayed as nothing), so whenever `upload` exists it is ALWAYS used;
@@ -63,7 +83,8 @@ export function useReviewEvidence(args: UseReviewEvidenceArgs): (rect: { x: numb
     if (captureRef.current === null) captureRef.current = (await startCaptureSession()) ?? "declined";
     const session = captureRef.current;
     if (session === "declined" || !session.live) return out;
-    const shot = await session.capture(rect ? { ...rect, click: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } } : null);
+    const shot = await withChromeHidden(() =>
+      session.capture(rect ? { ...rect, click: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } } : null));
     if (!shot) return out;
     if (upload) {
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
