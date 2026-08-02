@@ -10,6 +10,7 @@
  * for `bind-mount-source`.
  */
 
+import { planWatchdog as planWatchdogVerb } from "./watchdog.js";
 import { execSync } from "node:child_process";
 import type { ProfileConfig, ServeConfig } from "./config.js";
 import { composeFiles, shouldBuildOnUp } from "./config.js";
@@ -38,6 +39,9 @@ export function planServeMock(
       return planSync(args, profile);
     case "down":
       return planDown(args, profile);
+    case "watchdog":
+    case "watchdog-once":
+      return planWatchdogVerb(args, profile);
     case "logs":
       return planLogs(args, profile);
     case "reset":

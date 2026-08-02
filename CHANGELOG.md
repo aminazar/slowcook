@@ -6,6 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## serve watchdog — dev servers that are up but not serving
+
+`slowcook serve <profile> watchdog` (new verb, dev + mock profiles): keeps
+watched dev servers actually SERVING. Field origin: the delgoosh
+blank-portal incident — an HMR storm made vite self-restart mid-flood,
+after which `/` served 200 while every module request 504'd behind nginx;
+`docker ps` healthy, app blank. No `/`-probing healthcheck can see it.
+
+- Apps opt in per-app in `serve.yaml` with `probe_path` (must exercise the
+  TRANSFORM pipeline — for vite, the entry module `/src/main.tsx`), plus
+  `recover_clear` (cache dirs, e.g. the vite pre-bundle), and tunables
+  `probe_strikes` (2), `probe_interval_s` (30), `recover_restarts` (2 —
+  the single-restart recovery has come back wedged in the field),
+  `recover_cooldown_s` (300).
+- `watchdog` runs a resident generated supervision loop (systemd-friendly,
+  ssh-wrapped like every serve command); `watchdog-once` probes one round
+  and exits nonzero when anything is wedged (cron/CI-friendly).
+- Companion doc `docs/serve-watchdog.md`: the HMR-storm anatomy + the vite
+  config recipe that shrinks the storm in the first place
+  (`server.watch.ignored` for test files, `awaitWriteFinish`,
+  `optimizeDeps.holdUntilCrawlEnd: false`).
+
 ## review-overlay 0.24.1 — the crop finally crops on real products
 
 `@slowcook-ai/review-overlay` 0.24.1 (bug fix, delgoosh field report: "it
