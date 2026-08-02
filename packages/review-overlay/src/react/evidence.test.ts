@@ -376,3 +376,28 @@ describe("screenshots render and the tail hears the API (0.24.2)", () => {
     expect(sameSite("api.delgoosh.com.attacker.io", "dev-therapist.delgoosh.com")).toBe(false);
   });
 });
+
+// 0.24.3 — the chrome leaves the photo: pill, markers, sidebar, comment box,
+// attached windows and host chrome all hide for the exposure and come back.
+describe("the chrome leaves the photo (0.24.3)", () => {
+  it("capture hides every review artifact and restores it in a finally", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./use-evidence.ts", import.meta.url), "utf8");
+    expect(src).toContain('"[data-review-widget], [data-review-chrome], [data-slowcook-overlay-ui]"');
+    expect(src).toContain("await withChromeHidden(() =>");
+    expect(src.indexOf("finally")).toBeGreaterThan(0);
+    // the settle wait outlives the ~5fps capture stream's frame interval
+    expect(src).toContain("CAPTURE_SETTLE_MS = 280");
+  });
+
+  it("sidebar, composer and markers live inside the one shell portal the selector hides", async () => {
+    const { readFileSync } = await import("node:fs");
+    const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
+    // exactly one portal root: everything the shell renders is inside it
+    expect(shell.match(/createPortal\(/g)?.length).toBe(1);
+    expect(shell).toContain('data-review-widget="" dir="ltr"');
+    // and the pill's other slot stamps itself as chrome
+    const win = readFileSync(new URL("./attached-window.tsx", import.meta.url), "utf8");
+    expect(win).toContain("data-review-chrome");
+  });
+});

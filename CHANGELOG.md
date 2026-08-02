@@ -28,6 +28,22 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.24.3 — the chrome leaves the photo
+
+`@slowcook-ai/review-overlay` 0.24.3 (Amin: "when taking photo of screen…
+momentarily hide the pill" — and the rest of the tooling with it).
+
+Every evidence capture now hides ALL review artifacts for the exposure —
+the pill, markers, sidebar, comment composer, attached windows (sign-in /
+report), and any host-declared `data-review-chrome` — and restores them in
+a `finally`. `visibility` not `display`, so nothing reflows under the
+screenshot; and the hide waits 280ms before the grab because the capture
+stream runs ~5fps — an unsettled hide ghosts the pill back into the frame.
+Containment is tested: the shell renders through exactly ONE portal root,
+so sidebar/composer/markers hide with it by construction.
+
+---
+
 ## review-overlay 0.24.2 — screenshots render on GitHub; the tail hears the sibling-subdomain API
 
 `@slowcook-ai/review-overlay` 0.24.2 (two field bugs, delgoosh#886).
