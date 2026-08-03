@@ -401,3 +401,19 @@ describe("the chrome leaves the photo (0.24.3)", () => {
     expect(win).toContain("data-review-chrome");
   });
 });
+
+// 0.24.4 — the grip is a full-height rail: it must sit BESIDE the two rows
+// (controls + status), not inside the first one.
+describe("the grip spans the whole pill (0.24.4)", () => {
+  it("grip rail is a sibling of the rows column, and the status row lives inside that column", async () => {
+    const { readFileSync } = await import("node:fs");
+    const shell = readFileSync(new URL("./review-shell.tsx", import.meta.url), "utf8");
+    const grip = shell.indexOf('aria-label="Drag to move"');
+    const rail = shell.lastIndexOf('alignItems: "stretch"', grip);
+    const column = shell.indexOf('flexDirection: "column", minWidth: 0', grip);
+    const statusRow = shell.indexOf("{statusRow && !minimized &&", grip);
+    expect(rail).toBeGreaterThan(-1);           // the wrapper stretches its children
+    expect(column).toBeGreaterThan(grip);       // the rows column comes AFTER the grip…
+    expect(statusRow).toBeGreaterThan(column);  // …and holds the status row
+  });
+});

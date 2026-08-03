@@ -859,11 +859,11 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
           transition: introPhase === "settling" ? "left .8s cubic-bezier(.22,.8,.36,1), top .8s cubic-bezier(.22,.8,.36,1), transform .8s cubic-bezier(.22,.8,.36,1), box-shadow .8s ease" : introPhase === "strike" ? "box-shadow .25s ease 1s, transform .3s cubic-bezier(.34,1.56,.64,1) 1s" : undefined,
         }} onPointerDownCapture={() => { if (introPhase !== "done") finishIntro(); }}>
           <CometSheen pillRef={pillRef} radius={999} />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* The overlay pill's dot-grip, ported (Amin: dragging the shell on a
-              phone was near-impossible — the title was the only handle). Full
-              pill height, tiled dots, touchAction none so a finger drag pans
-              the pill instead of the page. */}
+          {/* The dot-grip is a FULL-HEIGHT left rail (Amin: it only covered
+              the top half once the status row existed — the pill is a column
+              of two rows, and a grip inside the first row can only stretch
+              that row). It now sits BESIDE the rows, spanning both. */}
+          <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
           <span
             role="button"
             aria-label="Drag to move"
@@ -884,6 +884,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
               backgroundPosition: "center",
             }}
           />
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span onPointerDown={(e) => startDrag(e, pos, setPos)} title="Drag to move" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "grab", color: S.fg }}>
             {/* the slowcook pot is the default mark (Amin: no anonymous red
                 dot); a custom icon still gets the accent disc. Clicking the
@@ -936,6 +938,8 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
               {statusRow}
             </div>
           )}
+          </div>
+          </div>
         </div>
       )}
 

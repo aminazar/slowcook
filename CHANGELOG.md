@@ -28,6 +28,17 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.24.4 — the grip spans the whole pill
+
+`@slowcook-ai/review-overlay` 0.24.4 (Amin: "the grip on the pill only
+covers the top half"). Since the status row arrived the pill has been a
+column of two rows, and the dot-grip lived inside the first — so its
+stretch reached only the top half. The grip is now a full-height left rail
+sitting BESIDE the rows, spanning both; same dots, same width, twice the
+thumb target.
+
+---
+
 ## review-overlay 0.24.3 — the chrome leaves the photo
 
 `@slowcook-ai/review-overlay` 0.24.3 (Amin: "when taking photo of screen…
