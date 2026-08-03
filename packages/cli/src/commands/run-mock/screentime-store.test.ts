@@ -128,3 +128,44 @@ describe("the chunk journal (0.28.5)", () => {
     expect(day.chunks).toBeUndefined();
   });
 });
+
+describe("lines moved (0.28.6) — dash's git-counted metric, ported", () => {
+  it("pinGrep matches the citation habits without swallowing longer numbers", async () => {
+    const { pinGrep } = await import("./screentime-store.js");
+    const re = new RegExp(pinGrep(886));
+    expect(re.test("fix per no.886 — calendar mobile")).toBe(true);
+    expect(re.test("applies #886")).toBe(true);
+    expect(re.test("(886) applied")).toBe(true);
+    expect(re.test("fixes #8860")).toBe(false);
+  });
+
+  it("movedLines sums numstat added+deleted and ignores hashes/binary rows", async () => {
+    const { movedLines } = await import("./screentime-store.js");
+    expect(movedLines("abc123\n12\t3\tsrc/a.ts\n-\t-\tassets/logo.png\n0\t7\tsrc/b.ts\n")).toBe(22);
+  });
+
+  it("pinsAndLines folds search + git into per-day maps, degrading to empty on failure", async () => {
+    const { pinsAndLines } = await import("./screentime-store.js");
+    const fetchImpl = (async () => new Response(JSON.stringify({ items: [
+      { number: 886, created_at: "2026-08-03T08:00:00Z" },
+      { number: 880, created_at: "2026-08-02T10:00:00Z" },
+    ] }), { status: 200 })) as unknown as typeof fetch;
+    const runGit = async (args: string[]) => (args.some((a) => a.includes("886")) ? "h\n10\t5\tf.ts\n" : "h\n2\t1\tg.ts\n");
+    const r = await pinsAndLines({ repoPath: "/x", repoFull: "delgoosh/monorepo", reviewLabel: "qa-review", runGit, fetchImpl }, "aminazar", "tok");
+    expect(r.pinsPerDay.get("2026-08-03")).toBe(1);
+    expect(r.linesPerDay.get("2026-08-03")).toBe(15);
+    expect(r.linesPerDay.get("2026-08-02")).toBe(3);
+  });
+
+  it("the report carries lines only when derived, and GitHub's pin count outranks the deposit counter", async () => {
+    const { deposit, report } = await import("./screentime-store.js");
+    const bank = {};
+    deposit(bank, "a", "p", "2026-08-03", 60, 2); // deposit says 2 pins
+    const r = report(bank, "a", "p", "2026-08-03", { pinsPerDay: new Map([["2026-08-03", 5]]), linesPerDay: new Map([["2026-08-03", 40]]) });
+    expect(r.todayComments).toBe(5);       // GitHub's own count wins
+    expect(r.todayDiffLines).toBe(40);
+    expect(r.weekDiffLines).toBe(40);
+    const plain = report(bank, "a", "p", "2026-08-03");
+    expect(plain.todayDiffLines).toBeUndefined(); // never invented
+  });
+});

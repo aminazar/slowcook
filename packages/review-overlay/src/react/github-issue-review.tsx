@@ -32,8 +32,12 @@ export interface ScreentimeReport {
   dailyAverageSeconds: number;
   todayComments?: number;
   weekComments?: number;
+  /** Lines the reviewer's pins moved (commits naming the pin, git-counted on
+   *  the ledger's box) — dash's metric, standard when the ledger derives it. */
+  todayDiffLines?: number;
+  weekDiffLines?: number;
   daysCounted?: number;
-  days: { date: string; seconds: number; comments?: number }[];
+  days: { date: string; seconds: number; comments?: number; diffLines?: number }[];
 }
 
 // ── the local screentime bank (no relay required): day-bucketed seconds and
@@ -275,13 +279,20 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
   // only the no-ledger fallback, and the footer must say WHICH book it is
   // showing: claiming "every device" over local numbers would be a lie.
   const [report, setReport] = useState<{ data: ScreentimeReport; source: "ledger" | "local" } | null>(null);
+  // "this session" for LINES: the first ledger read of this mount is the
+  // baseline; what today's number grows past it is what this session moved.
+  const linesBaseline = useRef<number | null>(null);
   useEffect(() => {
     if (!open || !authed) { setReport(null); return; }
     if (!screentimeBase) { setReport({ data: localReport(), source: "local" }); return; }
     const t = loadTok();
     void fetch(`${screentimeBase}/screentime?project=${encodeURIComponent(coord.repo)}`, { headers: t ? { authorization: `Bearer ${t}` } : undefined })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => setReport(j ? { data: j as ScreentimeReport, source: "ledger" } : { data: localReport(), source: "local" }))
+      .then((j) => {
+        const data = j as ScreentimeReport | null;
+        if (data && typeof data.todayDiffLines === "number" && linesBaseline.current === null) linesBaseline.current = data.todayDiffLines;
+        setReport(data ? { data, source: "ledger" } : { data: localReport(), source: "local" });
+      })
       .catch(() => setReport({ data: localReport(), source: "local" }));
   }, [open, authed, screentimeBase]);
 
@@ -339,8 +350,11 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
                   </div>
                   <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
                     {(((report.data.daysCounted ?? 1) > 1
-                      ? [["pins today", report.data.todayComments ?? 0], ["pins this week", report.data.weekComments ?? 0]]
-                      : [["pins today", report.data.todayComments ?? 0]]) as [string, number][]).map(([label, n]) => (
+                      ? [["pins today", report.data.todayComments ?? 0], ["pins this week", report.data.weekComments ?? 0],
+                         ...(report.data.weekDiffLines !== undefined ? [["lines moved · 7d", report.data.weekDiffLines]] : []),
+                         ...(linesBaseline.current !== null && (report.data.todayDiffLines ?? 0) > linesBaseline.current ? [["lines · this session", (report.data.todayDiffLines ?? 0) - linesBaseline.current]] : [])]
+                      : [["pins today", report.data.todayComments ?? 0],
+                         ...(report.data.todayDiffLines !== undefined ? [["lines moved today", report.data.todayDiffLines]] : [])]) as [string, number][]).map(([label, n]) => (
                       <span key={label} style={{ display: "grid", gap: 1 }}>
                         <b style={{ fontSize: 15, ...mono }}>{n}</b>
                         <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>{label}</span>

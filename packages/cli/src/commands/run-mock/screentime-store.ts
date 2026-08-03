@@ -26,14 +26,86 @@ export interface DayEntry {
 /** login → project → ISO date → { seconds, comments } */
 export type ScreentimeBank = Record<string, Record<string, Record<string, DayEntry>>>;
 
+/** Dash's lines-moved mechanism, ported whole: commits that NAME a pin
+ *  number are that pin's footprint — git is the ground truth, no crediting
+ *  protocol. The grep matches the repo's citation habits (#886, no.886,
+ *  (886)) without swallowing 8860. */
+export function pinGrep(n: number): string {
+  return `(no\\.|#|\\()${n}([^0-9]|$)`;
+}
+
+/** Sum added+deleted from `git log --numstat` output. Pure. */
+export function movedLines(numstatOut: string): number {
+  let moved = 0;
+  for (const line of numstatOut.split("\n")) {
+    const m = line.match(/^(\d+)\t(\d+)\t/);
+    if (m) moved += Number(m[1]) + Number(m[2]);
+  }
+  return moved;
+}
+
+export interface LinesConfig {
+  /** The checkout the commits live in (the box's clone). */
+  repoPath: string;
+  /** owner/repo for the pin search. */
+  repoFull: string;
+  /** The label the review shell files under (scope label). */
+  reviewLabel: string;
+  /** Injected in tests. */
+  runGit?: (args: string[]) => Promise<string>;
+  fetchImpl?: typeof fetch;
+}
+
+/** Per-day pins filed (GitHub search, the caller's own token) and lines
+ *  those pins moved (git). Failures degrade to empty maps — a report with
+ *  no lines is still a report. */
+export async function pinsAndLines(cfg: LinesConfig, login: string, token: string): Promise<{ pinsPerDay: Map<string, number>; linesPerDay: Map<string, number> }> {
+  const f = cfg.fetchImpl ?? globalThis.fetch;
+  const pinsPerDay = new Map<string, number>();
+  const numbers: { n: number; day: string }[] = [];
+  try {
+    const q = `repo:${cfg.repoFull} author:${login} label:${cfg.reviewLabel}`;
+    const r = await f(`https://api.github.com/search/issues?q=${encodeURIComponent(q)}&per_page=100`, {
+      headers: { authorization: `Bearer ${token}`, "user-agent": "slowcook-reviewer-auth", accept: "application/vnd.github+json" },
+    });
+    if (r.ok) {
+      const j = (await r.json()) as { items?: { number: number; created_at?: string }[] };
+      for (const it of j.items ?? []) {
+        const day = String(it.created_at ?? "").slice(0, 10);
+        if (!day) continue;
+        pinsPerDay.set(day, (pinsPerDay.get(day) ?? 0) + 1);
+        numbers.push({ n: it.number, day });
+      }
+    }
+  } catch { /* GitHub unreachable — pins simply unknown */ }
+
+  const linesPerDay = new Map<string, number>();
+  const runGit = cfg.runGit ?? (async (args: string[]) => {
+    const { execFile } = await import("node:child_process");
+    return await new Promise<string>((resolve) => {
+      execFile("git", args, { cwd: cfg.repoPath, maxBuffer: 8 * 1024 * 1024 }, (e, out) => resolve(e ? "" : String(out)));
+    });
+  });
+  try {
+    for (const { n, day } of numbers) {
+      const out = await runGit(["log", "--all", "--numstat", "--format=%H", "-E", `--grep=${pinGrep(n)}`]);
+      const moved = movedLines(out);
+      if (moved > 0) linesPerDay.set(day, (linesPerDay.get(day) ?? 0) + moved);
+    }
+  } catch { /* no repo here — lines simply unknown */ }
+  return { pinsPerDay, linesPerDay };
+}
+
 export interface ScreentimeReport {
   todaySeconds: number;
   weekSeconds: number;
   dailyAverageSeconds: number;
   todayComments: number;
   weekComments: number;
+  todayDiffLines?: number;
+  weekDiffLines?: number;
   daysCounted: number;
-  days: { date: string; seconds: number; comments: number }[];
+  days: { date: string; seconds: number; comments: number; diffLines?: number }[];
 }
 
 /** Fold a deposit into the bank (pure — returns the same bank, mutated). */
@@ -52,20 +124,28 @@ export function deposit(bank: ScreentimeBank, login: string, project: string, da
 
 /** The report the overlay's panel renders — same shape as its local bank's,
  *  so the panel needs no idea which book it is reading. */
-export function report(bank: ScreentimeBank, login: string, project: string, today: string): ScreentimeReport {
+export function report(bank: ScreentimeBank, login: string, project: string, today: string, extras?: { pinsPerDay?: Map<string, number>; linesPerDay?: Map<string, number> }): ScreentimeReport {
   const byDay = bank[login]?.[project] ?? {};
   const days = Object.entries(byDay)
     .sort(([a], [z]) => z.localeCompare(a))
     .slice(0, 7)
-    .map(([date, v]) => ({ date, seconds: v.s, comments: v.c }));
+    .map(([date, v]) => ({
+      date, seconds: v.s,
+      // GitHub's own count of filed pins outranks the deposit counter when
+      // available (dash's rule) — the deposit is the offline approximation
+      comments: extras?.pinsPerDay?.get(date) ?? v.c,
+      ...(extras?.linesPerDay?.has(date) ? { diffLines: extras.linesPerDay.get(date) } : {}),
+    }));
   const weekSeconds = days.reduce((n, d) => n + d.seconds, 0);
   const counted = days.filter((d) => d.seconds > 0).length || 1;
+  const lines = days.reduce((n, d) => n + (d.diffLines ?? 0), 0);
   return {
     todaySeconds: byDay[today]?.s ?? 0,
     weekSeconds,
     dailyAverageSeconds: Math.round(weekSeconds / counted),
-    todayComments: byDay[today]?.c ?? 0,
+    todayComments: extras?.pinsPerDay?.get(today) ?? byDay[today]?.c ?? 0,
     weekComments: days.reduce((n, d) => n + d.comments, 0),
+    ...(extras?.linesPerDay ? { todayDiffLines: extras.linesPerDay.get(today) ?? 0, weekDiffLines: lines } : {}),
     daysCounted: counted,
     days,
   };
