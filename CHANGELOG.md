@@ -28,6 +28,34 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.25.3 — the sharing bar leaves with your attention
+
+`@slowcook-ai/review-overlay` 0.25.3 (delgoosh field report: stacked
+residual "Sharing dev-portal to dev-portal" bars eating laptop height).
+
+Two defects, one principle:
+
+- **The leak**: the capture stream lived in a component ref, so an HMR
+  module swap or remount orphaned the old stream while starting a new one —
+  and dev-server restarts never reload the tab, so orphans (and their
+  Chrome bars) accumulated forever. One stream per page now: a
+  window-registry stop survives module identity changes, every new session
+  stops the previous, and pagehide stops the last.
+- **The principle** (Amin's attention ruling, applied to capture): the
+  stream lives exactly as long as attention does. Hidden or unfocused past
+  a 20s grace, the stream stops and the bar leaves with it; the next
+  capture RE-ASKS — a prompt per sitting, never a bar while you're
+  elsewhere. An explicit decline still stays quiet.
+
+What this cannot fix, said plainly: the bar's wording ("sharing X to X")
+is Chrome's own chrome, and one grant can never span origins — reviewing
+portal, therapist and admin means one prompt per sitting per app, with at
+most ONE bar alive at a time (you can only attend one). Erasing prompts
+and bars across all surfaces at once has exactly one road: the browser
+extension (or a wrapper app on iOS), which stays parked by earlier ruling.
+
+---
+
 ## review-overlay 0.25.2 + cli 0.28.6 — lines moved, overall and this session
 
 Amin: "in dash pill, I had number of lines that my review touched (+/−). I
