@@ -83,7 +83,7 @@ export interface ReviewShellProps {
   /** Called with accumulated ACTIVE review seconds (visible + focused +
    *  interacted within the last minute), roughly every 30s and on the way
    *  out. Hosts persist it wherever a report can be read from any device. */
-  onActiveTime?: (seconds: number) => void;
+  onActiveTime?: (seconds: number, chunk?: { routes: string[] }) => void;
   /** What a WHOLE-PAGE comment is called here (dash passes the walk id).
    *  Defaults to the document title. */
   pageLabel?: string;
@@ -621,11 +621,24 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       window.addEventListener(ev, touch, { passive: true });
     }
     const TICK = 5;
+    // THE CHUNK CARRIES ITS CONTEXT (Amin): when attention leaves, the piece
+    // of time that ends deposits WITH the routes it spanned — a journal entry,
+    // not just a number. Routes are sampled on awake ticks only: a page open
+    // in a dead tab is not "browsed".
+    const routes = new Set<string>();
     const tick = setInterval(() => {
       const awake = document.visibilityState === "visible" && document.hasFocus() && Date.now() - lastTouch < 60_000;
-      if (awake) banked += TICK;
+      if (awake) {
+        banked += TICK;
+        try { routes.add(location.pathname + location.hash.split("?")[0]); } catch { /* ssr */ }
+      }
     }, TICK * 1000);
-    const flush = () => { if (banked > 0) { onActiveTime(banked); banked = 0; } };
+    const flush = () => {
+      if (banked > 0) {
+        onActiveTime(banked, { routes: [...routes] });
+        banked = 0; routes.clear();
+      }
+    };
     const flusher = setInterval(flush, 30_000);
     const onHide = () => { if (document.visibilityState === "hidden") flush(); };
     document.addEventListener("visibilitychange", onHide);
