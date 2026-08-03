@@ -28,6 +28,30 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.25.0 + cli 0.28.4 — one ledger, keyed by repo
+
+Amin, after seeing 18m and 2m for the same day on the same repo: "ledger
+should be always one source of truth — origin (URL) does not matter, review
+time should be gathered based on repo." The local bank lives in
+localStorage, which is per-ORIGIN — a monorepo's three review surfaces kept
+three disjoint books.
+
+- **cli 0.28.4** — the reviewer-auth helper grows the ledger: `GET/POST
+  /screentime`, file-backed on the box (`~/.slowcook/review-screentime.json`),
+  keyed **login → repo → day**. Identity is the reviewer's own Bearer token
+  resolved to a GitHub login (cached), so nobody writes another's book.
+  Deposits only accumulate; 401 without a valid token; 400 without a repo.
+- **review-overlay 0.25.0** — the turnkey DEPOSITS every active-time flush
+  and every filed pin to the ledger (keepalive), and the panel READS it.
+  `screentimeBase` defaults to `authBase` — the helper serves both
+  contracts, so a QA consumer configured for device-flow gets the shared
+  book with zero extra config. The local bank remains only as the
+  no-ledger/offline fallback, and the panel footer now names WHICH book it
+  shows — "the shared ledger" vs "ledger unreachable — showing this
+  browser's own bank" — instead of claiming every-device over local numbers.
+
+---
+
 ## review-overlay 0.24.4 — the grip spans the whole pill
 
 `@slowcook-ai/review-overlay` 0.24.4 (Amin: "the grip on the pill only
