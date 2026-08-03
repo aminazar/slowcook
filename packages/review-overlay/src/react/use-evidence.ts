@@ -80,6 +80,11 @@ export function useReviewEvidence(args: UseReviewEvidenceArgs): (rect: { x: numb
       }
     }
     if (!config?.screenshot) return out;
+    // an attention-stopped stream is not a refusal: re-ask on the next
+    // capture (a prompt per sitting); only an explicit decline stays quiet
+    if (captureRef.current !== null && captureRef.current !== "declined" && !captureRef.current.live) {
+      captureRef.current = null;
+    }
     if (captureRef.current === null) captureRef.current = (await startCaptureSession()) ?? "declined";
     const session = captureRef.current;
     if (session === "declined" || !session.live) return out;

@@ -56,8 +56,18 @@ export function cropGeometry(
 /** Ask for the tab once; hold the track for the whole review session. Returns
  *  null when the reviewer declines or the API is unavailable (SSR, old
  *  browsers) — a comment without a screenshot is still a comment. */
+/** ONE live stream per page, ever (delgoosh field report: stacked "Sharing…"
+ *  bars). The registry lives on window so it survives HMR module swaps —
+ *  the exact mechanism that orphaned streams: a remount started a new
+ *  session while the old track lived on in a dead module's ref. */
+const REG = "__slowcookCaptureStop" as const;
+function stopPrevious(): void {
+  try { (window as unknown as Record<string, undefined | (() => void)>)[REG]?.(); } catch { /* already gone */ }
+}
+
 export async function startCaptureSession(): Promise<CaptureSession | null> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getDisplayMedia) return null;
+  stopPrevious();
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
@@ -74,9 +84,35 @@ export async function startCaptureSession(): Promise<CaptureSession | null> {
   video.muted = true;
   await video.play().catch(() => { /* autoplay is allowed for muted capture */ });
 
+  // THE STREAM LIVES AS LONG AS ATTENTION DOES (Amin's ruling, applied to
+  // capture): when the tab is hidden or unfocused past a short grace, the
+  // stream stops and Chrome's sharing bar leaves with it. The next capture
+  // re-asks — a prompt per sitting, never a bar while you are elsewhere.
+  const GRACE_MS = 20_000;
+  let away: ReturnType<typeof setTimeout> | null = null;
+  const stopAll = () => {
+    for (const t of stream.getTracks()) t.stop();
+    window.removeEventListener("pagehide", stopAll);
+    document.removeEventListener("visibilitychange", onAttention);
+    window.removeEventListener("blur", onAttention);
+    window.removeEventListener("focus", onAttention);
+    const g = window as unknown as Record<string, undefined | (() => void)>;
+    if (g[REG] === stopAll) g[REG] = undefined;
+  };
+  const onAttention = () => {
+    const here = document.visibilityState === "visible" && document.hasFocus();
+    if (here) { if (away) { clearTimeout(away); away = null; } return; }
+    away ??= setTimeout(stopAll, GRACE_MS);
+  };
+  (window as unknown as Record<string, undefined | (() => void)>)[REG] = stopAll;
+  window.addEventListener("pagehide", stopAll);
+  document.addEventListener("visibilitychange", onAttention);
+  window.addEventListener("blur", onAttention);
+  window.addEventListener("focus", onAttention);
+
   const session: CaptureSession = {
     get live() { return track?.readyState === "live"; },
-    stop() { for (const t of stream.getTracks()) t.stop(); },
+    stop: stopAll,
     async capture(rectIn) {
       if (track?.readyState !== "live") return null;
       const frameW = video.videoWidth, frameH = video.videoHeight;

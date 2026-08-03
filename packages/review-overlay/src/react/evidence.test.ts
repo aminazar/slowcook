@@ -417,3 +417,23 @@ describe("the grip spans the whole pill (0.24.4)", () => {
     expect(statusRow).toBeGreaterThan(column);  // …and holds the status row
   });
 });
+
+// 0.25.3 — the sharing bar leaves with your attention (delgoosh: stacked
+// residual "Sharing…" bars from HMR-orphaned streams).
+describe("capture stream lifetime = attention (0.25.3)", () => {
+  it("one stream per page: a new session stops the previous via the window registry", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./capture.ts", import.meta.url), "utf8");
+    expect(src).toContain("stopPrevious();");                       // before every getDisplayMedia
+    expect(src).toContain('"__slowcookCaptureStop"');               // survives HMR module swaps
+    expect(src).toContain('window.addEventListener("pagehide", stopAll)');
+    expect(src).toContain("setTimeout(stopAll, GRACE_MS)");         // attention-loss stops sharing
+  });
+
+  it("an attention-stopped stream re-asks next capture; an explicit decline stays quiet", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("./use-evidence.ts", import.meta.url), "utf8");
+    expect(src).toContain('captureRef.current !== "declined" && !captureRef.current.live');
+    expect(src).toContain("captureRef.current = null;");
+  });
+});
