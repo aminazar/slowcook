@@ -24,6 +24,11 @@ export interface ReviewerAuthArgs {
   expose?: boolean;
   clientId?: string;
   scope?: string;
+  /** Lines-moved derivation (dash's mechanism): the box's checkout, the
+   *  owner/repo for pin search, and the review label pins file under. */
+  repoPath?: string;
+  repoFull?: string;
+  reviewLabel?: string;
 }
 
 export function parseReviewerAuthArgs(argv: string[]): ReviewerAuthArgs {
@@ -34,6 +39,9 @@ export function parseReviewerAuthArgs(argv: string[]): ReviewerAuthArgs {
     else if (a === "--expose") args.expose = true;
     else if (a === "--client-id") args.clientId = argv[++i];
     else if (a === "--scope") args.scope = argv[++i];
+    else if (a === "--repo-path") args.repoPath = argv[++i];
+    else if (a === "--repo-full") args.repoFull = argv[++i];
+    else if (a === "--review-label") args.reviewLabel = argv[++i];
   }
   return args;
 }
@@ -56,11 +64,15 @@ export async function reviewerAuth(argv: string[]): Promise<void> {
         read: () => { try { return readFileSync(ledgerPath, "utf8"); } catch { return null; } },
         write: (text) => writeFileSync(ledgerPath, text),
       },
+      ...(args.repoPath && args.repoFull
+        ? { lines: { repoPath: args.repoPath, repoFull: args.repoFull, reviewLabel: args.reviewLabel ?? "qa-review" } }
+        : {}),
     },
   });
   console.log(`reviewer-auth: device-flow sign-in helper on ${handle.url}${args.expose ? " (exposed on 0.0.0.0)" : ""}`);
   console.log(`  point the overlay's authBase at this origin (VITE_SLOWCOOK_AUTH_BASE / NEXT_PUBLIC_SLOWCOOK_AUTH_BASE)`);
   console.log(`  screentime ledger at ${ledgerPath} — the overlay's review-time panel reads/writes ${handle.url}/screentime`);
+  if (args.repoPath && args.repoFull) console.log(`  lines-moved: git in ${args.repoPath} · pins by label "${args.reviewLabel ?? "qa-review"}" on ${args.repoFull}`);
   console.log(`  client id …${clientId.slice(-4)} · scope ${args.scope ?? "repo"} · Ctrl-C to stop`);
   // keep the process alive until the OS says stop
   await new Promise<void>((resolve) => {

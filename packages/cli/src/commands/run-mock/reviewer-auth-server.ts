@@ -21,7 +21,7 @@
  */
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ForgeReviewerAuth } from "@slowcook-ai/core";
-import { deposit, report, loadBank, saveBank, makeIdentityResolver, type StoreIo } from "./screentime-store.js";
+import { deposit, report, loadBank, saveBank, makeIdentityResolver, pinsAndLines, type StoreIo, type LinesConfig } from "./screentime-store.js";
 
 export interface AuthServerHandle {
   url: string;
@@ -60,6 +60,9 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 
 export interface ScreentimeOptions {
   io: StoreIo;
+  /** Optional: derive pins (GitHub search) + lines moved (git --numstat on
+   *  commits naming the pin) — dash's mechanism, ported. */
+  lines?: LinesConfig;
   /** Injected for tests; defaults to the GitHub /user resolver. */
   resolveLogin?: (token: string) => Promise<string | null>;
   /** Injected for tests; defaults to the wall clock's ISO date. */
@@ -117,7 +120,8 @@ export function makeAuthHandler(
           const project = new URLSearchParams((req.url ?? "").split("?")[1] ?? "").get("project") ?? "";
           if (req.method === "GET") {
             if (!project) { sendJson(res, 400, { error: "project required" }); return; }
-            sendJson(res, 200, report(loadBank(screentime.io), login, project, today()));
+            const extras = screentime.lines ? await pinsAndLines(screentime.lines, login, token) : undefined;
+            sendJson(res, 200, report(loadBank(screentime.io), login, project, today(), extras));
             return;
           }
           if (req.method === "POST") {

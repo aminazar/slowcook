@@ -28,6 +28,27 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.25.2 + cli 0.28.6 — lines moved, overall and this session
+
+Amin: "in dash pill, I had number of lines that my review touched (+/−). I
+like to have it overall and for that session." Dash's mechanism, ported
+whole — because it needs no crediting protocol: PINS come from GitHub's own
+search (issues you authored under the review label) and LINES come from git
+itself — commits that NAME the pin number (`#886`, `no.886`, `(886)`,
+never `8860`), `--numstat` summed on the box's checkout.
+
+- **cli 0.28.6** — `slowcook reviewer-auth` gains `--repo-path`,
+  `--repo-full`, `--review-label` (default `qa-review`); when set, GET
+  /screentime enriches the report with per-day pins (GitHub's count
+  outranks the deposit counter) and diffLines. Derived, never invented:
+  without the flags the report simply carries no lines fields.
+- **review-overlay 0.25.2** — the panel grows "lines moved · 7d" /
+  "lines moved today", and **"lines · this session"**: the first ledger
+  read of the mount is the baseline, and what today's number grows past it
+  is what this session moved.
+
+---
+
 ## review-overlay 0.25.1 + cli 0.28.5 — attention chunks, journaled
 
 Amin's refinement of the one-ledger ruling: the timer counts only while the
