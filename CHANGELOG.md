@@ -28,6 +28,24 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## review-overlay 0.25.1 + cli 0.28.5 — attention chunks, journaled
+
+Amin's refinement of the one-ledger ruling: the timer counts only while the
+page is genuinely being read (visible + focused + touched — already the
+shell's rule; simultaneous-session cheating only cheats the cheater), and
+when attention LEAVES, the chunk that just ended deposits WITH its context.
+
+- The shell's flush hands over the chunk: seconds plus the routes it
+  spanned (sampled on awake ticks only — a dead tab browses nothing).
+- The turnkey deposits `{seconds, routes, at}` per chunk and `{pins: 1}`
+  per filed pin, immediately (a killed browser loses nothing already filed).
+- The ledger journals each chunk under its day —
+  `{at, s, routes?, pins?}` — while day totals stay scalar, so summing per
+  repo is a fold, never a parse; summing repos into a PROJECT later is the
+  same fold one level up.
+
+---
+
 ## review-overlay 0.25.0 + cli 0.28.4 — one ledger, keyed by repo
 
 Amin, after seeing 18m and 2m for the same day on the same repo: "ledger

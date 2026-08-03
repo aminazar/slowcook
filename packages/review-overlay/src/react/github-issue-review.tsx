@@ -487,8 +487,8 @@ export interface GitHubIssueReviewProps {
    *  filed issue. Same shape and behavior as the overlay's `evidence`. */
   evidence?: EvidenceConfig;
   /** 0.22.0 — dash-harness parity: active review seconds, banked however the
-   *  host wants (dash posts to a relay; a QA consumer may localStorage it). */
-  onActiveTime?: (seconds: number) => void;
+   *  host wants; 0.25.1 — the chunk carries the routes it spanned. */
+  onActiveTime?: (seconds: number, chunk?: { routes: string[] }) => void;
   /** 0.22.0 — what a page-level comment calls the page (dash: "the page"). */
   pageLabel?: string;
   /** 0.22.0 — the mode toggle's words; dash's boards read Review/Comment. */
@@ -532,14 +532,14 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   // how one reviewer came to see disjoint books on a monorepo's three
   // origins; with a base configured, every device and origin reads one book.
   const screentimeBase = p.screentimeBase ?? (p.authBase || undefined);
-  const depositRemote = (seconds: number, comments = 0) => {
+  const depositRemote = (seconds: number, comments = 0, routes?: string[]) => {
     if (!screentimeBase) return;
     const t = loadTok();
     if (!t) return;
     void fetch(`${screentimeBase}/screentime`, {
       method: "POST", keepalive: true,
       headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
-      body: JSON.stringify({ project: p.repo, seconds, comments }),
+      body: JSON.stringify({ project: p.repo, seconds, comments, ...(routes?.length ? { routes } : {}), at: new Date().toISOString() }),
     }).catch(() => { /* the local bank still has it */ });
   };
 
@@ -641,7 +641,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       title={p.title ?? "Review"}
       toggleLabels={p.toggleLabels ?? ["Read", "Comment"]}
       pageLabel={p.pageLabel}
-      onActiveTime={(seconds) => { setActiveSec((t) => t + seconds); bankScreentime(coord, seconds); depositRemote(seconds); p.onActiveTime?.(seconds); }}
+      onActiveTime={(seconds, chunk) => { setActiveSec((t) => t + seconds); bankScreentime(coord, seconds); depositRemote(seconds, 0, chunk?.routes); p.onActiveTime?.(seconds, chunk); }}
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
       icon={p.icon}

@@ -126,8 +126,10 @@ export function makeAuthHandler(
             if (!proj) { sendJson(res, 400, { error: "project required" }); return; }
             const seconds = typeof body["seconds"] === "number" ? body["seconds"] : 0;
             const comments = typeof body["comments"] === "number" ? body["comments"] : 0;
+            const routes = Array.isArray(body["routes"]) ? (body["routes"] as unknown[]).filter((r): r is string => typeof r === "string").slice(0, 40) : undefined;
+            const at = typeof body["at"] === "string" ? body["at"] : "";
             const bank = loadBank(screentime.io);
-            deposit(bank, login, proj, today(), seconds, comments);
+            deposit(bank, login, proj, today(), seconds, comments, { at, routes });
             saveBank(screentime.io, bank);
             sendJson(res, 200, { ok: true });
             return;

@@ -15,7 +15,14 @@
  * Everything decision-shaped is pure and tested; fs and fetch are injected.
  */
 
-export interface DayEntry { s: number; c: number }
+export interface DayEntry {
+  s: number;
+  c: number;
+  /** 0.28.5 — the journal: each attention chunk as it landed, with the routes
+   *  it spanned. Totals above stay scalar so summing per repo (and later per
+   *  PROJECT across repos) is a fold, never a parse. */
+  chunks?: { at: string; s: number; routes?: string[]; pins?: number }[];
+}
 /** login → project → ISO date → { seconds, comments } */
 export type ScreentimeBank = Record<string, Record<string, Record<string, DayEntry>>>;
 
@@ -30,12 +37,16 @@ export interface ScreentimeReport {
 }
 
 /** Fold a deposit into the bank (pure — returns the same bank, mutated). */
-export function deposit(bank: ScreentimeBank, login: string, project: string, date: string, seconds: number, comments: number): ScreentimeBank {
+export function deposit(bank: ScreentimeBank, login: string, project: string, date: string, seconds: number, comments: number, chunk?: { at?: string; routes?: string[] }): ScreentimeBank {
   const byProject = (bank[login] ??= {});
   const byDay = (byProject[project] ??= {});
   const day = (byDay[date] ??= { s: 0, c: 0 });
-  day.s += Math.max(0, seconds);
-  day.c += Math.max(0, comments);
+  const s = Math.max(0, seconds), c = Math.max(0, comments);
+  day.s += s;
+  day.c += c;
+  if (s > 0 || c > 0) {
+    (day.chunks ??= []).push({ at: chunk?.at ?? "", s, ...(chunk?.routes?.length ? { routes: chunk.routes } : {}), ...(c ? { pins: c } : {}) });
+  }
   return bank;
 }
 

@@ -105,3 +105,26 @@ describe("ledger routes on the auth helper", () => {
     expect((await drive(h, { method: "GET", url: "/screentime", auth: "good" })).status).toBe(400);
   });
 });
+
+describe("the chunk journal (0.28.5)", () => {
+  it("each deposit journals its chunk — routes and pins — while totals stay summable scalars", () => {
+    const bank = {};
+    deposit(bank, "aminazar", "monorepo", "2026-08-03", 300, 0, { at: "2026-08-03T09:00:00Z", routes: ["/therapist/dashboard", "/therapist/calendar"] });
+    deposit(bank, "aminazar", "monorepo", "2026-08-03", 0, 1, { at: "2026-08-03T09:02:00Z" });
+    const day = (bank as Record<string, Record<string, Record<string, { s: number; c: number; chunks?: unknown[] }>>>)["aminazar"]!["monorepo"]!["2026-08-03"]!;
+    expect(day.s).toBe(300);
+    expect(day.c).toBe(1);
+    expect(day.chunks).toHaveLength(2);
+    expect(day.chunks![0]).toEqual({ at: "2026-08-03T09:00:00Z", s: 300, routes: ["/therapist/dashboard", "/therapist/calendar"] });
+    expect(day.chunks![1]).toEqual({ at: "2026-08-03T09:02:00Z", s: 0, pins: 1 });
+    // the report is a FOLD over scalars — the journal never has to be parsed
+    expect(report(bank, "aminazar", "monorepo", "2026-08-03").todaySeconds).toBe(300);
+  });
+
+  it("an empty deposit journals nothing", () => {
+    const bank = {};
+    deposit(bank, "a", "p", "2026-08-03", 0, 0, { at: "t" });
+    const day = (bank as Record<string, Record<string, Record<string, { chunks?: unknown[] }>>>)["a"]!["p"]!["2026-08-03"]!;
+    expect(day.chunks).toBeUndefined();
+  });
+});
