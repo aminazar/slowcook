@@ -270,15 +270,19 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
   // your reviewing amounted to — time, pins, and the seven-day shape. With a
   // relay (`screentimeBase`) the ledger counts every device; without one it
   // is this browser's own bank, and it says so.
-  const [report, setReport] = useState<ScreentimeReport | null>(null);
+  // ONE SOURCE OF TRUTH (Amin's ruling): with a ledger configured, the book
+  // is the box's, keyed by REPO — origins are irrelevant. The local bank is
+  // only the no-ledger fallback, and the footer must say WHICH book it is
+  // showing: claiming "every device" over local numbers would be a lie.
+  const [report, setReport] = useState<{ data: ScreentimeReport; source: "ledger" | "local" } | null>(null);
   useEffect(() => {
     if (!open || !authed) { setReport(null); return; }
-    if (!screentimeBase) { setReport(localReport()); return; }
+    if (!screentimeBase) { setReport({ data: localReport(), source: "local" }); return; }
     const t = loadTok();
     void fetch(`${screentimeBase}/screentime?project=${encodeURIComponent(coord.repo)}`, { headers: t ? { authorization: `Bearer ${t}` } : undefined })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => setReport(j ?? localReport()))
-      .catch(() => setReport(localReport()));
+      .then((j) => setReport(j ? { data: j as ScreentimeReport, source: "ledger" } : { data: localReport(), source: "local" }))
+      .catch(() => setReport({ data: localReport(), source: "local" }));
   }, [open, authed, screentimeBase]);
 
   // two routes, two tabs (dash): the device code, or a classic token that
@@ -324,9 +328,9 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
               ) : (
                 <>
                   <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
-                    {(((report.daysCounted ?? 1) > 1
-                      ? [["today", report.todaySeconds], ["last 7 days", report.weekSeconds], [`daily average · ${report.daysCounted} days`, report.dailyAverageSeconds]]
-                      : [["today", report.todaySeconds]]) as [string, number][]).map(([label, secs]) => (
+                    {(((report.data.daysCounted ?? 1) > 1
+                      ? [["today", report.data.todaySeconds], ["last 7 days", report.data.weekSeconds], [`daily average · ${report.data.daysCounted} days`, report.data.dailyAverageSeconds]]
+                      : [["today", report.data.todaySeconds]]) as [string, number][]).map(([label, secs]) => (
                       <span key={label} style={{ display: "grid", gap: 1 }}>
                         <b style={{ fontSize: 15, ...mono }}>{fmt(secs)}</b>
                         <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>{label}</span>
@@ -334,9 +338,9 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
                     ))}
                   </div>
                   <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
-                    {(((report.daysCounted ?? 1) > 1
-                      ? [["pins today", report.todayComments ?? 0], ["pins this week", report.weekComments ?? 0]]
-                      : [["pins today", report.todayComments ?? 0]]) as [string, number][]).map(([label, n]) => (
+                    {(((report.data.daysCounted ?? 1) > 1
+                      ? [["pins today", report.data.todayComments ?? 0], ["pins this week", report.data.weekComments ?? 0]]
+                      : [["pins today", report.data.todayComments ?? 0]]) as [string, number][]).map(([label, n]) => (
                       <span key={label} style={{ display: "grid", gap: 1 }}>
                         <b style={{ fontSize: 15, ...mono }}>{n}</b>
                         <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>{label}</span>
@@ -344,8 +348,8 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
                     ))}
                   </div>
                   <div style={{ display: "grid", gap: 2 }}>
-                    {report.days.slice(0, 7).map((d: { date: string; seconds: number }) => {
-                      const max = Math.max(1, ...report.days.map((x: { seconds: number }) => x.seconds));
+                    {report.data.days.slice(0, 7).map((d: { date: string; seconds: number }) => {
+                      const max = Math.max(1, ...report.data.days.map((x: { seconds: number }) => x.seconds));
                       return (
                         <span key={d.date} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <span style={{ fontSize: 9.5, color: C.dim, width: 62, ...mono }}>{d.date.slice(5)}</span>
@@ -356,12 +360,16 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
                         </span>
                       );
                     })}
-                    {report.days.length === 0 && (
+                    {report.data.days.length === 0 && (
                       <span style={{ fontSize: 10.5, color: C.dim, ...mono }}>no review time banked yet — it counts while you are actually reading</span>
                     )}
                   </div>
                   <span style={{ fontSize: 9.5, color: C.dim, ...mono }}>
-                    {screentimeBase ? "counted across every device you review from" : "this browser only — point screentimeBase at a relay to count every device"}
+                    {report.source === "ledger"
+                      ? "the shared ledger — every device and surface, one book"
+                      : screentimeBase
+                        ? "ledger unreachable — showing this browser's own bank"
+                        : "this browser only — point screentimeBase at a relay to count every device"}
                   </span>
                 </>
               )}
@@ -518,6 +526,23 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
   const scopeLabel = p.labels[p.labels.length - 1] ?? p.labels[0] ?? "review";
   const surface = p.surface ?? `${p.owner}/${p.repo}`;
 
+  // 0.25.0 — the shared ledger: default to the auth helper's origin (it
+  // serves /screentime too), and DEPOSIT there whenever it is known. The
+  // local per-origin bank stays as the offline fallback — which is exactly
+  // how one reviewer came to see disjoint books on a monorepo's three
+  // origins; with a base configured, every device and origin reads one book.
+  const screentimeBase = p.screentimeBase ?? (p.authBase || undefined);
+  const depositRemote = (seconds: number, comments = 0) => {
+    if (!screentimeBase) return;
+    const t = loadTok();
+    if (!t) return;
+    void fetch(`${screentimeBase}/screentime`, {
+      method: "POST", keepalive: true,
+      headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
+      body: JSON.stringify({ project: p.repo, seconds, comments }),
+    }).catch(() => { /* the local bank still has it */ });
+  };
+
   const gatherEvidence = useReviewEvidence({
     config: p.evidence,
     upload: async (base64, path) => {
@@ -564,7 +589,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       return;
     }
     const issue = await res.json() as { number: number; html_url: string };
-    bankPin(coord); // the report counts what reviewing PRODUCED, not only how long it took
+    bankPin(coord); depositRemote(0, 1); // the report counts what reviewing PRODUCED, not only how long it took
     return { url: issue.html_url, remoteId: issue.number };
   };
 
@@ -616,7 +641,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
       title={p.title ?? "Review"}
       toggleLabels={p.toggleLabels ?? ["Read", "Comment"]}
       pageLabel={p.pageLabel}
-      onActiveTime={(seconds) => { setActiveSec((t) => t + seconds); bankScreentime(coord, seconds); p.onActiveTime?.(seconds); }}
+      onActiveTime={(seconds) => { setActiveSec((t) => t + seconds); bankScreentime(coord, seconds); depositRemote(seconds); p.onActiveTime?.(seconds); }}
       corner={p.corner ?? "bottom-left"}
       accent={p.accent ?? "#A31621"}
       icon={p.icon}
@@ -652,7 +677,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
           {p.statusExtra}
         </span>
       }
-      accessory={<>{p.accessory}<SignIn coord={coord} authBase={p.authBase} accent={p.accent ?? "#A31621"} screentimeBase={p.screentimeBase} localReport={() => localScreentimeReport(coord)} onDone={() => bump((n) => n + 1)} /></>}
+      accessory={<>{p.accessory}<SignIn coord={coord} authBase={p.authBase} accent={p.accent ?? "#A31621"} screentimeBase={screentimeBase} localReport={() => localScreentimeReport(coord)} onDone={() => bump((n) => n + 1)} /></>}
       sidebarFooter={p.sidebarFooter}
     />
   );

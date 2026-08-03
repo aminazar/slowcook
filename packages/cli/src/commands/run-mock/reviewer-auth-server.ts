@@ -21,6 +21,7 @@
  */
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ForgeReviewerAuth } from "@slowcook-ai/core";
+import { deposit, report, loadBank, saveBank, makeIdentityResolver, type StoreIo } from "./screentime-store.js";
 
 export interface AuthServerHandle {
   url: string;
@@ -31,6 +32,8 @@ export interface AuthServerHandle {
 const DEVICE_PATH = "/__slowcook/auth/device";
 const POLL_PATH = "/__slowcook/auth/poll";
 const HEALTH_PATH = "/__slowcook/auth/health";
+// 0.28.4 — the shared screentime ledger (the overlay fetches `${base}/screentime`)
+const SCREENTIME_PATH = "/screentime";
 
 function cors(res: ServerResponse, origin: string | undefined): void {
   res.setHeader("Access-Control-Allow-Origin", origin ?? "*");
@@ -55,11 +58,22 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
+export interface ScreentimeOptions {
+  io: StoreIo;
+  /** Injected for tests; defaults to the GitHub /user resolver. */
+  resolveLogin?: (token: string) => Promise<string | null>;
+  /** Injected for tests; defaults to the wall clock's ISO date. */
+  todayFn?: () => string;
+}
+
 /** Build the request handler (exported so it can be unit-tested without a socket). */
 export function makeAuthHandler(
   auth: ForgeReviewerAuth,
   clientIdSuffix: string,
+  screentime?: ScreentimeOptions,
 ): (req: IncomingMessage, res: ServerResponse) => void {
+  const resolveLogin = screentime?.resolveLogin ?? makeIdentityResolver();
+  const today = screentime?.todayFn ?? (() => new Date().toISOString().slice(0, 10));
   return (req, res) => {
     const origin = req.headers["origin"] as string | undefined;
     cors(res, origin);
@@ -92,6 +106,33 @@ export function makeAuthHandler(
           sendJson(res, 200, result);
           return;
         }
+        // ── the screentime ledger: one book for every device and origin ──
+        if (screentime && path === SCREENTIME_PATH) {
+          const token = (req.headers["authorization"] as string | undefined)?.replace(/^Bearer /i, "") ?? "";
+          const login = token ? await resolveLogin(token) : null;
+          if (!login) {
+            sendJson(res, 401, { error: "a valid GitHub token identifies whose ledger this is" });
+            return;
+          }
+          const project = new URLSearchParams((req.url ?? "").split("?")[1] ?? "").get("project") ?? "";
+          if (req.method === "GET") {
+            if (!project) { sendJson(res, 400, { error: "project required" }); return; }
+            sendJson(res, 200, report(loadBank(screentime.io), login, project, today()));
+            return;
+          }
+          if (req.method === "POST") {
+            const body = await readJson(req);
+            const proj = typeof body["project"] === "string" && body["project"] ? body["project"] : project;
+            if (!proj) { sendJson(res, 400, { error: "project required" }); return; }
+            const seconds = typeof body["seconds"] === "number" ? body["seconds"] : 0;
+            const comments = typeof body["comments"] === "number" ? body["comments"] : 0;
+            const bank = loadBank(screentime.io);
+            deposit(bank, login, proj, today(), seconds, comments);
+            saveBank(screentime.io, bank);
+            sendJson(res, 200, { ok: true });
+            return;
+          }
+        }
         sendJson(res, 404, { error: "not found" });
       } catch (e) {
         sendJson(res, 502, { error: e instanceof Error ? e.message : String(e) });
@@ -106,10 +147,10 @@ export function makeAuthHandler(
  */
 export async function startReviewerAuthServer(
   auth: ForgeReviewerAuth,
-  opts: { clientId: string; preferredPort?: number; host?: string } ,
+  opts: { clientId: string; preferredPort?: number; host?: string; screentime?: ScreentimeOptions },
 ): Promise<AuthServerHandle> {
   const suffix = opts.clientId.slice(-4);
-  const server: Server = createServer(makeAuthHandler(auth, suffix));
+  const server: Server = createServer(makeAuthHandler(auth, suffix, opts.screentime));
   const host = opts.host ?? "127.0.0.1";
   const preferredPort = opts.preferredPort ?? 4200;
 
