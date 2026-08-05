@@ -71,6 +71,35 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 The `enabled` gate keeps the overlay out of production-style builds. Slowcook's preview-deploy workflow (0.16-α.5) sets `NEXT_PUBLIC_SLOWCOOK_REVIEW=1` plus the owner/repo/PR env vars when it builds the mock for a `slowcook-mockup` PR.
 
+## If you lazy-load the overlay, bring a boundary (0.25.4)
+
+Every mount point above is already wrapped in an error boundary internally: a
+fault inside the review tool renders nothing and logs to the console — it costs
+you the pill, never the page.
+
+That boundary cannot help with one case, though: a failure while this package is
+still being **fetched**. If you own the dynamic import, you own the boundary —
+because **`<Suspense>` handles a lazy import's PENDING state and does not catch
+the REJECTED one**. A 504 on the chunk, a stale hashed filename after a deploy,
+an offline tab: `lazy()` rejects, the rejection throws during render, and an
+unguarded throw unmounts your whole app. (That is not hypothetical — see the
+0.25.4 CHANGELOG entry.)
+
+```tsx
+import { lazy, Suspense } from "react";
+import { ReviewErrorBoundary } from "@slowcook-ai/review-overlay/react";
+
+const Overlay = lazy(() => import("./ReviewOverlayInner"));
+
+<ReviewErrorBoundary label="review overlay">
+  <Suspense fallback={null}><Overlay /></Suspense>
+</ReviewErrorBoundary>
+```
+
+The boundary renders nothing when it trips — deliberately. Your users did not ask
+for review tooling and must never read an error about it. Pass `onError` if you
+want the failure in your own telemetry.
+
 ## Review evidence (0.19.0) — QA mode on a real backend
 
 When the review target is a RUNNING PRODUCT in dev mode (not a mock), turn on
