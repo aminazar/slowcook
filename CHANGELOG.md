@@ -6,6 +6,46 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.25.4 — the review tool cannot take the page down
+
+`@slowcook-ai/review-overlay` 0.25.4 (closes
+[#381](https://github.com/aminazar/slowcook/issues/381)). Field origin: a
+therapist opened their invitation link on delgoosh's dev-therapist app, the
+onboarding rendered, then vanished — a blank page, a real person, mid-signup.
+
+The chain: the overlay's pre-bundled chunk 504'd (the same wedged-vite
+condition the serve-watchdog entry below describes), so the host's
+`lazy(() => import("./ReviewOverlayInner"))` REJECTED, and a rejected `lazy()`
+throws during render. This package had no error boundary anywhere — grep
+`componentDidCatch` across `src/react/` returned nothing — so React unmounted
+the host's whole tree. `#root` innerHTML went to 0.
+
+The trap worth naming: **`<Suspense>` handles a lazy import's PENDING state; it
+does not catch the REJECTED one.** Only a boundary does. The host had a
+Suspense and reasonably believed it was defended.
+
+- **`ReviewErrorBoundary`** — renders NOTHING on failure. Silent to the end
+  user (a patient or a therapist must never read a message about QA tooling
+  they did not ask for), loud on the console, where the reviewer is already
+  looking. An optional `onError` feeds a host's own telemetry; a handler that
+  throws cannot turn the contained failure back into an uncaught one.
+- **Every exported mount point is now self-guarding** —
+  `SlowcookReviewOverlay`, `ReviewShell`, `ReviewWidget`, `GitHubIssueReview`
+  are wrapped in the React barrel, the single door `exports` publishes. No
+  consumer change; a fault inside the tool now costs the pill, not the page.
+- **The boundary is exported too**, because one living inside this package
+  cannot catch a failure that happens while the package is still being
+  FETCHED. The host owns its lazy import, so the host needs the boundary — the
+  README shows the three lines.
+
+Locked by `src/react/error-boundary.test.tsx`, including the incident's exact
+shape (a rejected `lazy()` behind a `Suspense`) and its inverse: without a
+boundary the host tree still empties, so the test says what the fix is worth.
+
+Serve-watchdog fixed the server that stopped serving. This fixes the blast
+radius when anything upstream fails anyway: the review tool is optional
+furniture in someone else's product, and it leaves alone.
+
 ## serve watchdog — dev servers that are up but not serving
 
 `slowcook serve <profile> watchdog` (new verb, dev + mock profiles): keeps
