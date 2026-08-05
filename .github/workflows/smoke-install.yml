@@ -80,3 +80,6 @@ jobs:
               --label "bug,ci-cd" \
               --body "$BODY"
           fi
+
+      - name: publish drift — npm artifacts must not lie about their source
+        run: node scripts/publish-drift.mjs
