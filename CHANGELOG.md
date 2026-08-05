@@ -28,6 +28,34 @@ after which `/` served 200 while every module request 504'd behind nginx;
   (`server.watch.ignored` for test files, `awaitWriteFinish`,
   `optimizeDeps.holdUntilCrawlEnd: false`).
 
+## forge-github 0.15.0 · gates 0.12.0 · llm-anthropic 0.22.0 · cli 0.28.7 — the unpublished-drift release
+
+Found by asking "what else should be published": three workspace packages
+carried WEEKS of unpublished src — and because a caret on 0.x pins the
+minor, the already-published cli could never have seen them even after a
+publish. The npm cli's storyteller verbs imported gate functions and
+prompts that did not exist in the npm gates/llm-anthropic — a
+missing-export crash for any npm consumer running `vibe tell`; dash and
+delgoosh never noticed because they build the cli from main.
+
+- **forge-github 0.15.0** — storyteller P1: `createIssue` on the adapter
+  (backprop claims file as labeled issues instead of degrading to the
+  mirror file).
+- **gates 0.12.0** — the storyteller page-gate trio (button doctrine ·
+  voice · brand presence), checkMockUx, the ARIA accessible-name rule,
+  the content/visual categories.
+- **llm-anthropic 0.22.0** — the storyteller prompts (tell/check),
+  IMAGINATIONS, the oauth token auth path, world-format generation.
+- **cli 0.28.7** — no code change: republished so its dependency ranges
+  are cut against the three above (publish order matters: deps first,
+  cli last).
+- **Mechanized** (mistakes-to-safeguards): `scripts/publish-drift.mjs`
+  fails when any package's src is newer than its npm version's publish
+  date; wired into the daily smoke-install run so drift is a red run,
+  not an archaeology find.
+
+---
+
 ## review-overlay 0.25.3 — the sharing bar leaves with your attention
 
 `@slowcook-ai/review-overlay` 0.25.3 (delgoosh field report: stacked
