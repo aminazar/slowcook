@@ -15,6 +15,17 @@ const root = resolve(new URL("..", import.meta.url).pathname);
 const reportOnly = process.argv.includes("--report");
 const drifted = [];
 
+// A shallow clone (CI's default checkout is depth 1) makes `git log -- path`
+// attribute the single tip commit to EVERY path — its date then reads as the
+// last change for every package, so untouched packages all look drifted. Under
+// full history this is correct; without it, refuse rather than lie. (The daily
+// workflow now checks out with fetch-depth: 0 for exactly this.)
+const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], { cwd: root, encoding: "utf8" }).trim();
+if (shallow === "true") {
+  console.error("publish-drift: shallow checkout — per-path history is unavailable; run with full history (fetch-depth: 0). Skipping without a verdict.");
+  process.exit(reportOnly ? 0 : 1);
+}
+
 for (const dir of readdirSync(join(root, "packages"))) {
   const pkgPath = join(root, "packages", dir, "package.json");
   if (!existsSync(pkgPath)) continue;
