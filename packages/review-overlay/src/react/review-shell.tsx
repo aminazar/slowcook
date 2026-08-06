@@ -767,7 +767,16 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     draftMarkers.push({ node, text: txt, x: r.right - 7, y: r.top + 7, label: fallbackLabel(el) });
   }
 
-  const addComment = (text: string) => {
+  // ONE CLICK, ONE ISSUE (#384). The submit pipeline — screenshot, upload,
+  // POST — takes >1s, and nothing marked it in flight, so a second interaction
+  // during that window filed a second, complete duplicate (two issues to
+  // triage; auto-routed, the same work queued twice). The fix keeps THIS
+  // composer open, disabled and "sending", until its own pipeline settles —
+  // the guard is the composer's (below), scoped to the one pin, so a reviewer
+  // can still open a DIFFERENT anchor while this one uploads. The close is
+  // conditional for exactly that reason: only collapse the composer if it is
+  // still ours; the reviewer may have moved on while the work ran.
+  const addComment = async (text: string): Promise<void> => {
     if (!composer || !text.trim()) return;
     // the anchor's rect rides the comment (0.24.1): resolved HERE, by the
     // shell's own scheme — a11y anchors and fallbacks included — at submit
@@ -776,15 +785,19 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
     // where no data-review-node attribute exists for it to re-resolve.
     const anchorEl = findNodeEl(composer.node);
     const ar = anchorEl?.getBoundingClientRect();
-    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node: composer.node, label: composer.label, text: text.trim(), author, createdAt: Date.now(), route: typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : undefined, ...(ar && ar.width > 0 ? { rect: { x: ar.x, y: ar.y, width: ar.width, height: ar.height } } : {}) };
+    const node = composer.node; // captured for the conditional close below
+    const c: ReviewComment = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, node, label: composer.label, text: text.trim(), author, createdAt: Date.now(), route: typeof location !== "undefined" ? location.pathname + location.hash.split("?")[0] : undefined, ...(ar && ar.width > 0 ? { rect: { x: ar.x, y: ar.y, width: ar.width, height: ar.height } } : {}) };
     persist([c, ...comments]);
-    setComposer(null);
-    if (onComment) {
-      void Promise.resolve(onComment(c)).then((ref) => {
+    try {
+      if (onComment) {
+        const ref = await Promise.resolve(onComment(c));
         if (ref && (ref.url || ref.remoteId !== undefined)) {
           setComments((cur) => { const next = cur.map((x) => x.id === c.id ? { ...x, url: ref.url, remoteId: ref.remoteId } : x); store.save(next); return next; });
         }
-      }).catch(() => { /* transport is best-effort; the comment stays local */ });
+      }
+    } catch { /* transport is best-effort; the comment stays local */ }
+    finally {
+      setComposer((cur) => (cur && cur.node === node ? null : cur));
     }
   };
   const gotoNode = (node: string) => {
@@ -957,7 +970,11 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
       )}
 
       {/* composer popover — drafts survive closing (0.14.0) */}
-      {composer && <Composer label={composer.label} draftKey={composer.node} at={{ x: composer.x, y: composer.y }} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
+      {/* key by anchor (#384): a fresh anchor gets a fresh composer instance —
+          and a fresh in-flight guard — so a still-uploading pin never locks the
+          next one. Reusing the instance across anchors would carry `submitting`
+          over and silently disable the reviewer's next comment. */}
+      {composer && <Composer key={composer.node} label={composer.label} draftKey={composer.node} at={{ x: composer.x, y: composer.y }} S={S} accent={accent} onSubmit={addComment} onCancel={() => setComposer(null)} />}
 
       {/* 0.14.0 — the anchored thread popover */}
       {thread && (() => {
@@ -1024,8 +1041,15 @@ function startDrag(e: ReactPointerEvent, pos: { x: number; y: number }, setPos: 
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
 }
 
-function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; at: { x: number; y: number }; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void; onCancel: () => void }): JSX.Element {
+function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { label: string; draftKey: string; at: { x: number; y: number }; S: ReturnType<typeof sheetTheme>; accent: string; onSubmit: (t: string) => void | Promise<void>; onCancel: () => void }): JSX.Element {
   const [text, setTextRaw] = useState(() => draftFor(draftKey));
+  // #384 — in-flight guard, local to this composer instance so a DIFFERENT
+  // pin is never blocked. The ref is the airtight half (a second call returns
+  // before it can reach onSubmit, whatever the arrival path); the state is the
+  // visible half — the button shows "sending" so the >1s pipeline reads as
+  // progress, which is what stops the re-click being the reasonable thing.
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const restored = useRef(!!draftFor(draftKey));
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   // focus with the cursor at the END of a restored draft, not the start
@@ -1042,7 +1066,16 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
     ta.scrollTop = ta.scrollHeight;
   }, []);
   const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
-  const submit = (t: string) => { saveDraft(draftKey, ""); onSubmit(t); };
+  const submit = (t: string) => {
+    if (submittingRef.current || !t.trim()) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    saveDraft(draftKey, "");
+    // the shell closes this composer when the pipeline settles (success or
+    // fail), which unmounts us; there is no un-submitting back to an editable
+    // box, so the guard stays set for our whole remaining lifetime.
+    void Promise.resolve(onSubmit(t)).catch(() => { /* shell owns recovery */ });
+  };
   // delete = discard the draft AND close; keeping (with the draft) is the
   // backdrop click — the only two exits, both explicit about the draft's fate.
   const deleteDraft = () => { saveDraft(draftKey, ""); onCancel(); };
@@ -1059,7 +1092,7 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
         <div style={{ position: "relative" }}>
           <textarea dir="auto" ref={taRef} value={text} rows={1} placeholder="Add a comment"
             onChange={(e) => { setText(e.target.value); const t = taRef.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 140)}px`; } }}
-            onKeyDown={(e) => { if (!COARSE && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim()) submit(text); } }}
+            onKeyDown={(e) => { if (!COARSE && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (text.trim() && !submitting) submit(text); } }}
             style={{ width: "100%", boxSizing: "border-box", fontSize: IOS ? 16 : 12.5, lineHeight: 1.5, padding: COARSE ? "9px 12px 46px 12px" : "7px 12px 30px 12px", borderRadius: 14, border: `1px solid ${S.inputBorder}`, background: S.input, color: S.fg, fontFamily: "inherit", resize: "none", overflowY: "auto", maxHeight: 180, display: "block" }} />
           {/* DISCARD SITS OPPOSITE SEND (Amin): a destructive act next to the
               primary one is a mis-tap waiting to happen — especially with a
@@ -1072,8 +1105,8 @@ function Composer({ label, draftKey, at, S, accent, onSubmit, onCancel }: { labe
             </div>
           )}
           <div style={{ position: "absolute", right: 6, bottom: 5 }}>
-            <button onClick={() => submit(text)} disabled={!text.trim()} title="Comment (Enter)"
-              style={{ width: COARSE ? 36 : 22, height: COARSE ? 36 : 22, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: text.trim() ? "pointer" : "default", fontSize: COARSE ? 15 : 12, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>↑</button>
+            <button onClick={() => submit(text)} disabled={!text.trim() || submitting} title={submitting ? "Sending…" : "Comment (Enter)"}
+              style={{ width: COARSE ? 36 : 22, height: COARSE ? 36 : 22, borderRadius: 999, border: "none", background: text.trim() ? accent : S.inputBorder, color: "#fff", cursor: submitting ? "progress" : text.trim() ? "pointer" : "default", opacity: submitting ? 0.8 : 1, fontSize: COARSE ? 15 : 12, fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{submitting ? "…" : "↑"}</button>
           </div>
         </div>
       </div>
@@ -1097,11 +1130,19 @@ function ReplyBox({ S, accent, onSend, draftKey }: { S: ReturnType<typeof sheetT
     if (t && t.value) { const n = t.value.length; t.setSelectionRange(n, n); t.scrollTop = t.scrollHeight; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // #384, same class: onSend is an async POST, and the reply box does NOT
+  // unmount on send, so a second Enter that lands before the cleared text has
+  // re-rendered reads the stale value and fires a duplicate reply. A ref
+  // guards the whole in-flight window; text is cleared immediately either way.
+  const sendingRef = useRef(false);
   const setText = (t: string) => { setTextRaw(t); saveDraft(draftKey, t); };
   const send = () => {
-    if (!text.trim()) return;
-    onSend(text); setText("");
+    if (!text.trim() || sendingRef.current) return;
+    sendingRef.current = true;
+    const body = text;
+    setText("");
     const t = taRef.current; if (t) { t.value = ""; t.style.height = "auto"; }
+    void Promise.resolve(onSend(body)).catch(() => { /* best-effort */ }).finally(() => { sendingRef.current = false; });
   };
   return (
     <div style={{ position: "relative", marginTop: 6 }}>
