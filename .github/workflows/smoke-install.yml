@@ -43,6 +43,8 @@ jobs:
       issues: write  # create/comment on the tracking issue if a failure recurs
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # publish-drift needs per-path history, not a depth-1 tip
 
       - uses: actions/setup-node@v6
         with:
