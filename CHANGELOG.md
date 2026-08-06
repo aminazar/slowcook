@@ -6,6 +6,35 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.25.5 — one click, one issue
+
+Fixes #384. The comment button had no in-flight guard: the submit pipeline —
+screenshot, upload, `POST /issues` — takes over a second and nothing on the
+button changed while it ran, so a reviewer with no signal that the first click
+registered clicked again, and the second click filed a second, complete
+duplicate issue (its own screenshot, taken ~1.2–1.75s after the first — the
+whole pipeline ran twice). It happened twice in one delgoosh review session,
+four issues where two were meant; auto-routed, the same work is queued twice.
+
+Defense in depth, because the two halves cover different arrival paths:
+
+- **The shell holds the airtight guard.** `addComment` sets a `submittingRef`
+  for the whole async pipeline and returns early while it is set — so however
+  the second submit arrives (double-click, Enter past a disabled attribute, a
+  composer that outlived its first submit), it cannot build a second comment.
+  The composer now stays open, disabled, for the pipeline's duration and
+  closes only when the work settles (success or failure).
+- **The button shows the wait.** It disables on `submitting` as well as empty
+  text, the glyph goes `↑ → …`, the cursor goes `progress` — the delay reads
+  as progress, which is what stops the re-click being the reasonable thing to
+  do. Enter is guarded on the same state.
+
+`ReplyBox` carried the same class (an async reply POST, a box that does not
+unmount on send, a second Enter reading the stale pre-clear text) and got the
+same `sendingRef` guard. Regression test `duplicate-submit.test.tsx` drives two
+synchronous submits and asserts `onComment`/`onReply` fire exactly once;
+verified to fail (two calls) against the unguarded shell before the fix.
+
 ## review-overlay 0.25.4 — the review tool cannot take the page down
 
 `@slowcook-ai/review-overlay` 0.25.4 (closes
