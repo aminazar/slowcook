@@ -19,7 +19,7 @@
  */
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { renderEvidenceMarkdown } from "../comment-format.js";
+import { renderEvidenceMarkdown, conciseIssueTitle } from "../comment-format.js";
 import { uploadReviewAsset } from "../github.js";
 import { useReviewEvidence, rectForNode, type EvidenceConfig } from "./use-evidence.js";
 import { AttachedWindow } from "./attached-window.js";
@@ -586,7 +586,7 @@ export function GitHubIssueReview(p: GitHubIssueReviewProps) {
     const res = await gh(`/repos/${p.owner}/${p.repo}/issues`, {
       method: "POST",
       body: JSON.stringify({
-        title: `[review] ${c.label} — ${c.text.slice(0, 60)}${c.text.length > 60 ? "…" : ""}`,
+        title: conciseIssueTitle(c.text),
         body: buildIssueBody(c, surface, {
           evidenceMd, screenshotDataUrl: shots.screenshotDataUrl, screenshotUrl: shots.screenshotUrl,
           context: {
