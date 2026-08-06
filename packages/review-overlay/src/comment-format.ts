@@ -390,6 +390,39 @@ export const VIBE_LABEL = "vibe";
 // — they're gathered for the team/PM to triage (and promote to `vibe` if wanted).
 export const COMMUNITY_LABEL = "community-review";
 
+/**
+ * A concise, readable issue title from the reviewer's own words (#946).
+ *
+ * The old titles led with the anchored element's inner text — for a Farsi or
+ * financial widget a concatenated run-on ("Available to withdraw⁦150 USDT⁩…")
+ * — then a mid-word slice of the comment. The element text is noise in a
+ * title: it is context, and it already lives in the body. The reviewer's
+ * COMMENT is the intent, so the title is the comment, cleaned:
+ *
+ *   · whitespace collapsed, the first sentence preferred when it stands alone
+ *   · truncated on a WORD boundary near 70 chars, "…" only when actually cut
+ *   · a leading Latin letter sentence-cased; RTL/other scripts left untouched
+ *
+ * No bracket prefix — the labels already carry the scope. Purely cosmetic:
+ * hydration reads the body, never the title.
+ */
+export function conciseIssueTitle(intent: string): string {
+  const flat = (intent ?? "").replace(/\s+/g, " ").trim();
+  if (!flat) return "Review note";
+  const MAX = 70;
+  // a self-contained first sentence makes the tightest possible title
+  const firstSentence = flat.split(/(?<=[.!?؟])\s+/)[0] || flat;
+  let base = firstSentence.length <= MAX ? firstSentence : flat;
+  if (base.length > MAX) {
+    const cut = base.slice(0, MAX);
+    const sp = cut.lastIndexOf(" ");
+    base = (sp > MAX * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s.,;:!?،؛'"“”«»()[\]—–-]+$/u, "") + "…";
+  } else {
+    base = base.replace(/\.+$/, ""); // a short title needs no full stop
+  }
+  return base.replace(/^\p{Ll}/u, (m) => m.toUpperCase());
+}
+
 export interface LcrIssue {
   title: string;
   body: string;
@@ -411,11 +444,9 @@ export function formatLcrIssue(args: {
   const { payload } = args;
   const route = payload.pathname ? `${payload.pathname}${payload.route_query ?? ""}` : undefined;
   const story = payload.route_story;
-  const oneLine = payload.prose.replace(/\s+/g, " ").trim().slice(0, 60);
-  const titleBits = ["[LCR]"];
-  if (story) titleBits.push(`story-${story.replace(/^story-/, "")}`);
-  else if (route) titleBits.push(route);
-  titleBits.push(`— ${oneLine}${payload.prose.length > 60 ? "…" : ""}`);
+  // intent-only title (#946): the story/route locator stays in the body and
+  // (for a story) in the labels, so nothing is lost by leaving it off the title.
+  const title = conciseIssueTitle(payload.prose);
 
   const lines: string[] = [];
   lines.push(`**Living Coded Requirement review note**`);
@@ -442,7 +473,7 @@ export function formatLcrIssue(args: {
 
   const labels = [LCR_REVIEW_LABEL, canApply ? VIBE_LABEL : COMMUNITY_LABEL];
   if (story) labels.push(`story-${story.replace(/^story-/, "")}`);
-  return { title: titleBits.join(" "), body: lines.join("\n"), labels };
+  return { title, body: lines.join("\n"), labels };
 }
 
 export function buildPayload(args: {

@@ -4,6 +4,7 @@ import {
   parseReviewComment,
   buildPayload,
   formatLcrIssue,
+  conciseIssueTitle,
   LCR_REVIEW_LABEL,
   VIBE_LABEL,
   COMMUNITY_LABEL,
@@ -250,6 +251,35 @@ trailing prose
   });
 });
 
+describe("conciseIssueTitle (#946)", () => {
+  it("a short comment becomes the whole title, no full stop", () => {
+    expect(conciseIssueTitle('after click, "access denied"')).toBe('After click, "access denied"');
+  });
+  it("prefers the first sentence when the comment runs on", () => {
+    expect(conciseIssueTitle("Is $1 accurate according to the new payment model? It seems high given the change."))
+      .toBe("Is $1 accurate according to the new payment model?");
+  });
+  it("truncates a long single sentence on a word boundary, not mid-word", () => {
+    const t = conciseIssueTitle("remove this section, and put a button to the withdrawable deposit balance right here instead");
+    expect(t.length).toBeLessThanOrEqual(71);
+    expect(t.endsWith("…")).toBe(true);
+    expect(t).not.toContain(" …");                 // cut at a word, not a dangling space
+    expect(t.startsWith("Remove this section")).toBe(true);
+    expect(t.slice(0, -1)).not.toMatch(/[\s,]$/);   // no trailing space/comma before the …
+  });
+  it("leaves RTL (Farsi) prose untouched — no case change, no mangling", () => {
+    const fa = "این بخش را حذف کن و یک دکمه بگذار";
+    expect(conciseIssueTitle(fa)).toBe(fa);
+  });
+  it("collapses newlines and whitespace to one line", () => {
+    expect(conciseIssueTitle("fix   the\n\n  spacing")).toBe("Fix the spacing");
+  });
+  it("never leans on the anchored element's text — only the comment given to it", () => {
+    // the caller passes c.text, not c.label; the helper has no other input
+    expect(conciseIssueTitle("")).toBe("Review note");
+  });
+});
+
 describe("formatLcrIssue", () => {
   const base = {
     overlayVersion: "0.6.0", storyId: "rewo-lcr",
@@ -257,21 +287,24 @@ describe("formatLcrIssue", () => {
     pathname: "/r/webb-deep-field", routeStory: "104",
     viewport: sampleViewport, userAgent: "x",
   };
-  it("titles + labels by story, embeds route + payload, carries vibe label", () => {
+  it("titles by the reviewer's intent; story/route live in the body + labels", () => {
     const p = buildPayload({ ...base, prose: "The fascinate bucket should lead." });
     const issue = formatLcrIssue({ payload: p });
-    expect(issue.title).toContain("[LCR]");
-    expect(issue.title).toContain("story-104");
+    // #946: intent-only title — no [LCR] bracket, no element/locator noise
+    expect(issue.title).toBe("The fascinate bucket should lead");
+    expect(issue.title).not.toContain("[LCR]");
+    // the locator is not lost — it is on the labels and in the body
     expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL, "story-104"]);
     expect(issue.body).toContain("**Story / requirement:** `story-104`");
     expect(issue.body).toContain("**Route:** `/r/webb-deep-field`");
     // round-trips: the hidden payload survives for plate/vibe to parse
     expect(parseReviewComment(issue.body)?.route_story).toBe("104");
   });
-  it("falls back to route in the title when no story is declared", () => {
-    const p = buildPayload({ ...base, routeStory: undefined, prose: "x" });
+  it("still carries route in the body when no story is declared", () => {
+    const p = buildPayload({ ...base, routeStory: undefined, prose: "Move the CTA up." });
     const issue = formatLcrIssue({ payload: p });
-    expect(issue.title).toContain("/r/webb-deep-field");
+    expect(issue.title).toBe("Move the CTA up");
+    expect(issue.body).toContain("**Route:** `/r/webb-deep-field`");
     expect(issue.labels).toEqual([LCR_REVIEW_LABEL, VIBE_LABEL]); // no story label
   });
   it("write-access reviewers (canApply) get the vibe label", () => {

@@ -6,6 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## review-overlay 0.25.6 — LCR issue titles read like a human wrote them
+
+Fixes delgoosh#946. Both review pills named their GitHub issues by leading with
+the anchored element's inner text — for a Farsi or financial widget a
+concatenated run-on (`[review] Available to withdraw⁦150 USDT⁩Network gas
+fee−… — is $1 accurate…`) — then a mid-word slice of the actual comment. The
+element text is context, not a title, and it already lives in the issue body.
+
+New shared helper `conciseIssueTitle(intent)` (in `comment-format.ts`, used by
+both the QA turnkey and the LCR mock overlay) titles the issue by the
+reviewer's **comment** alone: whitespace collapsed, the first sentence
+preferred when it stands on its own, truncated on a **word boundary** near 70
+chars (`…` only when actually cut), a leading Latin letter sentence-cased and
+RTL/other scripts left untouched. No `[review]`/`[LCR]` bracket — the labels
+already carry the scope, and the story/route locator stays in the body and (for
+a story) on the labels, so nothing is lost. Purely cosmetic: `parseIssue` reads
+the body, never the title, so hydration and round-trip are unchanged.
+
+Before → after, on real delgoosh issues:
+- `[review] Available to withdraw⁦150 USDT⁩… — is $1 accurate…` → `Is $1 accurate according to the new payment model?`
+- `[review] برداشتتتر به کیف پول شما · … — remove this section, and put button…` → `Remove this section, and put button to the 'withdrawable deposit…`
+
 ## review-overlay 0.25.5 — one click, one issue
 
 Fixes #384. The comment button had no in-flight guard: the submit pipeline —
