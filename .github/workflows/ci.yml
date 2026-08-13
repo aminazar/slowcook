@@ -33,3 +33,6 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: LLM gateway ratchet (R1) — no new SDK importers, no duplicate pricing tables
+        run: node scripts/llm-gateway-ratchet.mjs

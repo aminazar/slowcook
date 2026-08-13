@@ -28,6 +28,7 @@ import {
   renderReferences,
 } from "../brew/retrieval.js";
 import type { BugProfile } from "../investigate/schema.js";
+import { costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 
 const MAX_ROUNDS = 8;
 const MAX_FILE_READ_BYTES = 20000;
@@ -487,21 +488,17 @@ export function parseHalt(text: string): string | null {
 // Cost (mirrors investigate's pricing)
 // -------------------------------------------------------------------------
 
-const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-7": { input: 15, output: 75 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-sonnet-4-5": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 1, output: 5 },
-};
-
+/**
+ * Cost for one API response, from the ONE canonical pricing table
+ * (dovizir handover R1/R2). This file used to carry its own copy — four
+ * commands did, plus brew, so PRICING_PER_M_TOKENS existed FIVE times and
+ * every copy had its own `if (!pricing) return 0`. Fixing one changed nothing
+ * about the running system's safety, which is exactly R2's point.
+ */
 function costUsd(
   response: Anthropic.Messages.Message,
   model: string
 ): number {
-  const pricing =
-    PRICING_PER_M_TOKENS[model] ??
-    Object.entries(PRICING_PER_M_TOKENS).find(([k]) => model.startsWith(k))?.[1];
-  if (!pricing) return 0;
   const usage = response.usage as
     | {
         input_tokens?: number;
@@ -510,12 +507,12 @@ function costUsd(
         cache_creation_input_tokens?: number;
       }
     | undefined;
-  const input = usage?.input_tokens ?? 0;
-  const output = usage?.output_tokens ?? 0;
-  const cacheRead = usage?.cache_read_input_tokens ?? 0;
-  const cacheCreate = usage?.cache_creation_input_tokens ?? 0;
-  const effectiveInput = input + cacheRead * 0.1 + cacheCreate * 1.25;
-  return (effectiveInput / 1_000_000) * pricing.input + (output / 1_000_000) * pricing.output;
+  return costUsdForUsage(model, {
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+    cacheCreateTokens: usage?.cache_creation_input_tokens ?? 0,
+  });
 }
 
 void join;

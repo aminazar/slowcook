@@ -13,7 +13,8 @@ import {
 import { buildHistoryIndex, type HistoryIndex } from "./history-index.js";
 import { computeGitAttention } from "./git-attention.js";
 import { deriveScope } from "../../lib/project-scope.js";
-import { resolveModel, renderModelTable } from "../../lib/model-defaults.js";
+import { resolveModel, renderModelTable, assertModelPriced } from "../../lib/model-defaults.js";
+import { isModelPriced } from "@slowcook-ai/llm-anthropic";
 
 /**
  * A noop is not automatically success. A PRECONDITION noop means the run could
@@ -225,6 +226,9 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
     { stage: "refine", flag: argv.includes("--refine-model") ? args.refineModel : undefined },
     { stage: "relationship", flag: argv.includes("--relationship-model") ? args.relationshipModel : undefined },
   ]));
+  // R2 — refuse before the first token when a model cannot be priced.
+  assertModelPriced("refine", args.refineModel, isModelPriced, { allowUnpriced: argv.includes("--allow-unpriced") });
+  assertModelPriced("refine", args.relationshipModel, isModelPriced, { allowUnpriced: argv.includes("--allow-unpriced") });
 
   // sc#233 — the LLM runtime is environment-decided: ANTHROPIC_API_KEY (API)
   // or SLOWCOOK_LLM=claude-cli (key-less, Claude Code subscription auth).

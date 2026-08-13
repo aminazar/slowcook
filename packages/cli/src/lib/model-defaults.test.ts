@@ -1,12 +1,13 @@
 // dovizir handover §5 — "pin the model" was whack-a-mole because every stage
 // carried a private default. These lock the cascade and the visibility.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   resolveModel,
   modelSource,
   renderModelTable,
   STAGE_DEFAULTS,
   MODEL_ENV,
+  assertModelPriced,
 } from "./model-defaults.js";
 
 const noEnv = {} as NodeJS.ProcessEnv;
@@ -66,5 +67,33 @@ describe("renderModelTable", () => {
 
   it("leaves plain defaults unannotated (quiet when nothing is unusual)", () => {
     expect(renderModelTable([{ stage: "brew" }], noEnv)).not.toContain("(");
+  });
+});
+
+// dovizir handover R2 — recording `usd: null` after the fact was not enough.
+// A budget guard that cannot price a call cannot stop it: $16.23 of real spend
+// was reported as $0.00. An unpriced model must refuse to START.
+describe("assertModelPriced (R2)", () => {
+  const priced = (m: string) => m === "claude-opus-4-8";
+
+  it("returns quietly for a priced model", () => {
+    expect(() => assertModelPriced("brew", "claude-opus-4-8", priced)).not.toThrow();
+  });
+
+  it("refuses to start on an unpriced model", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit"); }) as never);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => assertModelPriced("brew", "claude-future-9", priced)).toThrow("exit");
+    expect(exit).toHaveBeenCalledWith(78);
+    // the message must say WHY refusing beats running
+    expect(err.mock.calls[0]![0]).toContain("cannot be capped");
+    exit.mockRestore(); err.mockRestore();
+  });
+
+  it("--allow-unpriced proceeds, but says what was given up", () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    expect(() => assertModelPriced("brew", "claude-future-9", priced, { allowUnpriced: true })).not.toThrow();
+    expect(String(write.mock.calls[0]![0])).toContain("budget caps in USD cannot be enforced");
+    write.mockRestore();
   });
 });
