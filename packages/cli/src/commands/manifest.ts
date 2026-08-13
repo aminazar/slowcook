@@ -25,6 +25,8 @@ interface ManifestArgs {
   stackConfig: string;
   manifestPath: string;
   storyId: string | null;
+  /** dovizir §9 — glob overriding the `story-<id>` filename convention. */
+  match?: string;
   cwd: string;
 }
 
@@ -56,6 +58,9 @@ function parseArgs(argv: string[]): ManifestArgs {
     } else if (arg === "--manifest" && next) {
       args.manifestPath = next;
       i++;
+    } else if (arg === "--match" && next) {
+      args.match = next;
+      i++;
     } else if (arg === "--story" && next) {
       args.storyId = next;
       i++;
@@ -82,6 +87,10 @@ Usage:
   slowcook manifest verify [options]
 
 Common options:
+  --match <glob>           Which discovered files belong to this story, when the
+                           stack does not name them story-<id>.test.* (e.g.
+                           Foundry: --match '**/Wallet*.t.sol'). Overrides the
+                           filename convention.
   --stack-config <path>    Path to stack.json (default: .brewing/stack.json)
   --manifest <path>        Path to write/read manifest JSON
                            (default: .brewing/manifests/all.json, or
@@ -169,16 +178,31 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
   // story-007 would target reds in stories 003/004/etc. and the
   // per-iter test scope was effectively the full suite. See slowcook
   // GitHub issue #5 for the original bug report.
+  //
+  // dovizir handover §9 — `story-<id>` in the FILENAME is a stack-ts naming
+  // convention, not a universal one. Foundry suites are `*.t.sol` with no
+  // story ids anywhere, so `--story N` matched nothing and manifest refused
+  // to write; the live workaround was recording everything and hand-editing
+  // `story_id`. `--match <glob>` lets a stack say how ITS files map to a
+  // story, instead of the convention being hard-coded.
   let filteredTests = tests;
   let filteredSuites = suites;
-  if (args.storyId) {
-    const storyRe = new RegExp(`(?:^|/)story-${escapeRegex(args.storyId)}(?:[-.]|$)`);
-    filteredTests = tests.filter((t) => storyRe.test(t.file));
+  if (args.storyId || args.match) {
+    const matcher = args.match
+      ? globToRegExp(args.match)
+      : new RegExp(`(?:^|/)story-${escapeRegex(args.storyId!)}(?:[-.]|$)`);
+    filteredTests = tests.filter((t) => matcher.test(t.file));
     if (filteredTests.length === 0) {
       console.error(
-        `No tests matched story id "${args.storyId}". Expected files matching ` +
-          `\`story-${args.storyId}.test.*\` or \`story-${args.storyId}-*.test.*\` ` +
-          `under the configured discovery roots. Refusing to write an empty manifest.`
+        args.match
+          ? `No tests matched --match "${args.match}" under the configured discovery roots. ` +
+            `Refusing to write an empty manifest.`
+          : `No tests matched story id "${args.storyId}". Expected files matching ` +
+            `\`story-${args.storyId}.test.*\` or \`story-${args.storyId}-*.test.*\` ` +
+            `under the configured discovery roots.\n` +
+            `  That naming is a TypeScript convention — if this stack names test files ` +
+            `differently (e.g. Foundry's \`*.t.sol\`), pass \`--match '<glob>'\` to say which ` +
+            `files belong to this story. Refusing to write an empty manifest.`
       );
       process.exit(2);
     }
@@ -224,6 +248,24 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
 
 /** Escape regex meta-characters in a story id (defensive — story ids
  *  are normally numeric, but the type allows any string). */
+/**
+ * Minimal glob → RegExp for `--match` (dovizir §9). Supports `**`, `*` and
+ * `?`; everything else is literal. Deliberately small — this picks files out
+ * of an already-discovered list, it is not a filesystem walker.
+ */
+export function globToRegExp(glob: string): RegExp {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]!;
+    if (c === "*") {
+      if (glob[i + 1] === "*") { out += ".*"; i++; if (glob[i + 1] === "/") i++; }
+      else out += "[^/]*";
+    } else if (c === "?") out += "[^/]";
+    else out += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`(?:^|/)?${out}$`);
+}
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
