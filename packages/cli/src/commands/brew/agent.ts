@@ -14,15 +14,17 @@ import YAML from "yaml";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ForgeAdapter, Spec } from "@slowcook-ai/core";
 import {
-  runTests,
   type RunResult,
   type TestResult,
-  validateStackConfig,
-  type StackConfig,
-  runLint,
   formatLintIssues,
   type LintResult,
 } from "@slowcook-ai/stack-ts";
+import {
+  runTests,
+  runLint,
+  validateStackConfig,
+  type StackConfig,
+} from "../../stack-resolve.js";
 import { recordBrewProvenance, readProvenance, renderPriorContextBlock } from "./provenance.js";
 import { gatherPatternIndex, renderPatternIndexBlock } from "./patterns.js";
 import { sliceSpecForTarget, renderSpecSlice } from "./spec-slice.js";
@@ -1208,7 +1210,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       duration_ms: 0,
     };
     try {
-      lintResult = runLint(ctx.stackConfig.lint, {
+      lintResult = runLint(ctx.stackConfig, {
         cwd: ctx.repoRoot,
         filterToFiles: diff.changedPaths,
       });

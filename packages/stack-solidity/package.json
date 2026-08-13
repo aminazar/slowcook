@@ -1,0 +1,51 @@
+{
+  "name": "@slowcook-ai/stack-solidity",
+  "version": "0.1.0",
+  "description": "Solidity/Foundry stack adapter for slowcook — forge test discovery, runners, gas-snapshot ratchet",
+  "license": "MIT",
+  "author": "aminazar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aminazar/slowcook.git",
+    "directory": "packages/stack-solidity"
+  },
+  "homepage": "https://github.com/aminazar/slowcook/tree/main/packages/stack-solidity#readme",
+  "bugs": {
+    "url": "https://github.com/aminazar/slowcook/issues"
+  },
+  "keywords": [
+    "tdd",
+    "ai",
+    "agents",
+    "testing",
+    "solidity",
+    "foundry",
+    "forge",
+    "slowcook"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc -b"
+  },
+  "dependencies": {
+    "@slowcook-ai/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

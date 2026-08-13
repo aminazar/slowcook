@@ -1,0 +1,1 @@
+{"test/Smoke.t.sol":{"SmokeTest":["test_depositCreditsMember","test_feeParamsSetByOwner","test_issueRequiresExactFeeAndForwardsToTreasury","test_redeemDebitsAndCanGoNegative","test_setParamsRevertsForNonOwner"]}}

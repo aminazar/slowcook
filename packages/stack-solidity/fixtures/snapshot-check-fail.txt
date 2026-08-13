@@ -1,0 +1,13 @@
+Compiling 2 files with Solc 0.8.30
+Solc 0.8.30 finished in 9.54ms
+Compiler run successful!
+
+Ran 3 tests for test/Counter.t.sol:CounterTest
+[PASS] testFuzz_add(uint128) (runs: 256, μ: 28858, ~: 29403)
+[PASS] test_failsOnPurpose() (gas: 31020)
+[PASS] test_incrementOnce() (gas: 30998)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 2.92ms (3.00ms CPU time)
+
+Ran 1 test suite in 148.64ms (2.92ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)
+Diff in "CounterTest::test_failsOnPurpose()": consumed "(gas: 31020)" gas, expected "(gas: 28657)" gas 
+Diff in "CounterTest::test_incrementOnce()": consumed "(gas: 30998)" gas, expected "(gas: 28635)" gas 

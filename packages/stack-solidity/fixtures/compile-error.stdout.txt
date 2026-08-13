@@ -1,0 +1,7 @@
+Compiler run failed:
+Error (2314): Expected ';' but got 'function'
+ --> src/Counter.sol:7:5:
+  |
+7 |     function increment() external {
+  |     ^^^^^^^^
+

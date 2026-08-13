@@ -1,0 +1,1 @@
+{"test/Counter.t.sol":{"CounterTest":["testFuzz_add","test_failsOnPurpose","test_incrementOnce"]}}

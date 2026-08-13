@@ -1,0 +1,25 @@
+Diff in src/Messy.sol:
+1   1    | // SPDX-License-Identifier: MIT
+2   2    | pragma solidity ^0.8.20;
+    3    |+
+3   4    | contract Messy {
+4        |-    uint256   public x;
+5        |-        function f( ) external {   x = 1 ; }
+    5    |+    uint256 public x;
+    6    |+
+    7    |+    function f() external {
+    8    |+        x = 1;
+    9    |+    }
+6   10   | }
+
+Diff in src/Counter.sol:
+6   6    | 
+7   7    |     function increment() external {
+8   8    |         count += 1;
+9        |-        for (uint256 i = 0; i < 5; i++) { count += 0; }
+    9    |+        for (uint256 i = 0; i < 5; i++) {
+    10   |+            count += 0;
+    11   |+        }
+10  12   |     }
+11  13   | 
+12  14   |     function add(uint256 x) external {
