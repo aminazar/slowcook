@@ -45,6 +45,41 @@ export const STAGE_DEFAULTS: Record<Stage, string> = {
 export const MODEL_ENV = "SLOWCOOK_MODEL";
 
 /**
+ * A COST SYSTEM THAT CAN READ ZERO AUTHORIZES SPEND (dovizir handover R2).
+ *
+ * Recording `usd: null` after the fact was not enough: the run still happens,
+ * and a budget guard that cannot price a call cannot stop it. Live evidence
+ * from the experiment — $16.23 of real spend reported as $0.00.
+ *
+ * So an unpriced model is a HARD startup error, before the first token, with
+ * one explicit escape hatch. Pure (takes the predicate) so it tests without
+ * touching the pricing package.
+ */
+export function assertModelPriced(
+  command: string,
+  model: string,
+  isPriced: (m: string) => boolean,
+  opts: { allowUnpriced?: boolean } = {}
+): void {
+  if (isPriced(model)) return;
+  if (opts.allowUnpriced) {
+    process.stderr.write(
+      `slowcook ${command}: model "${model}" has no price — running anyway because --allow-unpriced was passed.\n` +
+      `  Spend will be recorded as unknown, and budget caps in USD cannot be enforced for this run.\n`
+    );
+    return;
+  }
+  console.error(
+    `slowcook ${command}: model "${model}" is not in the pricing table — refusing to start.\n` +
+    `  A run whose cost cannot be computed also cannot be capped: a budget guard would read $0.00 and\n` +
+    `  authorize unlimited spend. (Measured live: $16.23 of real spend reported as $0.00.)\n` +
+    `  Fix: add "${model}" to PRICING_PER_M_TOKENS in @slowcook-ai/llm-anthropic,\n` +
+    `  or pass --allow-unpriced to accept unpriced, uncappable spend deliberately.`
+  );
+  process.exit(78);
+}
+
+/**
  * Resolve one stage's model. `flag` is whatever the stage's own CLI option
  * produced (undefined when the operator didn't pass it).
  */

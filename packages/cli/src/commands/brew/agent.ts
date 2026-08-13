@@ -60,7 +60,7 @@ import {
   renderMarkdown,
 } from "../map/render.js";
 import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
-import { costEntryUsd } from "@slowcook-ai/llm-anthropic";
+import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 
 /** ------------------------- Context + options ------------------------- */
 
@@ -348,13 +348,6 @@ function addCacheControlToLastTool(tools: readonly unknown[]): unknown[] {
   const tagged = { ...last, cache_control: { type: "ephemeral" } };
   return [...tools.slice(0, -1), tagged];
 }
-
-const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-7": { input: 15, output: 75 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-sonnet-4-5": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 0.8, output: 4 },
-};
 
 export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   const startMs = ctx.now().getTime();
@@ -2493,36 +2486,25 @@ function recordBrewCost(ctx: BrewContext): void {
 }
 
 
+/**
+ * Cost for one API response — from the ONE canonical table (handover R1/R2).
+ * brew's private copy (its own PRICING_PER_M_TOKENS + matchPricing, with its
+ * own `if (!pricing) return 0`) is deleted: five copies existed, so fixing
+ * only the shared one left the running system exactly as unsafe.
+ */
 function costUsdForResponse(
   response: Anthropic.Messages.Message,
   model: string
 ): number {
-  const pricing = matchPricing(model);
-  if (!pricing) return 0;
-  const input = response.usage?.input_tokens ?? 0;
-  const output = response.usage?.output_tokens ?? 0;
-  // Cache fields aren't in the older SDK type; read via loose cast.
   const usage = response.usage as
     | { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
     | undefined;
-  const cacheRead = usage?.cache_read_input_tokens ?? 0;
-  const cacheCreate = usage?.cache_creation_input_tokens ?? 0;
-  // Anthropic's API reports `input_tokens` as new-input only (excludes cache tokens);
-  // `cache_read_input_tokens` and `cache_creation_input_tokens` are separate counters.
-  // Cache reads bill at ~10% of input; cache writes at ~125%. Prior versions subtracted
-  // them from `input` on the assumption they were a subset — producing negative costs.
-  const effectiveInput = input + cacheRead * 0.1 + cacheCreate * 1.25;
-  return (effectiveInput / 1_000_000) * pricing.input + (output / 1_000_000) * pricing.output;
-}
-
-function matchPricing(model: string): { input: number; output: number } | null {
-  // exact match first
-  if (PRICING_PER_M_TOKENS[model]) return PRICING_PER_M_TOKENS[model];
-  // prefix match (e.g., "claude-opus-4-7-20250912" → "claude-opus-4-7")
-  for (const key of Object.keys(PRICING_PER_M_TOKENS)) {
-    if (model.startsWith(key)) return PRICING_PER_M_TOKENS[key]!;
-  }
-  return null;
+  return costUsdForUsage(model, {
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+    cacheCreateTokens: usage?.cache_creation_input_tokens ?? 0,
+  });
 }
 
 /** ------------------------- Halt path ------------------------- */

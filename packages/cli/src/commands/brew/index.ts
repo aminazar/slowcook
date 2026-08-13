@@ -11,7 +11,8 @@ import {
 } from "./agent.js";
 import { haltReportToMarkdown } from "./halt.js";
 import { requireApiKey } from "../../lib/llm-runtime.js";
-import { resolveModel, renderModelTable } from "../../lib/model-defaults.js";
+import { resolveModel, renderModelTable, assertModelPriced } from "../../lib/model-defaults.js";
+import { isModelPriced } from "@slowcook-ai/llm-anthropic";
 
 interface BrewArgs {
   storyId: string;
@@ -52,6 +53,8 @@ interface BrewArgs {
   navigatorModel: string;
   /** dovizir §11 — consecutive no-edit iterations before halting. */
   stallIterations?: number;
+  /** R2 — run despite an unpriced model, accepting uncappable spend. */
+  allowUnpriced?: boolean;
 }
 
 function parseArgs(argv: string[]): BrewArgs {
@@ -99,6 +102,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--with-navigator") { args.withNavigator = true; }
     else if (arg === "--without-navigator") { args.withNavigator = false; }
     else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
+    else if (arg === "--allow-unpriced") { args.allowUnpriced = true; }
     else if (arg === "--stall-iterations" && next) { args.stallIterations = parseInt(next, 10); i++; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
@@ -146,6 +150,10 @@ Options:
                              / etc.). On block, iter reverts + concerns fold into next iter's
                              prompt. Adds ~$0.01-0.05 per iter on top of driver spend.
   --navigator-model <id>     Navigator LLM model id. Defaults to the brew stage model.
+  --allow-unpriced           Run even though the model has no price. Spend is
+                             recorded as unknown and USD budget caps cannot be
+                             enforced. Off by default: an uncappable run is a
+                             worse failure than a refused one.
   --stall-iterations <n>     Consecutive no-edit iterations before halting.
                              Default: 2 when the agent makes no tool calls at
                              all, 5 when it is still reading (exploring a big
@@ -265,6 +273,8 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   console.log(renderModelTable([
     { stage: "brew", flag: argv.includes("--model") ? args.model : undefined },
   ]));
+  // R2 — refuse before the first token when the model cannot be priced.
+  assertModelPriced("brew", args.model, isModelPriced, { allowUnpriced: args.allowUnpriced });
 
   // Fails with the REAL cause when SLOWCOOK_LLM=claude-cli is set: brew needs
   // API tool-use, which the CLI backend cannot serve (dovizir handover §1).
