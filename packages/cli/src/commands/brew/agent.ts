@@ -61,6 +61,13 @@ import {
 /** ------------------------- Context + options ------------------------- */
 
 export interface BrewContext {
+  /**
+   * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
+   * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
+   * tools. Set it when a story's spec is big enough that orientation
+   * legitimately takes longer.
+   */
+  stallIterations?: number;
   repoRoot: string;
   storyId: string;
   spec: Spec;
@@ -306,6 +313,12 @@ interface IterationLog {
 const DIFF_LINE_CAP = 200;
 const DIFF_FILE_CAP = 5;
 const STAGNATION_CAP = 15;
+/**
+ * dovizir §11 — how many consecutive no-EDIT turns to allow when the agent is
+ * still calling tools (reading, listing). Higher than the silent cap because
+ * orienting on a large spec legitimately takes several read-only turns.
+ */
+const EXPLORING_NO_EDIT_CAP = 5;
 
 /**
  * 0.11.15+ — opt the tools block into Anthropic's prompt cache by
@@ -355,11 +368,15 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   // Regenerate the code map before baseline so iteration 1's prompt can
   // point the agent at .brewing/code-map.json. Cheap (ts-morph scan of src/).
   regenerateCodeMap(ctx, "start");
+  // dovizir §11 — an EMPTY codemap (scope_files=0) leaves the driver to
+  // rediscover the repo by hand every turn, which is what the stall detector
+  // then punished. Nothing warned; now it does.
+  warnIfCodeMapEmpty(ctx);
 
   const manifestPath = join(ctx.repoRoot, ".brewing/manifests", `story-${ctx.storyId}.json`);
   if (!existsSync(manifestPath)) {
     return haltFor(ctx, {
-      reason: "TEST_RUNNER_BROKEN",
+      reason: "MANIFEST_MISSING",
       iterations: 0,
       checkpoints: 0,
       greenCount: 0,
@@ -537,6 +554,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
    * agent going silent for 2+ turns signals analysis paralysis — more
    * iterations won't recover, so halt early and save budget. */
   let consecutiveNoEdits = 0;
+  /** Consecutive no-edit turns in which the agent DID call tools (§11). */
+  let consecutiveExploring = 0;
   /**
    * 0.11.13+ — formatted lint/typecheck issues from the most recent
    * checkpoint's edits. Empty until first checkpoint produces issues;
@@ -680,6 +699,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       });
       stagnation += 1;
       consecutiveNoEdits += 1;
+      // dovizir §11 — a turn with tool calls but no edits is EXPLORING, not
+      // idle. Tracked separately so the stall threshold can be laxer for it.
+      if (turnResult.toolCallCount > 0) consecutiveExploring += 1;
+      else consecutiveExploring = 0;
 
       // Log the no-edits event so CI stdout shows the stall live.
       // Without this, the dominant-pattern stall (agent reasoning but
@@ -688,7 +711,11 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       // START line reveals tokens were burned.
       appendRunLog(
         ctx,
-        `ITER ${iteration} NO-EDITS  (agent made no tool calls this turn)  spend_delta=$${turnResult.spendDelta.toFixed(2)}  consecutive_no_edits=${consecutiveNoEdits}  stagnation=${stagnation}/${STAGNATION_CAP}`
+        // The old wording claimed "no tool calls" even when 22 were made
+        // (dovizir §11) — it only ever meant no EDIT calls. Say which.
+        `ITER ${iteration} NO-EDITS  (${turnResult.toolCallCount > 0
+          ? `${turnResult.toolCallCount} read-only tool calls — exploring, no writes`
+          : "agent made no tool calls at all"})  spend_delta=$${turnResult.spendDelta.toFixed(2)}  consecutive_no_edits=${consecutiveNoEdits}  stagnation=${stagnation}/${STAGNATION_CAP}`
       );
 
       // 0.16.0-α.30: halt-envelope parser. The plate-mode prompt tells
@@ -741,14 +768,24 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         });
       }
 
-      // Fix 4 (0.7.14): two consecutive zero-edit iterations → halt.
-      // Model spent context tokens reasoning but never emitted a tool
-      // call. Further iterations won't spontaneously produce useful
-      // output; surface the stall instead of paying for it.
-      if (consecutiveNoEdits >= 2) {
+      // Fix 4 (0.7.14): consecutive zero-edit iterations → halt. The model
+      // spent context tokens reasoning but produced nothing.
+      //
+      // dovizir handover §11 — that rule killed a legitimate run: the driver
+      // made 21–22 read_file/list_directory calls per iteration orienting on
+      // a large pinned spec, and was halted after 2. Reading IS work, so an
+      // exploring turn gets a laxer threshold than a truly silent one. The
+      // cap is also configurable now (`--stall-iterations`) because the right
+      // number depends on how big the thing being read is.
+      const silentCap = ctx.stallIterations ?? 2;
+      const exploringCap = Math.max(silentCap, (ctx.stallIterations ?? 0) || EXPLORING_NO_EDIT_CAP);
+      const isExploring = consecutiveExploring >= consecutiveNoEdits && consecutiveNoEdits > 0;
+      const stallCap = isExploring ? exploringCap : silentCap;
+      if (consecutiveNoEdits >= stallCap) {
         appendRunLog(
           ctx,
-          `ITER ${iteration} AGENT_STALLED_NO_EDITS — halting after ${consecutiveNoEdits} consecutive zero-edit iterations`
+          `ITER ${iteration} AGENT_STALLED_NO_EDITS — halting after ${consecutiveNoEdits} consecutive zero-edit iterations` +
+            (isExploring ? ` (all with tool activity; explore cap ${exploringCap})` : ` (no tool activity; cap ${silentCap})`)
         );
         return haltFor(ctx, {
           reason: "AGENT_STALLED_NO_EDITS",
@@ -1348,6 +1385,13 @@ interface TurnResult {
   filesTouched: string[];
   rationale: string;
   spendDelta: number;
+  /**
+   * dovizir handover §11 — how many tool calls the agent made, edits or not.
+   * A driver that made 22 read_file calls orienting on a large spec is
+   * EXPLORING, not stalled; without this the two were indistinguishable and
+   * the run was killed after 2 iterations.
+   */
+  toolCallCount: number;
   overflowJustification?: {
     reason_category: string;
     affected_scope: string[];
@@ -1566,8 +1610,31 @@ async function runTurn(
     filesTouched: [...filesTouched],
     rationale,
     spendDelta,
+    toolCallCount: toolCallTrace.length,
     ...(overflowJustification ? { overflowJustification } : {}),
   };
+}
+
+/**
+ * Say so when the driver is about to work blind (dovizir §11). `map generate`
+ * had never run on the dovizir repo, so brew handed the agent an empty
+ * codemap and then halted it for exploring — the two facts were connected and
+ * neither was visible.
+ */
+function warnIfCodeMapEmpty(ctx: BrewContext): void {
+  try {
+    const p = join(ctx.repoRoot, ".brewing/code-map.json");
+    if (!existsSync(p)) {
+      appendRunLog(ctx, `WARN  no .brewing/code-map.json — the driver starts with no map of this repo. Run \`slowcook map generate\` for cheaper, better-targeted iterations.`);
+      return;
+    }
+    const map = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown[]>;
+    const total = ["api_routes", "pages", "components", "helpers", "types"]
+      .reduce((n, k) => n + (Array.isArray(map[k]) ? map[k].length : 0), 0);
+    if (total === 0) {
+      appendRunLog(ctx, `WARN  .brewing/code-map.json is EMPTY (0 entries) — the driver has no map of this repo and will spend iterations rediscovering it. Re-run \`slowcook map generate\`.`);
+    }
+  } catch { /* advisory only — never block a brew on the warning */ }
 }
 
 /** ------------------------- Tool handlers ------------------------- */

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { globToRegExp } from "./manifest.js";
 
 /**
  * 0.11.18+ — `slowcook manifest record --story <id>` now filters
@@ -51,5 +52,28 @@ describe("manifest --story filter (0.11.18)", () => {
     const re = storyFilterFor("abc");
     expect(re.test("tests/integration/story-abc.test.ts")).toBe(true);
     expect(re.test("tests/integration/story-abcd.test.ts")).toBe(false);
+  });
+});
+
+// dovizir handover §9 — `story-<id>` in the filename is a stack-ts naming
+// convention. Foundry suites (`*.t.sol`) match nothing, so `--story N`
+// refused to write and the live workaround was hand-editing the manifest.
+describe("globToRegExp (--match, dovizir §9)", () => {
+  it("matches a Foundry suite by glob where the story-name convention cannot", () => {
+    const re = globToRegExp("**/Wallet*.t.sol");
+    expect(re.test("test/WalletDeposit.t.sol")).toBe(true);
+    expect(re.test("packages/acceptance/test/WalletWithdraw.t.sol")).toBe(true);
+    expect(re.test("test/Vault.t.sol")).toBe(false);
+  });
+
+  it("* does not cross a path separator; ** does", () => {
+    expect(globToRegExp("test/*.t.sol").test("test/A.t.sol")).toBe(true);
+    expect(globToRegExp("test/*.t.sol").test("test/deep/A.t.sol")).toBe(false);
+    expect(globToRegExp("test/**/*.t.sol").test("test/deep/A.t.sol")).toBe(true);
+  });
+
+  it("treats dots literally rather than as any-char", () => {
+    expect(globToRegExp("*.t.sol").test("AxtysolX")).toBe(false);
+    expect(globToRegExp("*.t.sol").test("A.t.sol")).toBe(true);
   });
 });

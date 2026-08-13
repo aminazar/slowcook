@@ -194,9 +194,9 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook knowledge add <topic> "<entry>" [--evidence-pr <n>] [--evidence-file <path>]
   ```
-- **`cost`** — Stamp a cost marker on a story for non-Actions agents (Claude Code, Cursor, manual runs).
+- **`cost`** — Stamp a cost marker on a story for non-Actions agents; reprice settles entries against the current pricing table from their stored token counts.
   ```
-  slowcook cost log --story <id> --usd <n> --agent <name> [--apply-to-spec]
+  slowcook cost log --story <id> --usd <n> --agent <name> [--apply-to-spec] · slowcook cost reprice (--story <id>|--all) [--dry-run]
   ```
 - **`stories`** [alpha] — Per-story pipeline-stage table (refine / testgen / vibe / brew / chef) from specs/_index.yaml + GitHub state.
   ```
@@ -278,6 +278,16 @@ deliberately a pure text model (`--disallowedTools '*'`).
 A tool-use command asked to run on the CLI backend now fails immediately and
 says so by name, rather than reporting a missing key the operator omitted on
 purpose. Tool-use support for the CLI backend is tracked as a follow-up.
+
+### Running slowcook on a remote host
+
+`ssh host 'nohup slowcook brew … &'` **hangs until the child exits**, even with
+redirects — ssh holds the channel open while any process has the tty. Detach
+properly instead:
+
+```bash
+ssh host "setsid slowcook brew --story 001 < /dev/null > brew.log 2>&1 &"
+```
 
 ### Cost accounting
 

@@ -50,6 +50,8 @@ interface BrewArgs {
    */
   withNavigator: boolean | undefined;
   navigatorModel: string;
+  /** dovizir §11 — consecutive no-edit iterations before halting. */
+  stallIterations?: number;
 }
 
 function parseArgs(argv: string[]): BrewArgs {
@@ -97,6 +99,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--with-navigator") { args.withNavigator = true; }
     else if (arg === "--without-navigator") { args.withNavigator = false; }
     else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
+    else if (arg === "--stall-iterations" && next) { args.stallIterations = parseInt(next, 10); i++; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -143,6 +146,10 @@ Options:
                              / etc.). On block, iter reverts + concerns fold into next iter's
                              prompt. Adds ~$0.01-0.05 per iter on top of driver spend.
   --navigator-model <id>     Navigator LLM model id. Defaults to the brew stage model.
+  --stall-iterations <n>     Consecutive no-edit iterations before halting.
+                             Default: 2 when the agent makes no tool calls at
+                             all, 5 when it is still reading (exploring a big
+                             spec is work, not a stall).
   --help, -h                 Show this help
 
 Environment:
@@ -431,6 +438,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   }
 
   const ctx: BrewContext = {
+    ...(args.stallIterations ? { stallIterations: args.stallIterations } : {}),
     repoRoot: args.repoRoot,
     storyId: args.storyId,
     spec,

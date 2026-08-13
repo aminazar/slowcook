@@ -60,6 +60,13 @@ export type HaltReason =
   | "WALL_CLOCK"
   | "TESTS_NEVER_GREEN"
   | "TEST_RUNNER_BROKEN"
+  /**
+   * dovizir handover §10 — a missing manifest used to report
+   * TEST_RUNNER_BROKEN and suggest "fix vitest config", flatly contradicting
+   * its own summary ("No manifest found. Run testgen first"). Nothing is
+   * broken; a prerequisite step never ran.
+   */
+  | "MANIFEST_MISSING"
   | "MANIFEST_DRIFT"
   | "VIOLATION_STREAK"
   | "API_ERROR"
@@ -256,12 +263,22 @@ export function defaultSuggestedActions(
           description: "Run testgen again for this story with the tier-1 (`vi.mock`) shape so brewing can actually affect test pass/fail.",
         },
       ];
+    case "MANIFEST_MISSING":
+      return [
+        {
+          id: "generate_tests",
+          label: "Generate the story's tests first",
+          description: "brew reads `.brewing/manifests/story-<id>.json` to know which tests it is turning green. Run `slowcook testgen --spec <id>` (or write the tests and `slowcook manifest record --story <id>`), then re-dispatch brew.",
+        },
+      ];
     case "TEST_RUNNER_BROKEN":
       return [
         {
           id: "fix_test_runner",
           label: "Fix the test runner before retrying",
-          description: "Vitest couldn't complete. Check stack.json run_command, ensure npm ci ran, ensure vitest.config.ts loads.",
+          // Runner-neutral (dovizir §10): a Foundry project got told to check
+          // its vitest config. The configured runner is in stack.json.
+          description: "The configured test runner couldn't complete. Check stack.json `run_command` and `discover_command`, that dependencies are installed, and that the runner's config loads. (For a TS project that means vitest.config.ts; for Foundry, foundry.toml.)",
         },
       ];
     case "WALL_CLOCK":

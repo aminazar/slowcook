@@ -3,6 +3,7 @@ import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { createLlmClient } from "../refine/llm.js";
 import { runTestgen, type TestgenContext } from "./agent.js";
 import { resolveModel } from "../../lib/model-defaults.js";
+import { requireTsStack } from "../../lib/stack-support.js";
 
 interface TestgenArgs {
   specId: string | null;
@@ -123,6 +124,9 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 
 export async function testgen(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
+  // dovizir §8 — refuse rather than emit vitest files a forge/pytest runner
+  // can never discover. Honest v1 until testgen becomes stack-dispatched.
+  requireTsStack("testgen", args.repoRoot);
 
   // sc#233 — the LLM runtime is environment-decided: ANTHROPIC_API_KEY (API)
   // or SLOWCOOK_LLM=claude-cli (key-less, Claude Code subscription auth).
