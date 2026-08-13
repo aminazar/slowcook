@@ -35,6 +35,7 @@ import {
   type ChefOrchestrateVerdict,
 } from "@slowcook-ai/llm-anthropic";
 import { isReadOnlyMode, logReadOnlyBanner } from "../../lib/read-only.js";
+import { requireApiKey } from "../../lib/llm-runtime.js";
 
 interface Args {
   storyId: string;
@@ -381,8 +382,7 @@ function applyClose(
 export async function chefOrchestrate(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!apiKey) { console.error("ANTHROPIC_API_KEY env var is required."); process.exit(2); }
+  const apiKey = requireApiKey("chef");
 
   console.log(`slowcook chef-orchestrate · story-${args.storyId} · PR #${args.prNumber}`);
   logReadOnlyBanner("chef-orchestrate");

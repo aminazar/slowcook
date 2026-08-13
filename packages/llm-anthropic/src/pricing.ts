@@ -11,12 +11,51 @@ export const PRICING_PER_M_TOKENS: Record<string, { input: number; output: numbe
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-sonnet-4-5": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 0.8, output: 4 },
+  // Claude 5 family (added 2026-08-13 — the dovizir dual-build run priced a
+  // real claude-opus-5 refine at $0 because these were missing). Sonnet 5 is
+  // listed at its STANDARD rate: introductory pricing runs to 2026-08-31, so
+  // a table baked with the intro rate would go wrong by itself 19 days later.
+  // Under-reporting spend is the worse failure for a budget guard, and
+  // `slowcook cost reprice` re-derives any past entry from its stored tokens.
+  "claude-opus-5": { input: 5, output: 25 },
+  "claude-sonnet-5": { input: 3, output: 15 },
+  "claude-fable-5": { input: 10, output: 50 },
 };
 
 function matchPricing(model: string): { input: number; output: number } | null {
   if (PRICING_PER_M_TOKENS[model]) return PRICING_PER_M_TOKENS[model];
   for (const key of Object.keys(PRICING_PER_M_TOKENS)) {
     if (model.startsWith(key)) return PRICING_PER_M_TOKENS[key]!;
+  }
+  return null;
+}
+
+/** Is this model in the pricing table? Ledger writers ask before recording a
+ *  dollar figure — an unpriced model must record `null`, never `0`. */
+export function isModelPriced(model: string): boolean {
+  return matchPricing(model) !== null;
+}
+
+const warnedModels = new Set<string>();
+
+/**
+ * NEVER SILENT-ZERO (2026-08-13, dovizir handover §2). `costUsdForUsage`
+ * returns 0 for an unpriced model, which is indistinguishable from a free
+ * call: a real refine run logged `{"usd":0,"model":"claude-opus-5",
+ * "tokens_out":3519}` — tokens counted, dollars vanished, budgets lying.
+ *
+ * Ledger writers call THIS instead. An unpriced model yields `null` (the
+ * ledger records "unknown", not "free") plus one loud stderr line per model
+ * per process, naming the model and the recovery path.
+ */
+export function costEntryUsd(model: string, usage: LlmUsage): number | null {
+  if (isModelPriced(model)) return costUsdForUsage(model, usage);
+  if (!warnedModels.has(model)) {
+    warnedModels.add(model);
+    process.stderr.write(
+      `slowcook: model "${model}" is not in the pricing table — its cost is recorded as unknown, not $0.\n` +
+      `  Add it to PRICING_PER_M_TOKENS, then run \`slowcook cost reprice --all\` to settle past entries from their stored token counts.\n`
+    );
   }
   return null;
 }

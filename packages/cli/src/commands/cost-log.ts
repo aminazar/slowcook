@@ -197,7 +197,7 @@ export async function costLog(argv: string[]): Promise<void> {
     applyToSpec: parsed.applyToSpec,
   });
 
-  console.log(`slowcook cost log: appended $${entry.usd.toFixed(4)} (agent=${entry.agent}) to ${result.sidecarPath}`);
+  console.log(`slowcook cost log: appended ${entry.usd === null ? "unpriced" : `$${entry.usd.toFixed(4)}`} (agent=${entry.agent}) to ${result.sidecarPath}`);
   if (result.appliedToSpec) {
     console.log(`slowcook cost log: applied to spec specs/story-${parsed.storyId}.yaml`);
   }
