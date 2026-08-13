@@ -26,8 +26,9 @@ import {
   type VibeFileBlock,
 } from "./emit.js";
 import { costUsdForUsage } from "@slowcook-ai/llm-anthropic";
+import { resolveModel } from "../../lib/model-defaults.js";
 
-const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_MODEL = resolveModel("vibe");
 const MAX_TOKENS = 8192;
 
 export interface VibeContext {

@@ -42,6 +42,7 @@ import {
 } from "@slowcook-ai/llm-anthropic";
 import { isReadOnlyMode, logReadOnlyBanner } from "../../lib/read-only.js";
 import { knowledgeAddCore } from "../knowledge-add.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 /**
  * α.67 — distil a chef rationale into a one-line curated insight.
@@ -290,7 +291,7 @@ function parseArgs(argv: string[]): Args {
     triggerDetail: "",
     triggerRawPath: null,
     navigatorHistoryPath: null,
-    model: "claude-sonnet-4-5-20250929",
+    model: resolveModel("chef"),
     budgetUsd: 1.0,
     dryRun: false,
     prNumber: null,

@@ -25,6 +25,7 @@ import { writeVibeFiles } from "../vibe/emit.js";
 import { classifyComment, type Classification } from "./classify.js";
 import { routeHint } from "./route-hint.js";
 import type { PlateFeedback } from "./prompts.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 const APPROVED_LABEL = "slowcook-mockup-approved";
 
@@ -41,7 +42,7 @@ function parseArgs(argv: string[]): PlateArgs {
   const args: PlateArgs = {
     prNumber: -1,
     repoRoot: process.cwd(),
-    model: "claude-opus-4-7",
+    model: resolveModel("plate"),
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];

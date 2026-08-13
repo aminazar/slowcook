@@ -14,8 +14,9 @@ import { AnthropicClient, MENU_SYSTEM, type MenuStoryDraft } from "@slowcook-ai/
 import { parsePrdInitiatives } from "./prd.js";
 import { assembleStories } from "./assemble.js";
 import { writeSpec, nextStoryId, normalizeScenarioArrays } from "../refine/spec-yaml.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = resolveModel("menu");
 
 function val(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);

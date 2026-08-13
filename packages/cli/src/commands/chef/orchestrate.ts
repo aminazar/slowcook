@@ -36,6 +36,7 @@ import {
 } from "@slowcook-ai/llm-anthropic";
 import { isReadOnlyMode, logReadOnlyBanner } from "../../lib/read-only.js";
 import { requireApiKey } from "../../lib/llm-runtime.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 interface Args {
   storyId: string;
@@ -52,7 +53,7 @@ function parseArgs(argv: string[]): Args {
     storyId: "",
     prNumber: 0,
     repoRoot: process.cwd(),
-    model: "claude-sonnet-4-5-20250929",
+    model: resolveModel("chef"),
     budgetUsd: 0.5,
     dryRun: false,
     recentRunnerOutputPath: null,

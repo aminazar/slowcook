@@ -24,6 +24,7 @@ import { loadMockShapeConfig } from "../../lib/mock-shape.js";
 import { basename } from "node:path";
 import { AnthropicClient, SEED_SYSTEM, ADAPTOR_SYSTEM, formatCostFooter } from "@slowcook-ai/llm-anthropic";
 import { requireApiKey } from "../../lib/llm-runtime.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 interface VibeArgs {
   specId: string;
@@ -43,7 +44,7 @@ function parseArgs(argv: string[]): VibeArgs {
   const args: VibeArgs = {
     specId: "",
     repoRoot: process.cwd(),
-    model: "claude-opus-4-7",
+    model: resolveModel("vibe"),
     dryRun: false,
     baseBranch: "main",
   };

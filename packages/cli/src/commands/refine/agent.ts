@@ -102,6 +102,13 @@ export const LABEL_NEEDS_REFINEMENT = "needs-refinement";
  * the label after acting on the proposal.
  */
 export const LABEL_MULTIFURCATION_PROPOSED = "slowcook-multifurcation-proposed";
+/**
+ * dovizir handover §6 — "Awaiting PM reply" was only ever a line in a log
+ * file, so a queue of issues waiting on a human was invisible in the tracker.
+ * The multifurcation flow already proved the pattern with its own label; this
+ * gives the questions flow the same visibility.
+ */
+export const LABEL_AWAITING_PM = "slowcook-awaiting-pm";
 
 /**
  * Branded header prepended to every clarifying-question comment so reviewers
@@ -484,6 +491,10 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
       ctx.issueNumber,
       BRAND_HEADER + cleanMarkdown + footer + "\n\n" + refineCostMarker
     );
+    // Make the wait visible where the work is triaged, not just in the log.
+    try {
+      await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_AWAITING_PM]);
+    } catch { /* best effort — the questions are posted either way */ }
     return { kind: "questions-posted", commentId: comment.id };
   }
 
@@ -610,7 +621,19 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   await ctx.forge.git.commit(
     `slowcook: spec story-${spec.story_id} — ${spec.title}\n\nRefined from #${ctx.issueNumber}.`
   );
-  await ctx.forge.git.push(branch);
+  try {
+    await ctx.forge.git.push(branch);
+  } catch (e) {
+    // dovizir handover §6 — the checkout's `origin` is not always pushable
+    // (a clone from a local mirror, a read-only remote, missing creds). The
+    // spec IS written and committed locally; say that plainly instead of
+    // surfacing a bare git error in the middle of the log.
+    throw new Error(
+      `spec story-${spec.story_id} was written and committed locally on branch ${branch}, ` +
+      `but pushing to origin failed: ${(e as Error).message.slice(0, 300)}\n` +
+      `  Nothing is lost — push the branch yourself, or point origin at a writable remote and re-run.`
+    );
+  }
 
   // PR creation can fail with 403 if the org/repo setting "Allow GitHub
   // Actions to create and approve pull requests" is off. Catch it

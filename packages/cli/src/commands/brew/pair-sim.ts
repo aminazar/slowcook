@@ -35,6 +35,7 @@ import {
   buildNavigatorPrompt,
   type NavigatorVerdict,
 } from "@slowcook-ai/llm-anthropic";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 interface Args {
   storyId: string;
@@ -71,7 +72,7 @@ function parseArgs(argv: string[]): Args {
     storyId: "",
     repoRoot: process.cwd(),
     maxIters: 5,
-    model: "claude-sonnet-4-5-20250929",
+    model: resolveModel("brew"),
     budgetUsd: 5,
     outPath: "",
   };
