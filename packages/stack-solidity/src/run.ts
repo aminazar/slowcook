@@ -4,8 +4,13 @@
 // either stack through the same code path.
 
 import { execSync } from "node:child_process";
-import type { SolidityStackConfig } from "./stack-config.js";
-import { parseForgeJson, type TestResult } from "./parsers.js";
+import type { SolidityStackConfig, SuiteConfig } from "./stack-config.js";
+import {
+  parseForgeRun,
+  parseForgeList,
+  type SetupFailure,
+  type TestResult,
+} from "./parsers.js";
 
 export type { TestResult } from "./parsers.js";
 
@@ -79,15 +84,20 @@ export function runTests(config: SolidityStackConfig, options: RunOptions): RunR
         exit_code: code,
         stdout_bytes: stdout.length,
       });
-      const parsed = parseForgeJson(stdout, options.cwd);
-      if (parsed.length === 0 && code !== 0) {
+      const parsed = parseForgeRun(stdout, options.cwd);
+      if (parsed.tests.length === 0 && parsed.setup_failures.length === 0 && code !== 0) {
         // Compilation error path: forge exits non-zero, prints
         // "Compiler run failed: ..." on stdout and "Error: Compilation
         // failed" on stderr — no JSON at all. Surface both streams.
         const detail = (stderr.trim() || stdout.trim()).slice(0, 400);
         errors.push(`[${suiteName}] exit ${code}, no parsable JSON. ${detail}`);
       }
-      tests.push(...parsed);
+      tests.push(...parsed.tests);
+      if (parsed.setup_failures.length > 0) {
+        tests.push(
+          ...expandSetupFailures(parsed.setup_failures, suite, options.cwd, exec)
+        );
+      }
     } catch (e) {
       errors.push(`[${suiteName}] ${(e as Error).message}`);
       suites.push({
@@ -102,6 +112,69 @@ export function runTests(config: SolidityStackConfig, options: RunOptions): RunR
   return errors.length === 0
     ? { ran: true, tests, suites }
     : { ran: false, error: errors.join("; "), tests, suites };
+}
+
+/**
+ * When a contract's setUp() reverts, forge does not run (or report) ANY
+ * of that suite's tests — `forge test --json` collapses the whole
+ * contract into one synthetic `"setUp()"` failure entry. Left as-is,
+ * every test in that contract silently vanishes from the RunResult while
+ * `forge test --list --json` (manifest record / discovery) still reports
+ * them, so brew's manifest-drift check halts with "N tests invisible".
+ * Observed live on Dovizir arm-B: 78 recorded, 24 in the run (18 real +
+ * 6 setUp rows), 60 "missing".
+ *
+ * Fix: re-list the suite's tests via its discover_command and emit a
+ * failed TestResult for each test in the affected contract, carrying the
+ * setUp revert reason. This mirrors stack-ts/vitest semantics, where a
+ * thrown beforeAll hook fails every test in the file instead of hiding
+ * them — ids stay aligned with discovery, drift check stays quiet, and
+ * brew gets real red targets to fix.
+ *
+ * If listing fails (discover_command broken, no parsable JSON), fall
+ * back to a single failed row per contract (`file > Contract > setUp`)
+ * so the failure is never silently dropped.
+ */
+function expandSetupFailures(
+  failures: SetupFailure[],
+  suite: SuiteConfig,
+  cwd: string,
+  exec: (cmd: string, cwd: string) => { stdout: string; stderr: string; code: number }
+): TestResult[] {
+  let listed: ReturnType<typeof parseForgeList> = [];
+  try {
+    const { stdout } = exec(suite.discover_command, cwd);
+    listed = parseForgeList(stdout);
+  } catch {
+    listed = [];
+  }
+  const out: TestResult[] = [];
+  for (const f of failures) {
+    const prefix = f.contract ? `${f.file} > ${f.contract} > ` : `${f.file} > `;
+    const message = `setUp() reverted: ${f.message} — every test in ${
+      f.contract ?? f.file
+    } failed before it could run`.slice(0, 500);
+    const members = listed.filter((e) => e.id.startsWith(prefix));
+    if (members.length === 0) {
+      // Listing unavailable — keep one visible failed row for the suite.
+      out.push({
+        id: `${prefix}setUp`,
+        file: f.file,
+        status: "failed",
+        failure_message: message,
+      });
+      continue;
+    }
+    for (const m of members) {
+      out.push({
+        id: m.id,
+        file: m.file,
+        status: "failed",
+        failure_message: message,
+      });
+    }
+  }
+  return out;
 }
 
 function shouldAppendJson(cmd: string): boolean {
