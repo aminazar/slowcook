@@ -23,6 +23,7 @@ import {
   BUG_PROFILE_SCHEMA_VERSION,
 } from "./schema.js";
 import { runInvestigation } from "./agent.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 interface InvestigateArgs {
   issueNumber: number;
@@ -46,7 +47,7 @@ function parseArgs(argv: string[]): InvestigateArgs {
     repoRoot: process.cwd(),
     dryRun: false,
     stub: false,
-    model: "claude-opus-4-7",
+    model: resolveModel("investigate"),
     noPr: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -104,7 +105,7 @@ What it does:
 Flags:
   --issue <n>     GitHub issue number (required).
   --cwd <path>    Repo root (default: cwd).
-  --model <id>    LLM model. Default: claude-opus-4-7.
+  --model <id>    LLM model. Default: the investigate stage model.
   --dry-run       Print profile + agent stats, don't write to disk.
   --stub          Emit a stub profile without calling the LLM (alpha.2a
                   behaviour; useful for testing the file layout).

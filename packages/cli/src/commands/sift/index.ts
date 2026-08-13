@@ -23,6 +23,7 @@ import { loadBugProfile } from "../recipe-regression/index.js";
 import { validateStackConfig, type StackConfig } from "@slowcook-ai/stack-ts";
 import type { BugProfile } from "../investigate/schema.js";
 import { requireApiKey } from "../../lib/llm-runtime.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 interface SiftArgs {
   bugId: string;
@@ -41,7 +42,7 @@ function parseArgs(argv: string[]): SiftArgs {
   const args: SiftArgs = {
     bugId: "",
     repoRoot: process.cwd(),
-    model: "claude-sonnet-4-6", // Sift defaults to Sonnet — narrow fixes shouldn't need Opus.
+    model: resolveModel("sift"), // Sift stays on the cheaper tier — narrow fixes.
     maxIterations: 3,
     budgetUsd: 0.5,
     dryRun: false,
@@ -104,7 +105,7 @@ Usage:
 Options:
   --bug <id>             Bug id (B-N or just N).
   --cwd <path>           Repo root (default: cwd).
-  --model <id>           LLM model (default: claude-sonnet-4-6).
+  --model <id>           LLM model (default: the sift stage model).
   --max-iterations <n>   Max iterations (default: 3).
   --budget-usd <n>       Spend cap in USD (default: 0.5).
   --dry-run              Print plan + exit; don't make LLM calls.

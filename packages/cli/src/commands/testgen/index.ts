@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { createLlmClient } from "../refine/llm.js";
 import { runTestgen, type TestgenContext } from "./agent.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 interface TestgenArgs {
   specId: string | null;
@@ -19,7 +20,7 @@ function parseArgs(argv: string[]): TestgenArgs {
     all: false,
     repoRoot: process.cwd(),
     baseBranch: "main",
-    model: "claude-opus-4-7",
+    model: resolveModel("testgen"),
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];

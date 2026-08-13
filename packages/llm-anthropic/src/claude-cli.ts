@@ -76,6 +76,29 @@ export function renderCliPrompt(messages: LlmRequest["messages"]): string {
   return parts.join("\n\n") + "\n\n[assistant]\n";
 }
 
+/**
+ * WHOSE LOGIN, AND WHERE? (dovizir handover §6)
+ *
+ * A not-logged-in CLI backend surfaced the child process's own words verbatim:
+ * "Not logged in · Please run /login". `/login` is a slash command inside an
+ * interactive Claude session — an operator reading it from a slowcook log has
+ * no session to type it into, and no clue which host or which account is
+ * meant. Name all three.
+ */
+export function annotateCliError(subtype: string | undefined, detail: string): string {
+  const base = `claude-cli error (${subtype ?? "unknown"}): ${detail}`;
+  if (/not logged in|\/login|unauthor|authentication|401/i.test(detail)) {
+    return (
+      `${base}\n` +
+      `  This is the local \`claude\` CLI on THIS host, not slowcook or your Anthropic API key.\n` +
+      `  Authenticate it non-interactively with:  claude setup-token\n` +
+      `  (it prints a CLAUDE_CODE_OAUTH_TOKEN — export it where slowcook runs.)\n` +
+      `  Or drop SLOWCOOK_LLM=claude-cli and set ANTHROPIC_API_KEY instead.`
+    );
+  }
+  return base;
+}
+
 export class ClaudeCliClient implements LlmClient {
   constructor(private readonly run: CliRunner = defaultRunner) {}
 
@@ -117,9 +140,8 @@ export class ClaudeCliClient implements LlmClient {
       throw new Error(`claude-cli emitted no result event: ${stdout.slice(0, 200)}`);
     }
     if (parsed.is_error) {
-      throw new Error(
-        `claude-cli error (${parsed.subtype ?? "unknown"}): ${parsed.result ?? stdout.slice(0, 200)}`
-      );
+      const detail = String(parsed.result ?? stdout.slice(0, 200));
+      throw new Error(annotateCliError(parsed.subtype, detail));
     }
     if (!text) text = typeof parsed.result === "string" ? parsed.result : "";
     const usage = {

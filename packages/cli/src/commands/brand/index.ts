@@ -29,8 +29,9 @@ import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { BRAND_SYSTEM, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { parseVibeOutput, writeVibeFiles } from "../vibe/emit.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
-const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_MODEL = resolveModel("brand");
 const MAX_TOKENS = 32000; // 4 files incl. a self-contained brand-board.html
 
 const BrandConfigSchema = z.object({

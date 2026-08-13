@@ -6,8 +6,9 @@ import { join, relative } from "node:path";
 import { createLlmClient } from "../refine/llm.js";
 import { buildDossier, generateAsBuilt, validateCitations, validateSections } from "./as-built.js";
 import type { SurveyOutput } from "./survey.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
-export const DEFAULT_MODEL = "claude-opus-4-8";
+export const DEFAULT_MODEL = resolveModel("extract");
 
 function walk(dir: string, root: string, acc: string[] = []): string[] {
   let entries: string[];

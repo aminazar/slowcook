@@ -11,6 +11,7 @@ import {
 } from "./agent.js";
 import { haltReportToMarkdown } from "./halt.js";
 import { requireApiKey } from "../../lib/llm-runtime.js";
+import { resolveModel, renderModelTable } from "../../lib/model-defaults.js";
 
 interface BrewArgs {
   storyId: string;
@@ -58,11 +59,11 @@ function parseArgs(argv: string[]): BrewArgs {
     budgetUsd: 10,
     maxIterations: 10,
     wallClockMs: 60 * 60 * 1000, // 1 hour
-    model: "claude-sonnet-4-6",
+    model: resolveModel("brew"),
     baseBranch: "main",
     mode: "auto",
     withNavigator: undefined,
-    navigatorModel: "claude-sonnet-4-5-20250929",
+    navigatorModel: resolveModel("brew"),
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -129,7 +130,7 @@ Options:
   --budget-usd <n>           Token-spend cap per story (default: 10)
   --max-iterations <n>       Iteration cap (default: 10)
   --wall-clock-minutes <n>   Wall-clock cap in minutes (default: 60)
-  --model <id>               LLM model (default: claude-sonnet-4-6; override with --model claude-opus-4-7 for harder stories)
+  --model <id>               LLM model. Defaults to the brew stage model; SLOWCOOK_MODEL overrides every stage.
   --base <branch>            Base branch for PRs (default: main)
   --with-navigator           Force pair-brew on (overrides mode-aware default).
   --without-navigator        Force pair-brew off (overrides mode-aware default).
@@ -141,7 +142,7 @@ Options:
                              navigator review (design fidelity / responsive / cross-story risk
                              / etc.). On block, iter reverts + concerns fold into next iter's
                              prompt. Adds ~$0.01-0.05 per iter on top of driver spend.
-  --navigator-model <id>     Navigator LLM model id. Default: claude-sonnet-4-5-20250929.
+  --navigator-model <id>     Navigator LLM model id. Defaults to the brew stage model.
   --help, -h                 Show this help
 
 Environment:
@@ -254,6 +255,9 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 
 export async function brew(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
+  console.log(renderModelTable([
+    { stage: "brew", flag: argv.includes("--model") ? args.model : undefined },
+  ]));
 
   // Fails with the REAL cause when SLOWCOOK_LLM=claude-cli is set: brew needs
   // API tool-use, which the CLI backend cannot serve (dovizir handover §1).

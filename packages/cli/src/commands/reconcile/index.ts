@@ -20,8 +20,9 @@ import { listActiveSpecs, SPECS_DIR, schemas, normalizeScenarioArrays } from "..
 import { parsePrdInitiatives } from "../menu/prd.js";
 import { anchorHash } from "../trace/check.js";
 import { setPrdSha } from "../trace/index.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
-const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_MODEL = resolveModel("reconcile");
 
 interface Contradiction {
   path?: string;

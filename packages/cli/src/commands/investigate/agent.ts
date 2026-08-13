@@ -38,10 +38,11 @@ import {
   type BugProfile,
   BUG_PROFILE_SCHEMA_VERSION,
 } from "./schema.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 const MAX_ROUNDS = 12;
 const MAX_FILE_READ_BYTES = 20000;
-const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_MODEL = resolveModel("investigate");
 
 export interface InvestigateContext {
   repoRoot: string;

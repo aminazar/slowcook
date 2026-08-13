@@ -13,6 +13,7 @@ import {
 import { buildHistoryIndex, type HistoryIndex } from "./history-index.js";
 import { computeGitAttention } from "./git-attention.js";
 import { deriveScope } from "../../lib/project-scope.js";
+import { resolveModel, renderModelTable } from "../../lib/model-defaults.js";
 
 /**
  * A noop is not automatically success. A PRECONDITION noop means the run could
@@ -101,8 +102,8 @@ function parseArgs(argv: string[]): RefineArgs {
     reviewCommentId: 0,
     repoRoot: process.cwd(),
     baseBranch: "main",
-    refineModel: "claude-opus-4-7",
-    relationshipModel: "claude-sonnet-4-5",
+    refineModel: resolveModel("refine"),
+    relationshipModel: resolveModel("relationship"),
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -184,13 +185,15 @@ Options:
   --owner <login>              Repo owner (default: parsed from 'git remote get-url origin')
   --repo <name>                Repo name (default: parsed from 'git remote get-url origin')
   --base <branch>              Base branch for the spec PR (default: main)
-  --refine-model <id>          Model for the refinement loop (default: claude-opus-4-7)
-  --relationship-model <id>    Model for relationship analysis (default: claude-sonnet-4-5)
+  --refine-model <id>          Model for the refinement loop (default: the refine stage model)
+  --relationship-model <id>    Model for relationship analysis (default: the relationship stage model)
   --help, -h                   Show this help
 
 Environment:
   ANTHROPIC_API_KEY  Anthropic API key — or SLOWCOOK_LLM=claude-cli for the
                      local claude CLI's subscription auth (key-less)
+  SLOWCOOK_MODEL     One model for EVERY stage, unless a per-stage flag
+                     overrides it. The resolved table prints at startup.
   GITHUB_TOKEN       (required)  GitHub token with issues:write, contents:write, pull-requests:write
 
 Exit codes:
@@ -216,6 +219,12 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 
 export async function refine(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
+  // dovizir handover §5 — the resolved model per stage, BEFORE any spend.
+  // This drift was found via a cost footer after the fact; it belongs here.
+  console.log(renderModelTable([
+    { stage: "refine", flag: argv.includes("--refine-model") ? args.refineModel : undefined },
+    { stage: "relationship", flag: argv.includes("--relationship-model") ? args.relationshipModel : undefined },
+  ]));
 
   // sc#233 — the LLM runtime is environment-decided: ANTHROPIC_API_KEY (API)
   // or SLOWCOOK_LLM=claude-cli (key-less, Claude Code subscription auth).

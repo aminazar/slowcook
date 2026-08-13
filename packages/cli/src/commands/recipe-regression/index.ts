@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { validateBugProfile, type BugProfile } from "../investigate/schema.js";
 import { parseSimpleYaml } from "../investigate/agent.js";
 import { runRegressionRecipe } from "./agent.js";
+import { resolveModel } from "../../lib/model-defaults.js";
 
 export interface RecipeRegressionArgs {
   bugId: string; // "B-1"
@@ -53,7 +54,7 @@ export function parseRecipeRegressionArgs(argv: string[]): RecipeRegressionArgs 
     repoRoot: process.cwd(),
     dryRun: false,
     useLlm: false,
-    model: "claude-sonnet-4-6",
+    model: resolveModel("recipe"),
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
