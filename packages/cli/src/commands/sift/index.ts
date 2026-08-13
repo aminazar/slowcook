@@ -22,6 +22,7 @@ import { runSift, type SiftContext, type SiftResult } from "./agent.js";
 import { loadBugProfile } from "../recipe-regression/index.js";
 import { validateStackConfig, type StackConfig } from "@slowcook-ai/stack-ts";
 import type { BugProfile } from "../investigate/schema.js";
+import { requireApiKey } from "../../lib/llm-runtime.js";
 
 interface SiftArgs {
   bugId: string;
@@ -172,11 +173,7 @@ export async function sift(argv: string[], cliVersion: string): Promise<void> {
     process.exit(0);
   }
 
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!apiKey) {
-    console.error("slowcook sift: ANTHROPIC_API_KEY is required");
-    process.exit(78);
-  }
+  const apiKey = requireApiKey("sift");
 
   const ctx: SiftContext = {
     repoRoot: args.repoRoot,

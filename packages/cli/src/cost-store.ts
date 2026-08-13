@@ -30,7 +30,11 @@ import YAML from "yaml";
 
 export interface CostEntry {
   agent: string;
-  usd: number;
+  /** `null` = the model was not in the pricing table when this was written.
+   *  NOT zero — an unpriced call is unknown spend, not free spend (dovizir
+   *  handover §2). `slowcook cost reprice` settles these from the tokens
+   *  below, which is precisely why the token counts are recorded. */
+  usd: number | null;
   model?: string;
   round?: string;
   /** ISO-8601. Caller supplies — keeps the module testable. */
@@ -79,33 +83,81 @@ export function appendCostEntry(
  *   - missing sidecar (returns zero/empty).
  *   - blank lines.
  *   - malformed lines (logged via the optional callback; total uses parseable ones).
+ *
+ * `usd: null` (an unpriced model) is VALID, not malformed — it sums as 0 but
+ * is counted separately so a caller can say "≥ $X, N calls unpriced" instead
+ * of presenting a short total as if it were complete.
  */
 export function readCostTotal(
   repoRoot: string,
   storyId: string,
   onMalformed?: (lineNo: number, raw: string) => void
-): { totalUsd: number; entries: CostEntry[] } {
+): { totalUsd: number; entries: CostEntry[]; unpricedCount: number } {
   const p = costSidecarPath(repoRoot, storyId);
-  if (!existsSync(p)) return { totalUsd: 0, entries: [] };
+  if (!existsSync(p)) return { totalUsd: 0, entries: [], unpricedCount: 0 };
   const lines = readFileSync(p, "utf8").split("\n");
   const entries: CostEntry[] = [];
   let total = 0;
+  let unpriced = 0;
   lines.forEach((raw, i) => {
     const line = raw.trim();
     if (!line) return;
     try {
       const parsed = JSON.parse(line) as CostEntry;
-      if (typeof parsed.usd !== "number" || typeof parsed.agent !== "string") {
+      const usdOk = typeof parsed.usd === "number" || parsed.usd === null;
+      if (!usdOk || typeof parsed.agent !== "string") {
         onMalformed?.(i + 1, raw);
         return;
       }
       entries.push(parsed);
-      total += parsed.usd;
+      if (parsed.usd === null) unpriced += 1;
+      else total += parsed.usd;
     } catch {
       onMalformed?.(i + 1, raw);
     }
   });
-  return { totalUsd: total, entries };
+  return { totalUsd: total, entries, unpricedCount: unpriced };
+}
+
+/**
+ * Recompute `usd` for every entry from its STORED TOKEN COUNTS × a current
+ * pricing function. This is why tokens are recorded on every entry: a gap in
+ * the pricing table stops being permanent data loss and becomes a re-run.
+ *
+ * Pure over the entries; the price function is injected so this module keeps
+ * no provider dependency and the whole thing unit-tests without fixtures.
+ * Returns the rewritten entries plus what changed, so callers can render a
+ * dry-run diff before writing anything.
+ */
+export function repriceEntries(
+  entries: CostEntry[],
+  priceFor: (model: string, usage: {
+    inputTokens: number; outputTokens: number;
+    cacheReadTokens: number; cacheCreateTokens: number;
+  }) => number | null
+): { entries: CostEntry[]; changed: { at: string; model: string; from: number | null; to: number | null }[] } {
+  const changed: { at: string; model: string; from: number | null; to: number | null }[] = [];
+  const out = entries.map((e) => {
+    // No model or no token record ⇒ nothing to recompute from; leave as-is.
+    if (!e.model || (e.tokens_in === undefined && e.tokens_out === undefined)) return e;
+    const usd = priceFor(e.model, {
+      inputTokens: e.tokens_in ?? 0,
+      outputTokens: e.tokens_out ?? 0,
+      cacheReadTokens: e.cache_read ?? 0,
+      cacheCreateTokens: e.cache_create ?? 0,
+    });
+    if (usd === e.usd) return e;
+    changed.push({ at: e.at, model: e.model, from: e.usd, to: usd });
+    return { ...e, usd };
+  });
+  return { entries: out, changed };
+}
+
+/** Overwrite a story's sidecar with the given entries (used by `cost reprice`). */
+export function writeCostEntries(repoRoot: string, storyId: string, entries: CostEntry[]): void {
+  const p = costSidecarPath(repoRoot, storyId);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length ? "\n" : ""), "utf8");
 }
 
 /**
@@ -127,21 +179,28 @@ export function applyCostToSpec(
 ): { changed: boolean; totalUsd: number } {
   const specPath = specYamlPath(repoRoot, storyId);
   if (!existsSync(specPath)) return { changed: false, totalUsd: 0 };
-  const { totalUsd } = readCostTotal(repoRoot, storyId);
+  const { totalUsd, unpricedCount } = readCostTotal(repoRoot, storyId);
   const raw = readFileSync(specPath, "utf8");
   const parsed = (YAML.parse(raw) ?? {}) as Record<string, unknown> & {
-    cost?: { total_usd?: number; last_updated?: string };
+    cost?: { total_usd?: number; last_updated?: string; unpriced_calls?: number };
   };
   const existing = parsed.cost ?? {};
   // Round to 4 dp so we don't churn the spec on sub-tenth-of-a-cent diffs.
   const rounded = Math.round(totalUsd * 10000) / 10000;
   if (
     existing.total_usd === rounded &&
+    (existing.unpriced_calls ?? 0) === unpricedCount &&
     typeof existing.last_updated === "string"
   ) {
     return { changed: false, totalUsd: rounded };
   }
-  parsed.cost = { total_usd: rounded, last_updated: nowIso };
+  // A total with unpriced calls behind it is a FLOOR, not a total — say so in
+  // the spec rather than letting a short number read as complete.
+  parsed.cost = {
+    total_usd: rounded,
+    last_updated: nowIso,
+    ...(unpricedCount > 0 ? { unpriced_calls: unpricedCount } : {}),
+  };
   writeFileSync(specPath, YAML.stringify(parsed, { lineWidth: 0 }), "utf8");
   return { changed: true, totalUsd: rounded };
 }

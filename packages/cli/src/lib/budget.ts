@@ -99,16 +99,22 @@ export function currentPeriodStart(
  * (`story-<id>.cost.jsonl`). Used by both:
  *   - monthly_budget_usd gauge (since = period start)
  *   - credit_balance_usd gauge (since = credit_baseline_at)
+ *
+ * Entries with `usd: null` (model missing from the pricing table) are REAL
+ * spend this function cannot value. They are excluded from the sum and
+ * counted separately, so a guard can say "at least $X, N calls unpriced"
+ * rather than passing a budget check on an artificially short total.
  */
 export function aggregateSpendSince(
   repoRoot: string,
   since: Date
-): { usd: number; entryCount: number; storyCount: number } {
+): { usd: number; entryCount: number; storyCount: number; unpricedCount: number } {
   const specsDir = join(repoRoot, "specs");
-  if (!existsSync(specsDir)) return { usd: 0, entryCount: 0, storyCount: 0 };
+  if (!existsSync(specsDir)) return { usd: 0, entryCount: 0, storyCount: 0, unpricedCount: 0 };
   let usd = 0;
   let entryCount = 0;
   let storyCount = 0;
+  let unpricedCount = 0;
   for (const f of readdirSync(specsDir)) {
     const m = /^story-(.+)\.cost\.jsonl$/.exec(f);
     if (!m || !m[1]) continue;
@@ -118,14 +124,15 @@ export function aggregateSpendSince(
     for (const e of entries) {
       const at = Date.parse(e.at);
       if (Number.isFinite(at) && at >= since.getTime()) {
-        usd += e.usd;
+        if (e.usd === null) unpricedCount++;
+        else usd += e.usd;
         entryCount++;
         storyTouched = true;
       }
     }
     if (storyTouched) storyCount++;
   }
-  return { usd, entryCount, storyCount };
+  return { usd, entryCount, storyCount, unpricedCount };
 }
 
 /**

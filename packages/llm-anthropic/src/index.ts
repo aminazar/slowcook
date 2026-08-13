@@ -3,6 +3,8 @@ export { ClaudeCliClient, createLlmClient, renderCliPrompt, type CliRunner } fro
 export {
   PRICING_PER_M_TOKENS,
   costUsdForUsage,
+  costEntryUsd,
+  isModelPriced,
   costMarker,
   parseCostMarkers,
   formatCostFooter,

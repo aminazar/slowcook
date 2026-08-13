@@ -23,6 +23,7 @@ import { generateLcrApp, mockYaml } from "./app-gen.js";
 import { loadMockShapeConfig } from "../../lib/mock-shape.js";
 import { basename } from "node:path";
 import { AnthropicClient, SEED_SYSTEM, ADAPTOR_SYSTEM, formatCostFooter } from "@slowcook-ai/llm-anthropic";
+import { requireApiKey } from "../../lib/llm-runtime.js";
 
 interface VibeArgs {
   specId: string;
@@ -360,11 +361,7 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
     return;
   }
 
-  const anthropicApiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!anthropicApiKey) {
-    console.error("ANTHROPIC_API_KEY environment variable is not set.");
-    process.exit(2);
-  }
+  const anthropicApiKey = requireApiKey("vibe");
 
   // Spec must exist
   const specPath = join(args.repoRoot, "specs", `story-${args.specId}.yaml`);

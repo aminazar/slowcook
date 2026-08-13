@@ -132,8 +132,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "cost",
-    usage: "slowcook cost log --story <id> --usd <n> --agent <name> [--apply-to-spec]",
-    description: "Stamp a cost marker on a story for non-Actions agents (Claude Code, Cursor, manual runs).",
+    usage: "slowcook cost log --story <id> --usd <n> --agent <name> [--apply-to-spec] · slowcook cost reprice (--story <id>|--all) [--dry-run]",
+    description: "Stamp a cost marker on a story for non-Actions agents; reprice settles entries against the current pricing table from their stored token counts.",
     group: "knowledge",
   },
   {

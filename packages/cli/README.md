@@ -263,6 +263,36 @@ Most pipeline commands invoke the Anthropic API and act on GitHub:
 
 `slowcook init`, `guard`, `manifest`, and `check` run locally without API/network access.
 
+### Which backend does which command support?
+
+`SLOWCOOK_LLM=claude-cli` runs slowcook on the local `claude` CLI's
+subscription auth instead of an API key — but **not every command can use it**.
+Commands that drive API *tool-use* blocks need the API; the CLI backend is
+deliberately a pure text model (`--disallowedTools '*'`).
+
+| Backend | Set | Supported by |
+|---|---|---|
+| Anthropic API | `ANTHROPIC_API_KEY` | every command |
+| Local Claude CLI | `SLOWCOOK_LLM=claude-cli` | `refine` |
+
+A tool-use command asked to run on the CLI backend now fails immediately and
+says so by name, rather than reporting a missing key the operator omitted on
+purpose. Tool-use support for the CLI backend is tracked as a follow-up.
+
+### Cost accounting
+
+Every LLM call is logged to `specs/story-<id>.cost.jsonl` with its token
+counts. A model missing from the pricing table records `usd: null` — *unknown*
+spend, never `$0` — with one warning naming the model. Because the tokens are
+stored, the gap is recoverable:
+
+```bash
+slowcook cost reprice --all --dry-run   # preview
+slowcook cost reprice --all             # settle against the current table
+```
+
+This also normalizes a price basis across runs made days apart.
+
 ## What ships in this package
 
 - `slowcook` binary (entry point: `dist/cli.js`)

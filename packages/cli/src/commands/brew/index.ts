@@ -10,6 +10,7 @@ import {
   type BrewContext,
 } from "./agent.js";
 import { haltReportToMarkdown } from "./halt.js";
+import { requireApiKey } from "../../lib/llm-runtime.js";
 
 interface BrewArgs {
   storyId: string;
@@ -254,11 +255,9 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 export async function brew(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
-  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-  if (!anthropicKey) {
-    console.error("ANTHROPIC_API_KEY environment variable is not set.");
-    process.exit(2);
-  }
+  // Fails with the REAL cause when SLOWCOOK_LLM=claude-cli is set: brew needs
+  // API tool-use, which the CLI backend cannot serve (dovizir handover §1).
+  const anthropicKey = requireApiKey("brew");
   const githubToken = process.env["GITHUB_TOKEN"];
   if (!githubToken) {
     console.error("GITHUB_TOKEN environment variable is not set.");

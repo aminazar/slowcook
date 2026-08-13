@@ -101,7 +101,22 @@ describe("aggregateMonthSpend", () => {
       { schema_version: 1, monthly_budget_usd: 50, monthly_start_day: 1 },
       new Date("2026-05-15T12:00:00Z")
     );
-    expect(out).toEqual({ usd: 0, entryCount: 0, storyCount: 0 });
+    expect(out).toEqual({ usd: 0, entryCount: 0, storyCount: 0, unpricedCount: 0 });
+  });
+
+  it("an unpriced entry is counted, never summed as free", () => {
+    // dovizir handover §2: a real claude-opus-5 call logged usd:0 and vanished
+    // from the budget. Now it lands as null and the guard can SAY so.
+    appendCostEntry(repo, "007", { agent: "refine", usd: 2.5, at: "2026-05-10T00:00:00Z" });
+    appendCostEntry(repo, "007", { agent: "brew", usd: null, model: "claude-opus-5", at: "2026-05-11T00:00:00Z" });
+    const out = aggregateMonthSpend(
+      repo,
+      { schema_version: 1, monthly_budget_usd: 50, monthly_start_day: 1 },
+      new Date("2026-05-15T12:00:00Z")
+    );
+    expect(out.usd).toBe(2.5);          // not NaN, not silently inflated
+    expect(out.entryCount).toBe(2);
+    expect(out.unpricedCount).toBe(1);  // the spend we cannot value is visible
   });
 
   it("sums entries from this period across stories", () => {

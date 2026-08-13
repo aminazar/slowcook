@@ -122,11 +122,16 @@ async function main(): Promise<void> {
       // entries. See packages/cli/src/commands/cost-log.ts.
       const sub = args[1];
       if (sub === "log") { await costLog(args.slice(2)); return; }
+      if (sub === "reprice") {
+        const { costReprice } = await import("./commands/cost-reprice.js");
+        await costReprice(args.slice(2));
+        return;
+      }
       if (sub === "--help" || sub === "-h" || sub === "help") {
         console.log(renderCommandHelp("cost"));
         return;
       }
-      console.error(`unknown cost subcommand: ${sub ?? "(none)"}. try \`slowcook cost log --help\``);
+      console.error(`unknown cost subcommand: ${sub ?? "(none)"}. try \`slowcook cost log --help\` or \`slowcook cost reprice --help\``);
       process.exit(64);
     }
     case "on-spec-merged":
