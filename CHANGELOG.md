@@ -6,6 +6,75 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.29.0 · llm-anthropic 0.23.0 · stack-ts 0.10.0 · stack-solidity 0.1.0 — the dovizir handover release
+
+Everything the Dovizir dual-build experiment found running slowcook 0.28.7
+end-to-end on a real two-project monorepo. The common thread: **slowcook told
+its operator something untrue.**
+
+**It said the wrong thing was broken.** `brew` on `SLOWCOOK_LLM=claude-cli`
+reported a missing `ANTHROPIC_API_KEY` — sending you after a key you omitted
+on purpose — when the truth is that brew needs API tool-use and the CLI
+adapter is a pure text model. A missing manifest halted as
+`TEST_RUNNER_BROKEN` suggesting "fix vitest config" while its own summary
+said "run testgen first"; that is now `MANIFEST_MISSING`, and
+`TEST_RUNNER_BROKEN` no longer names vitest at a Foundry project. The
+not-logged-in error told you to run `/login`, a slash command you cannot type
+into a log file; it now names the host, the account and `claude setup-token`.
+
+**It said work was free.** An unpriced model logged `usd: 0` — tokens
+counted, dollars vanished. Cost entries now record `null` (unknown) and
+never `0`, and `slowcook cost reprice` re-derives them from the token counts
+already on every entry. Two latent bugs surfaced while making that type
+honest: `readCostTotal` treated `usd: null` as malformed and dropped the
+entry outright, and the budget rollup summed it into `NaN` — a spend guard
+that would have passed on garbage. **brew now writes to the ledger at all**;
+the priciest stage in the pipeline was previously invisible to
+`slowcook cost` and carried its own second copy of the silent-zero bug.
+
+**It said nothing happened when something did.** `refine` on an unlabeled
+issue printed `Noop` and exited 0, which CI reads as success — preconditions
+now exit 3 and name what was missing. The stall detector killed a run after
+two iterations in which the driver made 21–22 **read** calls orienting on a
+large spec, while logging "agent made no tool calls this turn"; reading is
+work, so exploring turns get a laxer cap, `--stall-iterations` overrides it,
+and the log line says which kind of quiet it means. brew also warns when the
+codemap is empty — the aggravator that made the driver rediscover the repo
+every turn.
+
+**It assumed one project and one stack.** Two projects in one git repo both
+numbered their first story 001 and collided on `slowcook/spec/story-001`;
+branches and PR titles now carry a project scope, derived from where
+`.brewing` sits, and single-project names are byte-identical. `testgen`
+emitted a vitest file into a Solidity project that forge can never discover —
+it now refuses and says why. `manifest record --story N` matched only
+`story-N.test.*`, a TypeScript convention, so `--match <glob>` lets a stack
+say how its own files map to a story.
+
+**It let the model drift.** Fifteen stage defaults across five model ids (two
+pinned to dated snapshots) meant "pin the model" was whack-a-mole — a
+`--refine-model` flag was honoured while the relationship round quietly kept
+its own default. One table, one cascade (stage flag > `SLOWCOOK_MODEL` >
+default), and the resolved model-per-stage table prints at startup, before
+anything is spent.
+
+**New package — `@slowcook-ai/stack-solidity` (0.1.0).** A Foundry adapter
+(forge-json parsers with captured fixtures, discovery, runTests, forge-fmt
+lint, gas-snapshot ratchet) plus `stack-resolve.ts`, which dispatches on
+`stack.json`'s `language`. This is the stack abstraction the toolchain did
+not have: `stack-ts` was the only stack and every command imported it by
+name. It is the template for Python/Go/.NET adapters, not a Solidity-only
+feature. Includes the discovery fix where `forge test --list` reported 78
+tests and the run leg saw 24 — a reverting `setUp()` collapses a whole
+contract into one synthetic row.
+
+Ops note in the README: `ssh host 'nohup … &'` hangs; `setsid … < /dev/null`
+detaches.
+
+Not included: the MCP tool-use bridge that would let brew/chef/vibe run on
+the claude-cli backend (tracked separately — it inverts brew's loop control,
+which needs a design pass).
+
 ## review-overlay 0.25.6 — LCR issue titles read like a human wrote them
 
 Fixes delgoosh#946. Both review pills named their GitHub issues by leading with

@@ -59,10 +59,19 @@ import {
   CODE_MAP_TARGET_MD_PATH,
   renderMarkdown,
 } from "../map/render.js";
+import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
+import { costEntryUsd } from "@slowcook-ai/llm-anthropic";
 
 /** ------------------------- Context + options ------------------------- */
 
 export interface BrewContext {
+  /**
+   * dovizir handover §2 (tail) — running token totals for THIS brew, so the
+   * priciest stage in the pipeline stops being invisible to `slowcook cost`.
+   * brew constructs the Anthropic SDK directly and had usage objects in hand
+   * but wrote nothing to the ledger. Mutated in place by runTurn.
+   */
+  usageTotals?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number };
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -1361,6 +1370,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       );
     }
 
+    recordBrewCost(ctx);
     return {
       kind: "success",
       iterations: iterationLogs.length,
@@ -1538,6 +1548,7 @@ async function runTurn(
       messages,
     });
     spendDelta += costUsdForResponse(response, ctx.model);
+    accumulateUsage(ctx, response);
 
     // Capture the assistant turn + any text (for the latest-text fallback)
     messages.push({ role: "assistant", content: response.content });
@@ -2442,6 +2453,46 @@ function findTargetTestFile(ctx: BrewContext, testId: string): string | null {
 
 /** ------------------------- Cost accounting ------------------------- */
 
+/** Fold one API response's usage into the run totals (dovizir §2 tail). */
+function accumulateUsage(ctx: BrewContext, response: Anthropic.Messages.Message): void {
+  const u = response.usage as
+    | { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+    | undefined;
+  const t = (ctx.usageTotals ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0 });
+  t.inputTokens += u?.input_tokens ?? 0;
+  t.outputTokens += u?.output_tokens ?? 0;
+  t.cacheReadTokens += u?.cache_read_input_tokens ?? 0;
+  t.cacheCreateTokens += u?.cache_creation_input_tokens ?? 0;
+}
+
+/**
+ * Write brew's spend to the canonical cost sidecar (dovizir §2 tail).
+ *
+ * brew is the most expensive stage and wrote NOTHING to the ledger, so
+ * `slowcook cost` under-reported every story by the largest single line item.
+ * Routed through `costEntryUsd` so an unpriced model lands as `null` (unknown)
+ * rather than brew's own local silent-zero — and so `cost reprice` can settle
+ * it later from the tokens recorded here.
+ */
+function recordBrewCost(ctx: BrewContext): void {
+  const t = ctx.usageTotals;
+  if (!t || (t.inputTokens === 0 && t.outputTokens === 0)) return;
+  try {
+    appendCostEntry(ctx.repoRoot, ctx.storyId, {
+      agent: "brew",
+      usd: costEntryUsd(ctx.model, t),
+      model: ctx.model,
+      at: new Date().toISOString(),
+      tokens_in: t.inputTokens,
+      tokens_out: t.outputTokens,
+      cache_read: t.cacheReadTokens,
+      cache_create: t.cacheCreateTokens,
+    });
+    applyCostToSpec(ctx.repoRoot, ctx.storyId);
+  } catch { /* never fail a brew over its own bookkeeping */ }
+}
+
+
 function costUsdForResponse(
   response: Anthropic.Messages.Message,
   model: string
@@ -2488,6 +2539,7 @@ interface HaltArgs {
 }
 
 async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
+  recordBrewCost(ctx);
   const iterationDiffs = (args.iterationLogs ?? []).map<IterationDiff>((l) => ({
     iteration: l.iteration,
     target_test_id: l.target_test_id,
