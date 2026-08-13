@@ -28,6 +28,18 @@ export interface LintConfig {
 
 export interface StackConfig {
   language: "typescript" | "javascript";
+  /**
+   * Optional project name for repos holding MORE THAN ONE slowcook project
+   * (dovizir handover §3). Story numbering is per-project but git branches are
+   * per-repo, so two projects both numbering their first story 001 collided on
+   * `slowcook/spec/story-001`. This qualifies the shared namespace:
+   * `slowcook/spec/<project_id>/story-001`, and tags PR titles.
+   *
+   * Omit it in a single-project repo — the scope is then derived from where
+   * `.brewing` sits in the worktree, which is empty at the root, so every
+   * existing branch name is unchanged.
+   */
+  project_id?: string;
   package_manager?: string;
   test?: Record<string, SuiteConfig>;
   /** 0.11.13+ — optional lint/typecheck commands. Missing or empty means brew skips lint signals (no-op). */
@@ -55,6 +67,9 @@ export function validateStackConfig(raw: unknown): StackConfig {
   const config: StackConfig = {
     language,
   };
+  if (typeof obj["project_id"] === "string" && obj["project_id"].trim()) {
+    config.project_id = obj["project_id"].trim();
+  }
   if (typeof obj["package_manager"] === "string") {
     config.package_manager = obj["package_manager"];
   }

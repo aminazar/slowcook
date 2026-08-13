@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { LlmCreditExhaustedError } from "@slowcook-ai/core";
@@ -12,6 +12,55 @@ import {
 } from "./agent.js";
 import { buildHistoryIndex, type HistoryIndex } from "./history-index.js";
 import { computeGitAttention } from "./git-attention.js";
+import { deriveScope } from "../../lib/project-scope.js";
+
+/**
+ * A noop is not automatically success. A PRECONDITION noop means the run could
+ * never have done anything — name what was missing and exit non-zero, so an
+ * automated caller does not read "Noop" + exit 0 as "refined fine".
+ */
+function reportNoop(
+  outcome: { reason: string; precondition?: "label" | "closed" },
+  requireLabel: boolean
+): void {
+  if (!outcome.precondition) {
+    console.log(`Noop: ${outcome.reason}.`);
+    return;
+  }
+  if (outcome.precondition === "label" && !requireLabel) {
+    console.log(`Noop: ${outcome.reason} (precondition waived by --no-require-label).`);
+    return;
+  }
+  console.error(
+    `slowcook refine: precondition not met — ${outcome.reason}.\n` +
+    (outcome.precondition === "label"
+      ? `  refine only acts on issues carrying the \`needs-refinement\` label. Add it (or pass --no-require-label to treat this as a skip).\n`
+      : `  refine only acts on OPEN issues.\n`)
+  );
+  process.exit(3);
+}
+
+
+/**
+ * Resolve this project's branch/PR scope (dovizir handover §3). Reads
+ * `project_id` from `.brewing/stack.json` when present, else derives it from
+ * where `.brewing` sits inside the git worktree. Empty ⇒ unscoped, and every
+ * branch name stays exactly as it was.
+ */
+function resolveProjectScope(repoRoot: string): string {
+  let projectId: string | undefined;
+  try {
+    const raw = readFileSync(join(repoRoot, ".brewing", "stack.json"), "utf8");
+    projectId = (JSON.parse(raw) as { project_id?: string }).project_id;
+  } catch { /* no stack.json, or unreadable — derive from the path instead */ }
+  let gitRoot: string | null = null;
+  try {
+    gitRoot = execSync("git rev-parse --show-toplevel", {
+      cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null;
+  } catch { /* not a git repo — unscoped */ }
+  return deriveScope({ repoRoot, gitRoot, projectId });
+}
 
 interface RefineArgs {
   /** Issue-driven refine (the original 0.5+ path). Required unless --pr is set. */
@@ -30,6 +79,13 @@ interface RefineArgs {
    * timeline comment when absent (e.g., `issue_comment` on PR trigger).
    */
   reviewCommentId: number;
+  /**
+   * dovizir handover §4 — the `needs-refinement` label is a PRECONDITION, and
+   * an unmet precondition exits non-zero so a pipeline step goes red instead
+   * of reading a Noop as success. `--no-require-label` restores exit 0 for
+   * callers that poll issues speculatively and expect most to be skipped.
+   */
+  requireLabel?: boolean;
   repoRoot: string;
   owner?: string;
   repo?: string;
@@ -51,6 +107,10 @@ function parseArgs(argv: string[]): RefineArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = argv[i + 1];
+    if (arg === "--no-require-label" || arg === "--require-label=false") {
+      args.requireLabel = false;
+      continue;
+    }
     if (arg === "--issue" && next) {
       args.issueNumber = parseInt(next, 10);
       i++;
@@ -192,6 +252,7 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
     if (args.prNumber) {
       // 0.11.5+ — PR-driven resubmit path
       const ctx: ResubmitContext = {
+        projectScope: resolveProjectScope(args.repoRoot),
         prNumber: args.prNumber,
         reviewCommentId: args.reviewCommentId || null,
         repoRoot: args.repoRoot,
@@ -226,13 +287,14 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
           console.log(`  ${outcome.followUpPrUrl}`);
           break;
         case "noop":
-          console.log(`Noop: ${outcome.reason}.`);
+          reportNoop(outcome, args.requireLabel !== false);
           break;
       }
       return;
     }
 
     const ctx: RefineContext = {
+      projectScope: resolveProjectScope(args.repoRoot),
       issueNumber: args.issueNumber,
       repoRoot: args.repoRoot,
       forge,
@@ -313,7 +375,7 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
         );
         break;
       case "noop":
-        console.log(`Noop: ${outcome.reason}.`);
+        reportNoop(outcome, args.requireLabel !== false);
         break;
     }
   } catch (e) {
