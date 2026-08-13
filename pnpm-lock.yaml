@@ -47,6 +47,9 @@ importers:
       '@slowcook-ai/review-overlay':
         specifier: workspace:^
         version: link:../review-overlay
+      '@slowcook-ai/stack-solidity':
+        specifier: workspace:^
+        version: link:../stack-solidity
       '@slowcook-ai/stack-ts':
         specifier: workspace:^
         version: link:../stack-ts
@@ -163,6 +166,16 @@ importers:
       react-dom:
         specifier: ^19.2.7
         version: 19.2.7(react@19.2.7)
+
+  packages/stack-solidity:
+    dependencies:
+      '@slowcook-ai/core':
+        specifier: workspace:^
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
 
   packages/stack-ts:
     dependencies:

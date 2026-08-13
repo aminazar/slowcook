@@ -20,7 +20,7 @@ import { execSync } from "node:child_process";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { runSift, type SiftContext, type SiftResult } from "./agent.js";
 import { loadBugProfile } from "../recipe-regression/index.js";
-import { validateStackConfig, type StackConfig } from "@slowcook-ai/stack-ts";
+import { validateStackConfig, type StackConfig } from "../../stack-resolve.js";
 import type { BugProfile } from "../investigate/schema.js";
 import { requireApiKey } from "../../lib/llm-runtime.js";
 import { resolveModel } from "../../lib/model-defaults.js";

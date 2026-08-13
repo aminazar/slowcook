@@ -9,6 +9,7 @@
   "references": [
     { "path": "../core" },
     { "path": "../stack-ts" },
+    { "path": "../stack-solidity" },
     { "path": "../forge-github" },
     { "path": "../llm-anthropic" },
     { "path": "../recorder" },

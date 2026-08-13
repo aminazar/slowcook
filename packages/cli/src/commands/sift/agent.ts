@@ -24,12 +24,12 @@ import {
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { execSync } from "node:child_process";
 import Anthropic from "@anthropic-ai/sdk";
+import { type RunResult } from "@slowcook-ai/stack-ts";
 import {
   validateStackConfig,
   type StackConfig,
   runTests,
-  type RunResult,
-} from "@slowcook-ai/stack-ts";
+} from "../../stack-resolve.js";
 import { outlineFile } from "../brew/agent.js";
 import {
   findReferences,

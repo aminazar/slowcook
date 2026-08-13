@@ -16,7 +16,7 @@ import {
   discoverTests,
   validateStackConfig,
   type StackConfig,
-} from "@slowcook-ai/stack-ts";
+} from "../stack-resolve.js";
 
 const CLI_VERSION = "0.2.0";
 

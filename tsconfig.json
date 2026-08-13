@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/stack-ts" },
+    { "path": "./packages/stack-solidity" },
     { "path": "./packages/forge-github" },
     { "path": "./packages/llm-anthropic" },
     { "path": "./packages/recorder" },

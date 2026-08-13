@@ -43,6 +43,7 @@
   "dependencies": {
     "@slowcook-ai/core": "workspace:^",
     "@slowcook-ai/stack-ts": "workspace:^",
+    "@slowcook-ai/stack-solidity": "workspace:^",
     "@slowcook-ai/forge-github": "workspace:^",
     "@slowcook-ai/llm-anthropic": "workspace:^",
     "@slowcook-ai/recorder": "workspace:^",
