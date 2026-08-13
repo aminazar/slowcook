@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   parseForgeJson,
+  parseForgeRun,
   parseForgeList,
   parseByReporterFormat,
   parseForgeDuration,
@@ -102,7 +103,57 @@ describe("parseForgeJson", () => {
   });
 });
 
+// Fixtures forge-root-sibling-{run,list}.json are REAL forge 1.3.2 output
+// captured from the Dovizir acceptance project (78 tests: unit + fuzz +
+// invariants across 9 contracts) run with `--root <sibling dir>` from a
+// separate cwd — the exact layout of the live arm-B failure. 6 of the 9
+// contracts' setUp() revert with "STUB", so the run output collapses to
+// 24 rows (18 real tests + 6 synthetic "setUp()" entries) while the list
+// output discovers all 78.
+describe("parseForgeRun — setUp() collapse (root-sibling fixtures)", () => {
+  it("separates setUp() failures from real test rows", () => {
+    const { tests, setup_failures } = parseForgeRun(
+      loadFixture("forge-root-sibling-run.json")
+    );
+    expect(tests).toHaveLength(18);
+    expect(tests.every((t) => !t.id.endsWith(" > setUp"))).toBe(true);
+    expect(setup_failures).toHaveLength(6);
+    expect(setup_failures).toContainEqual({
+      file: "test/InsuranceFund.t.sol",
+      contract: "InsuranceFundTest",
+      message: "STUB",
+    });
+    expect(setup_failures).toContainEqual({
+      file: "test/Invariants.t.sol",
+      contract: "InvariantsTest",
+      message: "STUB",
+    });
+  });
+
+  it("parseForgeJson (tests-only wrapper) excludes the synthetic setUp rows", () => {
+    expect(parseForgeJson(loadFixture("forge-root-sibling-run.json"))).toHaveLength(18);
+  });
+
+  it("reports no setup_failures for healthy runs", () => {
+    const { setup_failures } = parseForgeRun(loadFixture("forge-test-pass.json"));
+    expect(setup_failures).toEqual([]);
+  });
+});
+
 describe("parseForgeList", () => {
+  it("discovers all 78 tests (unit + fuzz + invariant) in the root-sibling fixture", () => {
+    const entries = parseForgeList(loadFixture("forge-root-sibling-list.json"));
+    expect(entries).toHaveLength(78);
+    const ids = entries.map((e) => e.id);
+    // The exact test the live MANIFEST_DRIFT halt named as "first missing".
+    expect(ids).toContain(
+      "test/InsuranceFund.t.sol > InsuranceFundTest > test_feeReceipt_evenFee_splitsFiftyFifty"
+    );
+    expect(ids).toContain(
+      "test/Invariants.t.sol > InvariantsTest > invariant_backingCoversOutstanding"
+    );
+  });
+
   it("parses real forge test --list --json output", () => {
     const tests = parseForgeList(loadFixture("forge-list.json"));
     expect(tests).toHaveLength(5);

@@ -529,10 +529,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       totalCount: expectedTestIds.size,
       spendUsd: 0,
       summary:
-        `Story manifest lists ${expectedTestIds.size} test(s) but vitest discovered only ${discoveredIds.size} test(s) in this run — ${undiscoveredStoryTests.length} of the story's tests are invisible to the runner. ` +
+        `Story manifest lists ${expectedTestIds.size} test(s) but the test runner reported only ${discoveredIds.size} test(s) in this run — ${undiscoveredStoryTests.length} of the story's tests are invisible to the runner. ` +
         `First missing: \`${undiscoveredStoryTests[0]}\`. ` +
-        `Most common cause: \`vitest.config.ts\`'s \`include\` pattern doesn't cover the test files' path (e.g., only \`src/**/*.test.ts\` but tests live under \`tests/integration/\`). ` +
-        `Fix the include pattern and re-run.`,
+        `Most common cause: the runner's include pattern doesn't cover the test files' path (vitest: \`vitest.config.ts\` \`include\` only matching \`src/**/*.test.ts\` while tests live under \`tests/integration/\`; forge: \`foundry.toml\` \`test\` dir not covering the files). ` +
+        `Fix the config and re-run.`,
     });
   }
 

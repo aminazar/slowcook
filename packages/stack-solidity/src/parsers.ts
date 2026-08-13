@@ -37,6 +37,35 @@ interface ForgeTestResult {
 }
 
 /**
+ * A suite whose `setUp()` reverted. Forge does NOT run (or report) any
+ * of the suite's tests in this case — the whole contract collapses into
+ * a single synthetic `"setUp()"` entry in `test_results`:
+ *
+ *   { "test/InsuranceFund.t.sol:InsuranceFundTest": {
+ *       "test_results": { "setUp()": { "status": "Failure", "reason": "STUB", ... } } } }
+ *
+ * Live failure this models (Dovizir arm-B): a stub-backed acceptance
+ * suite where 6 of 9 contracts' setUp() reverted — `forge test --json`
+ * reported 24 rows (18 real + 6 setUp entries) while `--list --json`
+ * discovered all 78 tests, so brew's manifest-drift check saw 60 story
+ * tests as "invisible" and halted. run.ts re-expands these suites via
+ * the discover_command so every listed test gets a failed row, matching
+ * vitest semantics (a thrown beforeAll hook fails each test in the file
+ * rather than hiding them).
+ */
+export interface SetupFailure {
+  file: string;
+  contract: string | null;
+  /** Bounded revert reason as forge reported it, e.g. "STUB". */
+  message: string;
+}
+
+export interface ForgeRunParse {
+  tests: TestResult[];
+  setup_failures: SetupFailure[];
+}
+
+/**
  * Parse `forge test --json` output into flat TestResult rows.
  *
  * Forge's JSON shape (1.3.x):
@@ -58,14 +87,19 @@ interface ForgeTestResult {
  * solves for vitest (manifest verify compares the two sets).
  *
  * Compiler errors: forge prints "Compiler run failed: ..." to stdout,
- * "Error: Compilation failed" to stderr and emits NO JSON. We return []
- * here; run.ts turns "exit != 0 with zero parsed tests" into
+ * "Error: Compilation failed" to stderr and emits NO JSON. We return
+ * empty here; run.ts turns "exit != 0 with zero parsed tests" into
  * RunResult.ran = false with the stderr excerpt.
+ *
+ * setUp() reverts: reported in `setup_failures` (NOT as test rows —
+ * forge's synthetic `"setUp()"` entry is not a test and its id would
+ * never match the manifest). run.ts expands them; see SetupFailure.
  */
-export function parseForgeJson(stdout: string, cwd?: string): TestResult[] {
+export function parseForgeRun(stdout: string, cwd?: string): ForgeRunParse {
   void cwd; // forge emits repo-relative paths already; kept for signature parity with stack-ts.
+  const empty: ForgeRunParse = { tests: [], setup_failures: [] };
   const firstBrace = stdout.indexOf("{");
-  if (firstBrace === -1) return [];
+  if (firstBrace === -1) return empty;
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout.slice(firstBrace));
@@ -73,16 +107,17 @@ export function parseForgeJson(stdout: string, cwd?: string): TestResult[] {
     // Noise before/after the JSON object — find the matching close brace.
     const candidate = stdout.slice(firstBrace);
     const lastBrace = findMatchingClose(candidate);
-    if (lastBrace === -1) return [];
+    if (lastBrace === -1) return empty;
     try {
       parsed = JSON.parse(candidate.slice(0, lastBrace + 1));
     } catch {
-      return [];
+      return empty;
     }
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
 
   const out: TestResult[] = [];
+  const setupFailures: SetupFailure[] = [];
   for (const [suiteKey, suite] of Object.entries(parsed as Record<string, unknown>)) {
     if (!suite || typeof suite !== "object") continue;
     const { file, contract } = splitSuiteKey(suiteKey);
@@ -91,6 +126,18 @@ export function parseForgeJson(stdout: string, cwd?: string): TestResult[] {
     if (!testResults || typeof testResults !== "object") continue;
     for (const [rawName, r] of Object.entries(testResults)) {
       const name = stripSignature(rawName);
+      if (name === "setUp") {
+        // Synthetic entry: setUp() reverted, suite's tests never ran.
+        if (normaliseStatus(r?.status) !== "passed") {
+          setupFailures.push({
+            file,
+            contract,
+            message: buildFailureMessage({ ...r, status: "Failure" }) ??
+              "(setUp failed with no reason reported)",
+          });
+        }
+        continue;
+      }
       const result: TestResult = {
         id: contract ? `${file} > ${contract} > ${name}` : `${file} > ${name}`,
         file,
@@ -114,7 +161,16 @@ export function parseForgeJson(stdout: string, cwd?: string): TestResult[] {
       out.push(result);
     }
   }
-  return out;
+  return { tests: out, setup_failures: setupFailures };
+}
+
+/**
+ * Back-compat wrapper over parseForgeRun: just the test rows. Note
+ * setUp() failures are NOT included (they aren't tests) — callers that
+ * must not lose that signal (run.ts) use parseForgeRun instead.
+ */
+export function parseForgeJson(stdout: string, cwd?: string): TestResult[] {
+  return parseForgeRun(stdout, cwd).tests;
 }
 
 /**

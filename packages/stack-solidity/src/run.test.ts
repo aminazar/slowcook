@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { runTests } from "./run.js";
+import { parseForgeList } from "./parsers.js";
 import type { SolidityStackConfig } from "./stack-config.js";
 
 const loadFixture = (name: string): string =>
@@ -109,6 +110,93 @@ describe("runTests", () => {
     expect(calls[0]).toBe(
       "forge test --json --match-path '{test/A.t.sol,test/B.t.sol}'"
     );
+  });
+
+  // Regression for the Dovizir arm-B live failure: a stub-backed
+  // acceptance project (sibling dir, driven via `--root ../acceptance`)
+  // where 6 of 9 contracts' setUp() reverts with "STUB". forge's run
+  // output collapses each such contract into one synthetic "setUp()"
+  // entry — 24 rows for 78 discoverable tests — which made brew's
+  // manifest-drift check see 60 story tests as invisible and halt.
+  // runTests must re-expand those suites via the discover_command so
+  // every listed test gets a failed row with the setUp revert reason.
+  describe("setUp() collapse expansion (root-sibling fixtures)", () => {
+    const rootConfig: SolidityStackConfig = {
+      language: "solidity",
+      test: {
+        forge: {
+          runner: "forge",
+          run_command: "forge test --root ../acceptance --json",
+          discover_command: "forge test --root ../acceptance --list --json",
+          reporter_format: "forge-json",
+        },
+      },
+    };
+    const fixtureExec = (calls?: string[]) => (cmd: string) => {
+      calls?.push(cmd);
+      return cmd.includes("--list")
+        ? { stdout: loadFixture("forge-root-sibling-list.json"), stderr: "", code: 0 }
+        : { stdout: loadFixture("forge-root-sibling-run.json"), stderr: "", code: 1 };
+    };
+
+    it("reports a failed row for every discoverable test when setUp() reverts", () => {
+      const calls: string[] = [];
+      const result = runTests(rootConfig, {
+        cwd: "/repo/packages/contracts",
+        exec: fixtureExec(calls),
+      });
+      expect(result.ran).toBe(true);
+      expect(result.tests).toHaveLength(78);
+
+      // Run ids must be EXACTLY the discovery ids (manifest-drift invariant).
+      const listedIds = new Set(
+        parseForgeList(loadFixture("forge-root-sibling-list.json")).map((e) => e.id)
+      );
+      expect(new Set(result.tests.map((t) => t.id))).toEqual(listedIds);
+
+      // The exact test the live MANIFEST_DRIFT halt reported as missing.
+      const first = result.tests.find(
+        (t) =>
+          t.id ===
+          "test/InsuranceFund.t.sol > InsuranceFundTest > test_feeReceipt_evenFee_splitsFiftyFifty"
+      );
+      expect(first?.status).toBe("failed");
+      expect(first?.failure_message).toContain("setUp() reverted: STUB");
+
+      // 60 synthesized reds + 18 rows forge actually ran.
+      const synthesized = result.tests.filter((t) =>
+        t.failure_message?.includes("setUp() reverted")
+      );
+      expect(synthesized).toHaveLength(60);
+      expect(synthesized.every((t) => t.status === "failed")).toBe(true);
+      expect(result.tests.length - synthesized.length).toBe(18);
+
+      // Invariant tests are expanded too, not just unit tests.
+      expect(result.tests.map((t) => t.id)).toContain(
+        "test/Invariants.t.sol > InvariantsTest > invariant_backingCoversOutstanding"
+      );
+
+      // One extra exec: the run itself + one discover_command listing.
+      expect(calls).toEqual([
+        "forge test --root ../acceptance --json",
+        "forge test --root ../acceptance --list --json",
+      ]);
+    });
+
+    it("keeps one visible failed setUp row per contract when listing fails", () => {
+      const result = runTests(rootConfig, {
+        cwd: "/repo/packages/contracts",
+        exec: (cmd) =>
+          cmd.includes("--list")
+            ? { stdout: "Error: forge exploded", stderr: "boom", code: 1 }
+            : { stdout: loadFixture("forge-root-sibling-run.json"), stderr: "", code: 1 },
+      });
+      expect(result.ran).toBe(true);
+      const setupRows = result.tests.filter((t) => t.id.endsWith(" > setUp"));
+      expect(setupRows).toHaveLength(6);
+      expect(setupRows.every((t) => t.status === "failed")).toBe(true);
+      expect(result.tests).toHaveLength(24);
+    });
   });
 
   it("returns ran=true with no tests when config declares no suites", () => {

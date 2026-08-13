@@ -302,7 +302,7 @@ export function defaultSuggestedActions(
         {
           id: "check_test_discovery",
           label: "Fix test discovery so the story's tests are actually run",
-          description: "The story's manifest lists tests that vitest can't discover. Most common cause: vitest.config.ts `include` pattern doesn't cover the test files' path (e.g., only `src/**/*.test.ts` but tests live at `tests/integration/`). Expand the include pattern, or move the tests.",
+          description: "The story's manifest lists tests the test runner can't see. Most common cause: the runner's include pattern doesn't cover the test files' path (vitest: `vitest.config.ts` `include` only matching `src/**/*.test.ts` while tests live at `tests/integration/`; forge: `foundry.toml` `test` dir not covering the files). Expand the pattern, or move the tests.",
         },
         {
           id: "regenerate_manifest",
