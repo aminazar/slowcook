@@ -336,10 +336,16 @@ export function listActiveSpecs(repoRoot: string): Spec[] {
  *
  * `forge` is optional so callers without a forge (e.g., local tooling) can still
  * use the function — they just get a weaker guarantee (index-only).
+ *
+ * `scope` (dovizir handover §3) keeps the branch scan inside THIS project's
+ * namespace. Story numbering is per-project: in a monorepo, contracts/story-001
+ * and notes/story-001 are different stories, so an unscoped scan would make the
+ * second project skip 001 purely because the first had used it.
  */
 export async function nextStoryId(
   repoRoot: string,
-  forge?: ForgeAdapter
+  forge?: ForgeAdapter,
+  scope = ""
 ): Promise<string> {
   const index = readIndex(repoRoot);
   const fromIndex = Object.keys(index.stories)
@@ -364,9 +370,10 @@ export async function nextStoryId(
   let fromBranches: number[] = [];
   if (forge) {
     try {
-      const branches = await forge.listBranchesMatching("slowcook/spec/story-");
+      const prefix = scope ? `slowcook/spec/${scope}/story-` : "slowcook/spec/story-";
+      const branches = await forge.listBranchesMatching(prefix);
       fromBranches = branches
-        .map((b) => b.replace(/^slowcook\/spec\/story-/, ""))
+        .map((b) => b.slice(prefix.length))
         .map((id) => parseInt(id, 10))
         .filter((n) => !isNaN(n));
     } catch {

@@ -37,6 +37,7 @@ import {
   validateRouteCollisions,
 } from "./spec-validate.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
+import { scopedSpecBranch } from "../../lib/project-scope.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -127,6 +128,12 @@ export interface RefineContext {
   baseBranch: string;
   /** Current UTC time (injectable for tests). */
   now: Date;
+  /**
+   * dovizir handover §3 — qualifies the repo-wide branch/PR namespace so two
+   * projects in one git repo cannot collide on `slowcook/spec/story-001`.
+   * Empty string = single-project repo, and every name stays as it was.
+   */
+  projectScope?: string;
 }
 
 export type RefineOutcome =
@@ -137,7 +144,16 @@ export type RefineOutcome =
   | { kind: "contradiction-blocked"; conflicting_ids: string[] }
   | { kind: "change-of-mind-accepted"; supersedes: string[] }
   | { kind: "multifurcation-proposed"; commentId: number; subIssueCount: number }
-  | { kind: "noop"; reason: string };
+  | { kind: "noop"; reason: string; precondition?: NoopPrecondition };
+
+/**
+ * Why a run did nothing. A PRECONDITION noop is not success — the caller asked
+ * for work that could never have happened, and an automated pipeline must be
+ * able to tell that apart from "ran fine, nothing to do" (dovizir handover §4:
+ * `refine --issue 9` on an unlabeled issue printed a Noop and exited 0, which
+ * a CI step reads as green).
+ */
+export type NoopPrecondition = "label" | "closed";
 
 /** Schema for the <sentinel> block the agent uses when it emits a spec. */
 const SpecEmissionFenceStart = "---";
@@ -146,10 +162,14 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   const issue = await ctx.forge.getIssue(ctx.issueNumber);
 
   if (issue.state === "closed") {
-    return { kind: "noop", reason: "issue is closed" };
+    return { kind: "noop", reason: "issue is closed", precondition: "closed" };
   }
   if (!issue.labels.includes(LABEL_NEEDS_REFINEMENT)) {
-    return { kind: "noop", reason: `issue is not labeled ${LABEL_NEEDS_REFINEMENT}` };
+    return {
+      kind: "noop",
+      reason: `issue is not labeled ${LABEL_NEEDS_REFINEMENT}`,
+      precondition: "label",
+    };
   }
 
   // Step 0: multifurcation check (cli α.44).
@@ -350,7 +370,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   // Step 2: refinement loop (single round — ask or emit based on full history)
   const comments = await ctx.forge.listIssueComments(ctx.issueNumber);
   const chat = await buildChatHistory(issue, comments, supersedes);
-  const storyId = await nextStoryId(ctx.repoRoot, ctx.forge);
+  const storyId = await nextStoryId(ctx.repoRoot, ctx.forge, ctx.projectScope ?? "");
 
   const projectContext = buildProjectContext(ctx.repoRoot);
   const agentResponse = await ctx.llm.complete({
@@ -571,7 +591,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     );
   }
 
-  const branch = `slowcook/spec/story-${spec.story_id}`;
+  const branch = scopedSpecBranch(ctx.projectScope ?? "", spec.story_id);
   await ctx.forge.git.createBranch(branch);
   await ctx.forge.git.stage(specPath);
   await ctx.forge.git.stage(`specs/_index.yaml`);
@@ -598,7 +618,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   // comment instead of crashing — the state machine still progresses.
   try {
     const pr = await ctx.forge.createPullRequest({
-      title: draftPrTitle(spec.story_id, spec.title),
+      title: draftPrTitle(spec.story_id, spec.title, ctx.projectScope ?? ""),
       body: draftPrBody({
         storyId: spec.story_id,
         issueNumber: ctx.issueNumber,
@@ -1026,6 +1046,8 @@ export interface ResubmitContext {
   refineModel: string;
   cliVersion: string;
   baseBranch: string;
+  /** Project scope for branch names (see RefineContext.projectScope). */
+  projectScope?: string;
   now: Date;
 }
 
@@ -1312,9 +1334,9 @@ export async function runResubmitRefinement(
   // Pick branch: same branch (force-push) when the PR is open; a fresh
   // timestamped follow-up branch when the PR is already merged so the
   // new PR has a clean head and doesn't collide with the merged branch.
-  const originalBranch = `slowcook/spec/story-${storyId}`;
+  const originalBranch = scopedSpecBranch(ctx.projectScope ?? "", storyId);
   const followUpBranch = isFollowUp
-    ? `slowcook/spec/story-${storyId}-amend-${ctx.now.getTime()}`
+    ? scopedSpecBranch(ctx.projectScope ?? "", storyId, `amend-${ctx.now.getTime()}`)
     : null;
   if (isFollowUp && followUpBranch) {
     // The amendment commit currently sits on the original branch's tip

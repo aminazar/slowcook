@@ -21,8 +21,10 @@ export {
 } from "@slowcook-ai/llm-anthropic";
 
 /** Trivial, used only as a title for the draft PR. */
-export function draftPrTitle(storyId: string, title: string): string {
-  return `spec: story-${storyId} — ${title}`;
+export function draftPrTitle(storyId: string, title: string, scope = ""): string {
+  // dovizir handover §3 — in a monorepo the PR list is shared, so the project
+  // is named up front. Unscoped repos keep the exact title they always had.
+  return `spec: ${scope ? `[${scope}] ` : ""}story-${storyId} — ${title}`;
 }
 
 /**
