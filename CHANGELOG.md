@@ -6,6 +6,34 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.29.2 · llm-anthropic 0.23.1 — brew learns instead of forgetting (§13)
+
+The dovizir experiment suspended on §13: brew could not drive claude-opus-5
+to a first surviving edit. The live log showed the real chain — an overflow
+rejection the agent was never taught to avoid, a revert whose lesson was
+withheld ("broke 4 green test(s)" — no names), and fresh-context iterations
+re-paying 14–26 orientation reads until the round cap or the stall detector
+ended the run.
+
+Four fixes, one per link: the revert note now NAMES the broken tests (their
+Given/When/Then states the violated invariant) and the overflow note teaches
+the justify protocol; a per-run read cache PRE-LOADS the target test and the
+run's most-consulted files into each turn (24KB budget, never cache-pinned,
+changed files dropped so it cannot lie); a turn cut at the round cap is
+TRUNCATED — brew's doing — and no longer feeds the stall verdict
+(--max-tool-rounds to tune); stop_reason is logged every turn and a
+tool-only turn records its call trace as the rationale, so a halt can no
+longer carry an empty last_agent_rationale. Plus one more tuned-on-sonnet
+constant: max_tokens 4096 cut opus-5 mid-write on a 333-line module —
+now 16384 (--max-output-tokens).
+
+Verified against the live repro on the experiment box, same story, same
+model: before — 25 iterations, 0 checkpoints, every edit lost, spend
+reported $0.00; after — checkpoint in iteration 1 of the first run, and the
+second run finished the story ALL GREEN (7/7) in 2 iterations at $3.84 of
+honestly-reported spend, with justify_diff_overflow called before the big
+write. Orientation dropped from ~26 tool calls per iteration to 6–11.
+
 ## cli 0.29.1 — the budget guard can no longer read $0.00
 
 0.29.0 shipped the ledger fixes but left FOUR private pricing tables inside

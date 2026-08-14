@@ -555,6 +555,14 @@ export function turnPromptParts(args: {
    * `read_file`. Constant per brew, lives in the cached prefix.
    */
   pattern_index_block?: string;
+  /**
+   * 0.23.1 (dovizir §13) — pre-loaded file contents (target test + the run's
+   * most-consulted files), so a fresh-context iteration starts oriented
+   * instead of spending its tool rounds re-reading what the previous
+   * iteration read. Rendered in the dynamic body: contents track the
+   * working tree, so they must never be cache-pinned.
+   */
+  preloaded_files_block?: string;
 }): { cachedPrefix: string; dynamicBody: string } {
   // === CACHEABLE PREFIX === (constant across iterations in a single
   // brew run: spec body + allowed paths + prior brew history)
@@ -631,6 +639,10 @@ export function turnPromptParts(args: {
       sections.push(`_+ ${args.other_failure_messages.length - 5} more red tests._`);
     }
     sections.push("</details>");
+    sections.push("");
+  }
+  if (args.preloaded_files_block && args.preloaded_files_block.trim().length > 0) {
+    sections.push(args.preloaded_files_block.trim());
     sections.push("");
   }
   sections.push(
