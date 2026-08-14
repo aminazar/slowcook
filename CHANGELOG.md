@@ -6,6 +6,21 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.29.1 — the budget guard can no longer read $0.00
+
+0.29.0 shipped the ledger fixes but left FOUR private pricing tables inside
+brew/sift/investigate/recipe — each missing the Claude 5 family, each with its
+own `if (!pricing) return 0`. So brew's in-run budget math priced an opus-5
+turn at $0 even while its ledger entry (canonical table) said otherwise: the
+cap that is supposed to stop a runaway run was blind exactly when the model
+was newest. All four tables are deleted; every price comes from
+@slowcook-ai/llm-anthropic. And an unpriced model now REFUSES TO START
+(exit 78) rather than warning — a guard that cannot price a call cannot stop
+it ($16.23 measured as $0.00 in the dovizir run). `--allow-unpriced` is the
+explicit escape hatch. A CI ratchet (scripts/llm-gateway-ratchet.mjs) keeps
+new SDK importers and new pricing tables from regrowing while the R1 gateway
+refactor is pending.
+
 ## cli 0.29.0 · llm-anthropic 0.23.0 · stack-ts 0.10.0 · stack-solidity 0.1.0 — the dovizir handover release
 
 Everything the Dovizir dual-build experiment found running slowcook 0.28.7
