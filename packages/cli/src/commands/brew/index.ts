@@ -53,6 +53,8 @@ interface BrewArgs {
   navigatorModel: string;
   /** dovizir §11 — consecutive no-edit iterations before halting. */
   stallIterations?: number;
+  /** §13 — tool rounds per turn (default 12). */
+  maxToolRounds?: number;
   /** R2 — run despite an unpriced model, accepting uncappable spend. */
   allowUnpriced?: boolean;
 }
@@ -104,6 +106,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
     else if (arg === "--allow-unpriced") { args.allowUnpriced = true; }
     else if (arg === "--stall-iterations" && next) { args.stallIterations = parseInt(next, 10); i++; }
+    else if (arg === "--max-tool-rounds" && next) { args.maxToolRounds = parseInt(next, 10); i++; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -154,6 +157,10 @@ Options:
                              recorded as unknown and USD budget caps cannot be
                              enforced. Off by default: an uncappable run is a
                              worse failure than a refused one.
+  --max-tool-rounds <n>      Tool rounds per turn (default 12). Raise for large
+                             specs where orientation alone needs more rounds; a
+                             turn cut at this cap is reported as TRUNCATED and
+                             never counted as an agent stall.
   --stall-iterations <n>     Consecutive no-edit iterations before halting.
                              Default: 2 when the agent makes no tool calls at
                              all, 5 when it is still reading (exploring a big
@@ -449,6 +456,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
 
   const ctx: BrewContext = {
     ...(args.stallIterations ? { stallIterations: args.stallIterations } : {}),
+    ...(args.maxToolRounds ? { maxToolRounds: args.maxToolRounds } : {}),
     repoRoot: args.repoRoot,
     storyId: args.storyId,
     spec,

@@ -61,6 +61,7 @@ import {
 } from "../map/render.js";
 import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
+import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 
 /** ------------------------- Context + options ------------------------- */
 
@@ -72,6 +73,12 @@ export interface BrewContext {
    * but wrote nothing to the ledger. Mutated in place by runTurn.
    */
   usageTotals?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number };
+  /** §13 orientation carry — per-run read cache feeding the pre-load block. */
+  readCache?: Map<string, ReadCacheEntry>;
+  /** §13 — tool rounds per turn (default 12). The cap that cut orientation. */
+  maxToolRounds?: number;
+  /** §13/R5 — output tokens per round (default 16384). 4096 cut opus-5 mid-write. */
+  maxOutputTokens?: number;
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -702,7 +709,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         files_touched: [],
       });
       stagnation += 1;
-      consecutiveNoEdits += 1;
+      // §13 — a TRUNCATED turn (round cap hit while the agent still wanted
+      // tools) is brew cutting the agent off mid-work. Counting it toward the
+      // agent-stall verdict punished the agent for brew's own cap: the live
+      // run halted AGENT_STALLED_NO_EDITS after two truncated orientation
+      // turns. Truncation still costs stagnation (the global progress cap),
+      // but never feeds the stall counter.
+      if (!turnResult.truncatedAtRoundCap) consecutiveNoEdits += 1;
       // dovizir §11 — a turn with tool calls but no edits is EXPLORING, not
       // idle. Tracked separately so the stall threshold can be laxer for it.
       if (turnResult.toolCallCount > 0) consecutiveExploring += 1;
@@ -980,7 +993,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       priorAttempts.push({
         iteration,
         outcome: "rejected-overflow",
-        note: `diff exceeded graduality cap without justify_diff_overflow call`,
+        note: `your edit was THROWN AWAY: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`,
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
@@ -1057,7 +1070,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       priorAttempts.push({
         iteration,
         outcome: "reverted-regression",
-        note: `broke ${regressions.length} green test(s)`,
+        // §13 — the log named WHICH tests broke; the agent's note said only a
+        // count. The names are the one fact the next attempt needs: each id's
+        // Given/When/Then states the invariant the edit violated.
+        note: `your edit was REVERTED because it broke ${regressions.length} green test(s): ${regressions.slice(0, 4).join(" | ")}${regressions.length > 4 ? ` | +${regressions.length - 4} more` : ""}. The next edit must satisfy the target WITHOUT violating what these protect.`,
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
@@ -1397,6 +1413,10 @@ interface TurnResult {
    * the run was killed after 2 iterations.
    */
   toolCallCount: number;
+  /** §13 — the turn ended because brew's round cap cut it off mid-tool-use,
+   *  not because the agent finished. Truncation is brew's doing; it must not
+   *  count toward the agent-stall verdict. */
+  truncatedAtRoundCap?: boolean;
   overflowJustification?: {
     reason_category: string;
     affected_scope: string[];
@@ -1456,6 +1476,20 @@ async function runTurn(
   // we send the user message as a content array with cache_control on
   // the prefix block. ~30-50% input-token savings within the 5-minute
   // ephemeral cache TTL.
+  // §13 orientation carry: pre-load the target test + the run's
+  // most-consulted files, so a fresh-context turn starts oriented instead of
+  // spending its tool rounds re-walking the repo (measured live: 14–26
+  // read-only calls per iteration, two turns cut at the round cap).
+  const preloadBlock = buildPreloadBlock({
+    cache: ctx.readCache ?? new Map(),
+    targetTestFile: targetFilePath,
+    readFile: (rel) => {
+      try {
+        const full = resolveRepoPath(ctx, rel);
+        return existsSync(full) && statSync(full).isFile() ? readFileSync(full, "utf8") : null;
+      } catch { return null; }
+    },
+  });
   const promptParts = turnPromptParts({
     iteration: args.iteration,
     max_iterations: ctx.maxIterations,
@@ -1473,6 +1507,7 @@ async function runTurn(
     lint_issues: args.lintIssues,
     prior_context_block: args.priorContextBlock,
     pattern_index_block: args.patternIndexBlock,
+    preloaded_files_block: preloadBlock,
   });
   // Backwards-compat: turnPrompt() still works for any non-brew caller
   // that hasn't migrated; quiet the lint that flags the unused import.
@@ -1515,11 +1550,21 @@ async function runTurn(
     },
   ];
 
-  // Safety cap: 12 tool rounds within a single turn (should be plenty; prevents runaway)
-  for (let round = 0; round < 12; round++) {
+  // Safety cap on tool rounds per turn. "Should be plenty" was tuned on
+  // sonnet webapp runs and cut opus-5 orientation mid-read (§13) — it is now
+  // configurable, and hitting it is reported as TRUNCATION, not an agent stall.
+  const maxRounds = ctx.maxToolRounds ?? 12;
+  let roundsUsed = 0;
+  let lastStopReason: string | null = null;
+  for (let round = 0; round < maxRounds; round++) {
+    roundsUsed = round + 1;
     const response = await ctx.anthropic.messages.create({
       model: ctx.model,
-      max_tokens: 4096,
+      // §13/R5 — 4096 was tuned on sonnet webapp diffs and cut opus-5 off
+      // MID-WRITE: the live retry emitted justify_diff_overflow, started the
+      // 333-line module, and died on stop_reason=max_tokens. An output cap is
+      // a ceiling, not a purchase — raising it costs nothing until used.
+      max_tokens: ctx.maxOutputTokens ?? 16384,
       // cache_control is accepted at runtime but older SDK type defs don't
       // expose it on TextBlockParam; `as never` gets past the structural
       // mismatch the same way refine/llm.ts does.
@@ -1561,6 +1606,7 @@ async function runTurn(
     if (toolBlocks.length === 0) {
       // Text-only ending → this is the real rationale
       rationale = textInThisRound.slice(0, 2000);
+      lastStopReason = response.stop_reason ?? null;
       break;
     }
 
@@ -1588,15 +1634,24 @@ async function runTurn(
     }
     messages.push({ role: "user", content: toolResults });
 
+    lastStopReason = response.stop_reason ?? null;
     if (response.stop_reason !== "tool_use") break;
   }
 
-  // If we hit the tool-round cap without a text-only completion, fall
-  // back to the latest text we saw. Better than an empty rationale —
-  // the operator at least knows what the agent was thinking before it
-  // got stuck in exploration.
+  // §13/R6 — a turn that used every round and still wanted tools was CUT OFF
+  // by brew, not finished by the agent. That distinction drives the stall
+  // logic (truncation must not read as idling) and the halt report.
+  const truncatedAtRoundCap = roundsUsed >= maxRounds && lastStopReason === "tool_use";
+
+  // Rationale fallback chain (R6: a tool-only turn must never record "").
+  // The dovizir halt reports had empty last_agent_rationale on every
+  // iteration — with stop_reason unrecorded, the one diagnostic that would
+  // have explained the stall was missing.
   if (!rationale && latestTextBlock) {
-    rationale = `[no text-only completion within ${12} tool rounds; last text from exploration:]\n\n${latestTextBlock}`;
+    rationale = `[no text-only completion within ${maxRounds} tool rounds; last text from exploration:]\n\n${latestTextBlock}`;
+  }
+  if (!rationale && toolCallTrace.length > 0) {
+    rationale = `[tool-only turn: ${toolCallTrace.length} calls, stop_reason=${lastStopReason ?? "?"}${truncatedAtRoundCap ? ", TRUNCATED at round cap" : ""}. Trace: ${toolCallTrace.slice(0, 8).join(", ")}${toolCallTrace.length > 8 ? ", …" : ""}]`;
   }
 
   // Log the tool-call trace so the iter log shows exploration patterns.
@@ -1608,7 +1663,7 @@ async function runTurn(
         : toolCallTrace;
     appendRunLog(
       ctx,
-      `ITER ${args.iteration} TOOLS  ${trimmed.length}/${toolCallTrace.length} calls: ${trimmed.join(", ")}`
+      `ITER ${args.iteration} TOOLS  ${trimmed.length}/${toolCallTrace.length} calls  rounds=${roundsUsed}/${maxRounds}  stop_reason=${lastStopReason ?? "?"}${truncatedAtRoundCap ? "  TRUNCATED" : ""}: ${trimmed.join(", ")}`
     );
   }
 
@@ -1617,6 +1672,7 @@ async function runTurn(
     rationale,
     spendDelta,
     toolCallCount: toolCallTrace.length,
+    truncatedAtRoundCap,
     ...(overflowJustification ? { overflowJustification } : {}),
   };
 }
@@ -1663,7 +1719,11 @@ function handleToolUse(
         if (!existsSync(full)) return { content: `File not found: ${p}`, is_error: true };
         if (!statSync(full).isFile()) return { content: `Not a file: ${p}`, is_error: true };
         const txt = readFileSync(full, "utf8");
-        return { content: txt.length > 20000 ? txt.slice(0, 20000) + "\n…(truncated)" : txt, is_error: false };
+        const shown = txt.length > 20000 ? txt.slice(0, 20000) + "\n…(truncated)" : txt;
+        // §13 orientation carry: remember what the run has consulted so the
+        // NEXT fresh-context turn gets it pre-loaded instead of re-reading.
+        recordRead((ctx.readCache ??= new Map()), p, shown);
+        return { content: shown, is_error: false };
       }
       case "outline_file": {
         const p = String(input["path"] ?? "");
