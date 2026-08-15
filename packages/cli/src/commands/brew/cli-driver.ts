@@ -114,6 +114,11 @@ export function runCliTurn(a: CliTurnArgs): CliTurnResult {
     "-p", a.promptText,
     "--mcp-config", cfg,
     "--allowedTools", "mcp__slowcook__*",
+    // Dogfood finding (2026-08-15, run1 iter1): allowedTools WHITELISTS but
+    // does not fence — the session happily ran its built-in Bash/Read beside
+    // the MCP tools, bypassing brew's path guards. Disallow the natives so
+    // the tool surface is exactly BREW_TOOLS, same as the API path.
+    "--disallowedTools", "Bash,Read,Write,Edit,MultiEdit,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,NotebookEdit,ToolSearch",
     "--output-format", "stream-json", "--verbose",
     "--max-turns", String(a.maxTurns),
     "--model", a.model,
