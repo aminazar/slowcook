@@ -305,7 +305,12 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   // get counted as the agent's diff and then DESTROYED by the first revert.
   if (!args.allowDirty) {
     try {
-      const dirty = execSync("git status --porcelain", { cwd: args.repoRoot, encoding: "utf8" }).trim();
+      const dirty = execSync("git status --porcelain", { cwd: args.repoRoot, encoding: "utf8" })
+        .split("\n")
+        // brew's own state (halt reports, run logs, patches) lives under
+        // .brewing/ and must not trip the guard that protects USER work.
+        .filter((l) => l.trim() && !/\.brewing\//.test(l))
+        .join("\n").trim();
       if (dirty) {
         console.error(
           `slowcook brew: the working tree has uncommitted or untracked changes — brew's revert machinery would count them as the agent's diff and destroy them on the first revert:\n` +
