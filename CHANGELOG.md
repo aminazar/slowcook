@@ -6,6 +6,39 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.30.0 — brew runs on your subscription, learns in-context, and can never again hide its cost
+
+Three arcs in one minor, all born from a $31 dogfood bill:
+
+**#399 — the persistent conversation.** One conversation per story: the first
+turn sends the cache-anchored head; later turns append only what changed. A
+revert lands IN the conversation as a lesson naming the broken tests; fresh
+context is a logged recovery action (--reset-after-failures), not the default;
+deterministic compaction near the window; the budget is checked BEFORE each
+API call.
+
+**#393 — the MCP bridge.** `SLOWCOOK_LLM=claude-cli` now drives brew through
+the local claude CLI on SUBSCRIPTION auth: a dependency-free MCP stdio server
+exposes brew's nine tools with the same path guards; one headless session per
+iteration; --resume carries the conversation; built-in CLI tools are fenced
+off so the tool surface is exactly BREW_TOOLS. DOLLARS ARE KEPT: usage is
+priced at Anthropic list price into the same ledger — subscription changes
+who pays, not what the work costs.
+
+**The cost lessons, for every backend.** Multi-model routing: first contact
+with a target uses the PLAN model (--model), later turns the cheaper EMIT
+model (--emit-model) — ~80% of the burn was mechanical re-emission. Stash,
+don't delete: reverts save the diff as a patch and the next turn is told to
+read+patch. Dirty-tree guard: brew refuses to start over uncommitted changes
+(--allow-dirty to override). And the ledger is written PER ITERATION, not at
+exit — killed and crashed runs can no longer vanish from the books (only
+$3.84 of a real $31 had reached the ledger; the estimator was right, the
+coverage wasn't).
+
+Verified live on the experiment box: subscription run recorded $6.37 at list
+price with $0 billed; lessons, stash, truncation, multi-model and the guards
+all exercised.
+
 ## cli 0.29.2 · llm-anthropic 0.23.1 — brew learns instead of forgetting (§13)
 
 The dovizir experiment suspended on §13: brew could not drive claude-opus-5
