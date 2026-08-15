@@ -56,7 +56,12 @@ for (const abs of files) {
   const rel = relative(root, abs);
   if (rel.startsWith("packages/llm-anthropic/")) continue; // the gateway itself
   const src = readFileSync(abs, "utf8");
-  if (/from ["']@anthropic-ai\/sdk["']/.test(src) && !SDK_ALLOWLIST.has(rel)) sdkOffenders.push(rel);
+  // `import type` cannot construct a client — the gateway concern is runtime
+  // SDK use, not type names (brew/conversation.ts types its messages).
+  const runtimeSdkImport = src.split("\n").some(
+    (l) => /from ["']@anthropic-ai\/sdk["']/.test(l) && !/^\s*import\s+type\b/.test(l)
+  );
+  if (runtimeSdkImport && !SDK_ALLOWLIST.has(rel)) sdkOffenders.push(rel);
   // A second pricing table is how "fix the bug" silently fixes only one of five.
   if (/PRICING_PER_M_TOKENS\s*:\s*Record</.test(src)) pricingOffenders.push(rel);
 }
