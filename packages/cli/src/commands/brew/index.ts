@@ -61,6 +61,8 @@ interface BrewArgs {
   emitModel?: string;
   /** Dirty-tree guard override. */
   allowDirty?: boolean;
+  /** Restore revert-on-no-progress (pre-0.30). */
+  strictRevert?: boolean;
   /** R2 — run despite an unpriced model, accepting uncappable spend. */
   allowUnpriced?: boolean;
 }
@@ -116,6 +118,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--reset-after-failures" && next) { args.resetAfterFailures = parseInt(next, 10); i++; }
     else if (arg === "--emit-model" && next) { args.emitModel = next; i++; }
     else if (arg === "--allow-dirty") { args.allowDirty = true; }
+    else if (arg === "--strict-revert") { args.strictRevert = true; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -495,6 +498,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     ...(args.resetAfterFailures ? { resetAfterFailures: args.resetAfterFailures } : {}),
     ...(args.emitModel ? { emitModel: args.emitModel } : {}),
     ...(useCliBackend ? { useCliBackend: true } : {}),
+    ...(args.strictRevert ? { strictRevert: true } : {}),
     repoRoot: args.repoRoot,
     storyId: args.storyId,
     spec,
