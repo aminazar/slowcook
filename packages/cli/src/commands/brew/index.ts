@@ -10,7 +10,7 @@ import {
   type BrewContext,
 } from "./agent.js";
 import { haltReportToMarkdown } from "./halt.js";
-import { requireApiKey } from "../../lib/llm-runtime.js";
+import { requireApiKey, isClaudeCliBackend } from "../../lib/llm-runtime.js";
 import { resolveModel, renderModelTable, assertModelPriced } from "../../lib/model-defaults.js";
 import { isModelPriced } from "@slowcook-ai/llm-anthropic";
 
@@ -57,6 +57,10 @@ interface BrewArgs {
   maxToolRounds?: number;
   /** #399 — failures on one target before a recovery context reset. */
   resetAfterFailures?: number;
+  /** Multi-model: cheaper model for post-first-contact (emission) turns. */
+  emitModel?: string;
+  /** Dirty-tree guard override. */
+  allowDirty?: boolean;
   /** R2 — run despite an unpriced model, accepting uncappable spend. */
   allowUnpriced?: boolean;
 }
@@ -110,6 +114,8 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--stall-iterations" && next) { args.stallIterations = parseInt(next, 10); i++; }
     else if (arg === "--max-tool-rounds" && next) { args.maxToolRounds = parseInt(next, 10); i++; }
     else if (arg === "--reset-after-failures" && next) { args.resetAfterFailures = parseInt(next, 10); i++; }
+    else if (arg === "--emit-model" && next) { args.emitModel = next; i++; }
+    else if (arg === "--allow-dirty") { args.allowDirty = true; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -156,6 +162,10 @@ Options:
                              / etc.). On block, iter reverts + concerns fold into next iter's
                              prompt. Adds ~$0.01-0.05 per iter on top of driver spend.
   --navigator-model <id>     Navigator LLM model id. Defaults to the brew stage model.
+  --emit-model <id>          Cheaper model for post-first-contact turns (the
+                             mechanical emission that dominated cost). First
+                             contact + post-reset turns use --model (plan).
+  --allow-dirty              Skip the dirty-working-tree guard.
   --allow-unpriced           Run even though the model has no price. Spend is
                              recorded as unknown and USD budget caps cannot be
                              enforced. Off by default: an uncappable run is a
@@ -285,10 +295,32 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   ]));
   // R2 — refuse before the first token when the model cannot be priced.
   assertModelPriced("brew", args.model, isModelPriced, { allowUnpriced: args.allowUnpriced });
+  if (args.emitModel) assertModelPriced("brew", args.emitModel, isModelPriced, { allowUnpriced: args.allowUnpriced });
+
+  // Dirty-tree guard (r4a dogfood — both forms hit live): brew's ratchet
+  // reverts to git baselines, so pre-existing uncommitted/untracked changes
+  // get counted as the agent's diff and then DESTROYED by the first revert.
+  if (!args.allowDirty) {
+    try {
+      const dirty = execSync("git status --porcelain", { cwd: args.repoRoot, encoding: "utf8" }).trim();
+      if (dirty) {
+        console.error(
+          `slowcook brew: the working tree has uncommitted or untracked changes — brew's revert machinery would count them as the agent's diff and destroy them on the first revert:\n` +
+          dirty.split("\n").slice(0, 8).map((l) => `  ${l}`).join("\n") + (dirty.split("\n").length > 8 ? "\n  …" : "") + "\n" +
+          `  Commit or stash first, or pass --allow-dirty to accept the risk.`
+        );
+        process.exit(78);
+      }
+    } catch { /* not a git repo — the snapshot machinery has its own story */ }
+  }
 
   // Fails with the REAL cause when SLOWCOOK_LLM=claude-cli is set: brew needs
   // API tool-use, which the CLI backend cannot serve (dovizir handover §1).
-  const anthropicKey = requireApiKey("brew");
+  // #393 — SLOWCOOK_LLM=claude-cli drives brew through the local CLI on
+  // subscription auth (tools over MCP). Dollars are still recorded at list
+  // price; budgets and the ledger behave identically.
+  const useCliBackend = isClaudeCliBackend();
+  const anthropicKey = useCliBackend ? "(cli-backend)" : requireApiKey("brew");
   const githubToken = process.env["GITHUB_TOKEN"];
   if (!githubToken) {
     console.error("GITHUB_TOKEN environment variable is not set.");
@@ -461,6 +493,8 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     ...(args.stallIterations ? { stallIterations: args.stallIterations } : {}),
     ...(args.maxToolRounds ? { maxToolRounds: args.maxToolRounds } : {}),
     ...(args.resetAfterFailures ? { resetAfterFailures: args.resetAfterFailures } : {}),
+    ...(args.emitModel ? { emitModel: args.emitModel } : {}),
+    ...(useCliBackend ? { useCliBackend: true } : {}),
     repoRoot: args.repoRoot,
     storyId: args.storyId,
     spec,
