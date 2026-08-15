@@ -62,6 +62,7 @@ import {
 import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
+import { runCliTurn } from "./cli-driver.js";
 import {
   lessonMessage, compactOldToolResults, estimateTokens, resetDigest,
   COMPACT_AT_TOKENS, RESET_AFTER_FAILURES, type Msg,
@@ -87,6 +88,18 @@ export interface BrewContext {
   resetAfterFailures?: number;
   /** Manifest test ids, for compile-fail synthesis in the runner. */
   manifestTestIds?: string[];
+  /** #393 — drive turns through the local claude CLI (subscription auth)
+   *  with tools over MCP, instead of the Anthropic SDK. Dollars are still
+   *  recorded at list price (Amin's ruling). */
+  useCliBackend?: boolean;
+  /** #393 — the story's CLI session (the #399 conversation, CLI-side).
+   *  Reset-recovery drops it. Mutated by the driver dispatch. */
+  cliSessionId?: string;
+  /** Multi-model: model for post-first turns on a target ("mechanical
+   *  emission"). First contact + post-reset turns use ctx.model (plan). */
+  emitModel?: string;
+  /** Multi-model: which turn model runBrew resolved for THIS turn. */
+  turnModel?: string;
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -582,6 +595,22 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   let failuresOnCurrentTarget = 0;
   let lastFailedTarget = "";
   let pendingResetDigest = "";
+  const seenTargets = new Set<string>();
+  // STASH, DON'T DELETE (the $31 post-mortem): a revert that erases an
+  // 800-line attempt forces the next turn to re-emit it at full output price
+  // — we paid for near-identical code three times. The diff is saved as a
+  // patch and the next turn is told to READ + PATCH instead of re-emitting.
+  const stashAttempt = (iterN: number): string | null => {
+    try {
+      const diff = execSync("git diff", { cwd: ctx.repoRoot, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+      if (!diff.trim()) return null;
+      const rel = join(".brewing", "runs", "patches", `story-${ctx.storyId}-iter-${iterN}.patch`);
+      const abs = join(ctx.repoRoot, rel);
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, diff, "utf8");
+      return rel;
+    } catch { return null; }
+  };
   const recordTargetFailure = (target: string): void => {
     failuresOnCurrentTarget = target === lastFailedTarget ? failuresOnCurrentTarget + 1 : 1;
     lastFailedTarget = target;
@@ -590,6 +619,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       // likely poisoned; wipe once, carry the lessons as a digest.
       pendingResetDigest = resetDigest(lessons);
       conversation.length = 0;
+      ctx.cliSessionId = undefined; // #393 — the CLI session IS the conversation
       failuresOnCurrentTarget = 0;
       appendRunLog(ctx, `ITER-BOUNDARY CONTEXT RESET (recovery after repeated failures on ${target.slice(0, 80)}) — lessons carried: ${lessons.length}`);
     }
@@ -707,6 +737,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       const n = compactOldToolResults(conversation);
       appendRunLog(ctx, `ITER ${iteration} COMPACTED  ${n} old tool_result(s) truncated  est_tokens≈${estimateTokens(conversation)}`);
     }
+    // Multi-model (the $31 post-mortem): FIRST contact with a target (and any
+    // post-reset turn) uses the PLAN model; every later turn on the same
+    // target is mechanical emission/repair — the cheaper EMIT model.
+    const isFirstContact = !seenTargets.has(currentTarget) || conversation.length === 0;
+    seenTargets.add(currentTarget);
+    ctx.turnModel = isFirstContact ? ctx.model : (ctx.emitModel ?? ctx.model);
+    if (ctx.turnModel !== ctx.model) appendRunLog(ctx, `ITER ${iteration} MODEL  emit=${ctx.turnModel} (plan=${ctx.model})`);
     const turnResult = await runTurn(ctx, {
       iteration,
       target: currentTarget,
@@ -1027,7 +1064,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         rationale: turnResult.rationale,
       });
       {
-        const note = `your edit was THROWN AWAY: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`;
+        const savedPatch = stashAttempt(iteration);
+        const note = `your edit was THROWN AWAY${savedPatch ? ` (SAVED at ${savedPatch} — read_file it, then re-apply via justify_diff_overflow + writes rather than re-deriving)` : ""}: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`;
         priorAttempts.push({ iteration, outcome: "rejected-overflow", note, files_touched: diff.changedPaths });
         lessons.push({ iteration, note });
         conversation.push(lessonMessage(iteration, note));
@@ -1108,7 +1146,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         // §13 — the names are the one fact the next attempt needs; #399 — the
         // same note lands IN the conversation, so the next turn cites it
         // instead of re-orienting.
-        const note = `your edit was REVERTED because it broke ${regressions.length} green test(s): ${regressions.slice(0, 4).join(" | ")}${regressions.length > 4 ? ` | +${regressions.length - 4} more` : ""}. The next edit must satisfy the target WITHOUT violating what these protect.`;
+        const savedPatch = stashAttempt(iteration);
+        const note = `your edit was REVERTED${savedPatch ? ` (the full diff is SAVED at ${savedPatch} — read_file it and PATCH what broke instead of re-emitting everything)` : ""} because it broke ${regressions.length} green test(s): ${regressions.slice(0, 4).join(" | ")}${regressions.length > 4 ? ` | +${regressions.length - 4} more` : ""}. The next edit must satisfy the target WITHOUT violating what these protect.`;
         priorAttempts.push({ iteration, outcome: "reverted-regression", note, files_touched: diff.changedPaths });
         lessons.push({ iteration, note });
         conversation.push(lessonMessage(iteration, note));
@@ -1534,6 +1573,9 @@ async function runTurn(
       } catch { return null; }
     },
   });
+  // #393 — CLI-backend dispatch happens after the prompt is built so both
+  // backends share one prompt surface. The CLI session IS the conversation.
+  const promptPartsForDispatch = null; // (marker; real parts built below)
   const promptParts = turnPromptParts({
     iteration: args.iteration,
     max_iterations: ctx.maxIterations,
@@ -1556,6 +1598,45 @@ async function runTurn(
   // Backwards-compat: turnPrompt() still works for any non-brew caller
   // that hasn't migrated; quiet the lint that flags the unused import.
   void turnPrompt;
+  void promptPartsForDispatch;
+
+  // #393 — CLI backend: one headless claude session per iteration, tools
+  // over MCP, session-resume as the #399 conversation. Dollars recorded at
+  // LIST PRICE regardless of subscription auth (Amin's ruling).
+  if (ctx.useCliBackend) {
+    const runDir = join(ctx.repoRoot, ".brewing", "runs", "cli-current");
+    const fresh = ctx.cliSessionId === undefined;
+    const promptText = fresh
+      ? `${promptParts.cachedPrefix}\n\n${promptParts.dynamicBody}${args.resetDigestText ? `\n\n${args.resetDigestText}` : ""}`
+      : promptParts.dynamicBody;
+    const model = ctx.turnModel ?? ctx.model;
+    const r = runCliTurn({
+      iteration: args.iteration,
+      model,
+      promptText,
+      runDir,
+      repoRoot: ctx.repoRoot,
+      sessionId: ctx.cliSessionId,
+      maxTurns: ctx.maxToolRounds ?? 30,
+    });
+    if (r.sessionId) ctx.cliSessionId = r.sessionId;
+    if (r.errorText) appendRunLog(ctx, `ITER ${args.iteration} CLI-ERROR  ${r.errorText}`);
+    appendRunLog(
+      ctx,
+      `ITER ${args.iteration} TOOLS  ${Math.min(r.toolTrace.length, 20)}/${r.toolTrace.length} calls  auth=subscription ($ at list price)  model=${model}${r.truncatedAtMaxTurns ? "  TRUNCATED" : ""}: ${r.toolTrace.slice(0, 20).join(", ")}${r.toolTrace.length > 20 ? ", …" : ""}`
+    );
+    // filesTouched via git status delta is the ratchet's own diff; report
+    // write_file calls from the trace for the no-edit check.
+    const writes = r.toolTrace.filter((t) => t.startsWith("write_file")).length;
+    return {
+      filesTouched: writes > 0 ? ["(cli-session-writes)"] : [],
+      rationale: r.rationale,
+      spendDelta: r.spendUsd,
+      toolCallCount: r.toolCallCount,
+      truncatedAtRoundCap: r.truncatedAtMaxTurns,
+      ...(r.overflowJustification ? { overflowJustification: r.overflowJustification } : {}),
+    };
+  }
 
   const filesTouched = new Set<string>();
   let rationale = "";
@@ -1614,7 +1695,7 @@ async function runTurn(
       break;
     }
     const response = await ctx.anthropic.messages.create({
-      model: ctx.model,
+      model: ctx.turnModel ?? ctx.model,
       // §13/R5 — 4096 was tuned on sonnet webapp diffs and cut opus-5 off
       // MID-WRITE: the live retry emitted justify_diff_overflow, started the
       // 333-line module, and died on stop_reason=max_tokens. An output cap is

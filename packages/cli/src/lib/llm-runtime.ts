@@ -20,7 +20,9 @@
 
 /** Commands that run on `SLOWCOOK_LLM=claude-cli` today (pure-text calls
  *  through the `LlmClient` seam). Everything else needs API tool-use. */
-export const CLI_BACKEND_SUPPORTED = ["refine"] as const;
+// #393 — brew joined via the MCP bridge: the CLI runs the tool loop with
+// slowcook's tools mounted over MCP; dollars stay at list price.
+export const CLI_BACKEND_SUPPORTED = ["refine", "brew"] as const;
 
 export function isClaudeCliBackend(env: NodeJS.ProcessEnv = process.env): boolean {
   return env["SLOWCOOK_LLM"]?.trim().toLowerCase() === "claude-cli";
