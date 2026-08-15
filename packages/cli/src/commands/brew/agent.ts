@@ -85,6 +85,8 @@ export interface BrewContext {
   maxOutputTokens?: number;
   /** #399 — consecutive failures on one target before a recovery reset (default 3). */
   resetAfterFailures?: number;
+  /** Manifest test ids, for compile-fail synthesis in the runner. */
+  manifestTestIds?: string[];
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -407,6 +409,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     tests: Array<{ id: string; file: string }>;
   };
   const expectedTestIds = new Set(manifest.tests.map((t) => t.id));
+  ctx.manifestTestIds = [...expectedTestIds];
 
   // 0.11.16+ — derive per-iter test scope from manifest. Per-iter
   // runs only the story's tests (cheap heuristic); the
@@ -2455,7 +2458,11 @@ function runTestSuite(ctx: BrewContext, scopeFiles?: string[]): RunResult {
   return runTests(ctx.stackConfig, {
     cwd: ctx.repoRoot,
     scopeFiles: scopeFiles && scopeFiles.length > 0 ? scopeFiles : undefined,
-  });
+    // r4a dogfood — a compile failure in the agent's own code becomes N
+    // failed tests carrying the compiler message (vitest semantics), never
+    // a TEST_RUNNER_BROKEN halt that discards the feedback.
+    expectedTestIds: ctx.manifestTestIds,
+  } as Parameters<typeof runTests>[1]);
 }
 
 /**
