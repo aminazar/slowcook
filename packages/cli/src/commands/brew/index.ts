@@ -55,6 +55,8 @@ interface BrewArgs {
   stallIterations?: number;
   /** §13 — tool rounds per turn (default 12). */
   maxToolRounds?: number;
+  /** #399 — failures on one target before a recovery context reset. */
+  resetAfterFailures?: number;
   /** R2 — run despite an unpriced model, accepting uncappable spend. */
   allowUnpriced?: boolean;
 }
@@ -107,6 +109,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--allow-unpriced") { args.allowUnpriced = true; }
     else if (arg === "--stall-iterations" && next) { args.stallIterations = parseInt(next, 10); i++; }
     else if (arg === "--max-tool-rounds" && next) { args.maxToolRounds = parseInt(next, 10); i++; }
+    else if (arg === "--reset-after-failures" && next) { args.resetAfterFailures = parseInt(next, 10); i++; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -457,6 +460,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   const ctx: BrewContext = {
     ...(args.stallIterations ? { stallIterations: args.stallIterations } : {}),
     ...(args.maxToolRounds ? { maxToolRounds: args.maxToolRounds } : {}),
+    ...(args.resetAfterFailures ? { resetAfterFailures: args.resetAfterFailures } : {}),
     repoRoot: args.repoRoot,
     storyId: args.storyId,
     spec,
