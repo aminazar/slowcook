@@ -101,6 +101,9 @@ export interface BrewContext {
   emitModel?: string;
   /** Multi-model: which turn model runBrew resolved for THIS turn. */
   turnModel?: string;
+  /** Restore the pre-0.30 guillotine: revert no-progress work instead of
+   *  keeping it as the next turn's base. */
+  strictRevert?: boolean;
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -1183,13 +1186,24 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     }
 
     if (gains.length === 0) {
-      // No progress — revert
-      revertToSnapshot(ctx, snapshot);
+      // KEEP-COMPILING-DIFF (the $31 post-mortem's biggest single flaw):
+      // "compiles but 0 tests flipped YET" was treated identically to
+      // garbage and reverted — so an all-or-nothing story re-emitted ~830
+      // lines every iteration at full output price. No test regressed
+      // (that's the branch above), so the work STAYS as the base and the
+      // next turn PATCHES it in place. --strict-revert restores the old
+      // guillotine. The stash is still written for provenance.
+      if (ctx.strictRevert) {
+        revertToSnapshot(ctx, snapshot);
+      } else {
+        stashAttempt(iteration);
+      }
+      const kept = !ctx.strictRevert;
       iterationLogs.push({
         iteration,
         target_test_id: currentTarget,
         outcome: "reverted-no-progress",
-        note: "no test changed from red to green",
+        note: kept ? "no test flipped — code KEPT in place as the next turn's base" : "no test changed from red to green",
         files_touched: diff.changedPaths,
         lines_added: diff.linesAdded,
         lines_removed: diff.linesRemoved,
@@ -1199,13 +1213,15 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       priorAttempts.push({
         iteration,
         outcome: "reverted-no-progress",
-        note: "no test went from red to green",
+        note: kept
+          ? "no test flipped YET — but your files are still IN PLACE. Read the failure messages and PATCH the existing code (small targeted edits); do NOT re-emit whole files."
+          : "no test went from red to green",
         files_touched: diff.changedPaths,
       });
       stagnation += 1;
       appendRunLog(
         ctx,
-        `ITER ${iteration} REVERT no-progress  files=[${diff.changedPaths.slice(0, 3).join(",")}${diff.changedPaths.length > 3 ? "+" + (diff.changedPaths.length - 3) : ""}] +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
+        `ITER ${iteration} ${kept ? "KEPT no-progress (code stays as base)" : "REVERT no-progress"}  files=[${diff.changedPaths.slice(0, 3).join(",")}${diff.changedPaths.length > 3 ? "+" + (diff.changedPaths.length - 3) : ""}] +${diff.linesAdded}/-${diff.linesRemoved}  spend_delta=$${turnResult.spendDelta.toFixed(2)}`
       );
       continue;
     }
