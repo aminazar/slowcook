@@ -9,6 +9,7 @@ import {
   copyFileSync,
 } from "node:fs";
 import { join, resolve, relative, isAbsolute, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import YAML from "yaml";
 import Anthropic from "@anthropic-ai/sdk";
@@ -744,6 +745,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     seenTargets.add(currentTarget);
     ctx.turnModel = isFirstContact ? ctx.model : (ctx.emitModel ?? ctx.model);
     if (ctx.turnModel !== ctx.model) appendRunLog(ctx, `ITER ${iteration} MODEL  emit=${ctx.turnModel} (plan=${ctx.model})`);
+    const usageBefore = { ...(ctx.usageTotals ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0 }) };
     const turnResult = await runTurn(ctx, {
       iteration,
       target: currentTarget,
@@ -761,6 +763,25 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     });
     pendingResetDigest = "";
     spendUsd += turnResult.spendDelta;
+    // LEDGER PER ITERATION (the $31 reconciliation, 2026-08-15): exit-time
+    // writes lose killed/crashed runs — which are precisely the expensive
+    // ones. One small row per turn is crash-proof; `cost reprice` can always
+    // re-derive from the tokens. Never fail a brew over bookkeeping.
+    try {
+      const t = ctx.usageTotals ?? usageBefore;
+      appendCostEntry(ctx.repoRoot, ctx.storyId, {
+        agent: "brew",
+        usd: turnResult.spendDelta,
+        model: ctx.turnModel ?? ctx.model,
+        round: `iter-${iteration}`,
+        at: new Date().toISOString(),
+        tokens_in: t.inputTokens - usageBefore.inputTokens,
+        tokens_out: t.outputTokens - usageBefore.outputTokens,
+        cache_read: t.cacheReadTokens - usageBefore.cacheReadTokens,
+        cache_create: t.cacheCreateTokens - usageBefore.cacheCreateTokens,
+      });
+      applyCostToSpec(ctx.repoRoot, ctx.storyId);
+    } catch { /* bookkeeping must never halt the work */ }
 
     if (turnResult.filesTouched.length === 0 && !turnResult.overflowJustification) {
       // Agent did nothing. Log and continue.
@@ -1065,7 +1086,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       });
       {
         const savedPatch = stashAttempt(iteration);
-        const note = `your edit was THROWN AWAY${savedPatch ? ` (SAVED at ${savedPatch} — read_file it, then re-apply via justify_diff_overflow + writes rather than re-deriving)` : ""}: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`;
+        const note = `FIRST ACTION NEXT TURN: call justify_diff_overflow, THEN write. Your edit was THROWN AWAY${savedPatch ? ` (SAVED at ${savedPatch} — read_file it, then re-apply via justify_diff_overflow + writes rather than re-deriving)` : ""}: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`;
         priorAttempts.push({ iteration, outcome: "rejected-overflow", note, files_touched: diff.changedPaths });
         lessons.push({ iteration, note });
         conversation.push(lessonMessage(iteration, note));
@@ -1456,7 +1477,6 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       );
     }
 
-    recordBrewCost(ctx);
     return {
       kind: "success",
       iterations: iterationLogs.length,
@@ -1604,7 +1624,9 @@ async function runTurn(
   // over MCP, session-resume as the #399 conversation. Dollars recorded at
   // LIST PRICE regardless of subscription auth (Amin's ruling).
   if (ctx.useCliBackend) {
-    const runDir = join(ctx.repoRoot, ".brewing", "runs", "cli-current");
+    // Driver artifacts live OUTSIDE the repo (dogfood: mcp-config.json and
+    // the overflow marker were counted in the agent's diff and reverted).
+    const runDir = join(tmpdir(), `slowcook-brew-${ctx.storyId}`);
     const fresh = ctx.cliSessionId === undefined;
     const promptText = fresh
       ? `${promptParts.cachedPrefix}\n\n${promptParts.dynamicBody}${args.resetDigestText ? `\n\n${args.resetDigestText}` : ""}`
@@ -1620,6 +1642,14 @@ async function runTurn(
       maxTurns: ctx.maxToolRounds ?? 30,
     });
     if (r.sessionId) ctx.cliSessionId = r.sessionId;
+    // Fold usage into the run totals — the ledger's token fields read from
+    // here, and the CLI path previously left them zero (the reason even a
+    // graceful halt wrote no brew row on the dogfood box).
+    const tot = (ctx.usageTotals ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0 });
+    tot.inputTokens += r.usage.inputTokens;
+    tot.outputTokens += r.usage.outputTokens;
+    tot.cacheReadTokens += r.usage.cacheReadTokens;
+    tot.cacheCreateTokens += r.usage.cacheCreateTokens;
     if (r.errorText) appendRunLog(ctx, `ITER ${args.iteration} CLI-ERROR  ${r.errorText}`);
     appendRunLog(
       ctx,
@@ -2721,7 +2751,6 @@ interface HaltArgs {
 }
 
 async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
-  recordBrewCost(ctx);
   const iterationDiffs = (args.iterationLogs ?? []).map<IterationDiff>((l) => ({
     iteration: l.iteration,
     target_test_id: l.target_test_id,
