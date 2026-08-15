@@ -62,6 +62,10 @@ import {
 import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
+import {
+  lessonMessage, compactOldToolResults, estimateTokens, resetDigest,
+  COMPACT_AT_TOKENS, RESET_AFTER_FAILURES, type Msg,
+} from "./conversation.js";
 
 /** ------------------------- Context + options ------------------------- */
 
@@ -79,6 +83,8 @@ export interface BrewContext {
   maxToolRounds?: number;
   /** §13/R5 — output tokens per round (default 16384). 4096 cut opus-5 mid-write. */
   maxOutputTokens?: number;
+  /** #399 — consecutive failures on one target before a recovery reset (default 3). */
+  resetAfterFailures?: number;
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -567,6 +573,24 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   let consecutiveNoEdits = 0;
   /** Consecutive no-edit turns in which the agent DID call tools (§11). */
   let consecutiveExploring = 0;
+  // #399 — ONE conversation per story; lessons + recovery-reset state.
+  const conversation: Msg[] = [];
+  const lessons: { iteration: number; note: string }[] = [];
+  let failuresOnCurrentTarget = 0;
+  let lastFailedTarget = "";
+  let pendingResetDigest = "";
+  const recordTargetFailure = (target: string): void => {
+    failuresOnCurrentTarget = target === lastFailedTarget ? failuresOnCurrentTarget + 1 : 1;
+    lastFailedTarget = target;
+    if (failuresOnCurrentTarget >= (ctx.resetAfterFailures ?? RESET_AFTER_FAILURES)) {
+      // #399 — fresh context as RECOVERY: the reasoning on this target is
+      // likely poisoned; wipe once, carry the lessons as a digest.
+      pendingResetDigest = resetDigest(lessons);
+      conversation.length = 0;
+      failuresOnCurrentTarget = 0;
+      appendRunLog(ctx, `ITER-BOUNDARY CONTEXT RESET (recovery after repeated failures on ${target.slice(0, 80)}) — lessons carried: ${lessons.length}`);
+    }
+  };
   /**
    * 0.11.13+ — formatted lint/typecheck issues from the most recent
    * checkpoint's edits. Empty until first checkpoint produces issues;
@@ -674,6 +698,12 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         message: failureMessagesByTestId.get(id) ?? "(no failure message captured)",
       }));
 
+    // #399 — compact when the story conversation nears the window; reset is
+    // handled at the failure sites (a recovery, never the default).
+    if (estimateTokens(conversation) > COMPACT_AT_TOKENS) {
+      const n = compactOldToolResults(conversation);
+      appendRunLog(ctx, `ITER ${iteration} COMPACTED  ${n} old tool_result(s) truncated  est_tokens≈${estimateTokens(conversation)}`);
+    }
     const turnResult = await runTurn(ctx, {
       iteration,
       target: currentTarget,
@@ -686,7 +716,10 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       lintIssues: lintIssuesForNextIter,
       priorContextBlock,
       patternIndexBlock,
+      conversation,
+      resetDigestText: pendingResetDigest,
     });
+    pendingResetDigest = "";
     spendUsd += turnResult.spendDelta;
 
     if (turnResult.filesTouched.length === 0 && !turnResult.overflowJustification) {
@@ -990,12 +1023,13 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         spend_delta_usd: turnResult.spendDelta,
         rationale: turnResult.rationale,
       });
-      priorAttempts.push({
-        iteration,
-        outcome: "rejected-overflow",
-        note: `your edit was THROWN AWAY: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`,
-        files_touched: diff.changedPaths,
-      });
+      {
+        const note = `your edit was THROWN AWAY: it exceeded the graduality cap (${DIFF_LINE_CAP} lines × ${DIFF_FILE_CAP} files) and you did not call justify_diff_overflow. Either make a smaller change, or call justify_diff_overflow BEFORE ending the turn to explain why the size is necessary.`;
+        priorAttempts.push({ iteration, outcome: "rejected-overflow", note, files_touched: diff.changedPaths });
+        lessons.push({ iteration, note });
+        conversation.push(lessonMessage(iteration, note));
+        recordTargetFailure(currentTarget);
+      }
       stagnation += 1;
       appendRunLog(
         ctx,
@@ -1067,15 +1101,16 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         rationale: turnResult.rationale,
         broken_tests: regressions,
       });
-      priorAttempts.push({
-        iteration,
-        outcome: "reverted-regression",
-        // §13 — the log named WHICH tests broke; the agent's note said only a
-        // count. The names are the one fact the next attempt needs: each id's
-        // Given/When/Then states the invariant the edit violated.
-        note: `your edit was REVERTED because it broke ${regressions.length} green test(s): ${regressions.slice(0, 4).join(" | ")}${regressions.length > 4 ? ` | +${regressions.length - 4} more` : ""}. The next edit must satisfy the target WITHOUT violating what these protect.`,
-        files_touched: diff.changedPaths,
-      });
+      {
+        // §13 — the names are the one fact the next attempt needs; #399 — the
+        // same note lands IN the conversation, so the next turn cites it
+        // instead of re-orienting.
+        const note = `your edit was REVERTED because it broke ${regressions.length} green test(s): ${regressions.slice(0, 4).join(" | ")}${regressions.length > 4 ? ` | +${regressions.length - 4} more` : ""}. The next edit must satisfy the target WITHOUT violating what these protect.`;
+        priorAttempts.push({ iteration, outcome: "reverted-regression", note, files_touched: diff.changedPaths });
+        lessons.push({ iteration, note });
+        conversation.push(lessonMessage(iteration, note));
+        recordTargetFailure(currentTarget);
+      }
       stagnation += 1;
       appendRunLog(
         ctx,
@@ -1448,6 +1483,12 @@ async function runTurn(
     priorContextBlock?: string;
     /** 0.12.12+ — markdown index of `.brewing/patterns/*.md` (Phase 2C). */
     patternIndexBlock?: string;
+    /** #399 — the story's ONE conversation. Empty ⇒ this turn builds the
+     *  cached head (prefix + preload); non-empty ⇒ this turn appends a small
+     *  dynamic body and inherits everything already read and learned. */
+    conversation: Msg[];
+    /** #399 — carried lesson digest after a recovery reset. */
+    resetDigestText?: string;
   }
 ): Promise<TurnResult> {
   // 0.11.16+ — bounded-attention spec slicing. Replace the full spec
@@ -1480,7 +1521,7 @@ async function runTurn(
   // most-consulted files, so a fresh-context turn starts oriented instead of
   // spending its tool rounds re-walking the repo (measured live: 14–26
   // read-only calls per iteration, two turns cut at the round cap).
-  const preloadBlock = buildPreloadBlock({
+  const preloadBlock = args.conversation.length > 0 ? "" : buildPreloadBlock({
     cache: ctx.readCache ?? new Map(),
     targetTestFile: targetFilePath,
     readFile: (rel) => {
@@ -1536,19 +1577,24 @@ async function runTurn(
   // cached input for the spec + allowed paths. The dynamic body block
   // is uncached because it varies per iter.
   // Tool-use loop: call the model, execute tool_use blocks, feed tool_results back, repeat
-  const messages: Anthropic.Messages.MessageParam[] = [
-    {
+  // #399 — ONE conversation per story. First turn (or post-reset) sends the
+  // cache-anchored head; later turns append only the small dynamic body, so
+  // orientation and lessons persist instead of being re-paid.
+  const messages = args.conversation;
+  if (messages.length === 0) {
+    const digest = args.resetDigestText ? `\n\n${args.resetDigestText}` : "";
+    messages.push({
       role: "user",
       content: [
-        {
-          type: "text",
-          text: promptParts.cachedPrefix,
-          cache_control: { type: "ephemeral" },
-        },
-        { type: "text", text: promptParts.dynamicBody },
+        { type: "text", text: promptParts.cachedPrefix, cache_control: { type: "ephemeral" } },
+        { type: "text", text: promptParts.dynamicBody + digest },
       ] as never,
-    },
-  ];
+    });
+  } else {
+    // Continuing the story's conversation: the head already carries spec +
+    // paths + preload; this turn only states what changed since last turn.
+    messages.push({ role: "user", content: promptParts.dynamicBody });
+  }
 
   // Safety cap on tool rounds per turn. "Should be plenty" was tuned on
   // sonnet webapp runs and cut opus-5 orientation mid-read (§13) — it is now
@@ -1558,6 +1604,12 @@ async function runTurn(
   let lastStopReason: string | null = null;
   for (let round = 0; round < maxRounds; round++) {
     roundsUsed = round + 1;
+    // R3 slice (#399): the budget is checked BEFORE each call, not after the
+    // turn — a single long turn can no longer blow through the cap unmetered.
+    if (args.spendUsd + spendDelta >= ctx.budgetUsd) {
+      appendRunLog(ctx, `ITER ${args.iteration} BUDGET-STOP pre-call  spent=$${(args.spendUsd + spendDelta).toFixed(2)} cap=$${ctx.budgetUsd.toFixed(2)} rounds=${round}`);
+      break;
+    }
     const response = await ctx.anthropic.messages.create({
       model: ctx.model,
       // §13/R5 — 4096 was tuned on sonnet webapp diffs and cut opus-5 off
