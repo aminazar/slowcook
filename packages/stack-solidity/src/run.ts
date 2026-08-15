@@ -30,6 +30,9 @@ export interface RunResult {
 }
 
 export interface RunOptions {
+  /** When set, a compilation failure synthesizes these ids as FAILED tests
+   *  (vitest semantics) instead of a runner error (r4a dogfood). */
+  expectedTestIds?: string[];
   cwd: string;
   maxBuffer?: number;
   /** Inject for tests. Receives cmd + cwd; returns { stdout, stderr, code }. */
@@ -86,11 +89,31 @@ export function runTests(config: SolidityStackConfig, options: RunOptions): RunR
       });
       const parsed = parseForgeRun(stdout, options.cwd);
       if (parsed.tests.length === 0 && parsed.setup_failures.length === 0 && code !== 0) {
-        // Compilation error path: forge exits non-zero, prints
-        // "Compiler run failed: ..." on stdout and "Error: Compilation
-        // failed" on stderr — no JSON at all. Surface both streams.
-        const detail = (stderr.trim() || stdout.trim()).slice(0, 400);
-        errors.push(`[${suiteName}] exit ${code}, no parsable JSON. ${detail}`);
+        // Compilation error path: forge exits non-zero with no JSON at all.
+        //
+        // r4a dogfood (2026-08-15): when the AGENT'S OWN new module fails to
+        // compile, this used to surface as a runner error → brew halted
+        // TEST_RUNNER_BROKEN, throwing away the most actionable feedback a
+        // turn can get. Vitest's semantics are the model: a compile error IS
+        // a failing test. So every manifest-scoped test the run was asked
+        // for is synthesized as FAILED, carrying the compiler's message —
+        // the runner ran, honestly reporting that nothing can pass until
+        // the code compiles.
+        const detail = (stderr.trim() || stdout.trim()).slice(0, 1200);
+        const compileFail = /compil|solc|parser error|expected/i.test(detail);
+        if (compileFail && options.expectedTestIds && options.expectedTestIds.length > 0) {
+          for (const id of options.expectedTestIds) {
+            tests.push({
+              id,
+              file: id.split(" > ")[0] ?? "",
+              status: "failed",
+              duration_ms: 0,
+              failure_message: `Compilation failed — no test can run until this is fixed:\n${detail}`,
+            });
+          }
+        } else {
+          errors.push(`[${suiteName}] exit ${code}, no parsable JSON. ${detail.slice(0, 400)}`);
+        }
       }
       tests.push(...parsed.tests);
       if (parsed.setup_failures.length > 0) {
