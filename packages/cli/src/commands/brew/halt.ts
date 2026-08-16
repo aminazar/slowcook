@@ -68,6 +68,14 @@ export type HaltReason =
    */
   | "MANIFEST_MISSING"
   | "MANIFEST_DRIFT"
+  /**
+   * P5 (ladder) — greening the current target repeatedly breaks the same
+   * already-green test. That is not an agent failure: the SPEC disagrees
+   * with itself, and a machine cannot resolve a contradiction between two
+   * requirements. The founder can. Terminal states are DONE or a named
+   * human decision — never a silent grind.
+   */
+  | "SPEC_CONTRADICTION"
   | "VIOLATION_STREAK"
   | "API_ERROR"
   // 0.7.14 additions: early-halt to preserve budget when agent is stuck.
@@ -295,6 +303,14 @@ export function defaultSuggestedActions(
           id: "review_agent_behaviour",
           label: "Review agent tool usage",
           description: "Agent produced multiple scope/frozen-path violations in a row. May indicate prompt drift or a model regression.",
+        },
+      ];
+    case "SPEC_CONTRADICTION":
+      return [
+        {
+          id: "resolve_contradiction",
+          label: "Decide which requirement wins",
+          description: "Two tests demand incompatible behavior — satisfying the target keeps breaking a green test. A backprop claim was filed naming the pair. Amend the spec (supersede one side), then re-run brew.",
         },
       ];
     case "MANIFEST_DRIFT":
