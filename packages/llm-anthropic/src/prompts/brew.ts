@@ -563,6 +563,13 @@ export function turnPromptParts(args: {
    * working tree, so they must never be cache-pinned.
    */
   preloaded_files_block?: string;
+  /**
+   * 0.23.2 (peel — "ratchet, not a deadlock"): when most failing tests share
+   * one failure root, this block leads the dynamic body: fix the shared
+   * cause first, then the tests unmask. Lead position is deliberate —
+   * placement decides whether lessons land (CLI-path finding).
+   */
+  peel_rung_block?: string;
 }): { cachedPrefix: string; dynamicBody: string } {
   // === CACHEABLE PREFIX === (constant across iterations in a single
   // brew run: spec body + allowed paths + prior brew history)
@@ -596,6 +603,11 @@ export function turnPromptParts(args: {
   // === DYNAMIC BODY === (varies per iteration)
   const sections: string[] = [];
   sections.push(`## Brew iteration ${args.iteration} of ${args.max_iterations}`);
+  if (args.peel_rung_block && args.peel_rung_block.trim().length > 0) {
+    sections.push("");
+    sections.push(args.peel_rung_block.trim());
+    sections.push("");
+  }
   sections.push(
     `**Budget:** $${args.budget_spent_usd.toFixed(2)} spent of $${args.budget_cap_usd.toFixed(2)} cap.`
   );

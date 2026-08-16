@@ -115,3 +115,16 @@ export function peelTargetPrompt(peel: PeelResult): string {
     `moves the failure downstream.`
   );
 }
+
+/**
+ * Did a turn dissolve the mask? Resolved when the suite is no longer masked,
+ * or the shared root CHANGED (the old wall fell; a new, different one may
+ * stand behind it — that is progress, recurse onto it), or the count shrank
+ * meaningfully (the mask is fragmenting into a gradient).
+ */
+export function peelResolved(prev: PeelResult, next: PeelResult): boolean {
+  if (!prev.masked) return false;
+  if (!next.masked) return true;
+  if (next.sharedRoot !== prev.sharedRoot) return true;
+  return next.sharedCount <= Math.max(1, Math.floor(prev.sharedCount / 2));
+}
