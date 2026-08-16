@@ -65,6 +65,7 @@ import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
 import { detectMaskedMonolith, peelTargetPrompt, peelResolved, type PeelResult } from "./testability.js";
+import { ladderWindow, describeWindow } from "./ladder.js";
 import {
   lessonMessage, compactOldToolResults, estimateTokens, resetDigest,
   COMPACT_AT_TOKENS, RESET_AFTER_FAILURES, type Msg,
@@ -105,6 +106,8 @@ export interface BrewContext {
   /** Restore the pre-0.30 guillotine: revert no-progress work instead of
    *  keeping it as the next turn's base. */
   strictRevert?: boolean;
+  /** Ladder mode: reveal the manifest one release_order rung at a time. */
+  ladder?: boolean;
   /**
    * dovizir §11 — override the consecutive-no-edit halt threshold. Absent =
    * 2 for a silent agent, EXPLORING_NO_EDIT_CAP when it is still calling
@@ -424,10 +427,19 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   }
 
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-    tests: Array<{ id: string; file: string }>;
+    tests: Array<{ id: string; file: string; release_order?: number }>;
   };
-  const expectedTestIds = new Set(manifest.tests.map((t) => t.id));
+  // LADDER MODE: the manifest is the whole coherent suite, but the agent sees
+  // only the released prefix — rung k must be green before rung k+1 exists.
+  // Without --ladder (or without release_order fields) this is exactly the
+  // full set, today's behavior.
+  const allManifestIds = new Set(manifest.tests.map((t) => t.id));
+  let expectedTestIds = ctx.ladder
+    ? ladderWindow(manifest.tests, new Set<string>()).released
+    : allManifestIds;
   ctx.manifestTestIds = [...expectedTestIds];
+  // (ladder: refreshed after every window advance so compile-fail synthesis
+  // never manufactures failures for tests the agent cannot even see)
 
   // 0.11.16+ — derive per-iter test scope from manifest. Per-iter
   // runs only the story's tests (cheap heuristic); the
@@ -544,6 +556,11 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   );
   const discoveredIds = new Set<string>([...greenSet, ...redSet]);
 
+  if (ctx.ladder) {
+    const w = ladderWindow(manifest.tests, greenSet);
+    expectedTestIds = w.released;
+    appendRunLog(ctx, describeWindow(w, manifest.tests.length));
+  }
   console.log(`→ baseline: ${greenSet.size} green, ${redSet.size} red / ${baseline.tests.length} total`);
   appendRunLog(
     ctx,
@@ -1345,6 +1362,15 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       filesTouched: diff.changedPaths,
     });
     greenSet = newGreen;
+    if (ctx.ladder) {
+      const before = expectedTestIds.size;
+      const w = ladderWindow(manifest.tests, greenSet);
+      expectedTestIds = w.released;
+      if (w.released.size > before) {
+        appendRunLog(ctx, `LADDER-ADVANCE  ${describeWindow(w, manifest.tests.length)}`);
+      }
+      ctx.manifestTestIds = [...expectedTestIds];
+    }
     redSet = newRed;
     stagnation = 0;
     iterationLogs.push({

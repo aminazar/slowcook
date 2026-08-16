@@ -63,6 +63,8 @@ interface BrewArgs {
   allowDirty?: boolean;
   /** Restore revert-on-no-progress (pre-0.30). */
   strictRevert?: boolean;
+  /** Ladder mode (release_order windowing). */
+  ladder?: boolean;
   /** R2 — run despite an unpriced model, accepting uncappable spend. */
   allowUnpriced?: boolean;
 }
@@ -119,6 +121,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--emit-model" && next) { args.emitModel = next; i++; }
     else if (arg === "--allow-dirty") { args.allowDirty = true; }
     else if (arg === "--strict-revert") { args.strictRevert = true; }
+    else if (arg === "--ladder") { args.ladder = true; }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -169,6 +172,10 @@ Options:
                              mechanical emission that dominated cost). First
                              contact + post-reset turns use --model (plan).
   --allow-dirty              Skip the dirty-working-tree guard.
+  --ladder                   Reveal the manifest one release_order rung at a
+                             time: rung k must be green before rung k+1 is
+                             scored. Without release_order fields, identical
+                             to plain brew.
   --allow-unpriced           Run even though the model has no price. Spend is
                              recorded as unknown and USD budget caps cannot be
                              enforced. Off by default: an uncappable run is a
@@ -504,6 +511,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     ...(args.emitModel ? { emitModel: args.emitModel } : {}),
     ...(useCliBackend ? { useCliBackend: true } : {}),
     ...(args.strictRevert ? { strictRevert: true } : {}),
+    ...(args.ladder ? { ladder: true } : {}),
     repoRoot: args.repoRoot,
     storyId: args.storyId,
     spec,
