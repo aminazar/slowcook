@@ -5,7 +5,7 @@ import {
   mkdirSync,
   appendFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join, isAbsolute } from "node:path";
 import {
   buildManifest,
   diffManifest,
@@ -219,10 +219,22 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
     }));
   }
 
+  // P4 — harvest @slowcook-rung markers so ladder mode has its release order.
+  const markersByFile = new Map<string, { rung: number; title: string }[]>();
+  for (const f of new Set(filteredTests.map((t) => t.file))) {
+    try {
+      const abs = isAbsolute(f) ? f : join(args.cwd ?? process.cwd(), f);
+      if (existsSync(abs)) markersByFile.set(f, parseRungMarkers(readFileSync(abs, "utf8")));
+    } catch { /* unreadable file = no rungs; ladder degrades to plain */ }
+  }
+  const rungedTests = assignRungs(filteredTests, markersByFile);
+  const rungCount = rungedTests.filter((t) => t.release_order !== undefined).length;
+  if (rungCount > 0) console.log(`  rungs: ${rungCount}/${rungedTests.length} tests carry release_order (ladder-ready)`);
+
   const m = buildManifest({
     slowcookVersion: CLI_VERSION,
     storyId: args.storyId,
-    tests: filteredTests,
+    tests: rungedTests,
     suites: filteredSuites,
   });
 
@@ -264,6 +276,39 @@ export function globToRegExp(glob: string): RegExp {
     else out += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   }
   return new RegExp(`(?:^|/)?${out}$`);
+}
+
+/**
+ * Ladder rungs (P4). testgen annotates tests with \`// @slowcook-rung N\`
+ * markers on the line above a describe/it. This parses a test FILE's markers
+ * into ordered (rung, titleFragment) pairs, and assignRungs() maps each
+ * discovered test id to its rung by first-matching title fragment. Tests
+ * with no marker get no release_order (rung 0 — released immediately).
+ */
+export function parseRungMarkers(fileText: string): { rung: number; title: string }[] {
+  const out: { rung: number; title: string }[] = [];
+  const lines = fileText.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = /@slowcook-rung\s+(\d+)/.exec(lines[i]!);
+    if (!m) continue;
+    // the annotated declaration is the next non-comment line with a string title
+    for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+      const t = /(?:describe|it|test)\s*\(\s*["'\`]([^"'\`]+)["'\`]/.exec(lines[j]!);
+      if (t) { out.push({ rung: parseInt(m[1]!, 10), title: t[1]! }); break; }
+    }
+  }
+  return out;
+}
+
+export function assignRungs(
+  tests: { id: string; file: string }[],
+  markersByFile: Map<string, { rung: number; title: string }[]>
+): { id: string; file: string; release_order?: number }[] {
+  return tests.map((t) => {
+    const markers = markersByFile.get(t.file) ?? [];
+    const hit = markers.find((mk) => t.id.includes(mk.title));
+    return hit ? { ...t, release_order: hit.rung } : t;
+  });
 }
 
 function escapeRegex(s: string): string {

@@ -66,6 +66,7 @@ import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js
 import { runCliTurn } from "./cli-driver.js";
 import { detectMaskedMonolith, peelTargetPrompt, peelResolved, type PeelResult } from "./testability.js";
 import { ladderWindow, describeWindow } from "./ladder.js";
+import { fileBackpropClaims } from "../../lib/backprop.js";
 import {
   lessonMessage, compactOldToolResults, estimateTokens, resetDigest,
   COMPACT_AT_TOKENS, RESET_AFTER_FAILURES, type Msg,
@@ -619,6 +620,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   let lastFailedTarget = "";
   let pendingResetDigest = "";
   const seenTargets = new Set<string>();
+  // P5 — contradiction detection: target × broken-green pairs, counted.
+  const regressionPairs = new Map<string, number>();
   // STASH, DON'T DELETE (the $31 post-mortem): a revert that erases an
   // 800-line attempt forces the next turn to re-emit it at full output price
   // — we paid for near-identical code three times. The diff is saved as a
@@ -1185,6 +1188,36 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     const gains = [...newGreen].filter((t) => !greenSet.has(t));
 
     if (regressions.length > 0) {
+      // P5 — the same target breaking the same green test twice in a row is
+      // a SPEC contradiction, not an agent failure. Halt with the pair named
+      // and file a backprop claim so the founder decides which side wins.
+      for (const broken of regressions) {
+        const key = `${currentTarget} ⊗ ${broken}`;
+        const n = (regressionPairs.get(key) ?? 0) + 1;
+        regressionPairs.set(key, n);
+        if (n >= 2) {
+          revertToSnapshot(ctx, snapshot);
+          appendRunLog(ctx, `ITER ${iteration} SPEC_CONTRADICTION  greening "${currentTarget!.slice(0, 70)}" broke "${broken.slice(0, 70)}" ${n}× — the spec disagrees with itself`);
+          try {
+            await fileBackpropClaims(ctx.repoRoot, [{
+              target: "stories",
+              summary: `spec contradiction: satisfying one test repeatedly breaks another`,
+              detail: `Greening the target test broke the same green test ${n} times in a row.\nTarget:  ${currentTarget}\nBroken:  ${broken}\nOne of the two requirements must be superseded; a machine cannot pick which.`,
+              source: `brew story-${ctx.storyId} iteration ${iteration}`,
+            }]);
+          } catch { /* claim filing is best-effort; the halt still names the pair */ }
+          return haltFor(ctx, {
+            reason: "SPEC_CONTRADICTION",
+            iterations: iteration,
+            checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+            greenCount: greenSet.size,
+            totalCount: expectedTestIds.size,
+            spendUsd,
+            iterationLogs,
+            summary: `Satisfying "${currentTarget}" broke "${broken}" ${n} times in a row. The two requirements are incompatible — a backprop claim was filed; the founder decides which side wins.`,
+          });
+        }
+      }
       // Regression — revert
       totalRegressions += 1;
       revertToSnapshot(ctx, snapshot);

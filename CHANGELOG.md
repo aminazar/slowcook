@@ -6,6 +6,34 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.31.0 · llm-anthropic 0.24.0 — the ladder: brew always faces one red with a real gradient
+
+Born from a story that failed 25 iterations because nine tests failed as one.
+The invariant this release enforces: brew always faces exactly ONE red test
+with a climbable gradient — by ordering, or by peeling.
+
+**Peel, don't deadlock.** When most failing tests share one failure root (a
+reverting deploy, a thrown beforeAll), the suite is masked, not atomic. brew
+detects the shared root, leads the turn with it as a diagnostic rung, counts
+its resolution as progress, and recurses onto sub-masks. Never a halt; the
+rung is never the gate.
+
+**Ladder mode (--ladder).** testgen orders tests most-constraining-first with
+@slowcook-rung markers; manifest record harvests them into release_order; brew
+reveals the suite one rung at a time — rung k green before rung k+1 is scored.
+The wall of N simultaneous reds can never form. Earlier rungs stay scored, so
+regressions are still caught. No markers = plain brew, zero migration.
+
+**The contradiction escape.** Greening the target breaking the same green
+test twice in a row halts SPEC_CONTRADICTION with the pair named and files a
+backprop claim: the spec disagrees with itself, and the founder — not the
+machine — decides which side wins. Terminal states are DONE or a named human
+decision, never a silent grind.
+
+Plus keep-compiling-diff (no-progress work stays as the next turn's base;
+--strict-revert restores the guillotine) and the dirty-tree guard learning to
+ignore brew's own artifacts.
+
 ## cli 0.30.0 — brew runs on your subscription, learns in-context, and can never again hide its cost
 
 Three arcs in one minor, all born from a $31 dogfood bill:
