@@ -1,0 +1,75 @@
+// Peel, don't deadlock (ARM-B post-mortem). "Monolithic" is masking, not
+// atomicity — the shared prefix hides an independent gradient.
+import { describe, it, expect } from "vitest";
+import { failureRoot, detectMaskedMonolith, peelTargetPrompt, type FailedTest } from "./testability.js";
+
+const fail = (id: string, msg: string): FailedTest => ({ id, status: "failed", failure_message: msg });
+
+describe("failureRoot", () => {
+  it("collapses per-test noise so identical deploy reverts share a key", () => {
+    const a = failureRoot("setUp() reverted: STUB not deployed at 0x1a2b3c [256 runs, μ: 41000]");
+    const b = failureRoot("setUp() reverted: STUB not deployed at 0x9f8e7d [256 runs, μ: 40912]");
+    expect(a).toBe(b);
+    expect(a).toContain("STUB not deployed");
+    expect(a).not.toContain("0x1a2b");
+  });
+  it("keeps genuinely different causes distinct", () => {
+    expect(failureRoot("AssertionError: exports differ")).not.toBe(failureRoot("setUp() reverted: no funds"));
+  });
+});
+
+describe("detectMaskedMonolith", () => {
+  it("flags the ARM-B shape: every test behind one deploy revert", () => {
+    const nine = Array.from({ length: 9 }, (_, i) =>
+      fail(`t${i}`, `setUp() reverted: ArmBDeployer stub missing at 0x${i}${i}${i} [256 runs]`));
+    const p = detectMaskedMonolith(nine);
+    expect(p.masked).toBe(true);
+    expect(p.sharedCount).toBe(9);
+    expect(p.syntheticTarget).toContain("resolve the shared failure");
+    expect(p.reason).toContain("not halting");
+  });
+
+  it("does NOT flag a real gradient — many distinct roots", () => {
+    const mixed = [
+      fail("a", "AssertionError: export set mismatch"),
+      fail("b", "AssertionError: uses ambient clock"),
+      fail("c", "AssertionError: strict mode off"),
+      fail("d", "AssertionError: dependency not @noble"),
+    ];
+    expect(detectMaskedMonolith(mixed).masked).toBe(false);
+  });
+
+  it("does not fire on a nearly-solved suite (one straggler left)", () => {
+    const results: FailedTest[] = [
+      { id: "p1", status: "passed" }, { id: "p2", status: "passed" },
+      fail("x", "AssertionError: last one"),
+    ];
+    expect(detectMaskedMonolith(results).masked).toBe(false); // below minTests failing
+  });
+
+  it("a partial mask below threshold reads as a (weak) gradient, not a monolith", () => {
+    const results = [
+      fail("a", "setUp() reverted: stub"), fail("b", "setUp() reverted: stub"),
+      fail("c", "AssertionError: real"), fail("d", "AssertionError: other"), fail("e", "AssertionError: third"),
+    ];
+    // 2/5 share a root — under 0.8, so climb the gradient rather than peel.
+    expect(detectMaskedMonolith(results).masked).toBe(false);
+  });
+
+  it("recursion-ready: after peeling, a remaining sub-mask is detectable on its own subset", () => {
+    const remainder = Array.from({ length: 4 }, (_, i) => fail(`u${i}`, "revert: pool not initialized"));
+    const p = detectMaskedMonolith(remainder);
+    expect(p.masked).toBe(true);
+    expect(p.sharedRoot).toContain("pool not initialized");
+  });
+});
+
+describe("peelTargetPrompt", () => {
+  it("frames the rung as diagnostic and forbids stubbing the shared component", () => {
+    const p = detectMaskedMonolith(Array.from({ length: 5 }, (_, i) => fail(`t${i}`, "setUp() reverted: X")));
+    const prompt = peelTargetPrompt(p);
+    expect(prompt).toContain("not a requirement");
+    expect(prompt).toContain("Do NOT weaken or stub");
+    expect(prompt).toContain("report independently");
+  });
+});
