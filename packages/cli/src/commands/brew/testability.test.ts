@@ -1,7 +1,7 @@
 // Peel, don't deadlock (ARM-B post-mortem). "Monolithic" is masking, not
 // atomicity — the shared prefix hides an independent gradient.
 import { describe, it, expect } from "vitest";
-import { failureRoot, detectMaskedMonolith, peelTargetPrompt, type FailedTest } from "./testability.js";
+import { failureRoot, detectMaskedMonolith, peelTargetPrompt, peelResolved, type FailedTest } from "./testability.js";
 
 const fail = (id: string, msg: string): FailedTest => ({ id, status: "failed", failure_message: msg });
 
@@ -71,5 +71,24 @@ describe("peelTargetPrompt", () => {
     expect(prompt).toContain("not a requirement");
     expect(prompt).toContain("Do NOT weaken or stub");
     expect(prompt).toContain("report independently");
+  });
+});
+
+describe("peelResolved", () => {
+  const masked = (root: string, n: number) => ({ masked: true, sharedRoot: root, sharedCount: n, reason: "" });
+  const clear = { masked: false, sharedRoot: "", sharedCount: 0, reason: "" };
+
+  it("resolved when the mask is gone — the gradient unmasked", () => {
+    expect(peelResolved(masked("deploy reverts", 9), clear)).toBe(true);
+  });
+  it("resolved when the root CHANGED — the old wall fell, recurse onto the new one", () => {
+    expect(peelResolved(masked("deploy reverts", 9), masked("pool not initialized", 4))).toBe(true);
+  });
+  it("resolved when the mask fragmented to half or less", () => {
+    expect(peelResolved(masked("deploy reverts", 9), masked("deploy reverts", 4))).toBe(true);
+    expect(peelResolved(masked("deploy reverts", 9), masked("deploy reverts", 8))).toBe(false);
+  });
+  it("never resolved when there was no mask to begin with", () => {
+    expect(peelResolved(clear, clear)).toBe(false);
   });
 });

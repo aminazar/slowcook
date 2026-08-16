@@ -64,6 +64,7 @@ import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
+import { detectMaskedMonolith, peelTargetPrompt, peelResolved, type PeelResult } from "./testability.js";
 import {
   lessonMessage, compactOldToolResults, estimateTokens, resetDigest,
   COMPACT_AT_TOKENS, RESET_AFTER_FAILURES, type Msg,
@@ -534,6 +535,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   // each iteration's turn prompt can include the target test's failure
   // output. Seeds from baseline; refreshes after each test run below.
   let failureMessagesByTestId: Map<string, string> = buildFailureMap(baseline.tests);
+  let lastRunTests = baseline.tests;
   let greenSet = new Set(
     baseline.tests.filter((t) => t.status === "passed").map((t) => t.id)
   );
@@ -651,6 +653,19 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   }> = [];
 
   let currentTarget: string | null = pickTarget(storyRedSet(), null);
+  // PEEL ("ratchet, not a deadlock"): when most failing tests share ONE
+  // failure root (deploy revert / thrown beforeAll), the suite is masked, not
+  // atomic. The rung to climb first is the shared cause; the turn prompt
+  // LEADS with it, and resolution (root gone/changed/fragmented) counts as
+  // progress even though no test flipped yet.
+  const peelInput = () => baselineScopedFailures();
+  function baselineScopedFailures() {
+    return lastRunTests
+      .filter((t) => expectedTestIds.has(t.id))
+      .map((t) => ({ id: t.id, status: t.status, failure_message: t.failure_message }));
+  }
+  let activePeel: PeelResult = detectMaskedMonolith(peelInput());
+  if (activePeel.masked) appendRunLog(ctx, `PEEL  ${activePeel.reason}`);
   if (!currentTarget) {
     return haltFor(ctx, {
       reason: "TESTS_NEVER_GREEN",
@@ -763,6 +778,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       patternIndexBlock,
       conversation,
       resetDigestText: pendingResetDigest,
+      peelBlock: activePeel.masked ? peelTargetPrompt(activePeel) : undefined,
     });
     pendingResetDigest = "";
     spendUsd += turnResult.spendDelta;
@@ -1140,6 +1156,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // (Survives revert-to-snapshot — the MAP is memoised, not the test
     // runtime state.)
     failureMessagesByTestId = buildFailureMap(result.tests);
+    lastRunTests = result.tests;
 
     const newGreen = new Set(
       result.tests.filter((t) => t.status === "passed").map((t) => t.id)
@@ -1184,6 +1201,32 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       );
       continue;
     }
+
+    // PEEL resolution check: the turn may have dissolved the shared wall even
+    // though no individual test flipped yet — that IS progress on the rung.
+    const newPeel = detectMaskedMonolith(peelInput());
+    if (activePeel.masked && peelResolved(activePeel, newPeel)) {
+      appendRunLog(
+        ctx,
+        `ITER ${iteration} PEEL-RESOLVED  "${activePeel.sharedRoot.slice(0, 80)}" ` +
+          (newPeel.masked ? `→ next mask: "${newPeel.sharedRoot.slice(0, 80)}" (${newPeel.sharedCount})` : `→ gradient unmasked (${[...newRed].length} independent reds)`)
+      );
+      activePeel = newPeel;
+      if (newPeel.masked) appendRunLog(ctx, `PEEL  ${newPeel.reason}`);
+      iterationLogs.push({
+        iteration,
+        target_test_id: currentTarget,
+        outcome: "checkpoint",
+        note: "peel rung resolved — the shared failure wall fell; tests now report toward a gradient",
+        files_touched: diff.changedPaths,
+        lines_added: diff.linesAdded,
+        lines_removed: diff.linesRemoved,
+        spend_delta_usd: turnResult.spendDelta,
+        rationale: turnResult.rationale,
+      });
+      continue;
+    }
+    activePeel = newPeel;
 
     if (gains.length === 0) {
       // KEEP-COMPILING-DIFF (the $31 post-mortem's biggest single flaw):
@@ -1567,6 +1610,8 @@ async function runTurn(
     conversation: Msg[];
     /** #399 — carried lesson digest after a recovery reset. */
     resetDigestText?: string;
+    /** Peel rung block — leads the prompt when the suite is masked. */
+    peelBlock?: string;
   }
 ): Promise<TurnResult> {
   // 0.11.16+ — bounded-attention spec slicing. Replace the full spec
@@ -1630,6 +1675,7 @@ async function runTurn(
     prior_context_block: args.priorContextBlock,
     pattern_index_block: args.patternIndexBlock,
     preloaded_files_block: preloadBlock,
+    peel_rung_block: args.peelBlock,
   });
   // Backwards-compat: turnPrompt() still works for any non-brew caller
   // that hasn't migrated; quiet the lint that flags the unused import.
