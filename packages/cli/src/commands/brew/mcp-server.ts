@@ -15,8 +15,8 @@
  *
  * Spawn: node mcp-server.js --repo <abs repoRoot> --run <abs runDir>
  */
-import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, readdirSync } from "node:fs";
-import { resolve, join, relative, isAbsolute } from "node:path";
+import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, readdirSync, mkdirSync } from "node:fs";
+import { resolve, join, relative, isAbsolute, dirname } from "node:path";
 
 const argv = process.argv.slice(2);
 const arg = (name: string): string => {
@@ -102,8 +102,17 @@ function handle(name: string, input: Record<string, unknown>): ToolResult {
         return { content: readdirSync(full).slice(0, 300).join("\n") };
       }
       case "write_file": {
+        // Dogfood finding (ladder fixture): a write into a not-yet-existing
+        // directory failed ENOENT and the agent burned iterations probing
+        // where it was allowed to write. New modules NEED new dirs — create
+        // parents, same as the API path's tool handler behaves.
         const full = resolvePath(String(input["path"] ?? ""), true);
-        writeFileSync(full, String(input["content"] ?? ""), "utf8");
+        mkdirSync(dirname(full), { recursive: true });
+        // BREW_TOOLS declares the property as "contents" (plural) — reading
+        // "content" wrote empty files for every bridged write (ladder dogfood
+        // finding: an agent five times "wrote correct code" that landed as
+        // zero bytes, and was honest enough to say so in its rationale).
+        writeFileSync(full, String(input["contents"] ?? input["content"] ?? ""), "utf8");
         return { content: `wrote ${input["path"]}` };
       }
       case "find_references": case "find_implementations": case "find_definition":
