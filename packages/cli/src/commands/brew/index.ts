@@ -69,6 +69,28 @@ interface BrewArgs {
   allowUnpriced?: boolean;
 }
 
+/**
+ * Numeric flags must actually be numbers. `--budget-usd abc` used to yield
+ * NaN, and every `spend >= budget` comparison against NaN is false — so a
+ * typo silently bought an UNLIMITED budget on a command whose whole job is
+ * spending money. Refuse instead.
+ */
+/** Flags that consume the following token as their value. */
+const VALUE_FLAGS = new Set([
+  "--story", "--cwd", "--owner", "--repo", "--budget-usd", "--max-iterations",
+  "--wall-clock-minutes", "--model", "--base", "--mode", "--navigator-model",
+  "--stall-iterations", "--max-tool-rounds", "--reset-after-failures", "--emit-model",
+]);
+
+function numericFlag(flag: string, raw: string, kind: "float" | "int"): number {
+  const n = kind === "float" ? parseFloat(raw) : parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.error(`${flag} needs a positive number. Got: ${raw}`);
+    process.exit(64);
+  }
+  return n;
+}
+
 function parseArgs(argv: string[]): BrewArgs {
   const args: BrewArgs = {
     storyId: "",
@@ -89,9 +111,9 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--cwd" && next) { args.repoRoot = next; i++; }
     else if (arg === "--owner" && next) { args.owner = next; i++; }
     else if (arg === "--repo" && next) { args.repo = next; i++; }
-    else if (arg === "--budget-usd" && next) { args.budgetUsd = parseFloat(next); i++; }
-    else if (arg === "--max-iterations" && next) { args.maxIterations = parseInt(next, 10); i++; }
-    else if (arg === "--wall-clock-minutes" && next) { args.wallClockMs = parseInt(next, 10) * 60 * 1000; i++; }
+    else if (arg === "--budget-usd" && next) { args.budgetUsd = numericFlag("--budget-usd", next, "float"); i++; }
+    else if (arg === "--max-iterations" && next) { args.maxIterations = numericFlag("--max-iterations", next, "int"); i++; }
+    else if (arg === "--wall-clock-minutes" && next) { args.wallClockMs = numericFlag("--wall-clock-minutes", next, "int") * 60 * 1000; i++; }
     else if (arg === "--model" && next) { args.model = next; i++; }
     else if (arg === "--base" && next) { args.baseBranch = next; i++; }
     else if (arg === "--mode" && next) {
@@ -115,9 +137,9 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--without-navigator") { args.withNavigator = false; }
     else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
     else if (arg === "--allow-unpriced") { args.allowUnpriced = true; }
-    else if (arg === "--stall-iterations" && next) { args.stallIterations = parseInt(next, 10); i++; }
-    else if (arg === "--max-tool-rounds" && next) { args.maxToolRounds = parseInt(next, 10); i++; }
-    else if (arg === "--reset-after-failures" && next) { args.resetAfterFailures = parseInt(next, 10); i++; }
+    else if (arg === "--stall-iterations" && next) { args.stallIterations = numericFlag("--stall-iterations", next, "int"); i++; }
+    else if (arg === "--max-tool-rounds" && next) { args.maxToolRounds = numericFlag("--max-tool-rounds", next, "int"); i++; }
+    else if (arg === "--reset-after-failures" && next) { args.resetAfterFailures = numericFlag("--reset-after-failures", next, "int"); i++; }
     else if (arg === "--emit-model" && next) { args.emitModel = next; i++; }
     else if (arg === "--allow-dirty") { args.allowDirty = true; }
     else if (arg === "--strict-revert") { args.strictRevert = true; }
@@ -125,6 +147,20 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
+    }
+    // Anything else is a typo, and silence here is expensive: `--budget 3`
+    // (the flag is --budget-usd) was accepted and dropped, so the run used
+    // the $10 default while the operator believed they had capped it at $3.
+    else {
+      // A known flag that simply lost its value must not be reported as
+      // "unknown" — that sends people hunting for a typo they didn't make.
+      console.error(
+        VALUE_FLAGS.has(String(arg))
+          ? `${arg} requires a value.`
+          : `Unknown option: ${arg}`
+      );
+      printHelp();
+      process.exit(64);
     }
   }
   if (!args.storyId) {
