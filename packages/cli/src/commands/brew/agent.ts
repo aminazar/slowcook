@@ -64,7 +64,7 @@ import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
-import { detectMaskedMonolith, peelTargetPrompt, peelResolved, type PeelResult } from "./testability.js";
+import { detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, type PeelResult } from "./testability.js";
 import { ladderWindow, describeWindow } from "./ladder.js";
 import { fileBackpropClaims } from "../../lib/backprop.js";
 import {
@@ -1786,6 +1786,19 @@ async function runTurn(
       ctx,
       `ITER ${args.iteration} TOOLS  ${Math.min(r.toolTrace.length, 20)}/${r.toolTrace.length} calls  auth=subscription ($ at list price)  model=${model}${r.truncatedAtMaxTurns ? "  TRUNCATED" : ""}: ${r.toolTrace.slice(0, 20).join(", ")}${r.toolTrace.length > 20 ? ", …" : ""}`
     );
+    // A tool failing the same way over and over is the finding. The
+    // ladder-fixture run spent $2.27 across four iterations while the agent
+    // kept saying write_file could not create a directory; brew reported
+    // ITERATION_CAP and blamed the agent. Say the true thing instead.
+    const toolFault = diagnoseToolFailure(r.toolErrors, r.toolTrace.length);
+    if (toolFault.failing) {
+      appendRunLog(ctx, `ITER ${args.iteration} ${toolFault.reason}`);
+      console.error(
+        `\nslowcook brew: ${toolFault.reason}\n` +
+        `  The agent cannot make progress until this is fixed — halting instead of spending the budget on retries.\n`
+      );
+      process.exit(78);
+    }
     // filesTouched via git status delta is the ratchet's own diff; report
     // write_file calls from the trace for the no-edit check.
     const writes = r.toolTrace.filter((t) => t.startsWith("write_file")).length;

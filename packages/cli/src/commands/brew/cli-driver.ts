@@ -48,6 +48,8 @@ export interface CliTurnResult {
   usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number };
   toolCallCount: number;
   toolTrace: string[];
+  /** Tool calls that came back is_error — the bridge-fault signal. */
+  toolErrors: { tool: string; message: string }[];
   sessionId?: string;
   truncatedAtMaxTurns: boolean;
   /** The CLI could not authenticate — halt immediately, don't retry. */
@@ -74,11 +76,17 @@ export function writeMcpFiles(runDir: string, repoRoot: string, serverJs: string
 export function parseStreamJson(out: string): {
   sessionId?: string; resultText: string; subtype?: string; numTurns?: number;
   usage: CliTurnResult["usage"]; toolTrace: string[]; isError: boolean;
+  toolErrors: { tool: string; message: string }[];
 } {
   let sessionId: string | undefined; let resultText = ""; let subtype: string | undefined;
   let numTurns: number | undefined; let isError = false;
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0 };
   const toolTrace: string[] = [];
+  // A tool that fails EVERY call is a broken bridge, not a stuck agent. We only
+  // ever recorded tool_use, so brew was blind to it and spent its whole budget
+  // re-trying a tool the agent had already, correctly, reported as broken.
+  const toolErrors: { tool: string; message: string }[] = [];
+  const nameById = new Map<string, string>();
   for (const line of out.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("{")) continue;
@@ -92,7 +100,23 @@ export function parseStreamJson(out: string): {
           const short = String(b.name ?? "").replace(/^mcp__slowcook__/, "");
           const hint = String(b.input?.["path"] ?? b.input?.["symbol"] ?? "");
           toolTrace.push(hint ? `${short}(${hint})` : short);
+          const id = (b as { id?: string }).id;
+          if (id) nameById.set(id, short);
         }
+      }
+    }
+    if (ev["type"] === "user") {
+      const msg = ev["message"] as { content?: unknown } | undefined;
+      const blocks = Array.isArray(msg?.content) ? (msg!.content as Record<string, unknown>[]) : [];
+      for (const b of blocks) {
+        if (b["type"] !== "tool_result" || b["is_error"] !== true) continue;
+        const c = b["content"];
+        const message = typeof c === "string"
+          ? c
+          : Array.isArray(c)
+            ? c.map((p) => (p as { text?: string })?.text ?? "").join(" ").trim()
+            : "";
+        toolErrors.push({ tool: nameById.get(String(b["tool_use_id"] ?? "")) ?? "?", message });
       }
     }
     if (ev["type"] === "result") {
@@ -109,7 +133,7 @@ export function parseStreamJson(out: string): {
       }
     }
   }
-  return { sessionId, resultText, subtype, numTurns, usage, toolTrace, isError };
+  return { sessionId, resultText, subtype, numTurns, usage, toolTrace, isError, toolErrors };
 }
 
 export function runCliTurn(a: CliTurnArgs): CliTurnResult {
@@ -153,6 +177,7 @@ export function runCliTurn(a: CliTurnArgs): CliTurnResult {
     usage: parsed.usage,
     toolCallCount: parsed.toolTrace.length,
     toolTrace: parsed.toolTrace,
+    toolErrors: parsed.toolErrors,
     sessionId: parsed.sessionId,
     truncatedAtMaxTurns: parsed.subtype === "error_max_turns",
     ...(overflowJustification ? { overflowJustification } : {}),
