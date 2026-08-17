@@ -1,7 +1,7 @@
 // Peel, don't deadlock (ARM-B post-mortem). "Monolithic" is masking, not
 // atomicity — the shared prefix hides an independent gradient.
 import { describe, it, expect } from "vitest";
-import { failureRoot, detectMaskedMonolith, peelTargetPrompt, peelResolved, type FailedTest } from "./testability.js";
+import { failureRoot, detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, type FailedTest } from "./testability.js";
 
 const fail = (id: string, msg: string): FailedTest => ({ id, status: "failed", failure_message: msg });
 
@@ -71,6 +71,40 @@ describe("peelTargetPrompt", () => {
     expect(prompt).toContain("not a requirement");
     expect(prompt).toContain("Do NOT weaken or stub");
     expect(prompt).toContain("report independently");
+  });
+});
+
+describe("diagnoseToolFailure", () => {
+  // The ladder-fixture run: write_file could not create a directory, and brew
+  // called it ITERATION_CAP after $2.27.
+  const enoent = (p: string) => ({ tool: "write_file", message: `ENOENT: no such file or directory, open '/repo/${p}/probe.txt'` });
+
+  it("names the broken tool when one error root dominates its calls", () => {
+    const d = diagnoseToolFailure([enoent("src"), enoent("lib"), enoent("app"), enoent("zzz")], 8);
+    expect(d.failing).toBe(true);
+    expect(d.tool).toBe("write_file");
+    expect(d.reason).toContain("not an agent stall");
+    expect(d.reason).toContain("ENOENT");
+  });
+
+  it("ignores incidental errors — a couple of misses is normal exploration", () => {
+    expect(diagnoseToolFailure([enoent("src"), enoent("lib")], 20).failing).toBe(false);
+  });
+
+  it("does not fire when the errors are scattered across different causes", () => {
+    const mixed = [
+      { tool: "read_file", message: "ENOENT: missing package.json" },
+      { tool: "write_file", message: "EACCES: permission denied" },
+      { tool: "find_references", message: "no matches for calc" },
+      { tool: "read_file", message: "ENOENT: missing tsconfig" },
+    ];
+    expect(diagnoseToolFailure(mixed, 10).failing).toBe(false);
+  });
+
+  it("stays quiet when the tool errors are a small share of a busy turn", () => {
+    const many = [enoent("a"), enoent("b"), enoent("c")];
+    expect(diagnoseToolFailure(many, 40).failing).toBe(false);   // 3/40 = 7.5%
+    expect(diagnoseToolFailure(many, 6).failing).toBe(true);     // 3/6  = 50%
   });
 });
 
