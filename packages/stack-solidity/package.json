@@ -1,6 +1,6 @@
 {
   "name": "@slowcook-ai/stack-solidity",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Solidity/Foundry stack adapter for slowcook — forge test discovery, runners, gas-snapshot ratchet",
   "license": "MIT",
   "author": "aminazar",
