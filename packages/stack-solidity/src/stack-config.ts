@@ -9,6 +9,44 @@ export interface SuiteConfig {
   run_command: string;
   discover_command: string;
   reporter_format: ReporterFormat | string;
+  /**
+   * Environment applied to this suite's run AND discover commands.
+   *
+   * Plug-in test suites are parameterised by env — Foundry's own
+   * `vm.envOr(...)` pattern is the canonical example: the dovizir referee
+   * suite picks its implementation from DOVIZIR_DEPLOYER and falls back to a
+   * stub that reverts on every call. With no way to express that here, brew
+   * ran the stub forever and the story could never go green no matter what
+   * the agent wrote. Values may reference the ambient environment as
+   * `${VAR}` so secrets stay out of the repo.
+   */
+  env?: Record<string, string>;
+}
+
+/**
+ * Resolve a suite's declared env, expanding `${VAR}` from the ambient
+ * environment. A referenced-but-unset variable is an ERROR naming the
+ * variable — expanding it to "" would hand the runner a plausible-looking
+ * empty value and produce a failure far from its cause.
+ */
+export function resolveSuiteEnv(
+  declared: Record<string, string> | undefined,
+  ambient: NodeJS.ProcessEnv = process.env
+): Record<string, string> | undefined {
+  if (!declared) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(declared)) {
+    out[key] = raw.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name: string) => {
+      const v = ambient[name];
+      if (v === undefined) {
+        throw new StackConfigError(
+          `stack.json test env ${key} references \${${name}}, which is not set in the environment`
+        );
+      }
+      return v;
+    });
+  }
+  return out;
 }
 
 /**
@@ -88,6 +126,24 @@ export function validateSolidityStackConfig(raw: unknown): SolidityStackConfig {
         discover_command: s["discover_command"],
         reporter_format: s["reporter_format"] as ReporterFormat,
       };
+      if (s["env"] !== undefined) {
+        if (typeof s["env"] !== "object" || s["env"] === null || Array.isArray(s["env"])) {
+          throw new StackConfigError(`stack.json test.${name}.env must be an object of string values`);
+        }
+        const env: Record<string, string> = {};
+        for (const [k, v] of Object.entries(s["env"] as Record<string, unknown>)) {
+          if (typeof v !== "string") {
+            // Coercing 1 -> "1" would quietly accept a config the author got
+            // wrong; env values are strings and saying so is cheaper than a
+            // confusing runtime failure.
+            throw new StackConfigError(
+              `stack.json test.${name}.env.${k} must be a string, got ${typeof v}`
+            );
+          }
+          env[k] = v;
+        }
+        suites[name]!.env = env;
+      }
     }
     config.test = suites;
   }

@@ -250,3 +250,68 @@ describe.skipIf(!process.env.FORGE_E2E)("runTests (e2e, real forge)", () => {
     }
   });
 });
+
+// The gap this closes: a suite that selects its implementation from the
+// environment (forge's vm.envOr pattern) was undrivable by brew, because the
+// declared env never reached the runner. Config-level support is not enough —
+// these assert it arrives at exec.
+describe("suite env reaches the runner", () => {
+  const cfgWithEnv = (env: Record<string, string>): SolidityStackConfig => ({
+    language: "solidity",
+    test: {
+      forge: {
+        runner: "forge",
+        run_command: "forge test --root ../acceptance",
+        discover_command: "forge test --root ../acceptance --list --json",
+        reporter_format: "forge-json",
+        env,
+      },
+    },
+  });
+
+  it("passes declared env to the run command", () => {
+    const seen: (Record<string, string> | undefined)[] = [];
+    runTests(cfgWithEnv({ DOVIZIR_DEPLOYER: "src/arm/ArmBDeployer.sol:ArmBDeployer" }), {
+      cwd: "/repo",
+      exec: (_cmd, _cwd, env) => {
+        seen.push(env);
+        return { stdout: loadFixture("forge-test-pass.json"), stderr: "", code: 0 };
+      },
+    });
+    expect(seen[0]).toEqual({ DOVIZIR_DEPLOYER: "src/arm/ArmBDeployer.sol:ArmBDeployer" });
+  });
+
+  it("does NOT smuggle env into the command string (secrets must not reach logs)", () => {
+    const cmds: string[] = [];
+    runTests(cfgWithEnv({ SECRET_TOKEN: "hunter2" }), {
+      cwd: "/repo",
+      exec: (cmd) => {
+        cmds.push(cmd);
+        return { stdout: loadFixture("forge-test-pass.json"), stderr: "", code: 0 };
+      },
+    });
+    expect(cmds[0]).not.toContain("hunter2");
+    expect(cmds[0]).not.toContain("SECRET_TOKEN");
+  });
+
+  it("passes undefined when no env is declared — unchanged for every existing project", () => {
+    const seen: (Record<string, string> | undefined)[] = [];
+    runTests(mkConfig(), {
+      cwd: "/repo",
+      exec: (_cmd, _cwd, env) => {
+        seen.push(env);
+        return { stdout: loadFixture("forge-test-pass.json"), stderr: "", code: 0 };
+      },
+    });
+    expect(seen[0]).toBeUndefined();
+  });
+
+  it("surfaces an unset ${VAR} as a named error rather than running with a blank", () => {
+    expect(() =>
+      runTests(cfgWithEnv({ RPC: "${DEFINITELY_UNSET_RPC}" }), {
+        cwd: "/repo",
+        exec: () => ({ stdout: loadFixture("forge-test-pass.json"), stderr: "", code: 0 }),
+      })
+    ).toThrow(/DEFINITELY_UNSET_RPC/);
+  });
+});

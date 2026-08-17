@@ -4,7 +4,7 @@
 // either stack through the same code path.
 
 import { execSync } from "node:child_process";
-import type { SolidityStackConfig, SuiteConfig } from "./stack-config.js";
+import { resolveSuiteEnv, type SolidityStackConfig, type SuiteConfig } from "./stack-config.js";
 import {
   parseForgeRun,
   parseForgeList,
@@ -36,7 +36,7 @@ export interface RunOptions {
   cwd: string;
   maxBuffer?: number;
   /** Inject for tests. Receives cmd + cwd; returns { stdout, stderr, code }. */
-  exec?: (cmd: string, cwd: string) => { stdout: string; stderr: string; code: number };
+  exec?: (cmd: string, cwd: string, env?: Record<string, string>) => { stdout: string; stderr: string; code: number };
   /**
    * When set, scope the run to these test file paths via forge's
    * `--match-path` glob. Mirrors stack-ts's bounded-attention scoped
@@ -60,6 +60,8 @@ export function runTests(config: SolidityStackConfig, options: RunOptions): RunR
     // For `run` we want forge's JSON output. Append `--json` to the
     // declared run_command if it's a forge command and doesn't already
     // specify it. Keep it additive (caller can override in stack.json).
+    // Throws with the variable name if a ${VAR} reference is unset.
+    const suiteEnv = resolveSuiteEnv(suite.env);
     let cmd = shouldAppendJson(suite.run_command)
       ? `${suite.run_command} --json`
       : suite.run_command;
@@ -80,7 +82,7 @@ export function runTests(config: SolidityStackConfig, options: RunOptions): RunR
     }
 
     try {
-      const { stdout, stderr, code } = exec(cmd, options.cwd);
+      const { stdout, stderr, code } = exec(cmd, options.cwd, suiteEnv);
       suites.push({
         suite: suiteName,
         command: cmd,
@@ -162,11 +164,11 @@ function expandSetupFailures(
   failures: SetupFailure[],
   suite: SuiteConfig,
   cwd: string,
-  exec: (cmd: string, cwd: string) => { stdout: string; stderr: string; code: number }
+  exec: (cmd: string, cwd: string, env?: Record<string, string>) => { stdout: string; stderr: string; code: number }
 ): TestResult[] {
   let listed: ReturnType<typeof parseForgeList> = [];
   try {
-    const { stdout } = exec(suite.discover_command, cwd);
+    const { stdout } = exec(suite.discover_command, cwd, resolveSuiteEnv(suite.env));
     listed = parseForgeList(stdout);
   } catch {
     listed = [];
@@ -214,11 +216,15 @@ function shellQuote(s: string): string {
 
 function defaultExec(
   cmd: string,
-  cwd: string
+  cwd: string,
+  env?: Record<string, string>
 ): { stdout: string; stderr: string; code: number } {
   try {
     const stdout = execSync(cmd, {
       cwd,
+      // Merged into the ambient environment rather than prefixed onto the
+      // command string, so declared secrets never appear in logged commands.
+      ...(env ? { env: { ...process.env, ...env } } : {}),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 128 * 1024 * 1024,

@@ -11,6 +11,43 @@ export interface SuiteConfig {
   run_command: string;
   discover_command: string;
   reporter_format: ReporterFormat | string;
+  /**
+   * Environment applied to this suite's run AND discover commands.
+   *
+   * Suites parameterised by env are ordinary (a plug-in implementation, a
+   * fixture mode, a base URL). Without this, brew silently ran whatever the
+   * suite's DEFAULT was — in the dovizir case a stub that reverts on every
+   * call, which no amount of agent work could turn green. Values may
+   * reference the ambient environment as `${VAR}` to keep secrets out of
+   * the repo.
+   */
+  env?: Record<string, string>;
+}
+
+/**
+ * Resolve a suite's declared env, expanding `${VAR}` from the ambient
+ * environment. A referenced-but-unset variable is an ERROR naming the
+ * variable — expanding to "" hands the runner a plausible empty value and
+ * produces a failure far from its cause.
+ */
+export function resolveSuiteEnv(
+  declared: Record<string, string> | undefined,
+  ambient: NodeJS.ProcessEnv = process.env
+): Record<string, string> | undefined {
+  if (!declared) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(declared)) {
+    out[key] = raw.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name: string) => {
+      const v = ambient[name];
+      if (v === undefined) {
+        throw new StackConfigError(
+          `stack.json test env ${key} references \${${name}}, which is not set in the environment`
+        );
+      }
+      return v;
+    });
+  }
+  return out;
 }
 
 /**
@@ -94,6 +131,21 @@ export function validateStackConfig(raw: unknown): StackConfig {
         discover_command: s["discover_command"],
         reporter_format: s["reporter_format"] as ReporterFormat,
       };
+      if (s["env"] !== undefined) {
+        if (typeof s["env"] !== "object" || s["env"] === null || Array.isArray(s["env"])) {
+          throw new StackConfigError(`stack.json test.${name}.env must be an object of string values`);
+        }
+        const env: Record<string, string> = {};
+        for (const [k, v] of Object.entries(s["env"] as Record<string, unknown>)) {
+          if (typeof v !== "string") {
+            throw new StackConfigError(
+              `stack.json test.${name}.env.${k} must be a string, got ${typeof v}`
+            );
+          }
+          env[k] = v;
+        }
+        suites[name]!.env = env;
+      }
     }
     config.test = suites;
   }
