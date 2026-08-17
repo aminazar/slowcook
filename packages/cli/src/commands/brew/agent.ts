@@ -1772,6 +1772,16 @@ async function runTurn(
     tot.cacheReadTokens += r.usage.cacheReadTokens;
     tot.cacheCreateTokens += r.usage.cacheCreateTokens;
     if (r.errorText) appendRunLog(ctx, `ITER ${args.iteration} CLI-ERROR  ${r.errorText}`);
+    if (r.authFailed) {
+      // Not an agent stall: the local claude CLI has no usable session. Say
+      // exactly that, once, and stop — retrying cannot help (rewo dogfood:
+      // two iterations of 0 tool calls reported as AGENT_STALLED_NO_EDITS).
+      console.error(
+        `\nslowcook brew: the local claude CLI could not authenticate — ${r.errorText}\n` +
+        `  Run \`claude setup-token\` on this host (or unset SLOWCOOK_LLM and set ANTHROPIC_API_KEY).\n`
+      );
+      process.exit(77);
+    }
     appendRunLog(
       ctx,
       `ITER ${args.iteration} TOOLS  ${Math.min(r.toolTrace.length, 20)}/${r.toolTrace.length} calls  auth=subscription ($ at list price)  model=${model}${r.truncatedAtMaxTurns ? "  TRUNCATED" : ""}: ${r.toolTrace.slice(0, 20).join(", ")}${r.toolTrace.length > 20 ? ", …" : ""}`

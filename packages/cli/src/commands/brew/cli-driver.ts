@@ -36,6 +36,12 @@ export interface CliTurnArgs {
   exec?: (cmd: string, args: string[], cwd: string) => { stdout: string; status: number | null };
 }
 
+/** An expired/absent CLI login is an OPERATOR problem, not an agent stall —
+ *  brew must say so instead of burning iterations and blaming the model. */
+export function isAuthFailure(text: string | undefined): boolean {
+  return /authenticate|oauth|not logged in|unauthorized|invalid api key/i.test(text ?? "");
+}
+
 export interface CliTurnResult {
   rationale: string;
   spendUsd: number;            // LIST PRICE — never zero because of auth
@@ -44,6 +50,8 @@ export interface CliTurnResult {
   toolTrace: string[];
   sessionId?: string;
   truncatedAtMaxTurns: boolean;
+  /** The CLI could not authenticate — halt immediately, don't retry. */
+  authFailed?: boolean;
   overflowJustification?: { reason_category: string; affected_scope: string[]; narrative: string };
   errorText?: string;
 }
@@ -148,7 +156,14 @@ export function runCliTurn(a: CliTurnArgs): CliTurnResult {
     sessionId: parsed.sessionId,
     truncatedAtMaxTurns: parsed.subtype === "error_max_turns",
     ...(overflowJustification ? { overflowJustification } : {}),
+    // The stream's `subtype` says "success" even when is_error is true and the
+    // real cause sits in `result` — reporting the subtype printed
+    // "claude exited 1 (success)" over an auth failure (rewo dogfood).
     ...(parsed.isError || (status !== 0 && !parsed.resultText)
-      ? { errorText: `claude exited ${status}${parsed.subtype ? ` (${parsed.subtype})` : ""}` } : {}),
+      ? { errorText: parsed.resultText
+            ? `claude session failed: ${parsed.resultText.slice(0, 200)}`
+            : `claude exited ${status}` }
+      : {}),
+    ...(isAuthFailure(parsed.resultText) ? { authFailed: true } : {}),
   };
 }
