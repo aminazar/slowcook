@@ -64,7 +64,7 @@ import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
-import { detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, type PeelResult } from "./testability.js";
+import { detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, peelIsStandaloneCheckpoint, type PeelResult } from "./testability.js";
 import { ladderWindow, describeWindow } from "./ladder.js";
 import { fileBackpropClaims } from "../../lib/backprop.js";
 import {
@@ -1255,7 +1255,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // PEEL resolution check: the turn may have dissolved the shared wall even
     // though no individual test flipped yet — that IS progress on the rung.
     const newPeel = detectMaskedMonolith(peelInput());
-    if (activePeel.masked && peelResolved(activePeel, newPeel)) {
+    const peelJustResolved = activePeel.masked && peelResolved(activePeel, newPeel);
+    if (peelJustResolved) {
       appendRunLog(
         ctx,
         `ITER ${iteration} PEEL-RESOLVED  "${activePeel.sharedRoot.slice(0, 80)}" ` +
@@ -1263,6 +1264,14 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       );
       activePeel = newPeel;
       if (newPeel.masked) appendRunLog(ctx, `PEEL  ${newPeel.reason}`);
+    }
+    // Only SHORT-CIRCUIT on peel resolution when nothing actually went green.
+    // Dissolving the wall often greens the masked tests in the same turn — and
+    // this branch used to `continue` before the gains were ever recorded, so
+    // brew threw away a fully-green suite, kept reporting 0/4, and halted
+    // AGENT_STALLED_NO_EDITS while the agent correctly insisted the code was
+    // right. It was: `vitest run` said 4 passed at that exact commit.
+    if (peelIsStandaloneCheckpoint(peelJustResolved, gains.length)) {
       iterationLogs.push({
         iteration,
         target_test_id: currentTarget,
@@ -1797,7 +1806,10 @@ async function runTurn(
         `\nslowcook brew: ${toolFault.reason}\n` +
         `  The agent cannot make progress until this is fixed — halting instead of spending the budget on retries.\n`
       );
-      process.exit(78);
+      // 78 is already the config-refusal code (unpriced model, unsupported
+      // stack, dirty tree); a broken bridge needs its own so scripts can tell
+      // "you configured this wrong" from "the tool itself is failing".
+      process.exit(79);
     }
     // filesTouched via git status delta is the ratchet's own diff; report
     // write_file calls from the trace for the no-edit check.

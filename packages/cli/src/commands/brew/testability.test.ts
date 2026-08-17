@@ -1,7 +1,7 @@
 // Peel, don't deadlock (ARM-B post-mortem). "Monolithic" is masking, not
 // atomicity — the shared prefix hides an independent gradient.
 import { describe, it, expect } from "vitest";
-import { failureRoot, detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, type FailedTest } from "./testability.js";
+import { failureRoot, detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, peelIsStandaloneCheckpoint, type FailedTest } from "./testability.js";
 
 const fail = (id: string, msg: string): FailedTest => ({ id, status: "failed", failure_message: msg });
 
@@ -71,6 +71,20 @@ describe("peelTargetPrompt", () => {
     expect(prompt).toContain("not a requirement");
     expect(prompt).toContain("Do NOT weaken or stub");
     expect(prompt).toContain("report independently");
+  });
+});
+
+describe("peelIsStandaloneCheckpoint", () => {
+  it("records the greens when the wall fell AND tests flipped in the same turn", () => {
+    // The peel2 fixture: one write dissolved the mask and greened all four.
+    // Short-circuiting here is what made brew report 0/4 on a passing suite.
+    expect(peelIsStandaloneCheckpoint(true, 4)).toBe(false);
+  });
+  it("is a checkpoint on its own when the wall fell but nothing greened yet", () => {
+    expect(peelIsStandaloneCheckpoint(true, 0)).toBe(true);
+  });
+  it("never fires when no peel was resolved", () => {
+    expect(peelIsStandaloneCheckpoint(false, 0)).toBe(false);
   });
 });
 

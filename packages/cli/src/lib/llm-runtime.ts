@@ -24,6 +24,12 @@
 // slowcook's tools mounted over MCP; dollars stay at list price.
 export const CLI_BACKEND_SUPPORTED = ["refine", "brew"] as const;
 
+/** Does this command run on the local `claude` login? Widened so callers can
+ *  ask with a plain command string. */
+export function isCliCapable(command: string): boolean {
+  return (CLI_BACKEND_SUPPORTED as readonly string[]).includes(command);
+}
+
 export function isClaudeCliBackend(env: NodeJS.ProcessEnv = process.env): boolean {
   return env["SLOWCOOK_LLM"]?.trim().toLowerCase() === "claude-cli";
 }
@@ -34,11 +40,23 @@ export function isClaudeCliBackend(env: NodeJS.ProcessEnv = process.env): boolea
  * wrong cause is the bug being fixed here.
  */
 export function apiKeyRequiredMessage(command: string, env: NodeJS.ProcessEnv = process.env): string {
-  if (isClaudeCliBackend(env)) {
+  if (isClaudeCliBackend(env) && !isCliCapable(command)) {
     return (
       `slowcook ${command}: the claude-cli backend is not supported by this command.\n` +
       `  ${command} drives API tool-use blocks; the local \`claude\` CLI runs as a pure text model, so it cannot serve them.\n` +
       `  Set ANTHROPIC_API_KEY to run ${command}. (SLOWCOOK_LLM=claude-cli works for: ${CLI_BACKEND_SUPPORTED.join(", ")}.)`
+    );
+  }
+  // When the command IS cli-capable, leading with "set ANTHROPIC_API_KEY"
+  // sends someone who already has a Claude subscription to go buy API credit.
+  // Name the free option first. (This branch used to say "available for
+  // refine, brew, but not brew" — a contradiction, since brew became
+  // cli-capable and the sentence still hardcoded the exclusion.)
+  if (isCliCapable(command)) {
+    return (
+      `slowcook ${command}: no LLM runtime configured.\n` +
+      `  Either set SLOWCOOK_LLM=claude-cli to run on your local \`claude\` login (no API billing),\n` +
+      `  or set ANTHROPIC_API_KEY to run against the API.`
     );
   }
   return (
