@@ -5,7 +5,7 @@
 import { execSync } from "node:child_process";
 import { relative as pathRelative, isAbsolute } from "node:path";
 import type { TestEntry } from "@slowcook-ai/core";
-import type { StackConfig } from "./stack-config.js";
+import { resolveSuiteEnv, type StackConfig } from "./stack-config.js";
 
 export interface TestResult {
   id: string;
@@ -34,7 +34,7 @@ export interface RunOptions {
   cwd: string;
   maxBuffer?: number;
   /** Inject for tests. Receives cmd + cwd; returns { stdout, stderr, code }. */
-  exec?: (cmd: string, cwd: string) => { stdout: string; stderr: string; code: number };
+  exec?: (cmd: string, cwd: string, env?: Record<string, string>) => { stdout: string; stderr: string; code: number };
   /**
    * 0.11.16+ — when set, append these test file paths to the run
    * command so vitest only runs the named files. Used by brew's
@@ -82,7 +82,7 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
     }
 
     try {
-      const { stdout, stderr, code } = exec(cmd, options.cwd);
+      const { stdout, stderr, code } = exec(cmd, options.cwd, resolveSuiteEnv(suite.env));
       suites.push({
         suite: suiteName,
         command: cmd,
@@ -131,11 +131,15 @@ function shellQuote(s: string): string {
 
 function defaultExec(
   cmd: string,
-  cwd: string
+  cwd: string,
+  env?: Record<string, string>
 ): { stdout: string; stderr: string; code: number } {
   try {
     const stdout = execSync(cmd, {
       cwd,
+      // Merged into the ambient environment rather than prefixed onto the
+      // command string, so declared secrets never appear in logged commands.
+      ...(env ? { env: { ...process.env, ...env } } : {}),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 128 * 1024 * 1024,

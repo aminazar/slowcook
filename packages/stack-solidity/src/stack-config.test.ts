@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   validateSolidityStackConfig,
+  resolveSuiteEnv,
   StackConfigError,
 } from "./stack-config.js";
 
@@ -90,5 +91,86 @@ describe("validateSolidityStackConfig", () => {
       lint: { lint_command: "forge fmt --check", typecheck_command: "tsc" },
     });
     expect(config.lint).toEqual({ lint_command: "forge fmt --check" });
+  });
+});
+
+// --- suite env (the dovizir story-002 gap) --------------------------------
+// The referee suite selects its implementation via vm.envOr("DOVIZIR_DEPLOYER",
+// <stub>), and the stub reverts "STUB" on every call. With no way to express
+// that variable, brew ran the stub forever: 9/9 red, unwinnable by any agent.
+describe("suite env", () => {
+  const withEnv = (env: unknown) =>
+    validateSolidityStackConfig({
+      language: "solidity",
+      test: {
+        forge: {
+          runner: "forge",
+          run_command: "forge test --root ../acceptance",
+          discover_command: "forge test --root ../acceptance --list --json",
+          reporter_format: "forge-json",
+          env,
+        },
+      },
+    });
+
+  it("carries declared env through validation", () => {
+    const c = withEnv({ DOVIZIR_DEPLOYER: "src/arm/ArmBDeployer.sol:ArmBDeployer" });
+    expect(c.test!["forge"]!.env).toEqual({
+      DOVIZIR_DEPLOYER: "src/arm/ArmBDeployer.sol:ArmBDeployer",
+    });
+  });
+
+  it("leaves env undefined when the suite declares none (no behaviour change)", () => {
+    const c = validateSolidityStackConfig({
+      language: "solidity",
+      test: {
+        forge: {
+          runner: "forge",
+          run_command: "forge test",
+          discover_command: "forge test --list --json",
+          reporter_format: "forge-json",
+        },
+      },
+    });
+    expect(c.test!["forge"]!.env).toBeUndefined();
+  });
+
+  it("refuses non-string values instead of coercing them", () => {
+    expect(() => withEnv({ RUNS: 256 })).toThrow(/env\.RUNS must be a string, got number/);
+  });
+
+  it("refuses an env that isn't an object", () => {
+    expect(() => withEnv("DOVIZIR_DEPLOYER=x")).toThrow(/must be an object of string values/);
+    expect(() => withEnv(["A=1"])).toThrow(/must be an object of string values/);
+  });
+});
+
+describe("resolveSuiteEnv", () => {
+  it("returns undefined for an undeclared env", () => {
+    expect(resolveSuiteEnv(undefined)).toBeUndefined();
+  });
+
+  it("passes literal values through untouched", () => {
+    expect(resolveSuiteEnv({ A: "src/arm/D.sol:D" }, {})).toEqual({ A: "src/arm/D.sol:D" });
+  });
+
+  it("expands ${VAR} from the ambient environment so secrets stay out of the repo", () => {
+    expect(resolveSuiteEnv({ RPC: "${BASE_RPC}/v1" }, { BASE_RPC: "https://x" } as NodeJS.ProcessEnv))
+      .toEqual({ RPC: "https://x/v1" });
+  });
+
+  it("expands several references in one value", () => {
+    expect(resolveSuiteEnv({ U: "${A}-${B}" }, { A: "1", B: "2" } as NodeJS.ProcessEnv))
+      .toEqual({ U: "1-2" });
+  });
+
+  it("NAMES an unset variable rather than silently expanding to empty", () => {
+    // An empty value looks plausible to the runner and fails far from here.
+    expect(() => resolveSuiteEnv({ RPC: "${MISSING_RPC}" }, {} as NodeJS.ProcessEnv))
+      .toThrow(/RPC references \$\{MISSING_RPC\}, which is not set/);
+  });
+
+  it("an empty-string ambient value is set, and is not an error", () => {
+    expect(resolveSuiteEnv({ A: "${EMPTY}" }, { EMPTY: "" } as NodeJS.ProcessEnv)).toEqual({ A: "" });
   });
 });

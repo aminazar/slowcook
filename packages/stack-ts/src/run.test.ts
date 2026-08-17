@@ -223,3 +223,34 @@ describe("runTests", () => {
     expect(result.suites).toEqual([]);
   });
 });
+
+describe("suite env reaches the runner", () => {
+  it("passes declared env to exec and keeps it out of the command string", () => {
+    const seen: (Record<string, string> | undefined)[] = [];
+    const cmds: string[] = [];
+    const cfg = mkConfig();
+    cfg.test!["backend"]!.env = { TEST_MODE: "integration", SECRET_TOKEN: "hunter2" };
+    runTests(cfg, {
+      cwd: "/repo",
+      exec: (cmd, _cwd, env) => {
+        cmds.push(cmd);
+        seen.push(env);
+        return { stdout: SAMPLE_VITEST_JSON, stderr: "", code: 1 };
+      },
+    });
+    expect(seen[0]).toEqual({ TEST_MODE: "integration", SECRET_TOKEN: "hunter2" });
+    expect(cmds[0]).not.toContain("hunter2");
+  });
+
+  it("passes undefined when no env is declared", () => {
+    const seen: (Record<string, string> | undefined)[] = [];
+    runTests(mkConfig(), {
+      cwd: "/repo",
+      exec: (_cmd, _cwd, env) => {
+        seen.push(env);
+        return { stdout: SAMPLE_VITEST_JSON, stderr: "", code: 1 };
+      },
+    });
+    expect(seen[0]).toBeUndefined();
+  });
+});
