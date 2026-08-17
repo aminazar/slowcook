@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   loadReviewerToken, saveReviewerToken, loadReviewerIdentity, saveReviewerIdentity,
   clearReviewerSession, runDeviceLogin, identifyReviewer, type LoginEvent,
+  classifyAuthStatus, checkRepoWriteAccess,
 } from "./reviewer-session.js";
 import type { RepoCoord } from "./github.js";
 
@@ -86,5 +87,48 @@ describe("runDeviceLogin", () => {
   it("identifyReviewer maps the user, name→login fallback", async () => {
     const f = (async () => ({ ok: true, json: async () => ({ login: "ben", name: null }) } as Response)) as typeof fetch;
     expect(await identifyReviewer("t", f)).toMatchObject({ login: "ben", name: "ben" });
+  });
+});
+
+/* An outage is not a rejection (2026-08-17).
+   A real GitHub API outage was shown to a reviewer as "GitHub rejected that
+   token"; they regenerated a working token twice chasing the wrong problem.
+   These pin the distinction so the message can never silently regress. */
+describe("classifyAuthStatus", () => {
+  it("treats 5xx and 429 as unreachable, never as a bad token", () => {
+    for (const s of [500, 502, 503, 504, 429]) {
+      expect(classifyAuthStatus(s)).toBe("unreachable");
+    }
+  });
+
+  it("treats a network-level failure (null) as unreachable", () => {
+    expect(classifyAuthStatus(null)).toBe("unreachable");
+  });
+
+  it("blames the token only when GitHub actually read it and said no", () => {
+    expect(classifyAuthStatus(401)).toBe("bad-token");
+  });
+
+  it("separates 'not yours' from 'not valid'", () => {
+    expect(classifyAuthStatus(403)).toBe("no-access");
+    expect(classifyAuthStatus(404)).toBe("no-access");
+  });
+
+  it("passes a good response", () => {
+    expect(classifyAuthStatus(200)).toBe("ok");
+  });
+});
+
+/* checkRepoWriteAccess must keep failing CLOSED during an outage — the honest
+   message is the UI's job, but access itself may never be granted on a guess. */
+describe("checkRepoWriteAccess during an outage", () => {
+  it("returns false on 503 rather than assuming access", async () => {
+    const f = (async () => new Response("", { status: 503 })) as unknown as typeof fetch;
+    expect(await checkRepoWriteAccess("t", repo, f)).toBe(false);
+  });
+
+  it("returns false when fetch itself throws", async () => {
+    const f = (async () => { throw new Error("network"); }) as unknown as typeof fetch;
+    expect(await checkRepoWriteAccess("t", repo, f)).toBe(false);
   });
 });

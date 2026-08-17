@@ -82,10 +82,35 @@ export async function identifyReviewer(token: string, f: typeof fetch = fetch): 
 }
 
 /**
+ * Why an auth probe failed — a REJECTION and an OUTAGE are different answers.
+ *
+ * Added 2026-08-17 after a real GitHub API outage was reported to a reviewer as
+ * "GitHub rejected that token"; they regenerated a perfectly good token twice
+ * chasing it. 5xx and 429 mean GitHub never gave a verdict, and a `fetch` that
+ * throws means we never reached it — in neither case may we blame the token.
+ *
+ * Pass `null` for a network-level failure (a thrown/rejected fetch).
+ */
+export type AuthProbe = "ok" | "bad-token" | "no-access" | "unreachable";
+
+export function classifyAuthStatus(status: number | null): AuthProbe {
+  if (status === null) return "unreachable";      // never reached GitHub
+  if (status >= 500 || status === 429) return "unreachable"; // no verdict given
+  if (status === 401) return "bad-token";         // GitHub read it and said no
+  if (status === 403 || status === 404) return "no-access";  // real, just not yours
+  if (status >= 200 && status < 300) return "ok";
+  return "bad-token";
+}
+
+/**
  * Does this reviewer have write access (push or higher) to the repo? Drives the
  * apply tier: GET /repos/{owner}/{repo} returns `permissions` for the
  * authenticated user. `push` (write), `maintain`, or `admin` → can apply.
  * Anything else (read/none), or any error, → held for the team (fail closed).
+ *
+ * NOTE: this stays boolean and still fails closed on an outage — unknown access
+ * must never auto-apply. Callers that need to TELL THE USER WHY should probe
+ * with `classifyAuthStatus` so an outage is not shown as a credential problem.
  */
 export async function checkRepoWriteAccess(token: string, repo: RepoCoord, f: typeof fetch = fetch): Promise<boolean> {
   try {

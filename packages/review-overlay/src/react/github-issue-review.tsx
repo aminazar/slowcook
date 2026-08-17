@@ -83,7 +83,7 @@ import {
 import { loadPat, savePat, type RepoCoord } from "../github.js";
 import {
   loadReviewerToken, saveReviewerToken, saveReviewerIdentity, loadReviewerIdentity,
-  requestDeviceCode, pollAccessToken, identifyReviewer,
+  requestDeviceCode, pollAccessToken, identifyReviewer, classifyAuthStatus,
 } from "../reviewer-session.js";
 
 /* ────────────────────────────── pure transport helpers (unit-tested) */
@@ -207,7 +207,7 @@ export function placePopover(
 function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }: { coord: RepoCoord; authBase?: string; accent: string; onDone: () => void; screentimeBase?: string; localReport: () => ScreentimeReport }) {
   const [open, setOpen] = useState(false);
   const [tok, setTok] = useState("");
-  const [patState, setPatState] = useState<"idle" | "checking" | "bad">("idle");
+  const [patState, setPatState] = useState<"idle" | "checking" | "bad" | "down">("idle");
   const [flow, setFlow] = useState<{ step: "idle" | "starting" | "failed"; why?: string } | { step: "code"; userCode: string; verificationUri: string }>({ step: "idle" });
   const [, bump] = useState(0);
   useEffect(() => {
@@ -260,12 +260,19 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
     setFlow({ step: "failed", why: "The code expired — start again." });
   };
 
+  /* A rejected token and an unreachable GitHub are NOT the same answer
+     (2026-08-17). This was `if (!r?.ok) setPatState("bad")`, so during a real
+     GitHub API outage a perfectly good token was reported as "GitHub rejected
+     that token" — a reviewer regenerated a working token twice chasing it.
+     5xx/429/network mean we never got a verdict, so we must not deliver one. */
   const savePatTok = async () => {
     const t = tok.trim();
     if (!t) return;
     setPatState("checking");
     const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${t}` } }).catch(() => null);
-    if (!r?.ok) { setPatState("bad"); return; }
+    const verdict = classifyAuthStatus(r ? r.status : null);
+    if (verdict === "unreachable") { setPatState("down"); return; }
+    if (verdict !== "ok") { setPatState("bad"); return; }
     setPatState("idle");
     await finish(t);
   };
@@ -456,6 +463,7 @@ function SignIn({ coord, authBase, accent, onDone, screentimeBase, localReport }
                     {patState === "checking" ? "checking…" : "save"}
                   </button>
                   {patState === "bad" && <div style={{ fontSize: 10, color: C.danger, marginTop: 4 }}>GitHub rejected that token — check it was copied whole.</div>}
+                  {patState === "down" && <div style={{ fontSize: 10, color: C.dim, marginTop: 4 }}>Can’t reach GitHub right now — your token is probably fine. Try again in a few minutes (githubstatus.com).</div>}
                   <button onClick={() => setTokenSent(false)} style={{ border: "none", background: "transparent", color: C.dim, fontSize: 9.5, marginTop: 4, cursor: "pointer", padding: 0 }}>back</button>
                 </>
               )}
