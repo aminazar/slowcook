@@ -9,12 +9,31 @@ import { describe, it, expect } from "vitest";
 import { apiKeyRequiredMessage, isClaudeCliBackend, CLI_BACKEND_SUPPORTED } from "./llm-runtime.js";
 
 describe("apiKeyRequiredMessage", () => {
-  it("names the backend conflict when claude-cli is the chosen runtime", () => {
-    const msg = apiKeyRequiredMessage("brew", { SLOWCOOK_LLM: "claude-cli" } as NodeJS.ProcessEnv);
+  it("names the backend conflict for a command claude-cli genuinely cannot serve", () => {
+    const msg = apiKeyRequiredMessage("testgen", { SLOWCOOK_LLM: "claude-cli" } as NodeJS.ProcessEnv);
     expect(msg).toContain("claude-cli backend is not supported by this command");
-    expect(msg).toContain("brew");
+    expect(msg).toContain("testgen");
     expect(msg).toContain("tool-use");            // says WHY, not just "no"
     expect(msg).toContain("refine");              // names what DOES work
+  });
+
+  it("never tells a cli-capable command that claude-cli won't serve it", () => {
+    // brew gained claude-cli support; both branches hardcoded the exclusion
+    // and produced "available for refine, brew, but not brew".
+    for (const cmd of CLI_BACKEND_SUPPORTED) {
+      for (const env of [{}, { SLOWCOOK_LLM: "claude-cli" }]) {
+        const msg = apiKeyRequiredMessage(cmd, env as NodeJS.ProcessEnv);
+        expect(msg, `${cmd} / ${JSON.stringify(env)}`).not.toContain("not supported by this command");
+        expect(msg, `${cmd} / ${JSON.stringify(env)}`).not.toContain(`but not ${cmd}`);
+      }
+    }
+  });
+
+  it("offers the free path first when the command can run on the local login", () => {
+    const msg = apiKeyRequiredMessage("brew", {} as NodeJS.ProcessEnv);
+    expect(msg).toContain("SLOWCOOK_LLM=claude-cli");
+    expect(msg).toContain("no API billing");
+    expect(msg.indexOf("SLOWCOOK_LLM=claude-cli")).toBeLessThan(msg.indexOf("ANTHROPIC_API_KEY"));
   });
 
   it("is case/whitespace tolerant about the backend value", () => {
