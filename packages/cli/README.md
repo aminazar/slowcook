@@ -1,6 +1,8 @@
 # @slowcook-ai/cli
 
-The `slowcook` CLI — TDD-first agentic development harness. Turns a detailed user story into frozen tests, then lets agents iterate under strict guardrails until every test is green.
+The `slowcook` CLI. Turn a user story into frozen tests, then let an agent iterate until they're green — without letting it move the goalposts.
+
+Tests are written and approved *before* the agent starts, and it cannot edit them. Each iteration is scored: a test flipping red → green is committed, a broken green test reverts the whole iteration, and nothing-changed keeps the code as the next turn's base without a checkpoint. Progress only goes one way.
 
 > ⚠️ **Active development — expect breaking changes.** Slowcook is pre-1.0 and the architecture itself is iterating in public. CLI commands, file layouts, prompt contracts, and the package surface can and will change between point versions.
 >
@@ -265,19 +267,33 @@ Most pipeline commands invoke the Anthropic API and act on GitHub:
 
 ### Which backend does which command support?
 
-`SLOWCOOK_LLM=claude-cli` runs slowcook on the local `claude` CLI's
-subscription auth instead of an API key — but **not every command can use it**.
-Commands that drive API *tool-use* blocks need the API; the CLI backend is
-deliberately a pure text model (`--disallowedTools '*'`).
+`SLOWCOOK_LLM=claude-cli` runs slowcook on your local `claude` login's
+subscription instead of an API key — no API billing.
 
 | Backend | Set | Supported by |
 |---|---|---|
 | Anthropic API | `ANTHROPIC_API_KEY` | every command |
-| Local Claude CLI | `SLOWCOOK_LLM=claude-cli` | `refine` |
+| Local Claude CLI | `SLOWCOOK_LLM=claude-cli` | `refine`, `brew` |
 
-A tool-use command asked to run on the CLI backend now fails immediately and
-says so by name, rather than reporting a missing key the operator omitted on
-purpose. Tool-use support for the CLI backend is tracked as a follow-up.
+`brew` reaches its tools over an MCP bridge that exposes slowcook's own tool
+set (`read_file`, `write_file`, `outline_file`, …) to the headless session,
+with the CLI's built-in tools fenced off. Other tool-use commands still need
+the API.
+
+Spend is still recorded, at Anthropic list price, so cost reporting and budget
+caps keep working on subscription auth — the ledger says what the run *would*
+have cost, and nothing is billed to your API account.
+
+Two things that bite in practice:
+
+- **A stale `ANTHROPIC_API_KEY` outranks the OAuth token.** If both are set,
+  the CLI uses the key; a dead key then produces an opaque
+  `error_during_execution`. Check `apiKeySource` in the session's init line,
+  and `unset ANTHROPIC_API_KEY` when you mean to use the subscription.
+- **An expired login halts immediately** (exit 77) naming the fix, rather than
+  burning iterations as a phantom agent stall. Re-auth with `claude setup-token`
+  and export the printed token as `CLAUDE_CODE_OAUTH_TOKEN` — `setup-token`
+  prints a token, it does not save one.
 
 ### Running slowcook on a remote host
 

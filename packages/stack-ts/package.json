@@ -1,7 +1,7 @@
 {
   "name": "@slowcook-ai/stack-ts",
-  "version": "0.10.0",
-  "description": "TypeScript/JavaScript stack adapter for slowcook — test discovery, runners, coverage, mutation",
+  "version": "0.11.0",
+  "description": "TypeScript/JavaScript stack adapter for slowcook \u2014 test discovery, runners, coverage, mutation",
   "license": "MIT",
   "author": "aminazar",
   "repository": {
@@ -31,7 +31,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
