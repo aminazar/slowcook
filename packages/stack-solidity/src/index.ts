@@ -5,3 +5,4 @@ export * from "./run.js";
 export * from "./templates.js";
 export * from "./lint.js";
 export * from "./gas.js";
+export * from "./code-map.js";

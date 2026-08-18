@@ -1,6 +1,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { generateMap } from "./scan.js";
+import { scanSolidityRepo } from "./scan-solidity.js";
 import {
   renderJson,
   renderMarkdown,
@@ -142,6 +143,12 @@ export async function map(argv: string[], cliVersion: string): Promise<void> {
     slowcookVersion: cliVersion,
   });
 
+  // Solidity contracts live alongside the TS entities rather than replacing
+  // them: a repo can hold a Next.js app AND a Foundry package. Left absent
+  // when there are no .sol files, so pure-TS maps are unchanged.
+  const contracts = scanSolidityRepo(args.repoRoot);
+  if (contracts.length > 0) fresh.contracts = contracts;
+
   if (args.subcommand === "generate") {
     writeFreshMap(args.repoRoot, args.out, args.md, fresh);
     summary(fresh);
@@ -232,7 +239,12 @@ function summary(map: CodeMap): void {
 }
 
 function summaryCounts(m: CodeMap): string {
-  return `${m.api_routes.length} routes, ${m.pages.length} pages, ${m.components.length} components, ${m.helpers.length} helpers, ${m.types.length} types`;
+  const base = `${m.api_routes.length} routes, ${m.pages.length} pages, ${m.components.length} components, ${m.helpers.length} helpers, ${m.types.length} types`;
+  if (!m.contracts?.length) return base;
+  const fns = m.contracts.reduce((n, c) => n + c.functions.length, 0);
+  // On a Foundry repo the TS counts are all zero and saying only "0 routes,
+  // 0 pages…" is what made `map generate` look broken there.
+  return `${base}, ${m.contracts.length} contracts (${fns} functions)`;
 }
 
 /**

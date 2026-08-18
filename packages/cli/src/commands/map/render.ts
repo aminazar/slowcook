@@ -102,6 +102,43 @@ export function renderMarkdown(map: CodeMap): string {
     }
   }
 
+  if (map.contracts?.length) {
+    section(lines, "Contracts", map.contracts.length);
+    lines.push("");
+    lines.push("| Contract | Kind | File:Line | Inherits | Summary |");
+    lines.push("|---|---|---|---|---|");
+    for (const c of map.contracts) {
+      lines.push(
+        `| \`${c.name}\` | ${c.kind} | \`${fileLine(c.file, c.line)}\` | ${
+          c.inherits.length ? c.inherits.map((i) => `\`${i}\``).join(", ") : "—"
+        } | ${oneLine(c.natspec)} |`
+      );
+    }
+    lines.push("");
+    // The callable surface is the thing an agent must actually satisfy, so it
+    // gets its own per-contract block rather than a count in the table.
+    for (const c of map.contracts) {
+      if (!c.functions.length && !c.events.length && !c.errors.length) continue;
+      lines.push(`### ${c.name}`);
+      lines.push("");
+      if (c.functions.length) {
+        for (const f of c.functions) {
+          const mods = [f.visibility, f.mutability].filter(Boolean).join(" ");
+          lines.push(`- \`${f.name}()\`${mods ? ` — ${mods}` : ""} (:${f.line})`);
+        }
+        lines.push("");
+      }
+      if (c.events.length) {
+        lines.push(`**Events:** ${c.events.map((e) => `\`${e}\``).join(", ")}`);
+        lines.push("");
+      }
+      if (c.errors.length) {
+        lines.push(`**Errors:** ${c.errors.map((e) => `\`${e}\``).join(", ")}`);
+        lines.push("");
+      }
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -142,6 +179,7 @@ export function mapsEqual(a: CodeMap, b: CodeMap): boolean {
   const canonical = (m: CodeMap) =>
     JSON.stringify({
       api_routes: m.api_routes,
+      contracts: m.contracts ?? [],
       pages: m.pages,
       components: m.components,
       helpers: m.helpers,
