@@ -84,6 +84,7 @@ Usage:
   slowcook check prod-honesty [--cwd <path>] [--dir <src>]
   slowcook check prod-bundle [--cwd <path>] [--dist <dist>]
   slowcook check surface-parity [--cwd <path>] [--update-baseline]
+  slowcook check ratchet-protection --base <ref> [--head <ref>] [--cwd <path>]
   slowcook check spec [file...] [--cwd <path>]
 
 Subcommands:
