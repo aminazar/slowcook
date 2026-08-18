@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { scanSolidityFile, type ContractEntry } from "@slowcook-ai/stack-solidity";
+import { generateMap, type CodeMap } from "./scan.js";
 
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "lib", "out", "cache", "artifacts", "broadcast",
@@ -69,4 +70,20 @@ export function scanSolidityRepo(repoRoot: string): ContractEntry[] {
     }
   }
   return out;
+}
+
+/**
+ * THE map entry point: TS entities + Solidity contracts.
+ *
+ * Exists because there were briefly two places that built a CodeMap — the
+ * `map` command (which learned Solidity) and brew's own start-of-run
+ * regeneration (which did not). brew silently overwrote a correct Solidity
+ * map with an empty TS-only one, then warned the operator that the map was
+ * empty. Every caller goes through here so that cannot happen again.
+ */
+export function generateFullMap(opts: { repoRoot: string; slowcookVersion: string }): CodeMap {
+  const map = generateMap(opts);
+  const contracts = scanSolidityRepo(opts.repoRoot);
+  if (contracts.length > 0) map.contracts = contracts;
+  return map;
 }

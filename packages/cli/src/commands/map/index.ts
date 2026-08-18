@@ -1,7 +1,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { generateMap } from "./scan.js";
-import { scanSolidityRepo } from "./scan-solidity.js";
+import { generateFullMap } from "./scan-solidity.js";
 import {
   renderJson,
   renderMarkdown,
@@ -138,16 +138,12 @@ Options:
 export async function map(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
-  const fresh = generateMap({
+  // Solidity contracts live alongside the TS entities rather than replacing
+  // them: a repo can hold a Next.js app AND a Foundry package.
+  const fresh = generateFullMap({
     repoRoot: args.repoRoot,
     slowcookVersion: cliVersion,
   });
-
-  // Solidity contracts live alongside the TS entities rather than replacing
-  // them: a repo can hold a Next.js app AND a Foundry package. Left absent
-  // when there are no .sol files, so pure-TS maps are unchanged.
-  const contracts = scanSolidityRepo(args.repoRoot);
-  if (contracts.length > 0) fresh.contracts = contracts;
 
   if (args.subcommand === "generate") {
     writeFreshMap(args.repoRoot, args.out, args.md, fresh);

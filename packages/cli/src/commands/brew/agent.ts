@@ -51,7 +51,8 @@ import {
   type HaltReport,
   type IterationDiff,
 } from "./halt.js";
-import { generateMap, sliceCodeMap } from "../map/scan.js";
+import { sliceCodeMap } from "../map/scan.js";
+import { generateFullMap } from "../map/scan-solidity.js";
 import type { CodeMap } from "../map/scan.js";
 import { writeFreshMap } from "../map/index.js";
 import {
@@ -2566,7 +2567,7 @@ function buildBrewPrBody(ctx: BrewContext, outcome: BrewPrOutcome): string {
  */
 function regenerateCodeMap(ctx: BrewContext, when: string): void {
   try {
-    const fresh = generateMap({
+    const fresh = generateFullMap({
       repoRoot: ctx.repoRoot,
       slowcookVersion: ctx.cliVersion,
     });

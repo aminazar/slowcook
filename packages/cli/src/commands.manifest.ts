@@ -166,7 +166,7 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   {
     name: "check",
     usage: "slowcook check (mock-isolation|prod-honesty|prod-bundle|surface-parity|spec) [file...] [--cwd <path>]",
-    description: "Static structural checks. `check spec` re-runs spec validators on PR amendments; `check mock-isolation` enforces the mock-vs-prod boundary.",
+    description: "Static structural checks: spec validators on PR amendments, the mock-vs-prod import boundary, mock data leaking into production paths, and mock/prod surface drift.",
     group: "checks",
   },
   {
