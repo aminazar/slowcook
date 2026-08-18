@@ -165,8 +165,8 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   },
   {
     name: "check",
-    usage: "slowcook check (mock-isolation|prod-honesty|prod-bundle|surface-parity|spec) [file...] [--cwd <path>]",
-    description: "Static structural checks: spec validators on PR amendments, the mock-vs-prod import boundary, mock data leaking into production paths, and mock/prod surface drift.",
+    usage: "slowcook check (mock-isolation|prod-honesty|prod-bundle|surface-parity|ratchet-protection|spec) [file...] [--cwd <path>]",
+    description: "Static structural checks: spec validators, the mock-vs-prod import boundary, mock data leaking into production, mock/prod surface drift, and ratchet protection (an owned artifact changes only via the agent that owns it).",
     group: "checks",
   },
   {

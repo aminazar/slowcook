@@ -691,6 +691,60 @@ ${RESOLVE_PIN_STEP}
  *
  * Ordering is deterministic and stable for snapshot testability.
  */
+function slowcookRatchetProtectionWorkflow(): string {
+  return [
+    "name: slowcook ratchet-protection",
+    "",
+    "# An artifact may only be changed by the agent that owns it.",
+    "#",
+    "# specs/ and the tests a story is scored against ARE the definition of done.",
+    "# brew never edits them, but nothing stopped an ordinary PR from doing so --",
+    "# and a definition of done that any PR can move guarantees nothing.",
+    "#",
+    "# One route, and only one: the owning agent, initiated by an issue carrying",
+    "# the owner's label, with content still matching what the agent wrote.",
+    "#",
+    "#   story tests -> recipe   (issue label slowcook:recipe)",
+    "#   specs       -> refine   (issue label slowcook:refine + story consent)",
+    "#   ...plus whatever .brewing/ownership.json adds for this project.",
+    "#",
+    "# There is NO human-override route by design: an override lets the definition",
+    "# of done move in the same PR that claims to satisfy it. If an artifact is",
+    "# wrong, run its owning agent from a labelled issue.",
+    "",
+    "on:",
+    "  pull_request:",
+    "    # No 'labeled' trigger: authorisation lives on the driving ISSUE, recorded",
+    "    # by the agent at run time, so re-labelling a PR cannot change the verdict.",
+    "    types: [opened, synchronize, reopened]",
+    "",
+    "permissions:",
+    "  contents: read",
+    "",
+    "jobs:",
+    "  ratchet-protection:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@v4",
+    "        with:",
+    "          # Full history: the gate diffs against the merge-base, and a shallow",
+    "          # checkout makes every path look freshly changed (the trap that",
+    "          # already produced a false positive in publish-drift).",
+    "          fetch-depth: 0",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          node-version: 20",
+    "      - name: Install slowcook",
+    "        run: npm i -g @slowcook-ai/cli@$(cat .brewing/slowcook-cli-version 2>/dev/null || echo latest)",
+    "      - name: Verify ratchet protection",
+    "        run: |",
+    "          slowcook check ratchet-protection \\",
+    "            --base \"${{ github.event.pull_request.base.sha }}\" \\",
+    "            --head \"${{ github.event.pull_request.head.sha }}\"",
+    "",
+  ].join("\n");
+}
+
 function slowcookRefineWorkflow(): string {
   return `name: slowcook refine
 
@@ -1073,6 +1127,7 @@ export function getGitHubCiArtifacts(params: {
   return [
     { path: ".github/workflows/slowcook.yml", contents: slowcookWorkflow(pm) },
     { path: ".github/workflows/slowcook-refine.yml", contents: slowcookRefineWorkflow() },
+    { path: ".github/workflows/slowcook-ratchet-protection.yml", contents: slowcookRatchetProtectionWorkflow() },
     { path: ".github/workflows/slowcook-spec-merged.yml", contents: slowcookSpecMergedWorkflow() },
     { path: ".github/workflows/slowcook-tests-merged.yml", contents: slowcookTestsMergedWorkflow() },
     { path: ".github/workflows/slowcook-mockup-approved.yml", contents: slowcookMockupApprovedWorkflow() },
