@@ -10,6 +10,7 @@ import {
   type BrewContext,
 } from "./agent.js";
 import { haltReportToMarkdown } from "./halt.js";
+import { acquireLock, releaseLock } from "./run-lock.js";
 import { requireApiKey, isClaudeCliBackend } from "../../lib/llm-runtime.js";
 import { resolveModel, renderModelTable, assertModelPriced } from "../../lib/model-defaults.js";
 import { isModelPriced } from "@slowcook-ai/llm-anthropic";
@@ -569,6 +570,25 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     mode: resolvedMode,
     navigatorHook,
   };
+
+  // ONE BREW PER WORKING TREE (slowcook#413). Two brews on one tree interleave
+  // their edits and reverts, which makes a run unattributable rather than
+  // merely noisy — the dovizir dogfood lost a whole measurement that way.
+  const lock = acquireLock(args.repoRoot, args.storyId);
+  if (!lock.acquired) {
+    console.error(`\nslowcook brew: ${lock.message}\n`);
+    process.exit(75);
+  }
+  if (lock.tookOverFrom) {
+    console.error(
+      `slowcook brew: took over a stale lock from pid ${lock.tookOverFrom.pid} ` +
+      `on ${lock.tookOverFrom.host} (story ${lock.tookOverFrom.storyId}) — it left without releasing.`
+    );
+  }
+  const release = (): void => releaseLock(args.repoRoot);
+  process.on("exit", release);
+  process.on("SIGINT", () => { release(); process.exit(130); });
+  process.on("SIGTERM", () => { release(); process.exit(143); });
 
   try {
     const outcome = await runBrew(ctx);

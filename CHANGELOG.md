@@ -6,20 +6,28 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## cli 0.32.0 · stack-solidity 0.3.0 · stack-ts 0.11.0 — the run that couldn't be won
+## cli 0.33.0 · stack-solidity 0.3.0 · stack-ts 0.11.0 — two days against a real Solidity suite
 
-Two days of dogfooding `brew` against a real Solidity acceptance suite. The
-story had failed twice, ~$43 spent, and read as "the model can't do this." It
-wasn't. The suite selected its implementation from an environment variable
-slowcook had no way to set, so every run scored a stub that reverts on every
-call. Nothing any agent wrote could have turned it green.
+Everything here came out of dogfooding `brew` against a Foundry acceptance
+suite that had already burned ~$43 across two failed runs.
 
-Everything below came out of chasing that.
+**Correction to an earlier claim.** I initially reported that the suite was
+unwinnable — that it picked its implementation from an environment variable
+slowcook could not set, so every run scored a stub. That was wrong. The
+variable was supplied all along by an untracked `.env` that Foundry
+auto-loads from the working directory; the baseline `STUB` failure was the
+arm's own deployer still inheriting the referee's stub, which is simply the
+task not yet done. The story was always winnable and the earlier runs failed
+on ordinary difficulty. Caught by a reviewer asking for the command output
+instead of accepting the diagnosis.
 
 **Suites can declare their environment.** `stack.json` gains
 `test.<suite>.env`, applied to run AND discover commands. Env-parameterised
 suites are ordinary — a plug-in implementation, a fixture mode, a base URL —
-and slowcook simply had nowhere to express one.
+and slowcook had nowhere to express one. The value is reproducibility rather
+than rescue: an untracked `.env` is in no commit, so a fresh clone or CI
+runner silently scores whatever the suite's default is. Declaring the
+variable puts it under version control.
 
 ```json
 "test": { "forge": { "run_command": "forge test --root ../acceptance",
@@ -32,8 +40,13 @@ blank value looks plausible to the runner and fails far from its cause. Env is
 passed to the child process, never prefixed onto the command string, so
 declared secrets stay out of logs. Both stack adapters.
 
-With it wired, the story went green: 9/9 verified by running forge directly,
-referee suite untouched.
+**One brew per working tree.** Two brews on one repository interleave their
+edits and reverts, which makes a run unattributable rather than merely noisy —
+a dogfood run lost an entire measurement when a kill command silently failed
+and the "restart" became a second concurrent brew. brew now takes a lock on
+the working tree: a second brew refuses to start (exit 75), a dead holder's
+lock is taken over, and a heartbeat keeps long runs from looking abandoned to
+another host. Requested as "a run that cannot silently become two runs".
 
 **brew was discarding green tests.** When a turn dissolved a masked-monolith
 wall AND greened the tests behind it in the same iteration — the common case,
