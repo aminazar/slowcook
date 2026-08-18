@@ -20,6 +20,7 @@
 import { existsSync } from "node:fs";
 import { relative as pathRelative, join, sep } from "node:path";
 import { Project, Node, SyntaxKind } from "ts-morph";
+import type { ContractEntry } from "@slowcook-ai/stack-solidity";
 import type {
   JSDoc,
   SourceFile,
@@ -109,6 +110,14 @@ export interface CodeMap {
   components: ComponentEntry[];
   helpers: HelperEntry[];
   types: TypeEntry[];
+  /**
+   * Solidity contracts, when the repo has any. Optional so a pure-TS map is
+   * byte-identical to what it was before Solidity support existed. Produced by
+   * @slowcook-ai/stack-solidity, not ts-morph — the entity kinds above simply
+   * do not exist in a Foundry repo, which is why `map generate` used to emit a
+   * map with zero entries there.
+   */
+  contracts?: ContractEntry[];
 }
 
 export interface GenerateMapOptions {
@@ -258,6 +267,34 @@ function enrichWithCallerCounts(project: Project, map: CodeMap): void {
  * Pure function — does not mutate input. Schema metadata (slowcook
  * version, generated_at, etc.) is preserved verbatim.
  */
+/**
+ * Slice contracts, then TRANSITIVELY pull in the bases of whatever survived.
+ *
+ * An agent told to implement `IouToken` cannot do it without seeing
+ * `IIouToken` — the interface is the requirement. A one-pass filter drops the
+ * base whenever scope came from a file path (the common case: the story names
+ * files, not type names), which is precisely when the agent needs it most.
+ */
+function sliceContracts(
+  contracts: ContractEntry[],
+  keepFile: (f: string) => boolean,
+  keepName: (n: string) => boolean
+): ContractEntry[] {
+  const kept = new Map<string, ContractEntry>();
+  const byName = new Map(contracts.map((c) => [c.name, c]));
+  const queue: ContractEntry[] = contracts.filter((c) => keepFile(c.file) || keepName(c.name));
+  while (queue.length > 0) {
+    const c = queue.shift()!;
+    if (kept.has(c.name)) continue;
+    kept.set(c.name, c);
+    for (const base of c.inherits) {
+      const b = byName.get(base);
+      if (b && !kept.has(b.name)) queue.push(b);
+    }
+  }
+  return contracts.filter((c) => kept.has(c.name));
+}
+
 export function sliceCodeMap(
   map: CodeMap,
   scope: { files?: ReadonlySet<string>; names?: ReadonlySet<string> }
@@ -282,6 +319,7 @@ export function sliceCodeMap(
     components: map.components.filter((c) => keepFile(c.file) || keepName(c.name)),
     helpers: map.helpers.filter((h) => keepFile(h.file) || keepName(h.name)),
     types: map.types.filter((t) => keepFile(t.file) || keepName(t.name)),
+    ...(map.contracts ? { contracts: sliceContracts(map.contracts, keepFile, keepName) } : {}),
   };
 }
 

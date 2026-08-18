@@ -2013,7 +2013,7 @@ function warnIfCodeMapEmpty(ctx: BrewContext): void {
       return;
     }
     const map = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown[]>;
-    const total = ["api_routes", "pages", "components", "helpers", "types"]
+    const total = ["api_routes", "pages", "components", "helpers", "types", "contracts"]
       .reduce((n, k) => n + (Array.isArray(map[k]) ? map[k].length : 0), 0);
     if (total === 0) {
       appendRunLog(ctx, `WARN  .brewing/code-map.json is EMPTY (0 entries) — the driver has no map of this repo and will spend iterations rediscovering it. Re-run \`slowcook map generate\`.`);
@@ -2573,7 +2573,7 @@ function regenerateCodeMap(ctx: BrewContext, when: string): void {
     writeFreshMap(ctx.repoRoot, CODE_MAP_JSON_PATH, CODE_MAP_MD_PATH, fresh);
     appendRunLog(
       ctx,
-      `CODEMAP regenerated (${when})  routes=${fresh.api_routes.length} components=${fresh.components.length} helpers=${fresh.helpers.length} types=${fresh.types.length}`
+      `CODEMAP regenerated (${when})  routes=${fresh.api_routes.length} components=${fresh.components.length} helpers=${fresh.helpers.length} types=${fresh.types.length}${fresh.contracts?.length ? ` contracts=${fresh.contracts.length}` : ""}`
     );
   } catch (e) {
     appendRunLog(ctx, `CODEMAP regenerate FAILED (${when}): ${(e as Error).message.slice(0, 200)}`);
@@ -2613,7 +2613,7 @@ function regenerateTargetSlice(
     writeFileSync(outPath, md, "utf8");
     appendRunLog(
       ctx,
-      `CODEMAP slice  scope_files=${scope.files?.size ?? 0} scope_names=${scope.names?.size ?? 0}  routes=${slice.api_routes.length} pages=${slice.pages.length} components=${slice.components.length} helpers=${slice.helpers.length} types=${slice.types.length}`
+      `CODEMAP slice  scope_files=${scope.files?.size ?? 0} scope_names=${scope.names?.size ?? 0}  routes=${slice.api_routes.length} pages=${slice.pages.length} components=${slice.components.length} helpers=${slice.helpers.length} types=${slice.types.length}${slice.contracts?.length ? ` contracts=${slice.contracts.length}` : ""}`
     );
   } catch (e) {
     appendRunLog(ctx, `CODEMAP slice FAILED: ${(e as Error).message.slice(0, 200)}`);
