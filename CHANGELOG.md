@@ -6,6 +6,86 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.32.0 · stack-solidity 0.3.0 · stack-ts 0.11.0 — the run that couldn't be won
+
+Two days of dogfooding `brew` against a real Solidity acceptance suite. The
+story had failed twice, ~$43 spent, and read as "the model can't do this." It
+wasn't. The suite selected its implementation from an environment variable
+slowcook had no way to set, so every run scored a stub that reverts on every
+call. Nothing any agent wrote could have turned it green.
+
+Everything below came out of chasing that.
+
+**Suites can declare their environment.** `stack.json` gains
+`test.<suite>.env`, applied to run AND discover commands. Env-parameterised
+suites are ordinary — a plug-in implementation, a fixture mode, a base URL —
+and slowcook simply had nowhere to express one.
+
+```json
+"test": { "forge": { "run_command": "forge test --root ../acceptance",
+                     "env": { "DOVIZIR_DEPLOYER": "src/arm/ArmBDeployer.sol:ArmBDeployer" } } }
+```
+
+Values may reference the ambient environment as `${VAR}`; an unset reference
+is an error NAMING the variable rather than an expansion to `""`, because a
+blank value looks plausible to the runner and fails far from its cause. Env is
+passed to the child process, never prefixed onto the command string, so
+declared secrets stay out of logs. Both stack adapters.
+
+With it wired, the story went green: 9/9 verified by running forge directly,
+referee suite untouched.
+
+**brew was discarding green tests.** When a turn dissolved a masked-monolith
+wall AND greened the tests behind it in the same iteration — the common case,
+since dissolving the wall is what lets them pass — the gains were dropped
+before being recorded. brew reported `0/N` on a passing suite, then halted
+`AGENT_STALLED_NO_EDITS` blaming the agent, which had correctly insisted the
+code was already right. Observed cost of the bug on one fixture: a false halt
+at $1.32 that became DONE at $0.14. The rule is now a named, tested predicate
+so it cannot regress into an inline `continue`.
+
+**Unknown CLI flags are rejected.** `--budget 3` (the flag is `--budget-usd`)
+was silently dropped, so runs used the $10 default while the operator believed
+they had capped at $3. Worse, numeric flags went through bare `parseFloat`:
+`--budget-usd abc` became `NaN`, and `spend >= NaN` is false forever — a typo
+bought an unlimited budget on the one command whose job is spending money.
+Unknown flags now exit 64; numeric flags must parse finite and positive.
+**Breaking** for anyone whose scripts pass a flag slowcook doesn't have.
+
+**A broken tool is a finding, not a stuck agent.** Tool *results* were never
+parsed, so a tool failing every call was invisible: one run burned $2.27 across
+four iterations while the agent plainly reported that `write_file` could not
+create a directory, and brew called it `ITERATION_CAP`. Repeated same-root
+failures now halt (exit 79) naming the tool and quoting the error.
+
+**The code map learned Solidity.** `map generate` was Next.js-shaped, so on a
+Foundry repo it emitted zero entries — and brew then told the operator to
+re-run the very command that couldn't help, while iteration 1 spent $2.11
+rediscovering the repo by hand. The scanner lives in `stack-solidity`, so a
+language's knowledge sits with its adapter. Maps contracts / interfaces /
+libraries with inheritance, functions (visibility + mutability + line), events,
+custom errors, modifiers, natspec. Dependency-free, and honest about the
+trade: it reads declarations, not semantics — no import resolution, no
+inherited members. A map, not a compiler.
+
+Slicing follows inheritance transitively: scope usually arrives as file paths,
+which used to drop the interface a contract implements — exactly what the
+agent needs, since you cannot implement what you cannot see.
+
+**CLI-backend honesty.** The stream reports `subtype: "success"` even when
+`is_error` is true, so brew printed `claude exited 1 (success)` over the words
+"OAuth session expired". It now surfaces the real message, and an expired login
+halts immediately (exit 77) with the fix instead of burning iterations as a
+phantom stall. Also: `brew` is now listed as claude-cli-capable, and the
+"no runtime configured" message leads with the free subscription path instead
+of sending Claude subscribers to buy API credit.
+
+**MCP bridge: writes were empty.** `BREW_TOOLS` declares the property as
+`contents`; the bridge read `content`. Every bridged write produced a
+zero-byte file while the agent truthfully reported writing correct code.
+
+---
+
 ## cli 0.31.0 · llm-anthropic 0.24.0 — the ladder: brew always faces one red with a real gradient
 
 Born from a story that failed 25 iterations because nine tests failed as one.

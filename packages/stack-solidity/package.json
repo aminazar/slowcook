@@ -1,7 +1,7 @@
 {
   "name": "@slowcook-ai/stack-solidity",
-  "version": "0.2.0",
-  "description": "Solidity/Foundry stack adapter for slowcook — forge test discovery, runners, gas-snapshot ratchet",
+  "version": "0.3.0",
+  "description": "Solidity/Foundry stack adapter for slowcook \u2014 forge test discovery, runners, gas-snapshot ratchet",
   "license": "MIT",
   "author": "aminazar",
   "repository": {
@@ -32,7 +32,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
