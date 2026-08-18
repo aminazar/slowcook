@@ -65,6 +65,7 @@ import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
+import { touchLock } from "./run-lock.js";
 import { detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, peelIsStandaloneCheckpoint, type PeelResult } from "./testability.js";
 import { ladderWindow, describeWindow } from "./ladder.js";
 import { fileBackpropClaims } from "../../lib/backprop.js";
@@ -707,6 +708,9 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   try {
   for (let iteration = 1; iteration <= ctx.maxIterations; iteration++) {
     lastIteration = iteration;
+    // Heartbeat: a long run must not look abandoned to a brew on another host,
+    // which cannot signal-check our pid and falls back to this timestamp.
+    touchLock(ctx.repoRoot);
     console.log(`\n=== iteration ${iteration}/${ctx.maxIterations} — target: ${currentTarget} ===`);
     appendRunLog(
       ctx,
