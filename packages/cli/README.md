@@ -17,7 +17,7 @@ npm i -D @slowcook-ai/cli
 Or pin a specific version (recommended for consumers):
 
 ```bash
-npm i -D @slowcook-ai/cli@0.19.5
+npm i -D @slowcook-ai/cli@0.32.0
 ```
 
 The `latest` tag points at the most recent stable cut. Stamp your pinned version in `.brewing/slowcook-cli-version` after `slowcook init`.
@@ -98,9 +98,9 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook manifest (record|verify) [--stack-config <path>] [--manifest <path>] [--story <id>]
   ```
-- **`check`** — Static structural checks. `check spec` re-runs spec validators on PR amendments; `check mock-isolation` enforces the mock-vs-prod boundary.
+- **`check`** — Static structural checks: spec validators on PR amendments, the mock-vs-prod import boundary, mock data leaking into production paths, and mock/prod surface drift.
   ```
-  slowcook check (mock-isolation|spec) [file...] [--cwd <path>]
+  slowcook check (mock-isolation|prod-honesty|prod-bundle|surface-parity|spec) [file...] [--cwd <path>]
   ```
 - **`reviewer-auth`** — Run the GitHub device-flow sign-in helper standalone — point the review overlay's authBase at it (QA on a real backend, no run-mock).
   ```
