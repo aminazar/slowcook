@@ -36,6 +36,17 @@ export function mapRefineOutcome(exitCode: number, stdout: string): LiveOutcome 
       detail: `refine exited ${exitCode} — terminal until a human relabels.`,
     };
   }
+  // A noop is refine saying "I deliberately did nothing" (skip-class exit 0,
+  // e.g. a waived precondition). Never dress it up as progress.
+  const noop = stdout.match(/^Noop: (.+)$/m)?.[1];
+  if (noop) {
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: [],
+      detail: `refine no-op'd: ${noop} — nothing was produced; the trigger was consumed.`,
+    };
+  }
   const pr = stdout.match(/^Draft PR: (\S+)$/m)?.[1];
   if (pr) {
     const spec = stdout.match(/^Spec written: (\S+)$/m)?.[1];

@@ -309,15 +309,24 @@ async function processLive(
     return { job, traceDir, outcome: "precondition-missing" };
   }
 
-  // Spawn the agent through this same CLI entrypoint. refine's own
-  // needs-refinement label convention is replaced by the worker's trigger
-  // label — that check has already happened.
-  const spawnArgs = [
-    ...job.cmd.slice(1),
-    "--cwd",
-    args.repoRoot,
-    ...(job.agent === "refine" ? ["--no-require-label"] : []),
-  ];
+  // refine acts ONLY on issues carrying needs-refinement — that label is a
+  // precondition by design (dovizir §4), and --no-require-label means
+  // "missing label = quiet skip", NOT "act anyway" (ledger G5: the first
+  // live run nooped politely because we misread that contract). A human
+  // applying agent:refine has declared the issue needs refinement, so the
+  // worker publishes that derived state as the label refine requires —
+  // label reconciliation per plan §1, not a repair.
+  if (job.agent === "refine") {
+    await octokit.issues.addLabels({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: job.issue,
+      labels: ["needs-refinement"],
+    });
+  }
+
+  // Spawn the agent through this same CLI entrypoint.
+  const spawnArgs = [...job.cmd.slice(1), "--cwd", args.repoRoot];
   const result = spawnSync(process.execPath, [process.argv[1]!, ...spawnArgs], {
     cwd: args.repoRoot,
     encoding: "utf8",

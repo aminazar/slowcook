@@ -99,6 +99,27 @@ Entry format:
   box ssh currently refused, likely fail2ban after tonight's connection
   burst).
 
+## G5 — worker misread `--no-require-label` ("waive = skip", not "act anyway")
+
+- **surfaced by**: the third live pass (2026-08-20 00:40 CEST, trace
+  `2026-08-19T22-40-36-786Z-refine-34`): refine built its full history index
+  (~11s), then printed `Noop: issue is not labeled needs-refinement
+  (precondition waived by --no-require-label)` and exited 0. The worker
+  consumed the trigger and — worse — described the run as "questions posted",
+  which never happened.
+- **precondition**: refine's own, by design (dovizir handover §4): the
+  `needs-refinement` label IS the act/skip gate; the flag only converts a
+  hard-fail (exit 3) into a quiet skip (exit 0).
+- **root cause**: a worker bug, not a refine bug — W1 assumed the flag meant
+  "proceed without the label". Also a naming/UX note for slowcook: a flag
+  whose waiver still blocks the action invites exactly this misreading.
+- **fix**: (1) the worker now publishes `needs-refinement` before spawning
+  refine — a human's `agent:refine` trigger *declares* that state, so this is
+  the plan-§1 label reconciliation, not a repair; the flag is dropped.
+  (2) `mapRefineOutcome` recognizes `Noop:` lines and reports them verbatim
+  instead of narrating fictitious progress.
+- **verified**: unit test on the noop mapping + live re-run on #34 (pending).
+
 ## O1 (observation) — /root/rewo drifted off main
 
 The workload was derived while `/root/rewo` sat on `fix/mock-types-node`,
