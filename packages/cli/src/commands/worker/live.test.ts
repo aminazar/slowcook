@@ -29,6 +29,17 @@ describe("mapRefineOutcome", () => {
     expect(o.detail).toContain("non-terminal");
   });
 
+  it("a Noop line is reported as a no-op, never as questions-posted", () => {
+    const o = mapRefineOutcome(
+      0,
+      "models:\n  refine claude-opus-4-8\nNoop: issue is not labeled needs-refinement (precondition waived by --no-require-label).\n"
+    );
+    expect(o.outcome).toBe("success");
+    expect(o.resultLabel).toBeNull();
+    expect(o.detail).toContain("no-op");
+    expect(o.detail).toContain("needs-refinement");
+  });
+
   it("a Draft PR mention mid-line does not count as spec-emitted", () => {
     const o = mapRefineOutcome(0, "see the old Draft PR: https://x/pull/1 for context\n");
     expect(o.resultLabel).toBeNull();
