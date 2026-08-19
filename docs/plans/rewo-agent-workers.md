@@ -74,7 +74,7 @@ Rules:
   the proven pattern on this box, and it cannot leak state between runs.
 - **Lockfile** at `/run/slowcook-worker.lock`; one job at a time. brew's own
   working-tree lock (slowcook #414) is the second line of defence.
-- - **Identity**: the box's `gh auth token`. Inert until `gh` is logged in, so the
+- **Identity**: the box's `gh auth token`. Inert until `gh` is logged in, so the
   write identity is exactly whoever the operator authenticated.
 - **Model backend is a seam, not a choice baked in.** `SLOWCOOK_LLM=claude-cli`
   runs on a subscription; `ANTHROPIC_API_KEY` runs on the API. Both already work
