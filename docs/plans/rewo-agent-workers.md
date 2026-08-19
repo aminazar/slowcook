@@ -282,3 +282,52 @@ design, not by accident.
   thin — spawn, capture, label. Logic in the worker is logic that can lie.
 - **My own repeated failure this week**: claiming a result from a log line
   instead of the artifact. Every outcome in the ledger cites the artifact.
+
+---
+
+# 9. Everything done by hand this session is a missing slowcook capability
+
+Amin's ruling (2026-08-19): *"everything you have to do by hand should be in
+slowcook by default."*
+
+This reframes the whole run. Below is every manual step taken to get the box
+ready — each one is a defect in slowcook, not a chore. They share one cause,
+the pattern already named in Phase 0: **the harness does not assert its own
+preconditions out loud.** It assumes, proceeds, and fails later somewhere else.
+
+| Done by hand | Should be | Why it bit |
+|---|---|---|
+| rsync + build + symlink HEAD onto the box | `slowcook deploy <host>` (or self-update) | box silently ran 0.21.1 while I believed it ran HEAD |
+| paste a token, discover it was 107 chars not 108 | `slowcook doctor` validates credential shape + does a live call | a one-char truncation cost a round trip; error said "invalid", not "truncated" |
+| `unset ANTHROPIC_API_KEY` so OAuth wins | doctor detects the conflict and names it | a stale key silently outranks the token and yields `error_during_execution` |
+| check `gh auth status` + scopes | doctor | inert-until-authenticated is only safe if something SAYS so |
+| build the mock before trusting `eye` | `eye` refuses to grade against a reference that does not build | a broken mock disables QA silently instead of failing |
+| notice box-only commits before resetting | `slowcook guard` extends to "unpushed work exists here" | one `reset --hard` from losing 8 commits |
+| check disk before a run | doctor | ENOSPC killed every command mid-investigation |
+| derive which story is in which state | `slowcook workload` (see §1) | I read it by hand from four sources and could not have kept it current |
+| detect spec-stale-vs-issue | workload, by content hash | the whole staleness class |
+| decide haiku → sonnet → opus | declared escalation config | hardcoding a ladder makes it wrong for every stage but one |
+| verify a claim against the artifact, not the log | the harness reports artifact-derived outcomes only | my repeated failure this week: peel premise, `.env`, RLS theory |
+
+## The shape of the fix
+
+Two commands carry most of it:
+
+**`slowcook doctor`** — one command, run before anything and by the worker on
+every pass, that verifies and NAMES every precondition: CLI version vs expected,
+credential present + live (a real call, not a file check), backend conflicts,
+disk, git remote reachable, repo not dirty, unpushed work, fidelity reference
+builds. Exits non-zero with the specific missing thing. It must fail closed:
+a doctor that passes when it cannot see something protects nothing.
+
+**`slowcook workload`** — (story × surface) → derived state + drift, as §1.
+
+Everything else is either config that is currently hardcoded (escalation ladder,
+gate declarations) or a guard that already exists and needs widening (`guard`,
+`gate check`, the dirty-tree and run-lock guards in brew).
+
+## The test for whether this is done
+
+A new operator should be able to run `slowcook doctor` on a fresh box and be
+told, in one output, everything that is not ready — instead of discovering it
+one failed run at a time, as I did across this session.
