@@ -18,8 +18,9 @@
  *   systemd  print the service + timer units for a box install
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Octokit } from "@octokit/rest";
 import { readIndex, readSpec } from "../refine/spec-yaml.js";
@@ -34,14 +35,24 @@ import {
   type StoryArtifactFacts,
   type WorkerJob,
 } from "./plan.js";
-import { writeTrace, type JobOutcome } from "./trace.js";
+import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
+import { mapLiveOutcome, commentHeader } from "./live.js";
 import { acquireWorkerLock, releaseWorkerLock } from "./worker-lock.js";
+import type { AgentKind } from "./plan.js";
+
+/** Stages allowed to run live in this build. Widened one phase at a time
+ *  (plan §6) — never before the upstream handoff contract is verified. */
+const LIVE_STAGES: ReadonlySet<AgentKind> = new Set(["refine"]);
 
 interface RunArgs {
   repoRoot: string;
   owner: string | undefined;
   repo: string | undefined;
   dryRun: boolean;
+  /** Stages enabled for LIVE execution (W1+). Empty = none. */
+  enable: Set<AgentKind>;
+  /** Hard wall-clock cap per live job, minutes. */
+  jobTimeoutMins: number;
   logsDir: string;
   lockPath: string | undefined;
   json: boolean;
@@ -70,13 +81,24 @@ export async function worker(argv: string[]): Promise<void> {
 async function runPass(argv: string[]): Promise<void> {
   const args = parseRunArgs(argv);
 
-  // W0: live mode does not exist yet. Refuse loudly rather than pretend.
-  if (!args.dryRun) {
+  // Live mode requires an explicit --enable; nothing spends by accident.
+  if (!args.dryRun && args.enable.size === 0) {
     console.error(
-      "slowcook worker: live mode is W1+ and not enabled in this build.\n" +
-        "  W0 proves the trigger/lock/trace path with zero spend. Run with --dry-run."
+      "slowcook worker: no stage is enabled for live execution.\n" +
+        "  Pass --dry-run for a zero-spend pass, or --enable refine to run the\n" +
+        "  W1 stage live. Stages beyond W1 are enabled one at a time, each only\n" +
+        "  after its upstream handoff contract is verified (plan §6)."
     );
     process.exit(2);
+  }
+  for (const stage of args.enable) {
+    if (!LIVE_STAGES.has(stage)) {
+      console.error(
+        `slowcook worker: live mode for "${stage}" is not enabled in this build ` +
+          `(currently: ${[...LIVE_STAGES].join(", ")}). Refusing rather than pretending.`
+      );
+      process.exit(2);
+    }
   }
 
   // The worker is inert without auth — by design. Name the missing thing.
@@ -133,41 +155,17 @@ async function runPass(argv: string[]): Promise<void> {
     if (jobs.length > 0) {
       // One job per pass (plan §2). The ordering policy already put the
       // most urgent first: blocked jobs surface their upstream gap before
-      // fresh work advances.
-      const job = jobs[0]!;
-      const outcome: JobOutcome = job.runnable ? "dry-run" : "precondition-missing";
-      const failed = job.preconditions.filter((c) => c.status === "fail");
-      const now = new Date();
-      const traceDir = writeTrace(
-        args.logsDir,
-        {
-          job,
-          cmd: {
-            argv: job.cmd,
-            envNames: presentEnvNames(),
-            backend: detectBackend(),
-            cwd: args.repoRoot,
-            gitSha: gitShaOf(args.repoRoot),
-            startedAt: now.toISOString(),
-          },
-          outcome: {
-            outcome,
-            ...(failed.length > 0 ? { failedPreconditions: failed } : {}),
-            detail:
-              outcome === "dry-run"
-                ? `dry-run: would remove ${job.triggerLabel}, run \`${job.cmd.join(" ")}\`, then apply ${RESULT_LABELS[job.agent]} on success or ${FAILED_LABEL} on failure. No mutation performed.`
-                : `precondition missing — the worker records and stops; repairing would hide the upstream defect. Failed: ${failed.map((c) => c.name).join(", ")}.`,
-            finishedAt: new Date().toISOString(),
-          },
-          handoff: {
-            producedFor: nextAgentOf(job.agent),
-            artifacts: [],
-            hash: null,
-          },
-        },
-        now
-      );
-      processed = { job, traceDir, outcome };
+      // fresh work advances. In live mode, only enabled stages execute —
+      // the rest stay visible in the workload and untouched.
+      if (args.dryRun) {
+        const job = jobs[0]!;
+        processed = processDry(job, args);
+      } else {
+        const job = jobs.find((j) => args.enable.has(j.agent));
+        if (job) {
+          processed = await processLive(job, args, { owner, repo, token });
+        }
+      }
     }
 
     if (args.json) {
@@ -183,7 +181,7 @@ async function runPass(argv: string[]): Promise<void> {
     }
     if (processed) {
       console.log(
-        `\nprocessed (dry-run) #${processed.job.issue} → ${processed.outcome}\n  trace: ${processed.traceDir}`
+        `\nprocessed (${args.dryRun ? "dry-run" : "live"}) #${processed.job.issue} → ${processed.outcome}\n  trace: ${processed.traceDir}`
       );
       if (processed.outcome === "precondition-missing") {
         for (const c of processed.job.preconditions.filter((x) => x.status === "fail")) {
@@ -198,6 +196,203 @@ async function runPass(argv: string[]): Promise<void> {
   } finally {
     releaseWorkerLock(lockPath);
   }
+}
+
+function processDry(
+  job: WorkerJob,
+  args: RunArgs
+): { job: WorkerJob; traceDir: string; outcome: JobOutcome } {
+  const outcome: JobOutcome = job.runnable ? "dry-run" : "precondition-missing";
+  const failed = job.preconditions.filter((c) => c.status === "fail");
+  const now = new Date();
+  const traceDir = writeTrace(
+    args.logsDir,
+    {
+      job,
+      cmd: {
+        argv: job.cmd,
+        envNames: presentEnvNames(),
+        backend: detectBackend(),
+        cwd: args.repoRoot,
+        gitSha: gitShaOf(args.repoRoot),
+        startedAt: now.toISOString(),
+      },
+      outcome: {
+        outcome,
+        ...(failed.length > 0 ? { failedPreconditions: failed } : {}),
+        detail:
+          outcome === "dry-run"
+            ? `dry-run: would remove ${job.triggerLabel}, run \`${job.cmd.join(" ")}\`, then apply ${RESULT_LABELS[job.agent]} on success or ${FAILED_LABEL} on failure. No mutation performed.`
+            : `precondition missing — the worker records and stops; repairing would hide the upstream defect. Failed: ${failed.map((c) => c.name).join(", ")}.`,
+        finishedAt: new Date().toISOString(),
+      },
+      handoff: {
+        producedFor: nextAgentOf(job.agent),
+        artifacts: [],
+        hash: null,
+      },
+    },
+    now
+  );
+  return { job, traceDir, outcome };
+}
+
+/**
+ * Execute one job live (W1+). The worker stays thin: remove the trigger
+ * label (crash-safe — a stuck job never re-fires), spawn the agent,
+ * capture everything, map the agent's OWN output to worker state, apply
+ * the result label, trace. A missing precondition is recorded and
+ * terminal — never repaired (plan §3).
+ */
+async function processLive(
+  job: WorkerJob,
+  args: RunArgs,
+  gh: { owner: string; repo: string; token: string }
+): Promise<{ job: WorkerJob; traceDir: string; outcome: JobOutcome }> {
+  const octokit = new Octokit({ auth: gh.token, userAgent: "slowcook-ai/cli worker" });
+  const now = new Date();
+  const runId = traceDirName(job, now);
+
+  // Trigger label off FIRST. If this fails, abort the job — a pass that
+  // runs without consuming its trigger can double-fire on the next timer.
+  await octokit.issues.removeLabel({
+    owner: gh.owner,
+    repo: gh.repo,
+    issue_number: job.issue,
+    name: job.triggerLabel,
+  });
+
+  const cmdRecord = {
+    argv: job.cmd,
+    envNames: presentEnvNames(),
+    backend: detectBackend(),
+    cwd: args.repoRoot,
+    gitSha: gitShaOf(args.repoRoot),
+    startedAt: now.toISOString(),
+  };
+
+  if (!job.runnable) {
+    const failed = job.preconditions.filter((c) => c.status === "fail");
+    const traceDir = writeTrace(
+      args.logsDir,
+      {
+        job,
+        cmd: cmdRecord,
+        outcome: {
+          outcome: "precondition-missing",
+          failedPreconditions: failed,
+          detail: `precondition missing — recorded, not repaired. Failed: ${failed.map((c) => c.name).join(", ")}.`,
+          finishedAt: new Date().toISOString(),
+        },
+        handoff: { producedFor: nextAgentOf(job.agent), artifacts: [], hash: null },
+      },
+      now
+    );
+    await octokit.issues.addLabels({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: job.issue,
+      labels: [FAILED_LABEL],
+    });
+    await octokit.issues.createComment({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: job.issue,
+      body:
+        `${commentHeader(job.agent, job.issue, runId)}\n\n` +
+        `🛑 **Precondition missing** — the worker records and stops; repairing would hide the upstream defect.\n\n` +
+        failed
+          .map((c) => `- \`${c.name}\`${c.upstream ? ` (upstream: **${c.upstream}**)` : ""}: ${c.detail}`)
+          .join("\n") +
+        `\n\nRelabel \`${job.triggerLabel}\` to retry once the upstream artifact exists.`,
+    });
+    return { job, traceDir, outcome: "precondition-missing" };
+  }
+
+  // Spawn the agent through this same CLI entrypoint. refine's own
+  // needs-refinement label convention is replaced by the worker's trigger
+  // label — that check has already happened.
+  const spawnArgs = [
+    ...job.cmd.slice(1),
+    "--cwd",
+    args.repoRoot,
+    ...(job.agent === "refine" ? ["--no-require-label"] : []),
+  ];
+  const result = spawnSync(process.execPath, [process.argv[1]!, ...spawnArgs], {
+    cwd: args.repoRoot,
+    encoding: "utf8",
+    timeout: args.jobTimeoutMins * 60_000,
+    maxBuffer: 64 * 1024 * 1024,
+    env: process.env,
+  });
+  const timedOut = result.error !== undefined && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
+  const exitCode = result.status ?? -1;
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+
+  const mapped = timedOut
+    ? {
+        outcome: "failed" as const,
+        resultLabel: FAILED_LABEL,
+        artifacts: [],
+        detail: `job exceeded the ${args.jobTimeoutMins}min wall-clock cap and was killed.`,
+      }
+    : mapLiveOutcome(job.agent, exitCode, stdout);
+
+  // Hash the primary artifact when it is a file we can see; else the
+  // stdout fingerprint. Null only when nothing was produced.
+  let hash: string | null = null;
+  const fileArtifact = mapped.artifacts.find((a) => existsSync(join(args.repoRoot, a)) || existsSync(a));
+  if (fileArtifact) {
+    const p = existsSync(fileArtifact) ? fileArtifact : join(args.repoRoot, fileArtifact);
+    hash = "sha256:" + createHash("sha256").update(readFileSync(p)).digest("hex");
+  } else if (mapped.artifacts.length > 0) {
+    hash = "sha256(stdout):" + createHash("sha256").update(stdout).digest("hex");
+  }
+
+  const traceDir = writeTrace(
+    args.logsDir,
+    {
+      job,
+      cmd: cmdRecord,
+      outcome: {
+        outcome: mapped.outcome,
+        detail: mapped.detail,
+        finishedAt: new Date().toISOString(),
+      },
+      handoff: {
+        producedFor: nextAgentOf(job.agent),
+        artifacts: mapped.artifacts,
+        hash,
+      },
+    },
+    now
+  );
+  writeFileSync(join(traceDir, "stdout"), stdout, "utf8");
+  writeFileSync(join(traceDir, "stderr"), stderr, "utf8");
+
+  if (mapped.resultLabel) {
+    await octokit.issues.addLabels({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: job.issue,
+      labels: [mapped.resultLabel],
+    });
+  }
+  if (mapped.outcome === "failed") {
+    const tail = (s: string, n: number) => s.split("\n").slice(-n).join("\n");
+    await octokit.issues.createComment({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: job.issue,
+      body:
+        `${commentHeader(job.agent, job.issue, runId)}\n\n` +
+        `🛑 **${job.agent} failed** — ${mapped.detail}\n\n` +
+        `<details><summary>stderr tail</summary>\n\n\`\`\`\n${tail(stderr, 30)}\n\`\`\`\n</details>\n\n` +
+        `Terminal until a human relabels \`${job.triggerLabel}\`.`,
+    });
+  }
+  return { job, traceDir, outcome: mapped.outcome };
 }
 
 /** The downstream consumer of each agent's output, for the handoff record. */
@@ -226,16 +421,23 @@ function presentEnvNames(): string[] {
 }
 
 /**
- * Which model backend a live run would use. A stale ANTHROPIC_API_KEY
- * silently outranks the OAuth token (the trap in plan §7) — when both
- * are present, SAY SO rather than let a later stage fail opaquely.
+ * Which model backend a live run would use — mirroring the REAL seam in
+ * @slowcook-ai/llm-anthropic (`createLlmClient`): SLOWCOOK_LLM=claude-cli
+ * selects the subscription runtime; otherwise ANTHROPIC_API_KEY selects
+ * the API; otherwise agents throw "No LLM runtime configured". An OAuth
+ * token alone does NOT configure a backend — say so, don't imply it does.
  */
 function detectBackend(): string {
   const hasKey = process.env["ANTHROPIC_API_KEY"] !== undefined;
   const hasOauth = process.env["CLAUDE_CODE_OAUTH_TOKEN"] !== undefined;
-  if (hasKey && hasOauth) return "conflict: ANTHROPIC_API_KEY outranks CLAUDE_CODE_OAUTH_TOKEN — unset one";
+  if (process.env["SLOWCOOK_LLM"]?.trim().toLowerCase() === "claude-cli") {
+    if (hasKey)
+      return "conflict: SLOWCOOK_LLM=claude-cli set but ANTHROPIC_API_KEY also present — unset one";
+    return "claude-cli";
+  }
   if (hasKey) return "api";
-  if (hasOauth) return "claude-cli";
+  if (hasOauth)
+    return "unconfigured: CLAUDE_CODE_OAUTH_TOKEN present but SLOWCOOK_LLM=claude-cli not set — agents will refuse";
   return "none";
 }
 
@@ -357,6 +559,8 @@ function parseRunArgs(argv: string[]): RunArgs {
     owner: undefined,
     repo: undefined,
     dryRun: false,
+    enable: new Set<AgentKind>(),
+    jobTimeoutMins: 30,
     logsDir: join(process.cwd(), ".slowcook", "worker-logs"),
     lockPath: undefined,
     json: false,
@@ -384,6 +588,14 @@ function parseRunArgs(argv: string[]): RunArgs {
       i++;
     } else if (a === "--dry-run") {
       out.dryRun = true;
+    } else if (a === "--enable" && next) {
+      for (const s of next.split(",").map((x) => x.trim()).filter(Boolean)) {
+        out.enable.add(s as AgentKind);
+      }
+      i++;
+    } else if (a === "--job-timeout-mins" && next) {
+      out.jobTimeoutMins = Number(next) || out.jobTimeoutMins;
+      i++;
     } else if (a === "--json") {
       out.json = true;
     } else if (a === "--help" || a === "-h") {
@@ -458,7 +670,10 @@ WantedBy=timers.target
 # install:
 #   systemctl daemon-reload && systemctl enable --now slowcook-worker.timer
 # watch:
-#   journalctl -u slowcook-worker.service -f`);
+#   journalctl -u slowcook-worker.service -f
+# go live (W1, spends money): replace --dry-run with --enable refine and add
+#   'export SLOWCOOK_LLM=claude-cli' to the env file (an OAuth token alone
+#   does not configure a backend — agents refuse without the seam set).`);
 }
 
 function printHelp(): void {
@@ -466,15 +681,25 @@ function printHelp(): void {
 slowcook worker — label-triggered agent worker (W0: dry-run only)
 
 Usage:
-  slowcook worker run --dry-run [--cwd <path>] [--owner <login>] [--repo <name>]
-                      [--logs-dir <path>] [--lock <path>] [--json]
+  slowcook worker run (--dry-run | --enable refine) [--cwd <path>] [--owner <login>]
+                      [--repo <name>] [--logs-dir <path>] [--lock <path>]
+                      [--job-timeout-mins <n>] [--json]
   slowcook worker systemd [--repo-path <p>] [--logs-dir <p>] [--env-file <p>] [--interval <t>]
 
 run     One worker pass: scan agent:* trigger labels on open issues,
         derive the workload, evaluate each triggered agent's
         preconditions, and process at most ONE job. In --dry-run
-        (mandatory in W0) nothing is mutated and nothing is spawned;
-        the pass writes a trace directory per job and workload.json.
+        nothing is mutated and nothing is spawned; the pass writes a
+        trace directory per job and workload.json.
+
+        With --enable <stages> the listed stages execute LIVE: the
+        worker removes the trigger label (crash-safe), spawns the
+        agent, captures stdout/stderr into the trace, applies the
+        result label the agent's own output justifies, and reports
+        failures as an issue comment (terminal until a human
+        relabels). This build allows: refine (W1). A refine that
+        pauses for a human (questions / overlap / split) gets NO
+        result label — refine's issue conventions carry on.
 
         Trigger labels: ${Object.keys(TRIGGER_LABELS).join(", ")}
         Terminal label: ${FAILED_LABEL} (excluded until a human relabels)
