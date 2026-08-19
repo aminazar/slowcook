@@ -35,10 +35,57 @@ it actually got**. That is the instrument. Everything else is plumbing.
 
 ---
 
-## 1. The state machine (labels are the only state)
+## 1. The workload — derived state, not label state
 
-One label = one state. The worker reads state from GitHub and nowhere else, so
-a human can drive, pause, or rewind the pipeline by relabelling.
+**This corrects my first cut.** I had written "labels are the only state", which
+makes the worker purely reactive: it sits waiting to be told. Amin's correction
+(2026-08-19): the worker needs a WORKLOAD — every story (order), what state it
+is actually in, and therefore what it needs next.
+
+The difference matters because **labels are a projection of state, not state
+itself**. A label can be stale, missing, or wrong; the artifacts cannot. So the
+worker DERIVES each story's state from what exists on disk and on GitHub, and
+uses labels only to publish that state and to let a human override it.
+
+`slowcook stories status --json` is the existing seam for this and should grow
+into the workload view rather than being reimplemented.
+
+### State is per-story-per-surface, not a scalar
+
+Amin's own examples show the state space is not a line:
+
+| Question | Derived from |
+|---|---|
+| only a story? | issue exists, no merged spec |
+| refined? | spec merged, parses, has invariants + scenarios |
+| **needs re-refine because it changed?** | spec exists BUT its source (issue body, PRD anchor) changed after the spec froze |
+| tests ready? | manifest exists, tests discoverable, red at baseline |
+| brewed? | impl PR merged, story tests green |
+| **brewed but needs the PWA frontend?** | backend surface satisfied, PWA surface not |
+
+The last two rows are the ones a naive pipeline gets wrong. A story is not
+"done" — it is done *for a surface*. Rewo's PWA work means a story can be
+complete server-side and untouched client-side, and a scalar `status: done`
+erases that. The workload therefore tracks **(story × surface) → state**.
+
+### Drift is a first-class state, not an error
+
+"needing new refine as it changed" deserves emphasis: it is the **staleness**
+class that produced every serious failure this week — the stale box CLI, the
+mock that could not build, the overlay prop removed under a consumer, the spec
+that disagreed with its tests. In each case something looked fine because
+nothing compared it to its source.
+
+So the workload computes, per story, whether each artifact is still consistent
+with what it was derived FROM (issue → spec → tests → code), by content hash.
+A story whose issue changed after its spec froze is `spec-stale`, and that is a
+workload item — not a silent inconsistency waiting to mislead a later stage.
+
+### Labels publish the derived state
+
+Each pass, the worker reconciles labels to the derived state so GitHub shows
+the truth, and a human can still force a transition by relabelling (the worker
+treats a human label as an override and records that it did).
 
 | Trigger label | Worker runs | On success | On failure |
 |---|---|---|---|
@@ -46,6 +93,8 @@ a human can drive, pause, or rewind the pipeline by relabelling.
 | `agent:recipe` | `slowcook recipe --spec ID` | tests PR + `agent:reciped` | `agent:failed` + report |
 | `agent:brew` | `slowcook brew --story ID` (haiku→sonnet→opus) | impl PR + `agent:brewed` | `agent:failed` + report |
 | `agent:eye` | `slowcook eye --story ID` | verdict comment + `agent:qa-pass`/`agent:qa-fail` | `agent:failed` + report |
+
+### The trigger table (what each derived state asks for)
 
 Rules:
 - The worker **removes its trigger label** before starting. Crash-safe: a stuck
@@ -64,6 +113,20 @@ Rules:
   touchpoints; everything between them is automatic. A project that declares no
   gates runs end to end unattended — that is a legitimate configuration, and its
   risk is the project's to choose, not the worker's to override.
+
+### Order of work
+
+With a workload the worker can choose, rather than taking whatever was labelled
+last. Default policy, and it should be configurable:
+
+1. **unblock before advance** — a `precondition-missing` or `spec-stale` story
+   is worked before a fresh one, because staleness compounds;
+2. then by declared story priority / release label;
+3. then oldest first.
+
+A workload also makes the run *reportable*: "31 stories — 12 done, 4 awaiting a
+gate, 3 stale, 2 failed, 10 untouched" is the thing to publish each iteration,
+and it is impossible to say from labels alone.
 
 ## 2. Worker anatomy (one dispatcher, not four daemons)
 
