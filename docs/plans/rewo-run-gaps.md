@@ -78,6 +78,27 @@ Entry format:
 - **verified**: full workspace suite green; live re-run of refine on #34 after
   box resync (see run log below this entry when it lands).
 
+## G4 — agents disagree on the forge-token env var name
+
+- **surfaced by**: the second live worker pass (retry after G3, 2026-08-20
+  00:34 CEST). Trace `2026-08-19T22-34-51-248Z-refine-34`: refine exited 2 in
+  ~6s with "GITHUB_TOKEN environment variable is not set." Worker applied
+  `agent:failed` + attributed comment (which is how this was diagnosed —
+  the box's sshd went unreachable minutes later, and the comment carried the
+  stderr tail anyway; the instrument survived losing the box).
+- **precondition**: none named — an environment contract gap, the doctor
+  class again: refine hard-requires `GITHUB_TOKEN`; the worker unit exports
+  `GH_TOKEN` (gh's own convention); the worker itself accepts either.
+- **root cause**: the worker resolved a forge identity but did not hand it to
+  the agent it spawned — it inherited raw `process.env` and each agent reads
+  a different var name.
+- **fix**: worker passes its resolved token to the child under BOTH names
+  (`GITHUB_TOKEN` + `GH_TOKEN`). One identity, one authority, no per-agent
+  env guessing.
+- **verified**: live re-run of refine on #34 after box resync (pending —
+  box ssh currently refused, likely fail2ban after tonight's connection
+  burst).
+
 ## O1 (observation) — /root/rewo drifted off main
 
 The workload was derived while `/root/rewo` sat on `fix/mock-types-node`,

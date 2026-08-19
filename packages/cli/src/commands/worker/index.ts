@@ -323,7 +323,10 @@ async function processLive(
     encoding: "utf8",
     timeout: args.jobTimeoutMins * 60_000,
     maxBuffer: 64 * 1024 * 1024,
-    env: process.env,
+    // The worker resolved ONE forge identity; hand it to the agent under
+    // both names — agents disagree on which they read (refine hard-requires
+    // GITHUB_TOKEN while gh-based envs export GH_TOKEN; ledger G4).
+    env: { ...process.env, GITHUB_TOKEN: gh.token, GH_TOKEN: gh.token },
   });
   const timedOut = result.error !== undefined && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
   const exitCode = result.status ?? -1;
