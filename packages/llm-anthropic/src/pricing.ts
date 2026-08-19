@@ -7,7 +7,14 @@ import type { LlmUsage } from "@slowcook-ai/core";
  * adapter that uses it rather than in a central registry.
  */
 export const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-7": { input: 15, output: 75 },
+  // Opus 4.6/4.7/4.8 all list at $5/$25 (platform.claude.com pricing, checked
+  // 2026-08-19 — the 4.7 entry previously carried the Opus-4.1-era $15/$75 and
+  // OVER-reported spend ~3x; reprice settles past entries from stored tokens).
+  // Missing 4-8 was found live: the first rewo worker refine run exited 78 on
+  // refine's own unpriced-model guard (ledger G3, docs/plans/rewo-run-gaps.md).
+  "claude-opus-4-8": { input: 5, output: 25 },
+  "claude-opus-4-7": { input: 5, output: 25 },
+  "claude-opus-4-6": { input: 5, output: 25 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-sonnet-4-5": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 0.8, output: 4 },
