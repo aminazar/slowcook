@@ -426,16 +426,22 @@ function printSystemd(argv: string[]): void {
     else if (a === "--env-file" && next) { envFile = next; i++; }
     else if (a === "--interval" && next) { interval = next; i++; }
   }
+  // Two lessons from the first real box install (ledger G2,
+  // docs/plans/rewo-run-gaps.md): operator env files are shell-format
+  // (`export X=…`), which systemd's EnvironmentFile= cannot parse, and
+  // oneshot units get no HOME, so `gh auth token` silently returns nothing.
   console.log(`# /etc/systemd/system/slowcook-worker.service
 [Unit]
 Description=slowcook agent worker (one pass)
 
 [Service]
 Type=oneshot
-EnvironmentFile=${envFile}
-# A stale ANTHROPIC_API_KEY silently outranks the OAuth token.
-# Keep exactly one backend in the env file.
-ExecStart=/usr/local/bin/slowcook worker run --dry-run --cwd ${repoPath} --logs-dir ${logsDir} --lock /run/slowcook-worker.lock
+Environment=HOME=/root
+# The env file is sourced (it may use shell \`export X=…\` syntax, which
+# EnvironmentFile= cannot parse). A stale ANTHROPIC_API_KEY silently
+# outranks the OAuth token — unset it. GH_TOKEN comes from the box's gh
+# login so the write identity is exactly whoever the operator authenticated.
+ExecStart=/bin/bash -c 'set -a; . ${envFile}; set +a; unset ANTHROPIC_API_KEY; export GH_TOKEN=$(gh auth token); exec /usr/local/bin/slowcook worker run --dry-run --cwd ${repoPath} --logs-dir ${logsDir} --lock /run/slowcook-worker.lock'
 WorkingDirectory=${repoPath}
 
 # /etc/systemd/system/slowcook-worker.timer
