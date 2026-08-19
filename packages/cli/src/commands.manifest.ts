@@ -258,6 +258,13 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "ops",
   },
   {
+    name: "worker",
+    usage: "slowcook worker run --dry-run [--cwd <path>] [--owner <login>] [--repo <name>] [--logs-dir <path>] [--lock <path>] [--json]",
+    description: "Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. Dry-run only for now (no mutation, no spawn); `worker systemd` prints the box units.",
+    group: "ops",
+    status: "alpha",
+  },
+  {
     name: "port",
     usage: "slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]",
     description: "Deterministic mock/ → src/ copy. Pre-brew CI step; applies the useScenarioFixture → useDataDomain rewrite.",
