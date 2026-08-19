@@ -34,6 +34,7 @@ import { refreshKnowledge } from "./commands/refresh-knowledge.js";
 import { upsertAgentDocs } from "./commands/upsert-agent-docs.js";
 import { knowledgeAdd } from "./commands/knowledge-add.js";
 import { stories } from "./commands/stories/index.js";
+import { worker } from "./commands/worker/index.js";
 import { costLog } from "./commands/cost-log.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
@@ -107,6 +108,12 @@ async function main(): Promise<void> {
       }
       console.error(`unknown knowledge subcommand: ${sub ?? "(none)"}. try \`slowcook knowledge add --help\``);
       process.exit(64);
+    }
+    case "worker": {
+      // `slowcook worker run --dry-run [...]` — W0 (docs/plans/rewo-agent-workers.md)
+      // Label-triggered agent worker. See packages/cli/src/commands/worker/.
+      await worker(args.slice(1));
+      return;
     }
     case "stories": {
       // `slowcook stories status [...]` — 0.19.5-α (sc#146 #6)
