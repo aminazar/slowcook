@@ -1,5 +1,11 @@
 # Slowcook agent workers on GitHub — plan
 
+> **STATUS: this is slowcook's default operating model, not a rewo scaffold.**
+> Amin's ruling (2026-08-19): the pipeline runs itself and calls a human only at
+> declared HITL gates. Rewo is the first consumer, not the reason. The worker
+> therefore ships in slowcook (`packages/forge-github` templates + a
+> `slowcook worker` command), never as a box-local script.
+
 **What this is for.** Real workers on the rewo box, running slowcook agents via
 the `claude` CLI, triggered by label changes on `reworthy/app` issues, advancing
 outstanding work unattended — while I watch, and while they leave enough trace
@@ -45,10 +51,19 @@ Rules:
 - The worker **removes its trigger label** before starting. Crash-safe: a stuck
   job never re-fires in a loop.
 - `agent:failed` is terminal until a human relabels. No silent retries.
-- **Advancement is never automatic across a merge.** A merged spec PR does not
-  auto-apply `agent:recipe`; a human (or I, watching) applies it. Rationale: the
-  ratchet's value is that a human approves each frozen artifact. Full autonomy
-  here would let a bad spec propagate into tests and code unreviewed.
+- **Advancement is automatic EXCEPT at a declared gate.** My first cut said "no
+  auto-advance across merges, a human applies the next label." That was too
+  blunt, and it was wrong: it makes a human the transport layer for every step,
+  which is precisely what this is meant to remove. slowcook already has the
+  right instrument — `slowcook gate check --stage <refine|plate|brew> --pr <n>`,
+  where a stage advances only once a HUMAN in the required role approves on the
+  PR, and bot/agent reviews never satisfy it.
+
+  So: the worker advances the chain by itself, and where a spec declares a gate
+  for a stage, it stops and waits for that approval. Gates are the human
+  touchpoints; everything between them is automatic. A project that declares no
+  gates runs end to end unattended — that is a legitimate configuration, and its
+  risk is the project's to choose, not the worker's to override.
 
 ## 2. Worker anatomy (one dispatcher, not four daemons)
 
@@ -59,8 +74,14 @@ Rules:
   the proven pattern on this box, and it cannot leak state between runs.
 - **Lockfile** at `/run/slowcook-worker.lock`; one job at a time. brew's own
   working-tree lock (slowcook #414) is the second line of defence.
-- **Identity**: the box's `gh auth token`. Inert until `gh` is logged in, so the
+- - **Identity**: the box's `gh auth token`. Inert until `gh` is logged in, so the
   write identity is exactly whoever the operator authenticated.
+- **Model backend is a seam, not a choice baked in.** `SLOWCOOK_LLM=claude-cli`
+  runs on a subscription; `ANTHROPIC_API_KEY` runs on the API. Both already work
+  for refine and brew (the MCP bridge, #393), and spend is recorded at list
+  price either way so cost reporting is identical. The worker reads whichever is
+  configured and states which it used in every job's `cmd` record. Neither is
+  the default — the operator's environment decides.
 - **Isolation**: each job in its own `git worktree` under `/root/rewo-work/<id>`,
   removed on completion. Never the shared checkout.
 - **Budget**: hard `--budget-usd` per job, and a daily ceiling the worker
@@ -115,6 +136,27 @@ cannot post as several agents.
 `**slowcook-refine** · issue #N · run <id>`, which gives full attribution in the
 trace for zero setup. Move to one-App-per-agent only if the visual identity
 matters to you — it is a real cost and buys nothing for debugging.
+
+## 5a. What "almost automatic" requires that does not exist yet
+
+Being honest about the gap between this plan and the ruling:
+
+1. **Auto-advance on merge.** Something must apply the next trigger when a spec
+   or tests PR merges. Cleanest as a slowcook workflow
+   (`on: pull_request: types: [closed]`) that labels the issue — not worker
+   polling, so the transition is atomic with the merge.
+2. **Gate declaration is per-spec today.** For a default operating model it
+   needs a project-level default (`.brewing/gates.yaml`: which stages gate, which
+   role) so a repo opts in once rather than per story.
+3. **`agent:failed` is terminal by design.** Under "almost automatic" that needs
+   a bounded retry — one retry on a transient class (network, rate limit, API
+   5xx), never on a substantive failure. A halt that means "the spec contradicts
+   itself" must never be retried.
+4. **Escalation ladder must be declared, not hardcoded** — haiku→sonnet→opus is
+   right for brew and wrong for refine. Belongs in config.
+
+These are the difference between a rewo scaffold and slowcook's default mode,
+and each is a slowcook change, not a worker script.
 
 ## 6. Phasing
 
