@@ -59,6 +59,25 @@ Entry format:
   `2026-08-19T22-12-57-739Z-refine-34` with `backend: "claude-cli"` and env
   NAMES only.
 
+## G3 — refine's default model was not in the pricing table (fail-closed guard caught it)
+
+- **surfaced by**: the FIRST live worker pass (W1, 2026-08-20 00:28 CEST).
+  Trace `/root/rewo-run/logs/2026-08-19T22-28-15-968Z-refine-34`: refine
+  exited 78 in ~3s; worker honestly applied `agent:failed` + attributed
+  comment on reworthy/app#34.
+- **precondition**: none missed — this is a *different* guard working as
+  designed: refine's own unpriced-model refusal ("a run whose cost cannot be
+  computed also cannot be capped").
+- **root cause**: `PRICING_PER_M_TOKENS` lacked `claude-opus-4-8` — refine's
+  resolved default model — so the budget maths would have read $0. Bonus
+  finding while fixing: the `claude-opus-4-7` entry carried Opus-4.1-era
+  $15/$75 and over-reported spend ~3x (list is $5/$25).
+- **fix**: added opus-4-8 / opus-4-6 at $5/$25, corrected opus-4-7 (pricing
+  verified against platform.claude.com's table via the claude-api reference,
+  2026-08-19). `slowcook cost reprice` settles past entries.
+- **verified**: full workspace suite green; live re-run of refine on #34 after
+  box resync (see run log below this entry when it lands).
+
 ## O1 (observation) — /root/rewo drifted off main
 
 The workload was derived while `/root/rewo` sat on `fix/mock-types-node`,
