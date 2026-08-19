@@ -231,9 +231,9 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook dispatch <step> [inputs...]
   ```
-- **`worker`** [alpha] — Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. Dry-run only for now (no mutation, no spawn); `worker systemd` prints the box units.
+- **`worker`** [alpha] — Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. --enable runs a stage live (label off → spawn → trace → result label / failure comment); stages beyond refine land one verified handoff at a time. `worker systemd` prints the box units.
   ```
-  slowcook worker run --dry-run [--cwd <path>] [--owner <login>] [--repo <name>] [--logs-dir <path>] [--lock <path>] [--json]
+  slowcook worker run (--dry-run | --enable refine) [--cwd <path>] [--owner <login>] [--repo <name>] [--logs-dir <path>] [--lock <path>] [--job-timeout-mins <n>] [--json]
   ```
 - **`port`** — Deterministic mock/ → src/ copy. Pre-brew CI step; applies the useScenarioFixture → useDataDomain rewrite.
   ```
