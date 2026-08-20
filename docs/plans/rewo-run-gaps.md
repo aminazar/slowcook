@@ -168,6 +168,27 @@ Entry format:
 - **verified**: build + worker tests green; next live runs (recipe phase)
   exercise the path.
 
+## G8 — a submitted spec-PR review was nobody's job
+
+- **surfaced by**: Amin reviewing spec PR #218 and asking "was it picked up
+  by agent? … it should not be picked up by you, what is the responsible
+  agent?" — the session was about to be the transport, which is exactly
+  what the plan forbids (§1: no human/session as transport layer).
+- **root cause**: the worker derives workload from issue labels only. A
+  submitted human review on an open spec PR is pipeline state — the spec's
+  OWNER (refine, per the ratchet ownership rule) must answer it — but no
+  derivation produced that job.
+- **fix**: the worker now fetches open `slowcook/spec/*` PRs and derives a
+  `refine --pr <n>` resubmit job whenever the newest SUBMITTED human review
+  is newer than the PR's newest commit (feedback the spec hasn't answered).
+  Derived jobs need no trigger label — the derivation is its own re-fire
+  guard (once refine pushes, the review is older than the commit). PENDING
+  (draft) reviews are excluded: GitHub shows them only to their author, so
+  acting on one would leak invisible state (this bit tonight: the PM's
+  review sat in PENDING and nothing could see it).
+- **verified**: 3 new planner tests; live on #218 once the PM submits the
+  pending review.
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as

@@ -27,6 +27,8 @@ import { appAuthConfigured, mintInstallationToken } from "@slowcook-ai/forge-git
 import { readIndex, readSpec } from "../refine/spec-yaml.js";
 import {
   deriveJobs,
+  deriveResubmitJobs,
+  DERIVED_SPEC_REVIEW_TRIGGER,
   summarizeWorkload,
   renderWorkloadLine,
   TRIGGER_LABELS,
@@ -34,6 +36,7 @@ import {
   RESULT_LABELS,
   type IssueFact,
   type StoryArtifactFacts,
+  type SpecPrReviewFact,
   type WorkerJob,
 } from "./plan.js";
 import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
@@ -162,7 +165,12 @@ async function runPass(argv: string[]): Promise<void> {
 
   try {
     const issues = await fetchTriggerIssues({ owner, repo, token });
-    const jobs = deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue));
+    const specPrs = await fetchSpecPrReviewFacts({ owner, repo, token });
+    // Unanswered spec-PR feedback outranks fresh triggers (plan §1 rule 1).
+    const jobs = [
+      ...deriveResubmitJobs(specPrs),
+      ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
+    ];
     const summary = summarizeWorkload(issues, jobs);
 
     // Publish the workload every pass — the reportable state labels can't express.
@@ -308,14 +316,19 @@ async function processLive(
   const now = new Date();
   const runId = traceDirName(job, now);
 
+  const derived = job.triggerLabel === DERIVED_SPEC_REVIEW_TRIGGER;
   // Trigger label off FIRST. If this fails, abort the job — a pass that
   // runs without consuming its trigger can double-fire on the next timer.
-  await octokit.issues.removeLabel({
-    owner: gh.owner,
-    repo: gh.repo,
-    issue_number: job.issue,
-    name: job.triggerLabel,
-  });
+  // (Derived jobs have no label; their re-fire guard is the derivation
+  // itself — once refine pushes, the review is older than the commit.)
+  if (!derived) {
+    await octokit.issues.removeLabel({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: job.issue,
+      name: job.triggerLabel,
+    });
+  }
 
   const cmdRecord = {
     argv: job.cmd,
@@ -373,7 +386,7 @@ async function processLive(
   // applying agent:refine has declared the issue needs refinement, so the
   // worker publishes that derived state as the label refine requires —
   // label reconciliation per plan §1, not a repair.
-  if (job.agent === "refine") {
+  if (job.agent === "refine" && !derived) {
     await octokit.issues.addLabels({
       owner: gh.owner,
       repo: gh.repo,
@@ -443,7 +456,7 @@ async function processLive(
   // Post-spawn mutations must not kill a pass whose artifacts are already
   // on the forge and in the trace — warn and continue on final failure (G7).
   try {
-    if (mapped.resultLabel) {
+    if (mapped.resultLabel && !derived) {
       await forgeMutate(gh.token, (o) =>
         o.issues.addLabels({
           owner: gh.owner,
@@ -607,6 +620,61 @@ interface FetchArgs {
   owner: string;
   repo: string;
   token: string;
+}
+
+
+/**
+ * Open spec PRs with their newest-commit and newest-human-review times —
+ * the facts behind derived refine-resubmit jobs (ledger G8). PENDING
+ * (draft) reviews are excluded: GitHub shows them only to their author,
+ * so acting on one would leak state no other participant can see.
+ */
+async function fetchSpecPrReviewFacts(args: FetchArgs): Promise<SpecPrReviewFact[]> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  const { data: prs } = await octokit.pulls.list({
+    owner: args.owner,
+    repo: args.repo,
+    state: "open",
+    per_page: 100,
+  });
+  const out: SpecPrReviewFact[] = [];
+  for (const pr of prs) {
+    if (!pr.head?.ref?.includes("slowcook/spec/")) continue;
+    const [reviews, commits] = await Promise.all([
+      octokit.paginate(octokit.pulls.listReviews, {
+        owner: args.owner,
+        repo: args.repo,
+        pull_number: pr.number,
+        per_page: 100,
+      }),
+      octokit.pulls.listCommits({
+        owner: args.owner,
+        repo: args.repo,
+        pull_number: pr.number,
+        per_page: 100,
+      }),
+    ]);
+    const humanReviews = reviews.filter(
+      (r) => r.state !== "PENDING" && r.user?.type !== "Bot" && r.submitted_at
+    );
+    const lastHumanReviewAt =
+      humanReviews.length > 0
+        ? humanReviews.map((r) => r.submitted_at!).sort().at(-1)!
+        : null;
+    const commitDates = commits.data
+      .map((c) => c.commit.committer?.date ?? c.commit.author?.date)
+      .filter((d): d is string => Boolean(d))
+      .sort();
+    const lastCommitAt = commitDates.at(-1) ?? pr.created_at;
+    out.push({
+      prNumber: pr.number,
+      headBranch: pr.head.ref,
+      title: pr.title,
+      lastCommitAt,
+      lastHumanReviewAt,
+    });
+  }
+  return out;
 }
 
 /** All open issues carrying a trigger label or agent:failed. */

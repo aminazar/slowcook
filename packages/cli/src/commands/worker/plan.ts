@@ -284,6 +284,53 @@ export function evaluatePreconditions(
   }
 }
 
+/**
+ * A submitted human review on an open spec PR IS pipeline state (plan §1):
+ * the spec's owner (refine) must answer it. The worker derives this — no
+ * label, no human transport (ledger G8: a PM review sat unattended because
+ * only the session knew to act).
+ */
+export const DERIVED_SPEC_REVIEW_TRIGGER = "(derived) spec-pr-review";
+
+export interface SpecPrReviewFact {
+  prNumber: number;
+  headBranch: string;
+  title: string;
+  /** ISO time of the PR branch's last commit. */
+  lastCommitAt: string;
+  /** ISO time of the newest SUBMITTED human review; null when none. */
+  lastHumanReviewAt: string | null;
+}
+
+/**
+ * One refine-resubmit job per spec PR whose newest human review is newer
+ * than its newest commit — feedback the spec has not yet answered.
+ */
+export function deriveResubmitJobs(specPrs: SpecPrReviewFact[]): WorkerJob[] {
+  const jobs: WorkerJob[] = [];
+  for (const pr of specPrs) {
+    if (!pr.lastHumanReviewAt) continue;
+    if (Date.parse(pr.lastHumanReviewAt) <= Date.parse(pr.lastCommitAt)) continue;
+    jobs.push({
+      issue: pr.prNumber,
+      issueTitle: pr.title,
+      agent: "refine",
+      triggerLabel: DERIVED_SPEC_REVIEW_TRIGGER,
+      cmd: ["slowcook", "refine", "--pr", String(pr.prNumber)],
+      preconditions: [
+        {
+          name: "spec-pr-review-newer-than-spec",
+          status: "pass",
+          detail: `review at ${pr.lastHumanReviewAt} > last commit at ${pr.lastCommitAt} on ${pr.headBranch}`,
+        },
+      ],
+      runnable: true,
+      priority: 0, // unblock before advance — unanswered feedback compounds
+    });
+  }
+  return jobs;
+}
+
 /** The per-pass report — impossible to state from labels alone (plan §1). */
 export interface WorkloadSummary {
   issuesScanned: number;
