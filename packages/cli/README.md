@@ -231,6 +231,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook dispatch <step> [inputs...]
   ```
+- **`app`** [alpha] — Create an org-owned GitHub App for slowcook agents via GitHub's one-click App-Manifest flow — writes the PEM + env snippet and prints the install URL; agents then post as <app-slug>[bot] on every repo the owner installs it on.
+  ```
+  slowcook app init [--org <org>] [--name <app-name>] [--public] [--out-dir <dir>] [--port <n>]
+  ```
 - **`worker`** [alpha] — Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. --enable runs a stage live (label off → spawn → trace → result label / failure comment); stages beyond refine land one verified handoff at a time. `worker systemd` prints the box units.
   ```
   slowcook worker run (--dry-run | --enable refine) [--cwd <path>] [--owner <login>] [--repo <name>] [--logs-dir <path>] [--lock <path>] [--job-timeout-mins <n>] [--json]
