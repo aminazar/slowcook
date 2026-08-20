@@ -86,6 +86,37 @@ describe("deriveJobs", () => {
   });
 });
 
+describe("deriveResubmitJobs", () => {
+  const pr = (over: Partial<import("./plan.js").SpecPrReviewFact>) => ({
+    prNumber: 218,
+    headBranch: "slowcook/spec/story-019",
+    title: "spec: story-019",
+    lastCommitAt: "2026-08-20T13:35:00Z",
+    lastHumanReviewAt: null as string | null,
+    ...over,
+  });
+
+  it("a review newer than the last commit yields a refine --pr job", () => {
+    const jobs = require_deriveResubmit([pr({ lastHumanReviewAt: "2026-08-20T14:00:00Z" })]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.cmd).toEqual(["slowcook", "refine", "--pr", "218"]);
+    expect(jobs[0]!.agent).toBe("refine");
+    expect(jobs[0]!.priority).toBe(0);
+  });
+
+  it("a review older than the last commit is already answered — no job", () => {
+    expect(
+      require_deriveResubmit([pr({ lastHumanReviewAt: "2026-08-20T13:00:00Z" })])
+    ).toHaveLength(0);
+  });
+
+  it("no human review, no job", () => {
+    expect(require_deriveResubmit([pr({})])).toHaveLength(0);
+  });
+});
+
+import { deriveResubmitJobs as require_deriveResubmit } from "./plan.js";
+
 describe("evaluatePreconditions", () => {
   it("refine fails on an empty issue body, with no upstream (operator-owned)", () => {
     const checks = evaluatePreconditions("refine", issue({ number: 5, body: "  " }), {});
