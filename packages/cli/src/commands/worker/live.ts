@@ -121,6 +121,18 @@ export function mapRecipeOutcome(exitCode: number, stdout: string): LiveOutcome 
       detail: `recipe no-op'd: ${noop} — nothing was produced.`,
     };
   }
+  // Resubmit path (G10): tests amended on the PR branch in answer to a
+  // review. The amended PR is the state — taste re-derives from the commit.
+  const amended = stdout.match(/^Tests amended: (.+)$/m)?.[1];
+  if (amended) {
+    const branch = stdout.match(/^Pushed to branch (\S+?)\.?$/m)?.[1];
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: branch ? [branch] : [],
+      detail: `tests amended (${amended}) in answer to review feedback${branch ? ` on ${branch}` : ""}.`,
+    };
+  }
   const written = stdout.match(/^Tests written for (.+)$/m)?.[1];
   const pr = stdout.match(/^Draft PR: (\S+)$/m)?.[1];
   if (written && pr) {

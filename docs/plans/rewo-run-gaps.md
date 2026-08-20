@@ -214,6 +214,30 @@ Entry format:
   deploy (the review is still newer than the last commit, so the worker
   re-derives the job by itself).
 
+## G10 (FIXED) — recipe has no review-response path
+
+- **surfaced by**: taste's FIRST live review (PR #223, 2026-08-20 23:56):
+  a substantive REQUEST_CHANGES — the generated schema test asserts DDL
+  contradicting the spec's own migration, and the spec's mandated gap-log
+  invariant is not verified. Correctly not merged.
+- **the gap**: nothing answers taste on a tests PR. Spec PRs have refine's
+  resubmit derivation (G8); tests PRs have no `recipe --pr N` amend path,
+  so changes-requested findings sit for a human. The taste→author-agent
+  conversation only closes for half the pipeline.
+- **fix**: (1) `slowcook recipe --pr N` — tests-PR resubmit: PR-authoritative
+  checkout (G9 pattern), feedback = timeline comments + human inline
+  comments, model amends ONLY needed test files via a confined file-block
+  protocol (writes locked to `tests/`), commits to the same branch, replies.
+  (2) taste now posts changes-requested findings as a TIMELINE comment too —
+  review bodies are an API surface resubmit paths never read. (3) unified
+  author-resubmit derivation: ANY submitted review (taste or human) newer
+  than the code routes spec PRs→refine, tests PRs→recipe. (4) BOUNDED
+  ROUNDS: past MAX_REVIEW_ROUNDS(4) submitted reviews, both taste and the
+  author agents stand down and the PM (cc'd on every changes-request)
+  arbitrates — two models politely burning money is not a conversation.
+- **verified**: parser + derivation tests (round cap, spec→refine,
+  tests→recipe routing); live on #221–#223 after deploy.
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as

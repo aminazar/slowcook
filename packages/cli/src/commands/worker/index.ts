@@ -38,7 +38,6 @@ import {
   RESULT_LABELS,
   type IssueFact,
   type StoryArtifactFacts,
-  type SpecPrReviewFact,
   type SpecReadyFact,
   type AgentPrFact,
   type WorkerJob,
@@ -176,14 +175,10 @@ async function runPass(argv: string[]): Promise<void> {
     ensureBaseCheckout(args.repoRoot, args.baseBranch);
 
     const issues = await fetchTriggerIssues({ owner, repo, token });
-    const { specReviewFacts: specPrs, agentPrFacts, openHeadRefs } = await fetchOpenPrFacts({
-      owner,
-      repo,
-      token,
-    });
+    const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts({ owner, repo, token });
     // Unanswered spec-PR feedback outranks fresh triggers (plan §1 rule 1).
     const jobs = [
-      ...deriveResubmitJobs(specPrs),
+      ...deriveResubmitJobs(agentPrFacts),
       ...deriveTasteJobs(agentPrFacts),
       ...deriveRecipeJobs(gatherSpecReadyFacts(args.repoRoot, openHeadRefs)),
       ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
@@ -708,11 +703,7 @@ interface FetchArgs {
  */
 async function fetchOpenPrFacts(
   args: FetchArgs
-): Promise<{
-  specReviewFacts: SpecPrReviewFact[];
-  agentPrFacts: AgentPrFact[];
-  openHeadRefs: string[];
-}> {
+): Promise<{ agentPrFacts: AgentPrFact[]; openHeadRefs: string[] }> {
   const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
   const { data: prs } = await octokit.pulls.list({
     owner: args.owner,
@@ -720,7 +711,6 @@ async function fetchOpenPrFacts(
     state: "open",
     per_page: 100,
   });
-  const out: SpecPrReviewFact[] = [];
   const agentPrFacts: AgentPrFact[] = [];
   const openHeadRefs = prs.map((p) => p.head?.ref ?? "").filter(Boolean);
   for (const pr of prs) {
@@ -760,18 +750,10 @@ async function fetchOpenPrFacts(
       lastCommitAt,
       lastHumanReviewAt,
       lastAnyReviewAt,
+      submittedReviewCount: submitted.length,
     });
-    if (ref.includes("slowcook/spec/")) {
-      out.push({
-        prNumber: pr.number,
-        headBranch: ref,
-        title: pr.title,
-        lastCommitAt,
-        lastHumanReviewAt,
-      });
-    }
   }
-  return { specReviewFacts: out, agentPrFacts, openHeadRefs };
+  return { agentPrFacts, openHeadRefs };
 }
 
 /** All open issues carrying a trigger label or agent:failed. */
