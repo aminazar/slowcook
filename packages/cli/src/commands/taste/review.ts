@@ -1,0 +1,150 @@
+/**
+ * `slowcook taste` pure logic — context-aware review of agent-authored PRs.
+ *
+ * Taste is the reviewer stage of the worker pipeline: for a spec or tests
+ * PR it reads the whole LINEAGE — source issue and its PM Q&A, the spec,
+ * the diff — and returns a structured verdict. The IO wrapper posts the
+ * review as the agent identity and, when the operator granted authority
+ * (--merge), merges on approve.
+ *
+ * NOTE: GitHub refuses APPROVE/REQUEST_CHANGES reviews on one's own PR,
+ * and taste usually reviews PRs authored by the same App identity — so
+ * the review is posted as a COMMENT review carrying an explicit verdict,
+ * and merge authority is exercised directly. The verdict line in stdout
+ * is the worker's mapping contract.
+ */
+
+export type PrKind = "spec" | "tests";
+
+export interface TasteContext {
+  prNumber: number;
+  prTitle: string;
+  prBody: string;
+  headBranch: string;
+  kind: PrKind;
+  storyId: string;
+  /** Unified diff, truncated by the caller. */
+  diff: string;
+  /** The story's spec YAML (post-merge for tests PRs; the PR's for spec PRs). */
+  specYaml: string | null;
+  sourceIssueTitle: string | null;
+  sourceIssueBody: string | null;
+  /** Trimmed PM Q&A thread from the source issue. */
+  issueThread: string | null;
+}
+
+export interface TasteFinding {
+  severity: "blocking" | "important" | "nit";
+  note: string;
+}
+
+export interface TasteVerdict {
+  verdict: "approve" | "request_changes";
+  summary: string;
+  findings: TasteFinding[];
+}
+
+export function buildTastePrompt(ctx: TasteContext): { system: string; user: string } {
+  const system = `You are slowcook's reviewer agent ("taste") for pipeline PRs on a software project.
+You review the ${ctx.kind === "tests" ? "generated TEST SUITE" : "generated SPEC"} for one story against its full lineage.
+
+Judge:
+${
+  ctx.kind === "tests"
+    ? `- Do the tests faithfully cover the spec's invariants and scenarios? Name any invariant with no test.
+- Are the tests honest (no auto-pass, no tautologies, no testing of mocks-of-mocks)?
+- Would they be red before implementation and green after a correct one?
+- Quality: determinism, isolation, clear naming. Style nits are nits, not blockers.`
+    : `- Does the spec faithfully capture the source issue and the PM's answers? Name contradictions.
+- Are invariants testable and unambiguous? Are scenarios concrete?
+- Scope: nothing invented beyond the issue + answers; nothing load-bearing missing.`
+}
+
+Verdict rules — fail closed:
+- "approve" ONLY when there are no blocking findings.
+- Anything that would make the story's definition-of-done wrong is blocking.
+- Unsure = "request_changes" with the question as a finding.
+
+Respond with ONLY a JSON object:
+{"verdict": "approve" | "request_changes", "summary": "<2-4 sentences>", "findings": [{"severity": "blocking"|"important"|"nit", "note": "<specific, actionable>"}]}`;
+
+  const parts: string[] = [];
+  parts.push(`## PR #${ctx.prNumber}: ${ctx.prTitle}\nBranch: ${ctx.headBranch}\n\n${ctx.prBody || "(no body)"}`);
+  if (ctx.sourceIssueTitle) {
+    parts.push(`## Source issue: ${ctx.sourceIssueTitle}\n\n${ctx.sourceIssueBody ?? ""}`);
+  }
+  if (ctx.issueThread) {
+    parts.push(`## PM Q&A thread (trimmed)\n\n${ctx.issueThread}`);
+  }
+  if (ctx.specYaml) {
+    parts.push(`## Spec (story-${ctx.storyId})\n\n\`\`\`yaml\n${ctx.specYaml}\n\`\`\``);
+  }
+  parts.push(`## Diff under review\n\n\`\`\`diff\n${ctx.diff}\n\`\`\``);
+  return { system, user: parts.join("\n\n---\n\n") };
+}
+
+/** Extract the first balanced JSON object from model text. */
+export function extractJson(text: string): string | null {
+  const fenced = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (fenced && fenced[1]) return fenced[1];
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/** Parse the model's verdict. Null = unparseable — the caller must fail
+ *  closed (never merge on a verdict it could not read). */
+export function parseTasteVerdict(text: string): TasteVerdict | null {
+  const blob = extractJson(text);
+  if (!blob) return null;
+  try {
+    const d = JSON.parse(blob) as Partial<TasteVerdict>;
+    if (d.verdict !== "approve" && d.verdict !== "request_changes") return null;
+    const findings: TasteFinding[] = Array.isArray(d.findings)
+      ? d.findings
+          .filter((f): f is TasteFinding => typeof (f as TasteFinding)?.note === "string")
+          .map((f) => ({
+            severity: f.severity === "blocking" || f.severity === "important" ? f.severity : "nit",
+            note: f.note,
+          }))
+      : [];
+    // Defense-in-depth: a blocking finding can never ride an approve.
+    const verdict =
+      d.verdict === "approve" && findings.some((f) => f.severity === "blocking")
+        ? "request_changes"
+        : d.verdict;
+    return { verdict, summary: typeof d.summary === "string" ? d.summary : "", findings };
+  } catch {
+    return null;
+  }
+}
+
+/** Render the review body posted to the PR. */
+export function renderReviewBody(
+  v: TasteVerdict,
+  opts: { header: string; merged: boolean; mergeAuthority: boolean }
+): string {
+  const lines: string[] = [opts.header, ""];
+  lines.push(
+    v.verdict === "approve"
+      ? `✅ **taste: approve**${opts.merged ? " — merged." : opts.mergeAuthority ? "" : " (merge left to a human)"}`
+      : `🔶 **taste: changes requested**`
+  );
+  lines.push("", v.summary);
+  if (v.findings.length > 0) {
+    lines.push("");
+    for (const f of v.findings) {
+      const badge = f.severity === "blocking" ? "🛑" : f.severity === "important" ? "⚠️" : "💅";
+      lines.push(`- ${badge} **${f.severity}**: ${f.note}`);
+    }
+  }
+  return lines.join("\n");
+}

@@ -20,7 +20,7 @@
 export type Stage =
   | "refine" | "relationship" | "menu" | "testgen" | "vibe" | "plate"
   | "brew" | "chef" | "sift" | "recipe" | "investigate" | "brand"
-  | "reconcile" | "extract";
+  | "reconcile" | "extract" | "taste";
 
 /** Current model per stage. Tier is deliberate; the id is kept current. */
 export const STAGE_DEFAULTS: Record<Stage, string> = {
@@ -33,6 +33,7 @@ export const STAGE_DEFAULTS: Record<Stage, string> = {
   brand: "claude-opus-4-8",
   reconcile: "claude-opus-4-8",
   extract: "claude-opus-4-8",
+  taste: "claude-opus-4-8",
   // Cheaper, narrower work — relationship analysis, decomposition, repairs.
   relationship: "claude-sonnet-5",
   menu: "claude-sonnet-5",

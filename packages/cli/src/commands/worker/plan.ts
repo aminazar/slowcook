@@ -25,7 +25,7 @@
  * are excluded from job derivation and reported in the workload summary.
  */
 
-export type AgentKind = "refine" | "recipe" | "brew" | "eye";
+export type AgentKind = "refine" | "recipe" | "brew" | "eye" | "taste";
 
 export const TRIGGER_LABELS: Readonly<Record<string, AgentKind>> = {
   "agent:refine": "refine",
@@ -42,6 +42,7 @@ export const RESULT_LABELS: Readonly<Record<AgentKind, string>> = {
   recipe: "agent:reciped",
   brew: "agent:brewed",
   eye: "agent:qa-pass", // or agent:qa-fail — eye's verdict decides
+  taste: "agent:tasted", // rarely used — the posted review/merge IS the state
 };
 
 /** An issue as fetched from the forge. */
@@ -181,6 +182,8 @@ function cmdFor(agent: AgentKind, issue: number, storyId: string | undefined): s
       return ["slowcook", "brew", "--story", storyId ?? "<unresolved>"];
     case "eye":
       return ["slowcook", "eye", "--story", storyId ?? "<unresolved>"];
+    case "taste":
+      return ["slowcook", "taste", "--pr", String(issue), "--merge"];
   }
 }
 
@@ -266,6 +269,14 @@ export function evaluatePreconditions(
           upstream: "recipe",
         },
       ];
+    case "taste":
+      return [
+        {
+          name: "pr-open-unreviewed",
+          status: "pass",
+          detail: `agent PR #${issue.number} awaits review`,
+        },
+      ];
     case "eye":
       return [
         {
@@ -326,6 +337,64 @@ export function deriveResubmitJobs(specPrs: SpecPrReviewFact[]): WorkerJob[] {
       ],
       runnable: true,
       priority: 0, // unblock before advance — unanswered feedback compounds
+    });
+  }
+  return jobs;
+}
+
+/**
+ * The reviewer stage is triggered BY THE PR: any open agent-authored
+ * spec/tests PR with no submitted review asks for taste; a PR whose
+ * newest commit is newer than its newest review asks for a re-taste
+ * after amendments. Submitted human activity always wins: a human
+ * review newer than the last commit belongs to the AUTHOR agent's
+ * resubmit derivation, never to taste.
+ */
+export const DERIVED_UNREVIEWED_PR_TRIGGER = "(derived) agent-pr-unreviewed";
+
+export interface AgentPrFact {
+  prNumber: number;
+  headBranch: string;
+  title: string;
+  lastCommitAt: string;
+  lastHumanReviewAt: string | null;
+  /** Newest submitted review by ANYONE (bots included); null when none. */
+  lastAnyReviewAt: string | null;
+}
+
+export function deriveTasteJobs(prs: AgentPrFact[]): WorkerJob[] {
+  const jobs: WorkerJob[] = [];
+  for (const pr of prs) {
+    if (!pr.headBranch.includes("slowcook/spec/") && !pr.headBranch.includes("slowcook/tests/"))
+      continue;
+    // A human review newer than the code is the author-agent's turn.
+    if (
+      pr.lastHumanReviewAt &&
+      Date.parse(pr.lastHumanReviewAt) > Date.parse(pr.lastCommitAt)
+    )
+      continue;
+    const unreviewed = pr.lastAnyReviewAt === null;
+    const amendedSinceReview =
+      pr.lastAnyReviewAt !== null &&
+      Date.parse(pr.lastCommitAt) > Date.parse(pr.lastAnyReviewAt);
+    if (!unreviewed && !amendedSinceReview) continue;
+    jobs.push({
+      issue: pr.prNumber,
+      issueTitle: pr.title,
+      agent: "taste",
+      triggerLabel: DERIVED_UNREVIEWED_PR_TRIGGER,
+      cmd: ["slowcook", "taste", "--pr", String(pr.prNumber), "--merge"],
+      preconditions: [
+        {
+          name: "pr-open-unreviewed",
+          status: "pass",
+          detail: unreviewed
+            ? `no submitted review on ${pr.headBranch}`
+            : `amended since last review (commit ${pr.lastCommitAt} > review ${pr.lastAnyReviewAt})`,
+        },
+      ],
+      runnable: true,
+      priority: 5, // reviews unblock merges, which unblock everything downstream
     });
   }
   return jobs;
