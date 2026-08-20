@@ -67,6 +67,18 @@ export function mapRefineOutcome(exitCode: number, stdout: string): LiveOutcome 
       advanceIssues: subIssues,
     };
   }
+  // Resubmit path: spec amended on the PR branch in answer to review
+  // feedback. The amended PR is the state — no label to apply.
+  const amended = stdout.match(/^Spec amended: (\S+)$/m)?.[1];
+  if (amended) {
+    const branch = stdout.match(/^Pushed to branch (\S+?)\.?$/m)?.[1];
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: [amended, ...(branch ? [branch] : [])],
+      detail: `spec amended in answer to review feedback${branch ? ` (pushed to ${branch})` : ""}.`,
+    };
+  }
   const pr = stdout.match(/^Draft PR: (\S+)$/m)?.[1];
   if (pr) {
     const spec = stdout.match(/^Spec written: (\S+)$/m)?.[1];
