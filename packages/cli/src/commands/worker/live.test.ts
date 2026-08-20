@@ -29,6 +29,20 @@ describe("mapRefineOutcome", () => {
     expect(o.detail).toContain("non-terminal");
   });
 
+  it("an amended spec (resubmit) is success with no label — the PR is the state", () => {
+    const o = mapRefineOutcome(
+      0,
+      "Spec amended: /root/rewo/specs/story-019.yaml\nPushed to branch slowcook/spec/story-019.\n"
+    );
+    expect(o.outcome).toBe("success");
+    expect(o.resultLabel).toBeNull();
+    expect(o.artifacts).toEqual([
+      "/root/rewo/specs/story-019.yaml",
+      "slowcook/spec/story-019",
+    ]);
+    expect(o.detail).toContain("amended");
+  });
+
   it("an executed split advances the chain onto the sub-issues", () => {
     const o = mapRefineOutcome(0, "Split executed: #45 #46 #47 (1 overlap skipped)\n");
     expect(o.outcome).toBe("success");

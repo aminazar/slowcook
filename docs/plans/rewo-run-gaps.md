@@ -189,6 +189,31 @@ Entry format:
 - **verified**: 3 new planner tests; live on #218 once the PM submits the
   pending review.
 
+## G9 — refine resubmit amended the WRONG story (checkout branch ≠ PR)
+
+- **surfaced by**: the first derived resubmit run (G8's feature, PR #218,
+  2026-08-20 17:47 CEST): `refine --pr 218` (story-019) amended
+  **story-021** and pushed "refine: resubmit story-021 per PR #218
+  feedback" onto PR #220's branch — cross-pollution between two open PRs.
+- **root cause**: `detectStoryIdFromBranch` trusted `git branch
+  --show-current` with the comment "CLI workflow checks out the PR branch
+  before invoking us" — true under GitHub Actions, FALSE under the box
+  worker, where the shared checkout sat on the PREVIOUS run's branch.
+  The Actions-era assumption became a landmine the moment the execution
+  environment changed. (Same family as G1/O1: an environmental
+  precondition assumed, not asserted.)
+- **cleanup**: PR #220's branch force-pushed (with lease) back to its
+  clean spec commit; pollution commit dropped.
+- **fix**: the PR is authoritative — resubmit resolves the story from the
+  PR's own head branch (`forge.getPullRequest`), and makes the checkout
+  match before touching a file (fail-closed on a dirty tree). Legacy
+  branch-detection kept only as fallback for adapters without
+  getPullRequest. Worker mapper also now recognizes the resubmit output
+  ("Spec amended:") instead of narrating it as "questions posted".
+- **verified**: build + suite green (1679); live re-run on #218 after
+  deploy (the review is still newer than the last commit, so the worker
+  re-derives the job by itself).
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as

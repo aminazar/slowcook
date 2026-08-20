@@ -1244,12 +1244,59 @@ function detectStoryIdFromBranch(repoRoot: string): string | null {
 export async function runResubmitRefinement(
   ctx: ResubmitContext
 ): Promise<ResubmitOutcome> {
-  const storyId = detectStoryIdFromBranch(ctx.repoRoot);
+  // THE PR IS AUTHORITATIVE for which story is being amended — never the
+  // checkout's current branch. The old "workflow checked out the PR branch
+  // for us" assumption was true under GitHub Actions and false under the
+  // box worker, where the shared checkout sat on the PREVIOUS run's branch:
+  // `refine --pr 218` (story-019) amended story-021 and pushed a pollution
+  // commit onto the wrong PR (rewo run, ledger G9).
+  let storyId: string | null = null;
+  if (ctx.forge.getPullRequest) {
+    try {
+      const pr = await ctx.forge.getPullRequest(ctx.prNumber);
+      const m = pr.head_branch?.match(/slowcook\/spec\/story-(.+)$/);
+      if (m && m[1]) {
+        storyId = m[1];
+        // Make the checkout MATCH the PR before touching any file. Fail
+        // closed on a dirty tree rather than mixing work.
+        const current = execSync("git branch --show-current", {
+          cwd: ctx.repoRoot,
+          encoding: "utf8",
+        }).trim();
+        if (current !== pr.head_branch) {
+          const dirty = execSync("git status --porcelain", {
+            cwd: ctx.repoRoot,
+            encoding: "utf8",
+          })
+            .split("\n")
+            .filter((l) => l.trim() && !l.includes(".brewing/history-index"));
+          if (dirty.length > 0) {
+            return {
+              kind: "noop",
+              reason: `checkout is on ${current || "(detached)"} with uncommitted changes — refusing to switch to ${pr.head_branch}`,
+            };
+          }
+          execSync(`git fetch origin ${pr.head_branch}`, { cwd: ctx.repoRoot });
+          execSync(`git checkout ${pr.head_branch}`, { cwd: ctx.repoRoot });
+          execSync(`git reset --hard origin/${pr.head_branch}`, { cwd: ctx.repoRoot });
+          console.log(`  checked out ${pr.head_branch} (PR #${ctx.prNumber} is authoritative)`);
+        }
+      }
+    } catch (e) {
+      return {
+        kind: "noop",
+        reason: `could not resolve PR #${ctx.prNumber} head branch: ${(e as Error).message}`,
+      };
+    }
+  }
+  // Legacy fallback (adapters without getPullRequest): the Actions
+  // workflow contract — checkout already on the PR branch.
+  if (!storyId) storyId = detectStoryIdFromBranch(ctx.repoRoot);
   if (!storyId) {
     return {
       kind: "noop",
       reason:
-        "could not detect story id from current branch — expected `slowcook/spec/story-N` pattern",
+        "could not detect story id from the PR head branch or current branch — expected `slowcook/spec/story-N` pattern",
     };
   }
 
