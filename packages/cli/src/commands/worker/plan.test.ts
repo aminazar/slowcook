@@ -184,3 +184,40 @@ describe("workload summary", () => {
     expect(line).toContain("1 agent:failed");
   });
 });
+
+import { deriveRecipeJobs } from "./plan.js";
+
+describe("deriveRecipeJobs (W2)", () => {
+  const fact = (over: Partial<import("./plan.js").SpecReadyFact>) => ({
+    storyId: "019",
+    sourceIssue: 215,
+    title: "Crawler dedupe",
+    specParses: true,
+    invariantsNonEmpty: true,
+    manifestExists: false,
+    openTestsPr: false,
+    ...over,
+  });
+
+  it("a merged spec with no tests yields a recipe job on the source issue", () => {
+    const jobs = deriveRecipeJobs([fact({})]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.cmd).toEqual(["slowcook", "recipe", "--spec", "019"]);
+    expect(jobs[0]!.issue).toBe(215);
+    expect(jobs[0]!.agent).toBe("recipe");
+  });
+
+  it("an existing manifest or open tests PR suppresses the job", () => {
+    expect(deriveRecipeJobs([fact({ manifestExists: true })])).toHaveLength(0);
+    expect(deriveRecipeJobs([fact({ openTestsPr: true })])).toHaveLength(0);
+  });
+
+  it("an unparseable spec or empty invariants is not recipe-ready", () => {
+    expect(deriveRecipeJobs([fact({ specParses: false })])).toHaveLength(0);
+    expect(deriveRecipeJobs([fact({ invariantsNonEmpty: false })])).toHaveLength(0);
+  });
+
+  it("no source issue = nowhere to report — skipped", () => {
+    expect(deriveRecipeJobs([fact({ sourceIssue: null })])).toHaveLength(0);
+  });
+});

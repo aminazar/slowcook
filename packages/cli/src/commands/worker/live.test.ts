@@ -69,15 +69,39 @@ describe("mapRefineOutcome", () => {
 });
 
 describe("mapLiveOutcome", () => {
-  it("stages beyond refine fail closed rather than pretending", () => {
+  it("stages beyond the enabled set fail closed rather than pretending", () => {
     const o = mapLiveOutcome("brew", 0, "all green");
     expect(o.outcome).toBe("failed");
-    expect(o.detail).toContain("W1");
+    expect(o.detail).toContain("not enabled");
   });
 });
 
 describe("commentHeader", () => {
   it("carries agent, issue, and run id for trace correlation", () => {
     expect(commentHeader("refine", 34, "run-x")).toBe("**slowcook-refine** · issue #34 · run run-x");
+  });
+});
+
+import { mapRecipeOutcome } from "./live.js";
+
+describe("mapRecipeOutcome (W2)", () => {
+  it("tests-emitted yields agent:reciped + the PR artifact", () => {
+    const o = mapRecipeOutcome(
+      0,
+      "Tests written for story-019\nDraft PR: https://github.com/reworthy/app/pull/230\n"
+    );
+    expect(o.outcome).toBe("success");
+    expect(o.resultLabel).toBe("agent:reciped");
+    expect(o.artifacts).toEqual(["https://github.com/reworthy/app/pull/230"]);
+  });
+
+  it("nonzero exit is terminal", () => {
+    expect(mapRecipeOutcome(2, "").resultLabel).toBe("agent:failed");
+  });
+
+  it("a noop is reported verbatim, never as progress", () => {
+    const o = mapRecipeOutcome(0, "Noop: nothing to generate.\n");
+    expect(o.resultLabel).toBeNull();
+    expect(o.detail).toContain("no-op");
   });
 });
