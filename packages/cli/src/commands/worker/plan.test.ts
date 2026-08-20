@@ -221,3 +221,50 @@ describe("deriveRecipeJobs (W2)", () => {
     expect(deriveRecipeJobs([fact({ sourceIssue: null })])).toHaveLength(0);
   });
 });
+
+import { deriveTasteJobs } from "./plan.js";
+
+describe("deriveTasteJobs (reviewer stage)", () => {
+  const pr = (over: Partial<import("./plan.js").AgentPrFact>) => ({
+    prNumber: 221,
+    headBranch: "slowcook/tests/story-019",
+    title: "tests: story-019",
+    lastCommitAt: "2026-08-20T17:00:00Z",
+    lastHumanReviewAt: null as string | null,
+    lastAnyReviewAt: null as string | null,
+    ...over,
+  });
+
+  it("an unreviewed agent PR yields a taste job with merge authority", () => {
+    const jobs = deriveTasteJobs([pr({})]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.cmd).toEqual(["slowcook", "taste", "--pr", "221", "--merge"]);
+    expect(jobs[0]!.agent).toBe("taste");
+  });
+
+  it("amended-since-review re-tastes", () => {
+    const jobs = deriveTasteJobs([
+      pr({ lastAnyReviewAt: "2026-08-20T16:00:00Z", lastCommitAt: "2026-08-20T17:00:00Z" }),
+    ]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.preconditions[0]!.detail).toContain("amended since");
+  });
+
+  it("a review newer than the code suppresses taste", () => {
+    expect(
+      deriveTasteJobs([pr({ lastAnyReviewAt: "2026-08-20T18:00:00Z" })])
+    ).toHaveLength(0);
+  });
+
+  it("a fresh HUMAN review belongs to the author agent, never taste", () => {
+    expect(
+      deriveTasteJobs([
+        pr({ lastHumanReviewAt: "2026-08-20T18:00:00Z", lastAnyReviewAt: "2026-08-20T18:00:00Z" }),
+      ])
+    ).toHaveLength(0);
+  });
+
+  it("non-agent branches are not taste's business", () => {
+    expect(deriveTasteJobs([pr({ headBranch: "feature/foo" })])).toHaveLength(0);
+  });
+});

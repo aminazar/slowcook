@@ -258,6 +258,13 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "ops",
   },
   {
+    name: "taste",
+    usage: "slowcook taste --pr <n> [--merge] [--cwd <path>] [--owner <o>] [--repo <r>] [--model <id>]",
+    description: "Reviewer agent for pipeline PRs: reads the story lineage (source issue + PM Q&A + spec + diff), posts a structured verdict as the agent identity, and with --merge merges on approve. Fail-closed: unparseable verdicts merge nothing; blocking findings never approve. The worker derives taste jobs from open agent PRs with no submitted review — the PR is the trigger.",
+    group: "pipeline",
+    status: "alpha",
+  },
+  {
     name: "app",
     usage: "slowcook app init [--org <org>] [--name <app-name>] [--public] [--out-dir <dir>] [--port <n>]",
     description: "Create an org-owned GitHub App for slowcook agents via GitHub's one-click App-Manifest flow — writes the PEM + env snippet and prints the install URL; agents then post as <app-slug>[bot] on every repo the owner installs it on.",

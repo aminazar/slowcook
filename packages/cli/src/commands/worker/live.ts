@@ -139,12 +139,54 @@ export function mapRecipeOutcome(exitCode: number, stdout: string): LiveOutcome 
   };
 }
 
+/** Map a finished `slowcook taste` (reviewer) process to worker state. */
+export function mapTasteOutcome(exitCode: number, stdout: string): LiveOutcome {
+  if (exitCode !== 0) {
+    return {
+      outcome: "failed",
+      resultLabel: FAILED_LABEL,
+      artifacts: [],
+      detail: `taste exited ${exitCode} — review failed closed (no review posted, nothing merged).`,
+    };
+  }
+  const approved = /^Review verdict: APPROVE$/m.test(stdout);
+  const changes = /^Review verdict: REQUEST_CHANGES$/m.test(stdout);
+  const merged = stdout.match(/^Merged PR #(\d+)\.$/m)?.[1];
+  const mergeFailed = stdout.match(/^Merge failed: (.+)$/m)?.[1];
+  if (approved) {
+    return {
+      outcome: "success",
+      resultLabel: null, // the posted review / merge IS the state
+      artifacts: merged ? [`#${merged} (merged)`] : [],
+      detail: merged
+        ? `taste approved and merged PR #${merged}.`
+        : `taste approved${mergeFailed ? `; merge failed: ${mergeFailed}` : " (no merge authority)"} — PR left open.`,
+    };
+  }
+  if (changes) {
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: [],
+      detail: "taste requested changes — findings posted on the PR; the author agent (or a human) answers.",
+    };
+  }
+  return {
+    outcome: "success",
+    resultLabel: null,
+    artifacts: [],
+    detail: "taste exited 0 without a verdict line — inspect the trace.",
+  };
+}
+
 export function mapLiveOutcome(agent: AgentKind, exitCode: number, stdout: string): LiveOutcome {
   switch (agent) {
     case "refine":
       return mapRefineOutcome(exitCode, stdout);
     case "recipe":
       return mapRecipeOutcome(exitCode, stdout);
+    case "taste":
+      return mapTasteOutcome(exitCode, stdout);
     default:
       // W2+: recipe / brew / eye mappings land one stage at a time, each
       // only after the upstream handoff contract is verified (plan §6).

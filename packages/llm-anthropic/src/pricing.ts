@@ -99,7 +99,7 @@ export function costUsdForUsage(model: string, usage: LlmUsage): number {
  * aggregator just walks issue comments via the GitHub API.
  */
 export function costMarker(fields: {
-  agent: "refine" | "testgen" | "brew";
+  agent: "refine" | "testgen" | "brew" | "taste";
   usd: number;
   tokensIn?: number;
   tokensOut?: number;

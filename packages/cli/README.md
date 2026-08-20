@@ -79,6 +79,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook chef-orchestrate --pr <number> --story <id> [--cwd <path>]
   ```
+- **`taste`** [alpha] — Reviewer agent for pipeline PRs: reads the story lineage (source issue + PM Q&A + spec + diff), posts a structured verdict as the agent identity, and with --merge merges on approve. Fail-closed: unparseable verdicts merge nothing; blocking findings never approve. The worker derives taste jobs from open agent PRs with no submitted review — the PR is the trigger.
+  ```
+  slowcook taste --pr <n> [--merge] [--cwd <path>] [--owner <o>] [--repo <r>] [--model <id>]
+  ```
 - **`brand`** — Design-system foundation agent. Emits mock/src/design-system/{tokens.ts, css.ts} from a brand brief. `brand logo` tokenizes a supplied SVG / deterministically traces a PNG (vtracer/potrace — no LLM path-authoring).
   ```
   slowcook brand [--brief <prose>] [--refresh] [--dry-run] [--model <id>] [--cwd <path>]  ·  slowcook brand logo --in <svg|png> [--out <dir>] [--map #hex=token,...]
