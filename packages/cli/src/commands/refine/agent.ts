@@ -91,6 +91,7 @@ import {
 } from "./brownfield-answer.js";
 import { appendCostEntry, applyCostToSpec, costSidecarPath } from "../../cost-store.js";
 import { fuelGaugeFromRepo } from "../../lib/budget.js";
+import { pmCc } from "../../lib/pm-notify.js";
 
 export const LABEL_CHANGE_OF_MIND = "change-of-mind";
 export const LABEL_BLOCKED_CONTRADICTION = "blocked-contradiction";
@@ -328,6 +329,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
               { rationale: mf.verdict.rationale, sub_issues: mf.verdict.sub_issues },
               { issueTitle: issue.title }
             ) +
+            pmCc(ctx.repoRoot) +
             "\n\n" +
             marker;
           const comment = await ctx.forge.createIssueComment(ctx.issueNumber, body);
@@ -380,7 +382,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     });
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      overlapCommentBody(verdict, existingSpecs) + "\n\n" + marker
+      overlapCommentBody(verdict, existingSpecs) + pmCc(ctx.repoRoot) + "\n\n" + marker
     );
     await ctx.forge.addIssueLabels(ctx.issueNumber, [LABEL_BLOCKED_OVERLAP]);
     return { kind: "overlap-flagged", conflicting_ids: verdict.conflicting_ids };
@@ -454,7 +456,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     // blocker label from a prior pass, and proceed.
     await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      contradictionCommentBody(verdict, true, existingSpecs)
+      contradictionCommentBody(verdict, true, existingSpecs) + pmCc(ctx.repoRoot)
     );
     await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_BLOCKED_CONTRADICTION);
   }
@@ -577,7 +579,7 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     });
     const comment = await ctx.forge.createIssueComment(
       ctx.issueNumber,
-      BRAND_HEADER + cleanMarkdown + footer + "\n\n" + refineCostMarker
+      BRAND_HEADER + cleanMarkdown + footer + pmCc(ctx.repoRoot) + "\n\n" + refineCostMarker
     );
     // Make the wait visible where the work is triaged, not just in the log.
     try {

@@ -39,6 +39,7 @@ import {
 import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
 import { mapLiveOutcome, commentHeader } from "./live.js";
 import { acquireWorkerLock, releaseWorkerLock } from "./worker-lock.js";
+import { pmCc } from "../../lib/pm-notify.js";
 import type { AgentKind } from "./plan.js";
 
 /** Stages allowed to run live in this build. Widened one phase at a time
@@ -332,7 +333,8 @@ async function processLive(
         failed
           .map((c) => `- \`${c.name}\`${c.upstream ? ` (upstream: **${c.upstream}**)` : ""}: ${c.detail}`)
           .join("\n") +
-        `\n\nRelabel \`${job.triggerLabel}\` to retry once the upstream artifact exists.`,
+        `\n\nRelabel \`${job.triggerLabel}\` to retry once the upstream artifact exists.` +
+        pmCc(args.repoRoot),
     });
     return { job, traceDir, outcome: "precondition-missing" };
   }
@@ -440,7 +442,7 @@ async function processLive(
         `${commentHeader(job.agent, job.issue, runId)}\n\n` +
         `🛑 **${job.agent} failed** — ${mapped.detail}\n\n` +
         `<details><summary>stderr tail</summary>\n\n\`\`\`\n${tail(stderr, 30)}\n\`\`\`\n</details>\n\n` +
-        `Terminal until a human relabels \`${job.triggerLabel}\`.`,
+        `Terminal until a human relabels \`${job.triggerLabel}\`.` + pmCc(args.repoRoot),
     });
   }
   return { job, traceDir, outcome: mapped.outcome };
