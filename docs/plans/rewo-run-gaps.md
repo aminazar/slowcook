@@ -150,12 +150,18 @@ Entry format:
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as
-the author (the box's gh login). Plan §5 anticipated this — the in-body
-attribution header is the zero-setup tier. The visible-author fix needs an
-identity only Amin can create: a machine account (simplest: create account,
-grant repo access, `gh auth login` as it on the box) or a GitHub App
-(`slowcook-agent[bot]`; needs slowcook support for App-token minting —
-a real feature). Awaiting Amin's pick.
+the author (the box's gh login). Ruling: slowcook is not rewo-only — the
+identity must scale per-consumer, via GitHub. **Fix shipped**: GitHub App
+support in `@slowcook-ai/forge-github` (`appAuthConfigured` /
+`mintInstallationToken`, named errors for not-installed / bad-key) + the
+worker prefers the App identity, records `forgeIdentity` in every trace,
+and hard-stops if the App is configured but cannot mint (silent operator
+fallback would defeat the point). Each consumer org registers/installs a
+"slowcook-agent" App once; agents post as `<app-slug>[bot]`. The adapter
+was already installation-token-ready (`botUsername` handles the App 403).
+Remaining: Amin's one-time App registration + install on reworthy/app +
+APP_ID/PEM into the box env; later, an App-manifest-flow helper
+(`slowcook worker init-app`) to automate registration for any consumer.
 
 ## O1 (observation) — /root/rewo drifted off main
 

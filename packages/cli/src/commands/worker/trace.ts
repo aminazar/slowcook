@@ -31,6 +31,8 @@ export interface CmdRecord {
   envNames: string[];
   /** Which model backend was configured: "claude-cli" | "api" | "none". */
   backend: string;
+  /** Who the forge sees: "<app-slug>[bot]" or "operator-token". */
+  forgeIdentity: string;
   cwd: string;
   gitSha: string;
   startedAt: string;
