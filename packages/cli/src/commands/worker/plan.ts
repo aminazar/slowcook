@@ -331,6 +331,53 @@ export function deriveResubmitJobs(specPrs: SpecPrReviewFact[]): WorkerJob[] {
   return jobs;
 }
 
+/**
+ * W2: a MERGED spec with no tests and no open tests PR asks for recipe —
+ * derived from artifacts (plan §1), not from anyone applying a label.
+ * Auto-advance across the refine→recipe handoff; the human gate was the
+ * spec PR review/merge that produced the state.
+ */
+export const DERIVED_SPEC_MERGED_TRIGGER = "(derived) spec-merged-no-tests";
+
+export interface SpecReadyFact {
+  storyId: string;
+  /** Source issue number (labels/comments target); null when unknown. */
+  sourceIssue: number | null;
+  title: string;
+  specParses: boolean;
+  invariantsNonEmpty: boolean;
+  manifestExists: boolean;
+  /** An open slowcook/tests PR already covers this story. */
+  openTestsPr: boolean;
+}
+
+export function deriveRecipeJobs(facts: SpecReadyFact[]): WorkerJob[] {
+  const jobs: WorkerJob[] = [];
+  for (const f of facts) {
+    if (!f.specParses || !f.invariantsNonEmpty) continue; // not recipe-ready
+    if (f.manifestExists || f.openTestsPr) continue; // tests exist or in flight
+    if (f.sourceIssue === null) continue; // nowhere to report — skip, visible in workload
+    jobs.push({
+      issue: f.sourceIssue,
+      issueTitle: f.title,
+      agent: "recipe",
+      triggerLabel: DERIVED_SPEC_MERGED_TRIGGER,
+      storyId: f.storyId,
+      cmd: ["slowcook", "recipe", "--spec", f.storyId],
+      preconditions: [
+        {
+          name: "spec-merged-no-tests",
+          status: "pass",
+          detail: `spec story-${f.storyId} parses with invariants; no manifest, no open tests PR`,
+        },
+      ],
+      runnable: true,
+      priority: 10, // after unblocks/resubmits, before fresh label triggers
+    });
+  }
+  return jobs;
+}
+
 /** The per-pass report — impossible to state from labels alone (plan §1). */
 export interface WorkloadSummary {
   issuesScanned: number;

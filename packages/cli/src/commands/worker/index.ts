@@ -28,6 +28,7 @@ import { readIndex, readSpec } from "../refine/spec-yaml.js";
 import {
   deriveJobs,
   deriveResubmitJobs,
+  deriveRecipeJobs,
   DERIVED_SPEC_REVIEW_TRIGGER,
   summarizeWorkload,
   renderWorkloadLine,
@@ -37,6 +38,7 @@ import {
   type IssueFact,
   type StoryArtifactFacts,
   type SpecPrReviewFact,
+  type SpecReadyFact,
   type WorkerJob,
 } from "./plan.js";
 import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
@@ -47,7 +49,7 @@ import type { AgentKind } from "./plan.js";
 
 /** Stages allowed to run live in this build. Widened one phase at a time
  *  (plan §6) — never before the upstream handoff contract is verified. */
-const LIVE_STAGES: ReadonlySet<AgentKind> = new Set(["refine"]);
+const LIVE_STAGES: ReadonlySet<AgentKind> = new Set(["refine", "recipe"]);
 
 interface RunArgs {
   repoRoot: string;
@@ -60,6 +62,7 @@ interface RunArgs {
   jobTimeoutMins: number;
   logsDir: string;
   lockPath: string | undefined;
+  baseBranch: string;
   json: boolean;
 }
 
@@ -164,11 +167,18 @@ async function runPass(argv: string[]): Promise<void> {
   }
 
   try {
+    // THE WORKER OWNS THE CHECKOUT STATE BETWEEN JOBS (G9 family): repo
+    // facts (specs, manifests) are only meaningful on an up-to-date base
+    // branch. Agents may leave the checkout on their work branches; every
+    // pass puts it back and pulls. Fail closed on a dirty tree.
+    ensureBaseCheckout(args.repoRoot, args.baseBranch);
+
     const issues = await fetchTriggerIssues({ owner, repo, token });
-    const specPrs = await fetchSpecPrReviewFacts({ owner, repo, token });
+    const { specReviewFacts: specPrs, openHeadRefs } = await fetchOpenPrFacts({ owner, repo, token });
     // Unanswered spec-PR feedback outranks fresh triggers (plan §1 rule 1).
     const jobs = [
       ...deriveResubmitJobs(specPrs),
+      ...deriveRecipeJobs(gatherSpecReadyFacts(args.repoRoot, openHeadRefs)),
       ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
     ];
     const summary = summarizeWorkload(issues, jobs);
@@ -316,7 +326,7 @@ async function processLive(
   const now = new Date();
   const runId = traceDirName(job, now);
 
-  const derived = job.triggerLabel === DERIVED_SPEC_REVIEW_TRIGGER;
+  const derived = job.triggerLabel.startsWith("(derived)");
   // Trigger label off FIRST. If this fails, abort the job — a pass that
   // runs without consuming its trigger can double-fire on the next timer.
   // (Derived jobs have no label; their re-fire guard is the derivation
@@ -456,7 +466,7 @@ async function processLive(
   // Post-spawn mutations must not kill a pass whose artifacts are already
   // on the forge and in the trace — warn and continue on final failure (G7).
   try {
-    if (mapped.resultLabel && !derived) {
+    if (mapped.resultLabel && job.triggerLabel !== DERIVED_SPEC_REVIEW_TRIGGER) {
       await forgeMutate(gh.token, (o) =>
         o.issues.addLabels({
           owner: gh.owner,
@@ -564,6 +574,64 @@ function gitShaOf(repoRoot: string): string {
   }
 }
 
+
+/** Put the checkout on the base branch, up to date. Fail closed on dirt. */
+function ensureBaseCheckout(repoRoot: string, base: string): void {
+  const dirty = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" })
+    .split("\n")
+    .filter((l) => l.trim() && !l.includes(".brewing/history-index"));
+  if (dirty.length > 0) {
+    console.error(
+      `slowcook worker: checkout at ${repoRoot} has uncommitted changes — refusing to touch it.\n` +
+        `  ${dirty.slice(0, 5).join("\n  ")}`
+    );
+    process.exit(2);
+  }
+  execSync(`git checkout ${base}`, { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] });
+  execSync(`git pull --ff-only origin ${base}`, {
+    cwd: repoRoot,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+}
+
+/** Stories whose merged spec awaits tests — the recipe derivation facts. */
+function gatherSpecReadyFacts(repoRoot: string, openHeadRefs: string[]): SpecReadyFact[] {
+  let index;
+  try {
+    index = readIndex(repoRoot);
+  } catch {
+    return [];
+  }
+  const out: SpecReadyFact[] = [];
+  for (const [storyId, entry] of Object.entries(index.stories ?? {})) {
+    if (entry.superseded_by) continue;
+    let specParses = false;
+    let invariantsNonEmpty = false;
+    try {
+      const spec = readSpec(repoRoot, storyId);
+      specParses = true;
+      invariantsNonEmpty = Array.isArray(spec.invariants) && spec.invariants.length > 0;
+    } catch {
+      /* not recipe-ready */
+    }
+    const manifestExists = existsSync(
+      join(repoRoot, ".brewing", "manifests", `story-${storyId}.json`)
+    );
+    const openTestsPr = openHeadRefs.some((r) => r.includes(`slowcook/tests/story-${storyId}`));
+    const srcNum = entry.source_issue?.match(/(\d+)\s*$/)?.[1];
+    out.push({
+      storyId,
+      sourceIssue: srcNum !== undefined ? Number(srcNum) : null,
+      title: entry.title,
+      specParses,
+      invariantsNonEmpty,
+      manifestExists,
+      openTestsPr,
+    });
+  }
+  return out;
+}
+
 /**
  * Gather per-issue artifact facts from the consumer repo. Tri-state:
  * anything not checkable is left undefined ("unknown"), never assumed.
@@ -629,7 +697,9 @@ interface FetchArgs {
  * (draft) reviews are excluded: GitHub shows them only to their author,
  * so acting on one would leak state no other participant can see.
  */
-async function fetchSpecPrReviewFacts(args: FetchArgs): Promise<SpecPrReviewFact[]> {
+async function fetchOpenPrFacts(
+  args: FetchArgs
+): Promise<{ specReviewFacts: SpecPrReviewFact[]; openHeadRefs: string[] }> {
   const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
   const { data: prs } = await octokit.pulls.list({
     owner: args.owner,
@@ -638,6 +708,7 @@ async function fetchSpecPrReviewFacts(args: FetchArgs): Promise<SpecPrReviewFact
     per_page: 100,
   });
   const out: SpecPrReviewFact[] = [];
+  const openHeadRefs = prs.map((p) => p.head?.ref ?? "").filter(Boolean);
   for (const pr of prs) {
     if (!pr.head?.ref?.includes("slowcook/spec/")) continue;
     const [reviews, commits] = await Promise.all([
@@ -674,7 +745,7 @@ async function fetchSpecPrReviewFacts(args: FetchArgs): Promise<SpecPrReviewFact
       lastHumanReviewAt,
     });
   }
-  return out;
+  return { specReviewFacts: out, openHeadRefs };
 }
 
 /** All open issues carrying a trigger label or agent:failed. */
@@ -729,6 +800,7 @@ function parseRunArgs(argv: string[]): RunArgs {
     jobTimeoutMins: 30,
     logsDir: join(process.cwd(), ".slowcook", "worker-logs"),
     lockPath: undefined,
+    baseBranch: "main",
     json: false,
   };
   let logsDirSet = false;
@@ -751,6 +823,9 @@ function parseRunArgs(argv: string[]): RunArgs {
       i++;
     } else if (a === "--lock" && next) {
       out.lockPath = next;
+      i++;
+    } else if (a === "--base" && next) {
+      out.baseBranch = next;
       i++;
     } else if (a === "--dry-run") {
       out.dryRun = true;

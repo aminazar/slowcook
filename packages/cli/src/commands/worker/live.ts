@@ -102,10 +102,49 @@ export function mapRefineOutcome(exitCode: number, stdout: string): LiveOutcome 
   };
 }
 
+/** Map a finished `slowcook recipe` (testgen) process to worker state. */
+export function mapRecipeOutcome(exitCode: number, stdout: string): LiveOutcome {
+  if (exitCode !== 0) {
+    return {
+      outcome: "failed",
+      resultLabel: FAILED_LABEL,
+      artifacts: [],
+      detail: `recipe exited ${exitCode} — terminal until a human relabels.`,
+    };
+  }
+  const noop = stdout.match(/^Noop: (.+)$/m)?.[1];
+  if (noop) {
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: [],
+      detail: `recipe no-op'd: ${noop} — nothing was produced.`,
+    };
+  }
+  const written = stdout.match(/^Tests written for (.+)$/m)?.[1];
+  const pr = stdout.match(/^Draft PR: (\S+)$/m)?.[1];
+  if (written && pr) {
+    return {
+      outcome: "success",
+      resultLabel: RESULT_LABELS.recipe,
+      artifacts: [pr],
+      detail: `tests generated for ${written}; draft PR ${pr}.`,
+    };
+  }
+  return {
+    outcome: "success",
+    resultLabel: null,
+    artifacts: [],
+    detail: "recipe exited 0 without a recognized terminal line — no label applied; inspect the trace.",
+  };
+}
+
 export function mapLiveOutcome(agent: AgentKind, exitCode: number, stdout: string): LiveOutcome {
   switch (agent) {
     case "refine":
       return mapRefineOutcome(exitCode, stdout);
+    case "recipe":
+      return mapRecipeOutcome(exitCode, stdout);
     default:
       // W2+: recipe / brew / eye mappings land one stage at a time, each
       // only after the upstream handoff contract is verified (plan §6).
@@ -113,7 +152,7 @@ export function mapLiveOutcome(agent: AgentKind, exitCode: number, stdout: strin
         outcome: "failed",
         resultLabel: FAILED_LABEL,
         artifacts: [],
-        detail: `live mode for ${agent} is not enabled in this build (W1 enables refine only).`,
+        detail: `live mode for ${agent} is not enabled in this build (enabled: refine, recipe).`,
       };
   }
 }
