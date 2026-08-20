@@ -190,6 +190,21 @@ export class GitHubAdapter implements ForgeAdapter {
     });
   }
 
+  /** Emoji reactions on one issue comment — the PM's cheapest approval
+   *  gesture, readable so agents don't ignore a decision already given. */
+  async listCommentReactions(commentId: number): Promise<Array<{ user: string; content: string }>> {
+    const reactions = await this.octokit.paginate(this.octokit.reactions.listForIssueComment, {
+      owner: this.owner,
+      repo: this.repo,
+      comment_id: commentId,
+      per_page: 100,
+    });
+    return reactions.map((r) => ({
+      user: r.user?.login ?? "",
+      content: r.content,
+    }));
+  }
+
   async removeIssueLabel(number: number, label: string): Promise<void> {
     try {
       await this.octokit.issues.removeLabel({

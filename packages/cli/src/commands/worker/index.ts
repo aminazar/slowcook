@@ -391,6 +391,17 @@ async function processLive(
       labels: [mapped.resultLabel],
     });
   }
+  // Chain continuation onto issues the agent filed (approved split): the
+  // human gate was the PM's 👍; labeling the children is transport, not a
+  // decision, so the worker does it (plan §1 — no human as transport layer).
+  for (const n of mapped.advanceIssues ?? []) {
+    await octokit.issues.addLabels({
+      owner: gh.owner,
+      repo: gh.repo,
+      issue_number: n,
+      labels: ["agent:refine"],
+    });
+  }
   if (mapped.outcome === "failed") {
     const tail = (s: string, n: number) => s.split("\n").slice(-n).join("\n");
     await octokit.issues.createComment({

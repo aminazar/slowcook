@@ -29,6 +29,14 @@ describe("mapRefineOutcome", () => {
     expect(o.detail).toContain("non-terminal");
   });
 
+  it("an executed split advances the chain onto the sub-issues", () => {
+    const o = mapRefineOutcome(0, "Split executed: #45 #46 #47 (1 overlap skipped)\n");
+    expect(o.outcome).toBe("success");
+    expect(o.resultLabel).toBeNull();
+    expect(o.advanceIssues).toEqual([45, 46, 47]);
+    expect(o.artifacts).toEqual(["#45", "#46", "#47"]);
+  });
+
   it("a Noop line is reported as a no-op, never as questions-posted", () => {
     const o = mapRefineOutcome(
       0,

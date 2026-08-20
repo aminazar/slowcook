@@ -80,6 +80,9 @@ import {
   digestActiveSpecs,
   multifurcationCommentBody,
   hasExistingMultifurcationComment,
+  findMultifurcationComment,
+  parseMultifurcationSubIssues,
+  decideMultifurcation,
 } from "./multifurcate.js";
 import {
   answerQuestionsFromBrownfield,
@@ -151,6 +154,7 @@ export type RefineOutcome =
   | { kind: "contradiction-blocked"; conflicting_ids: string[] }
   | { kind: "change-of-mind-accepted"; supersedes: string[] }
   | { kind: "multifurcation-proposed"; commentId: number; subIssueCount: number }
+  | { kind: "split-executed"; subIssues: number[]; skippedOverlaps: number }
   | { kind: "noop"; reason: string; precondition?: NoopPrecondition };
 
 /**
@@ -210,6 +214,90 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   const isSplitChild = /split from #\d+/i.test(issue.body ?? "");
   if (isSplitChild) {
     console.log("  multifurcation: skipped (split-lineage issue — granularity already PM-decided)");
+  }
+
+  // A pending proposal is a DECISION POINT, not a bypass. The comment's own
+  // instructions offer 👍 / ✏️ / 👎 — so refine must read those gestures
+  // (ledger G6: the PM's 👍 was invisible and the split stayed manual).
+  //   👍  → execute the split: file the non-overlapping sub-issues, clear
+  //        the parent's labels, leave a summary. No LLM call, $0.
+  //   👎 / "keep as one" reply → clear the proposal label, fall through to
+  //        the normal single-spec refine below.
+  //   nothing yet → noop, still awaiting the PM.
+  if (!isSplitChild && issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
+    const comments = await ctx.forge.listIssueComments(ctx.issueNumber);
+    const proposal = findMultifurcationComment(comments);
+    if (proposal) {
+      const reactions = ctx.forge.listCommentReactions
+        ? await ctx.forge.listCommentReactions(proposal.id)
+        : [];
+      const after = comments.filter((c) => c.created_at > proposal.created_at);
+      const decision = decideMultifurcation(reactions, after);
+      if (decision === "pending") {
+        return {
+          kind: "noop",
+          reason:
+            "multifurcation proposal awaiting PM decision — 👍 the proposal comment to split, 👎 (or reply \"keep as one\") to refine as a single story",
+        };
+      }
+      if (decision === "approve") {
+        if (!ctx.forge.createIssue) {
+          return {
+            kind: "noop",
+            reason: "split approved, but this forge adapter cannot create issues",
+          };
+        }
+        const subs = parseMultifurcationSubIssues(proposal.body);
+        if (!subs) {
+          return {
+            kind: "noop",
+            reason:
+              "split approved, but the sub-issues could not be recovered from the proposal comment — file them by hand or re-propose",
+          };
+        }
+        const filed: Array<{ number: number; url: string; title: string }> = [];
+        for (const s of subs) {
+          if (s.existing_spec_id) continue; // PM folds/skips these per row
+          const bodyLines = [s.summary, ""];
+          if (s.depends_on && s.depends_on.length > 0) {
+            bodyLines.push(`_Depends on: ${s.depends_on.map((d) => `"${d}"`).join(", ")}_`, "");
+          }
+          bodyLines.push(
+            `_Split from #${ctx.issueNumber} — multifurcation proposal approved by 👍._`
+          );
+          const created = await ctx.forge.createIssue({
+            title: s.title,
+            body: bodyLines.join("\n"),
+            labels: ["needs-refinement"],
+          });
+          filed.push({ ...created, title: s.title });
+        }
+        const skipped = subs.filter((s) => s.existing_spec_id);
+        await ctx.forge.createIssueComment(
+          ctx.issueNumber,
+          `### slowcook · refinement agent 🍲\n\n` +
+            `✂️ **Split executed** (👍 on the proposal).\n\n` +
+            filed.map((f) => `- #${f.number} — ${f.title}`).join("\n") +
+            (skipped.length > 0
+              ? `\n\nSkipped ${skipped.length} sub-issue${skipped.length === 1 ? "" : "s"} already covered by existing specs (fold or file those by hand per the proposal).`
+              : "") +
+            `\n\nThis parent is released from refinement — the sub-issues carry the work from here.`
+        );
+        await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_MULTIFURCATION_PROPOSED);
+        await ctx.forge.removeIssueLabel(ctx.issueNumber, "needs-refinement");
+        return {
+          kind: "split-executed",
+          subIssues: filed.map((f) => f.number),
+          skippedOverlaps: skipped.length,
+        };
+      }
+      // decision === "reject" — PM wants one story; clear the proposal
+      // label and continue into the normal single-spec path below.
+      await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_MULTIFURCATION_PROPOSED);
+      console.log(
+        "  multifurcation: PM chose keep-as-one — proceeding with a single spec"
+      );
+    }
   }
 
   if (!isSplitChild && !issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
