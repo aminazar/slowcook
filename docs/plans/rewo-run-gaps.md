@@ -147,6 +147,27 @@ Entry format:
   fallback, decision rules incl. bot-echo guard, worker advance mapping);
   live: split execution on #34 after deploy (pending below).
 
+## G7 — post-spawn EPIPE killed passes whose artifacts had already landed
+
+- **surfaced by**: the three spec-emitting refine runs (#215/#216/#217,
+  2026-08-20 ~15:35–15:47 CEST). Each run succeeded — spec written, branch
+  pushed, draft PR opened (reworthy/app #218/#219/#220), trace recorded —
+  and then the pass DIED with `HttpError: write EPIPE` applying the
+  `agent:refined` result label.
+- **root cause**: the worker's Octokit client sat idle through the
+  multi-minute spawnSync; its keep-alive socket went stale, and the first
+  post-spawn write hit the dead connection. Uncaught → exit 1 → the pass
+  lost its result-label application and its own "processed" report (the
+  journal grep for `processed` found nothing even though three specs had
+  shipped — the log lied by omission while the traces told the truth).
+- **fix**: `forgeMutate` — every post-spawn forge mutation gets a FRESH
+  client per attempt and one retry on the transient class
+  (EPIPE/ECONNRESET/ETIMEDOUT/5xx); a final mutation failure warns and
+  the pass still completes (the artifacts and trace are already real —
+  dying over a label reverses the truth hierarchy).
+- **verified**: build + worker tests green; next live runs (recipe phase)
+  exercise the path.
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as

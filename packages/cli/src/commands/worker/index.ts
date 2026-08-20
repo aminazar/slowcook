@@ -223,6 +223,33 @@ async function runPass(argv: string[]): Promise<void> {
   }
 }
 
+
+/**
+ * Post-spawn forge mutation with a fresh client + one retry (ledger G7).
+ * A pass blocks in spawnSync for minutes; the pre-spawn Octokit's
+ * keep-alive socket goes stale and the first write after the spawn dies
+ * with EPIPE. Each attempt gets a NEW client, and one transient failure
+ * (EPIPE/ECONNRESET/timeout/5xx) is retried once after a short pause.
+ */
+async function forgeMutate<T>(
+  token: string,
+  fn: (o: Octokit) => Promise<T>
+): Promise<T> {
+  const attempt = () =>
+    fn(new Octokit({ auth: token, userAgent: "slowcook-ai/cli worker" }));
+  try {
+    return await attempt();
+  } catch (e) {
+    const msg = (e as Error).message ?? "";
+    const status = (e as { status?: number }).status ?? 0;
+    const transient =
+      /EPIPE|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(msg) || status >= 500;
+    if (!transient) throw e;
+    await new Promise((r) => setTimeout(r, 2000));
+    return attempt();
+  }
+}
+
 function processDry(
   job: WorkerJob,
   args: RunArgs,
@@ -413,37 +440,52 @@ async function processLive(
   writeFileSync(join(traceDir, "stdout"), stdout, "utf8");
   writeFileSync(join(traceDir, "stderr"), stderr, "utf8");
 
-  if (mapped.resultLabel) {
-    await octokit.issues.addLabels({
-      owner: gh.owner,
-      repo: gh.repo,
-      issue_number: job.issue,
-      labels: [mapped.resultLabel],
-    });
-  }
+  // Post-spawn mutations must not kill a pass whose artifacts are already
+  // on the forge and in the trace — warn and continue on final failure (G7).
+  try {
+    if (mapped.resultLabel) {
+      await forgeMutate(gh.token, (o) =>
+        o.issues.addLabels({
+          owner: gh.owner,
+          repo: gh.repo,
+          issue_number: job.issue,
+          labels: [mapped.resultLabel!],
+        })
+      );
+    }
   // Chain continuation onto issues the agent filed (approved split): the
   // human gate was the PM's 👍; labeling the children is transport, not a
   // decision, so the worker does it (plan §1 — no human as transport layer).
-  for (const n of mapped.advanceIssues ?? []) {
-    await octokit.issues.addLabels({
-      owner: gh.owner,
-      repo: gh.repo,
-      issue_number: n,
-      labels: ["agent:refine"],
-    });
-  }
-  if (mapped.outcome === "failed") {
-    const tail = (s: string, n: number) => s.split("\n").slice(-n).join("\n");
-    await octokit.issues.createComment({
-      owner: gh.owner,
-      repo: gh.repo,
-      issue_number: job.issue,
-      body:
+    for (const n of mapped.advanceIssues ?? []) {
+      await forgeMutate(gh.token, (o) =>
+        o.issues.addLabels({
+          owner: gh.owner,
+          repo: gh.repo,
+          issue_number: n,
+          labels: ["agent:refine"],
+        })
+      );
+    }
+    if (mapped.outcome === "failed") {
+      const tail = (s: string, n: number) => s.split("\n").slice(-n).join("\n");
+      await forgeMutate(gh.token, (o) =>
+        o.issues.createComment({
+          owner: gh.owner,
+          repo: gh.repo,
+          issue_number: job.issue,
+          body:
         `${commentHeader(job.agent, job.issue, runId)}\n\n` +
         `🛑 **${job.agent} failed** — ${mapped.detail}\n\n` +
         `<details><summary>stderr tail</summary>\n\n\`\`\`\n${tail(stderr, 30)}\n\`\`\`\n</details>\n\n` +
         `Terminal until a human relabels \`${job.triggerLabel}\`.` + pmCc(args.repoRoot),
-    });
+        })
+      );
+    }
+  } catch (e) {
+    console.error(
+      `warning: post-run forge mutation failed after retry (${(e as Error).message}) — ` +
+        `artifacts and trace are intact; label/comment state may lag behind them.`
+    );
   }
   return { job, traceDir, outcome: mapped.outcome };
 }
