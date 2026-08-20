@@ -303,36 +303,44 @@ export function evaluatePreconditions(
  */
 export const DERIVED_SPEC_REVIEW_TRIGGER = "(derived) spec-pr-review";
 
-export interface SpecPrReviewFact {
-  prNumber: number;
-  headBranch: string;
-  title: string;
-  /** ISO time of the PR branch's last commit. */
-  lastCommitAt: string;
-  /** ISO time of the newest SUBMITTED human review; null when none. */
-  lastHumanReviewAt: string | null;
-}
+/**
+ * The agent↔agent conversation is BOUNDED: past this many submitted
+ * reviews on one PR, neither taste nor the author agent re-fires — the
+ * PM (cc'd on every changes-request) arbitrates. Runaway review loops
+ * are two models politely burning money.
+ */
+export const MAX_REVIEW_ROUNDS = 4;
 
 /**
- * One refine-resubmit job per spec PR whose newest human review is newer
- * than its newest commit — feedback the spec has not yet answered.
+ * One author-agent resubmit job per open agent PR whose newest submitted
+ * review (human OR taste) is newer than its newest commit — feedback the
+ * artifact has not yet answered. Spec PRs route to refine, tests PRs to
+ * recipe: the artifact's OWNER answers its reviews.
  */
-export function deriveResubmitJobs(specPrs: SpecPrReviewFact[]): WorkerJob[] {
+export function deriveResubmitJobs(prs: AgentPrFact[]): WorkerJob[] {
   const jobs: WorkerJob[] = [];
-  for (const pr of specPrs) {
-    if (!pr.lastHumanReviewAt) continue;
-    if (Date.parse(pr.lastHumanReviewAt) <= Date.parse(pr.lastCommitAt)) continue;
+  for (const pr of prs) {
+    const kind = pr.headBranch.includes("slowcook/spec/")
+      ? ("spec" as const)
+      : pr.headBranch.includes("slowcook/tests/")
+        ? ("tests" as const)
+        : null;
+    if (!kind) continue;
+    if (!pr.lastAnyReviewAt) continue;
+    if (Date.parse(pr.lastAnyReviewAt) <= Date.parse(pr.lastCommitAt)) continue;
+    if (pr.submittedReviewCount >= MAX_REVIEW_ROUNDS) continue; // PM arbitrates
+    const agent: AgentKind = kind === "spec" ? "refine" : "recipe";
     jobs.push({
       issue: pr.prNumber,
       issueTitle: pr.title,
-      agent: "refine",
+      agent,
       triggerLabel: DERIVED_SPEC_REVIEW_TRIGGER,
-      cmd: ["slowcook", "refine", "--pr", String(pr.prNumber)],
+      cmd: ["slowcook", agent === "refine" ? "refine" : "recipe", "--pr", String(pr.prNumber)],
       preconditions: [
         {
-          name: "spec-pr-review-newer-than-spec",
+          name: "pr-review-newer-than-code",
           status: "pass",
-          detail: `review at ${pr.lastHumanReviewAt} > last commit at ${pr.lastCommitAt} on ${pr.headBranch}`,
+          detail: `review at ${pr.lastAnyReviewAt} > last commit at ${pr.lastCommitAt} on ${pr.headBranch} (round ${pr.submittedReviewCount}/${MAX_REVIEW_ROUNDS})`,
         },
       ],
       runnable: true,
@@ -360,6 +368,8 @@ export interface AgentPrFact {
   lastHumanReviewAt: string | null;
   /** Newest submitted review by ANYONE (bots included); null when none. */
   lastAnyReviewAt: string | null;
+  /** Total submitted reviews — the round counter for MAX_REVIEW_ROUNDS. */
+  submittedReviewCount: number;
 }
 
 export function deriveTasteJobs(prs: AgentPrFact[]): WorkerJob[] {
@@ -367,12 +377,13 @@ export function deriveTasteJobs(prs: AgentPrFact[]): WorkerJob[] {
   for (const pr of prs) {
     if (!pr.headBranch.includes("slowcook/spec/") && !pr.headBranch.includes("slowcook/tests/"))
       continue;
-    // A human review newer than the code is the author-agent's turn.
+    // ANY review newer than the code is the author-agent's turn.
     if (
-      pr.lastHumanReviewAt &&
-      Date.parse(pr.lastHumanReviewAt) > Date.parse(pr.lastCommitAt)
+      pr.lastAnyReviewAt &&
+      Date.parse(pr.lastAnyReviewAt) > Date.parse(pr.lastCommitAt)
     )
       continue;
+    if (pr.submittedReviewCount >= MAX_REVIEW_ROUNDS) continue; // PM arbitrates
     const unreviewed = pr.lastAnyReviewAt === null;
     const amendedSinceReview =
       pr.lastAnyReviewAt !== null &&

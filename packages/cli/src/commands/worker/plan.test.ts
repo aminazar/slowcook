@@ -87,31 +87,54 @@ describe("deriveJobs", () => {
 });
 
 describe("deriveResubmitJobs", () => {
-  const pr = (over: Partial<import("./plan.js").SpecPrReviewFact>) => ({
+  const pr = (over: Partial<import("./plan.js").AgentPrFact>) => ({
     prNumber: 218,
     headBranch: "slowcook/spec/story-019",
     title: "spec: story-019",
     lastCommitAt: "2026-08-20T13:35:00Z",
     lastHumanReviewAt: null as string | null,
+    lastAnyReviewAt: null as string | null,
+    submittedReviewCount: 0,
     ...over,
   });
 
-  it("a review newer than the last commit yields a refine --pr job", () => {
-    const jobs = require_deriveResubmit([pr({ lastHumanReviewAt: "2026-08-20T14:00:00Z" })]);
+  it("a review newer than the last commit yields a refine --pr job (spec PR)", () => {
+    const jobs = require_deriveResubmit([
+      pr({ lastAnyReviewAt: "2026-08-20T14:00:00Z", submittedReviewCount: 1 }),
+    ]);
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.cmd).toEqual(["slowcook", "refine", "--pr", "218"]);
     expect(jobs[0]!.agent).toBe("refine");
-    expect(jobs[0]!.priority).toBe(0);
+  });
+
+  it("a tests PR routes to recipe — the artifact's owner answers", () => {
+    const jobs = require_deriveResubmit([
+      pr({
+        prNumber: 223,
+        headBranch: "slowcook/tests/story-021",
+        lastAnyReviewAt: "2026-08-20T14:00:00Z",
+        submittedReviewCount: 1,
+      }),
+    ]);
+    expect(jobs[0]!.agent).toBe("recipe");
+    expect(jobs[0]!.cmd).toEqual(["slowcook", "recipe", "--pr", "223"]);
   });
 
   it("a review older than the last commit is already answered — no job", () => {
     expect(
-      require_deriveResubmit([pr({ lastHumanReviewAt: "2026-08-20T13:00:00Z" })])
+      require_deriveResubmit([
+        pr({ lastAnyReviewAt: "2026-08-20T13:00:00Z", submittedReviewCount: 1 }),
+      ])
     ).toHaveLength(0);
   });
 
-  it("no human review, no job", () => {
+  it("no review, no job; past MAX_REVIEW_ROUNDS the PM arbitrates", () => {
     expect(require_deriveResubmit([pr({})])).toHaveLength(0);
+    expect(
+      require_deriveResubmit([
+        pr({ lastAnyReviewAt: "2026-08-20T14:00:00Z", submittedReviewCount: 4 }),
+      ])
+    ).toHaveLength(0);
   });
 });
 
@@ -232,7 +255,15 @@ describe("deriveTasteJobs (reviewer stage)", () => {
     lastCommitAt: "2026-08-20T17:00:00Z",
     lastHumanReviewAt: null as string | null,
     lastAnyReviewAt: null as string | null,
+    submittedReviewCount: 0,
     ...over,
+  });
+
+  it("past MAX_REVIEW_ROUNDS taste stands down", () => {
+    const jobs = deriveTasteJobs([
+      pr({ submittedReviewCount: 4, lastAnyReviewAt: "2026-08-20T16:00:00Z" }),
+    ]);
+    expect(jobs).toHaveLength(0);
   });
 
   it("an unreviewed agent PR yields a taste job with merge authority", () => {

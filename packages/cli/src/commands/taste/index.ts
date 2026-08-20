@@ -161,13 +161,15 @@ export async function taste(argv: string[]): Promise<void> {
     }
   }
 
+  const costLine =
+    usd !== null
+      ? "\n\n" + costMarker({ agent: "taste", usd, tokensIn: response.usage.inputTokens, tokensOut: response.usage.outputTokens, cacheRead: response.usage.cacheReadTokens, cacheCreate: response.usage.cacheCreateTokens, model })
+      : "";
   const body =
     renderReviewBody(verdict, { header, merged, mergeAuthority: args.merge }) +
     (mergeNote ? `\n\n⚠️ Merge failed: ${mergeNote}` : "") +
     (verdict.verdict === "request_changes" || mergeNote ? pmCc(args.repoRoot) : "") +
-    (usd !== null
-      ? "\n\n" + costMarker({ agent: "taste", usd, tokensIn: response.usage.inputTokens, tokensOut: response.usage.outputTokens, cacheRead: response.usage.cacheReadTokens, cacheCreate: response.usage.cacheCreateTokens, model })
-      : "");
+    costLine;
   await octokit.pulls.createReview({
     owner,
     repo,
@@ -175,6 +177,19 @@ export async function taste(argv: string[]): Promise<void> {
     event: "COMMENT",
     body,
   });
+  // Findings must be CONSUMABLE by the author agent. Resubmit paths read
+  // TIMELINE comments (review bodies are a separate API surface they never
+  // see), so changes-requested findings are also posted as a plain PR
+  // comment — the actionable copy; the review above is the verdict record
+  // and taste's own re-fire guard.
+  if (verdict.verdict === "request_changes") {
+    await octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: args.pr,
+      body: renderReviewBody(verdict, { header, merged: false, mergeAuthority: false }),
+    });
+  }
 
   console.log(
     `Review verdict: ${verdict.verdict === "approve" ? "APPROVE" : "REQUEST_CHANGES"}`

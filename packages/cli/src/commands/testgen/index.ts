@@ -7,6 +7,8 @@ import { requireTsStack } from "../../lib/stack-support.js";
 
 interface TestgenArgs {
   specId: string | null;
+  /** PR-driven resubmit (G10): answer reviews on an existing tests PR. */
+  prNumber: number | null;
   all: boolean;
   repoRoot: string;
   owner?: string;
@@ -18,6 +20,7 @@ interface TestgenArgs {
 function parseArgs(argv: string[]): TestgenArgs {
   const args: TestgenArgs = {
     specId: null,
+    prNumber: null,
     all: false,
     repoRoot: process.cwd(),
     baseBranch: "main",
@@ -28,6 +31,9 @@ function parseArgs(argv: string[]): TestgenArgs {
     const next = argv[i + 1];
     if (arg === "--spec" && next) {
       args.specId = normalizeSpecId(next);
+      i++;
+    } else if (arg === "--pr" && next) {
+      args.prNumber = parseInt(next, 10);
       i++;
     } else if (arg === "--all") {
       args.all = true;
@@ -52,7 +58,7 @@ function parseArgs(argv: string[]): TestgenArgs {
     }
   }
   // Default: operate on all active specs lacking tests
-  if (!args.specId) args.all = true;
+  if (!args.specId && !args.prNumber) args.all = true;
   return args;
 }
 
@@ -155,6 +161,21 @@ export async function testgen(argv: string[], cliVersion: string): Promise<void>
     }
     owner = owner ?? detected.owner;
     repo = repo ?? detected.repo;
+  }
+
+  // PR-driven resubmit: answer reviews on an existing tests PR (G10).
+  if (args.prNumber) {
+    const { runTestsResubmit } = await import("./resubmit.js");
+    await runTestsResubmit({
+      prNumber: args.prNumber,
+      repoRoot: args.repoRoot,
+      owner,
+      repo,
+      token: githubToken,
+      llm,
+      model: args.model,
+    });
+    return;
   }
 
   const forge = new GitHubAdapter({ owner, repo, token: githubToken });
