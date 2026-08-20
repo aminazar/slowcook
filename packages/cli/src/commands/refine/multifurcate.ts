@@ -270,6 +270,15 @@ export function multifurcationCommentBody(
 ): string {
   const lines: string[] = [];
   lines.push("<!-- slowcook:multifurcation -->");
+  // Machine-readable copy of the proposal (base64 keeps "--" sequences out
+  // of the HTML comment). The split executor recovers sub-issues from THIS,
+  // not from re-parsing rendered markdown. Ledger G6.
+  lines.push(
+    `<!-- slowcook:multifurcation-data ${Buffer.from(
+      JSON.stringify(proposal.sub_issues),
+      "utf8"
+    ).toString("base64")} -->`
+  );
   lines.push("### slowcook · refinement agent 🍲");
   lines.push("");
   lines.push(
@@ -332,4 +341,94 @@ export function hasExistingMultifurcationComment(
   comments: Array<{ body: string }>
 ): boolean {
   return comments.some((c) => c.body.includes("<!-- slowcook:multifurcation -->"));
+}
+
+/** Find the most recent multifurcation proposal comment on a thread. */
+export function findMultifurcationComment<T extends { body: string }>(
+  comments: T[]
+): T | undefined {
+  return [...comments]
+    .reverse()
+    .find((c) => c.body.includes("<!-- slowcook:multifurcation -->"));
+}
+
+/**
+ * Recover the proposed sub-issues from a posted proposal comment.
+ *
+ * Prefers the base64 `slowcook:multifurcation-data` marker (comments from
+ * 0.34+). Falls back to parsing the rendered markdown for proposals posted
+ * before the marker existed — the format is ours, so the shape is stable:
+ *
+ *   **1. Title** _(already covered by story-XXX)_?
+ *   <summary paragraph(s)>
+ *   _Depends on: "a", "b"_?
+ *
+ * Returns null when neither route recovers at least one sub-issue.
+ */
+export function parseMultifurcationSubIssues(
+  commentBody: string
+): MultifurcationSubIssue[] | null {
+  const data = commentBody.match(
+    /<!--\s*slowcook:multifurcation-data\s+([A-Za-z0-9+/=]+)\s*-->/
+  )?.[1];
+  if (data) {
+    try {
+      const parsed = JSON.parse(Buffer.from(data, "base64").toString("utf8"));
+      if (Array.isArray(parsed) && parsed.every((s) => typeof s?.title === "string")) {
+        return parsed as MultifurcationSubIssue[];
+      }
+    } catch {
+      // fall through to markdown parsing
+    }
+  }
+
+  // Markdown fallback. Cut off at the rationale <details> block so its
+  // prose can't be mistaken for a sub-issue body.
+  const listRegion = commentBody.split(/<details>/)[0] ?? commentBody;
+  const entryRe = /\*\*(\d+)\.\s+(.+?)\*\*(\s*_\(already covered by story-([^)]+)\)_)?\s*\n([\s\S]*?)(?=\n\*\*\d+\.\s|\s*$)/g;
+  const out: MultifurcationSubIssue[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = entryRe.exec(listRegion)) !== null) {
+    const rawBody = (m[5] ?? "").trim();
+    const dependsMatch = rawBody.match(/_Depends on:\s*(.+?)_\s*$/);
+    const summary = unescapeMd(
+      rawBody.replace(/_Depends on:\s*.+?_\s*$/, "").trim()
+    );
+    const sub: MultifurcationSubIssue = {
+      title: unescapeMd((m[2] ?? "").trim()),
+      summary,
+    };
+    if (dependsMatch?.[1]) {
+      const deps = [...dependsMatch[1].matchAll(/"([^"]+)"/g)].map((d) => unescapeMd(d[1]!));
+      if (deps.length > 0) sub.depends_on = deps;
+    }
+    if (m[4]) sub.existing_spec_id = unescapeMd(m[4]);
+    out.push(sub);
+  }
+  return out.length > 0 ? out : null;
+}
+
+function unescapeMd(s: string): string {
+  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+export type MultifurcationDecision = "approve" | "reject" | "pending";
+
+/**
+ * Read the PM's decision on a posted proposal. The comment's own
+ * instructions offer 👍 / ✏️ / 👎 — so the executor must honor exactly
+ * those gestures (ledger G6: a 👍 that nothing reads is an ignored
+ * decision). A textual "keep as one" reply is the 👎 equivalent.
+ * Reject wins over approve when both are present — the cautious reading.
+ */
+export function decideMultifurcation(
+  reactions: Array<{ user: string; content: string }>,
+  commentsAfterProposal: Array<{ body: string; is_bot?: boolean }>
+): MultifurcationDecision {
+  const keepAsOne = commentsAfterProposal.some(
+    (c) => !c.is_bot && /keep as one/i.test(c.body)
+  );
+  if (keepAsOne || reactions.some((r) => r.content === "-1")) return "reject";
+  if (reactions.some((r) => r.content === "+1")) return "approve";
+  return "pending";
 }

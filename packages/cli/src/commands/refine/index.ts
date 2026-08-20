@@ -387,6 +387,14 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
           `Multifurcation proposal posted (comment ${outcome.commentId}): ${outcome.subIssueCount} sub-issues. Awaiting PM split decision.`
         );
         break;
+      case "split-executed":
+        console.log(
+          `Split executed: ${outcome.subIssues.map((n) => `#${n}`).join(" ")}` +
+            (outcome.skippedOverlaps > 0
+              ? ` (${outcome.skippedOverlaps} overlap${outcome.skippedOverlaps === 1 ? "" : "s"} skipped)`
+              : "")
+        );
+        break;
       case "noop":
         reportNoop(outcome, args.requireLabel !== false);
         break;

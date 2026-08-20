@@ -395,3 +395,98 @@ describe("digestActiveSpecs", () => {
     expect(out[0]!.summary).not.toMatch(/\n|\t/);
   });
 });
+
+// --- G6: approve-by-reaction split execution (rewo run, ledger G6) ---
+
+import {
+  parseMultifurcationSubIssues,
+  decideMultifurcation,
+  findMultifurcationComment,
+  multifurcationCommentBody as bodyForRoundtrip,
+} from "./multifurcate.js";
+
+describe("parseMultifurcationSubIssues", () => {
+  it("round-trips through the data marker", () => {
+    const subs = [
+      { title: "A <thing>", summary: "Does a.", depends_on: ["B"] },
+      { title: "B", summary: "Does b.", existing_spec_id: "007" },
+    ];
+    const body = bodyForRoundtrip({ rationale: "why", sub_issues: subs }, { issueTitle: "Parent" });
+    expect(parseMultifurcationSubIssues(body)).toEqual(subs);
+  });
+
+  it("falls back to markdown for pre-marker proposals (the #34 shape)", () => {
+    const body = [
+      "<!-- slowcook:multifurcation -->",
+      "### slowcook · refinement agent 🍲",
+      "",
+      "This issue looks like **more than one story** to me.",
+      "",
+      "#### Proposed sub-issues (2)",
+      "",
+      "**1. Crawler collapses duplicate links to one content signature**",
+      "",
+      "When members share the same underlying content through different URLs, merge it.",
+      "",
+      "**2. Crawler assigns content a taxonomy category**",
+      "",
+      "Every crawled piece of content should be categorized.",
+      "",
+      "_Depends on: \"Crawler collapses duplicate links to one content signature\"_",
+      "",
+      "<details><summary>Why I think this should split</summary>",
+      "prose that must not leak",
+      "</details>",
+    ].join("\n");
+    const subs = parseMultifurcationSubIssues(body);
+    expect(subs).toHaveLength(2);
+    expect(subs![0]!.title).toBe("Crawler collapses duplicate links to one content signature");
+    expect(subs![0]!.summary).toContain("merge it");
+    expect(subs![1]!.depends_on).toEqual([
+      "Crawler collapses duplicate links to one content signature",
+    ]);
+    expect(subs![1]!.summary).not.toContain("Depends on");
+  });
+
+  it("returns null when nothing is recoverable", () => {
+    expect(parseMultifurcationSubIssues("no proposal here")).toBeNull();
+  });
+});
+
+describe("decideMultifurcation", () => {
+  it("a 👍 approves", () => {
+    expect(decideMultifurcation([{ user: "pm", content: "+1" }], [])).toBe("approve");
+  });
+  it("a 👎 rejects, and wins over a stray 👍", () => {
+    expect(
+      decideMultifurcation(
+        [{ user: "a", content: "+1" }, { user: "b", content: "-1" }],
+        []
+      )
+    ).toBe("reject");
+  });
+  it("a human 'keep as one' reply rejects", () => {
+    expect(
+      decideMultifurcation([], [{ body: "Keep as one please", is_bot: false }])
+    ).toBe("reject");
+  });
+  it("a bot echoing 'keep as one' does not reject", () => {
+    expect(
+      decideMultifurcation([], [{ body: "reply keep as one to...", is_bot: true }])
+    ).toBe("pending");
+  });
+  it("nothing yet is pending (hearts and rockets don't decide)", () => {
+    expect(decideMultifurcation([{ user: "pm", content: "heart" }], [])).toBe("pending");
+  });
+});
+
+describe("findMultifurcationComment", () => {
+  it("returns the most recent proposal", () => {
+    const c = findMultifurcationComment([
+      { body: "<!-- slowcook:multifurcation --> old" },
+      { body: "unrelated" },
+      { body: "<!-- slowcook:multifurcation --> new" },
+    ]);
+    expect(c!.body).toContain("new");
+  });
+});

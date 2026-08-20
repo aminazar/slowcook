@@ -24,6 +24,13 @@ export interface LiveOutcome {
   /** Artifact refs harvested from the agent's own output. */
   artifacts: string[];
   detail: string;
+  /**
+   * Issues the chain continues on (e.g. sub-issues refine filed when a
+   * split was approved). The worker applies the refine trigger to each —
+   * advancement is automatic except at a declared gate (plan §1), and the
+   * gate here (the PM's 👍) has already been passed.
+   */
+  advanceIssues?: number[];
 }
 
 /** Map a finished `slowcook refine` process to worker state. */
@@ -45,6 +52,19 @@ export function mapRefineOutcome(exitCode: number, stdout: string): LiveOutcome 
       resultLabel: null,
       artifacts: [],
       detail: `refine no-op'd: ${noop} — nothing was produced; the trigger was consumed.`,
+    };
+  }
+  // An approved multifurcation split: refine filed the sub-issues; the
+  // worker carries the chain onto them (the PM's 👍 was the gate).
+  const split = stdout.match(/^Split executed: (.+)$/m)?.[1];
+  if (split) {
+    const subIssues = [...split.matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: subIssues.map((n) => `#${n}`),
+      detail: `approved split executed — filed ${subIssues.map((n) => `#${n}`).join(", ")}; parent released from refinement.`,
+      advanceIssues: subIssues,
     };
   }
   const pr = stdout.match(/^Draft PR: (\S+)$/m)?.[1];

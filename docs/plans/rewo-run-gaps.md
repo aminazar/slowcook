@@ -120,6 +120,43 @@ Entry format:
   instead of narrating fictitious progress.
 - **verified**: unit test on the noop mapping + live re-run on #34 (pending).
 
+## G6 — the PM's 👍 was invisible, and an approved split stayed manual labor
+
+- **surfaced by**: Amin reacting 👍 to refine's multifurcation proposal on
+  reworthy/app#34 (comment 5348900683) — and nothing happening. Reported by
+  Amin directly: "I responded with thumbs-up, refine didn't pick it up."
+- **precondition**: none — a design gap, twice over: (1) no agent reads
+  comment reactions, so the cheapest possible PM gesture (the one the
+  proposal's own instructions suggest!) is not a signal; (2) even the
+  documented 👍 path told the PM to *file each sub-issue by hand* — against
+  the standing ruling that everything manual should be in slowcook.
+- **root cause**: the multifurcation flow was written PM-executes; the worker
+  programme needs it slowcook-executes with the 👍 as the HITL gate.
+- **fix**: forge grows optional `listCommentReactions` (+ `createIssue` on
+  the interface); refine, re-run on a proposal-labeled issue, reads the
+  decision — 👍 → executes the split itself (files non-overlapping
+  sub-issues with "Split from #N" lineage + needs-refinement, releases the
+  parent, $0/no LLM), 👎 or a human "keep as one" reply → single-spec path,
+  nothing → honest "awaiting PM" noop (previously it would have produced the
+  mega-spec the proposal warned against!). New proposals embed a
+  machine-readable sub-issue marker; a markdown fallback parser recovers
+  pre-marker proposals like #34's. The worker maps `Split executed:` and
+  carries the chain onto the sub-issues (`agent:refine` on each — the 👍 was
+  the gate; labeling children is transport).
+- **verified**: 11 new unit tests (marker round-trip, #34-shape markdown
+  fallback, decision rules incl. bot-echo guard, worker advance mapping);
+  live: split execution on #34 after deploy (pending below).
+
+## O2 (observation) — agent comments post as the operator, not as an agent
+
+Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as
+the author (the box's gh login). Plan §5 anticipated this — the in-body
+attribution header is the zero-setup tier. The visible-author fix needs an
+identity only Amin can create: a machine account (simplest: create account,
+grant repo access, `gh auth login` as it on the box) or a GitHub App
+(`slowcook-agent[bot]`; needs slowcook support for App-token minting —
+a real feature). Awaiting Amin's pick.
+
 ## O1 (observation) — /root/rewo drifted off main
 
 The workload was derived while `/root/rewo` sat on `fix/mock-types-node`,

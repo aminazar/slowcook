@@ -22,6 +22,13 @@ export interface Comment {
   is_bot: boolean;
 }
 
+/** An emoji reaction on an issue comment (GitHub content values: "+1",
+ *  "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes"). */
+export interface CommentReaction {
+  user: string;
+  content: string;
+}
+
 /**
  * A PR review comment anchored to a specific file + line (0.11.8+). Shape
  * is distinct from `Comment` (the issue-timeline shape) because the line
@@ -108,6 +115,26 @@ export interface ForgeAdapter {
   createIssueComment(number: number, body: string): Promise<Comment>;
   addIssueLabels(number: number, labels: string[]): Promise<void>;
   removeIssueLabel(number: number, label: string): Promise<void>;
+
+  /**
+   * 0.33+ — create a repository issue. Optional: refine's multifurcation
+   * split executor files approved sub-issues through this; adapters that
+   * can't create issues simply omit it and the executor reports the gap
+   * instead of half-splitting.
+   */
+  createIssue?(input: {
+    title: string;
+    body: string;
+    labels?: string[];
+  }): Promise<{ number: number; url: string }>;
+
+  /**
+   * 0.33+ — emoji reactions on one issue comment. Optional. The PM's
+   * cheapest possible approval gesture (a 👍 on a proposal comment) must
+   * be readable by agents, or "awaiting PM decision" silently ignores the
+   * decision the PM already gave (rewo run, ledger G6).
+   */
+  listCommentReactions?(commentId: number): Promise<CommentReaction[]>;
 
   /**
    * 0.11.8+ — PR review comments anchored to specific file:line locations.
