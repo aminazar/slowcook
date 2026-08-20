@@ -77,12 +77,25 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
   execSync(`git reset --hard origin/${branch}`, { cwd: ctx.repoRoot });
 
   // Feedback: timeline comments (taste findings live here) + human inline.
-  const [{ data: comments }, { data: files }, { data: inline }] = await Promise.all([
-    octokit.issues.listComments({ owner: ctx.owner, repo: ctx.repo, issue_number: ctx.prNumber, per_page: 100 }),
-    octokit.pulls.listFiles({ owner: ctx.owner, repo: ctx.repo, pull_number: ctx.prNumber, per_page: 100 }),
-    octokit.pulls.listReviewComments({ owner: ctx.owner, repo: ctx.repo, pull_number: ctx.prNumber, per_page: 100 }),
-  ]);
+  const [{ data: comments }, { data: files }, { data: inline }, { data: reviews }] =
+    await Promise.all([
+      octokit.issues.listComments({ owner: ctx.owner, repo: ctx.repo, issue_number: ctx.prNumber, per_page: 100 }),
+      octokit.pulls.listFiles({ owner: ctx.owner, repo: ctx.repo, pull_number: ctx.prNumber, per_page: 100 }),
+      octokit.pulls.listReviewComments({ owner: ctx.owner, repo: ctx.repo, pull_number: ctx.prNumber, per_page: 100 }),
+      octokit.pulls.listReviews({ owner: ctx.owner, repo: ctx.repo, pull_number: ctx.prNumber, per_page: 100 }),
+    ]);
   const feedback = [
+    // Review BODIES are feedback too (taste's verdicts live here) —
+    // exclude drafts (author-only) and this agent's own replies.
+    ...reviews
+      .filter(
+        (r) =>
+          r.state !== "PENDING" &&
+          (r.body ?? "").trim() &&
+          !(r.body ?? "").startsWith("### slowcook · recipe")
+      )
+      .slice(-4)
+      .map((r) => `## Review by @${r.user?.login} (${r.state}) at ${r.submitted_at}\n${r.body}`),
     ...comments
       .filter((c) => !(c.body ?? "").startsWith("### slowcook ·"))
       .slice(-6)
