@@ -23,6 +23,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Octokit } from "@octokit/rest";
+import { appAuthConfigured, mintInstallationToken } from "@slowcook-ai/forge-github";
 import { readIndex, readSpec } from "../refine/spec-yaml.js";
 import {
   deriveJobs,
@@ -101,18 +102,6 @@ async function runPass(argv: string[]): Promise<void> {
     }
   }
 
-  // The worker is inert without auth — by design. Name the missing thing.
-  const token = process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
-  if (!token) {
-    console.error(
-      "slowcook worker: GITHUB_TOKEN / GH_TOKEN is not set.\n" +
-        "  The worker reads trigger labels from the forge; without a token it can\n" +
-        "  see nothing and will not guess. `gh auth token` supplies one on a box\n" +
-        "  where gh is logged in:  GH_TOKEN=$(gh auth token) slowcook worker run --dry-run"
-    );
-    process.exit(2);
-  }
-
   const { owner, repo } = resolveOwnerRepo(args);
   if (!owner || !repo) {
     console.error(
@@ -121,6 +110,41 @@ async function runPass(argv: string[]): Promise<void> {
     );
     process.exit(2);
   }
+
+  // Forge identity, in preference order (ledger O2):
+  //   1. GitHub App installation token — agents post as <app-slug>[bot],
+  //      the identity that scales to every consumer org.
+  //   2. Operator token (GITHUB_TOKEN / GH_TOKEN) — comments show the
+  //      OPERATOR as author; fine for bootstrap, wrong attribution at scale.
+  // An App that is CONFIGURED but cannot mint is a hard stop — silently
+  // posting as the operator would defeat the reason the App exists.
+  let token: string;
+  let forgeIdentity: string;
+  if (appAuthConfigured()) {
+    try {
+      const minted = await mintInstallationToken(owner, repo);
+      token = minted.token;
+      forgeIdentity = `${minted.appSlug}[bot]`;
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exit(2);
+    }
+  } else {
+    const envToken = process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
+    if (!envToken) {
+      console.error(
+        "slowcook worker: no forge identity configured.\n" +
+          "  Either set the GitHub App identity (SLOWCOOK_GITHUB_APP_ID +\n" +
+          "  SLOWCOOK_GITHUB_APP_PRIVATE_KEY_PATH — agents then post as the App's\n" +
+          "  [bot] user), or set GITHUB_TOKEN / GH_TOKEN (posts as that account):\n" +
+          "  GH_TOKEN=$(gh auth token) slowcook worker run --dry-run"
+      );
+      process.exit(2);
+    }
+    token = envToken;
+    forgeIdentity = "operator-token";
+  }
+  console.log(`identity: ${forgeIdentity}`);
 
   mkdirSync(args.logsDir, { recursive: true });
   const lockPath = args.lockPath ?? join(args.logsDir, "worker.lock");
@@ -159,11 +183,11 @@ async function runPass(argv: string[]): Promise<void> {
       // the rest stay visible in the workload and untouched.
       if (args.dryRun) {
         const job = jobs[0]!;
-        processed = processDry(job, args);
+        processed = processDry(job, args, forgeIdentity);
       } else {
         const job = jobs.find((j) => args.enable.has(j.agent));
         if (job) {
-          processed = await processLive(job, args, { owner, repo, token });
+          processed = await processLive(job, args, { owner, repo, token }, forgeIdentity);
         }
       }
     }
@@ -200,7 +224,8 @@ async function runPass(argv: string[]): Promise<void> {
 
 function processDry(
   job: WorkerJob,
-  args: RunArgs
+  args: RunArgs,
+  forgeIdentity: string
 ): { job: WorkerJob; traceDir: string; outcome: JobOutcome } {
   const outcome: JobOutcome = job.runnable ? "dry-run" : "precondition-missing";
   const failed = job.preconditions.filter((c) => c.status === "fail");
@@ -213,6 +238,7 @@ function processDry(
         argv: job.cmd,
         envNames: presentEnvNames(),
         backend: detectBackend(),
+    forgeIdentity,
         cwd: args.repoRoot,
         gitSha: gitShaOf(args.repoRoot),
         startedAt: now.toISOString(),
@@ -247,7 +273,8 @@ function processDry(
 async function processLive(
   job: WorkerJob,
   args: RunArgs,
-  gh: { owner: string; repo: string; token: string }
+  gh: { owner: string; repo: string; token: string },
+  forgeIdentity: string
 ): Promise<{ job: WorkerJob; traceDir: string; outcome: JobOutcome }> {
   const octokit = new Octokit({ auth: gh.token, userAgent: "slowcook-ai/cli worker" });
   const now = new Date();
@@ -266,6 +293,7 @@ async function processLive(
     argv: job.cmd,
     envNames: presentEnvNames(),
     backend: detectBackend(),
+    forgeIdentity,
     cwd: args.repoRoot,
     gitSha: gitShaOf(args.repoRoot),
     startedAt: now.toISOString(),
@@ -437,6 +465,9 @@ function presentEnvNames(): string[] {
   return [
     "GITHUB_TOKEN",
     "GH_TOKEN",
+    "SLOWCOOK_GITHUB_APP_ID",
+    "SLOWCOOK_GITHUB_APP_PRIVATE_KEY_PATH",
+    "SLOWCOOK_GITHUB_APP_PRIVATE_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     "SLOWCOOK_LLM",
@@ -696,7 +727,12 @@ WantedBy=timers.target
 #   journalctl -u slowcook-worker.service -f
 # go live (W1, spends money): replace --dry-run with --enable refine and add
 #   'export SLOWCOOK_LLM=claude-cli' to the env file (an OAuth token alone
-#   does not configure a backend — agents refuse without the seam set).`);
+#   does not configure a backend — agents refuse without the seam set).
+# agent identity (recommended): register a GitHub App for your org, install
+#   it on the repo, then add to the env file:
+#     export SLOWCOOK_GITHUB_APP_ID=<id>
+#     export SLOWCOOK_GITHUB_APP_PRIVATE_KEY_PATH=/root/slowcook-agent.pem
+#   Agents then post as <app-slug>[bot] instead of the operator's account.`);
 }
 
 function printHelp(): void {
@@ -735,7 +771,13 @@ systemd Print the service + timer units for a box install (oneshot
         pass every 3min, lock at /run/slowcook-worker.lock).
 
 Environment:
-  GITHUB_TOKEN | GH_TOKEN   required — the worker is inert without auth.
+  SLOWCOOK_GITHUB_APP_ID + SLOWCOOK_GITHUB_APP_PRIVATE_KEY_PATH
+                            preferred forge identity — a GitHub App the
+                            consumer org installs once; agents post as
+                            <app-slug>[bot]. Configured-but-broken is a
+                            hard stop (never silently falls back).
+  GITHUB_TOKEN | GH_TOKEN   fallback identity — posts as that account.
+                            One of the two identities is required.
   CLAUDE_CODE_OAUTH_TOKEN   model backend for live runs (W1+): claude-cli.
   ANTHROPIC_API_KEY         model backend for live runs (W1+): api.
                             Both set = a named conflict in the trace.
