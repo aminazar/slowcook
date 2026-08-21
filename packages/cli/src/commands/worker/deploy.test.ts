@@ -15,6 +15,7 @@ describe("worker deploy (D7 / G1)", () => {
   it("remote script forces the build and fails on any stale dist file", () => {
     const s = remoteBuildScript("/root/slowcook-head");
     expect(s).toContain("rm -rf packages/*/dist"); // orphaned artifacts are importable lies
+    expect(s).toContain("*.tsbuildinfo"); // stale build state survives rsync exclusions — purge or tsc builds nothing
     expect(s).toContain("pnpm install");
     expect(s).toContain("pnpm -r --silent build"); // every package's OWN build — bare tsc left workspace deps to stale dist
     expect(s).toContain("! -newer .deploy-build-stamp");
