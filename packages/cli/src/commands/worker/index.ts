@@ -45,6 +45,7 @@ import {
   type WorkerJob,
 } from "./plan.js";
 import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
+import { checkoutStatusLine, renderWorkloadView } from "./workload.js";
 import { mapLiveOutcome, commentHeader } from "./live.js";
 import { acquireWorkerLock, releaseWorkerLock } from "./worker-lock.js";
 import { pmCc } from "../../lib/pm-notify.js";
@@ -74,6 +75,8 @@ export async function worker(argv: string[]): Promise<void> {
   switch (sub) {
     case "run":
       return runPass(argv.slice(1));
+    case "workload":
+      return inspectWorkload(argv.slice(1));
     case "systemd":
       return printSystemd(argv.slice(1));
     case undefined:
@@ -87,6 +90,74 @@ export async function worker(argv: string[]): Promise<void> {
       printHelp();
       process.exit(64);
   }
+}
+
+/** `slowcook worker workload` (also exposed as top-level `slowcook
+ *  workload`) — read-only view of the derived workload (D5). Never
+ *  mutates the checkout; a mismatched checkout is reported, not fixed. */
+async function inspectWorkload(argv: string[]): Promise<void> {
+  const args = parseRunArgs(argv);
+  const { owner, repo } = resolveOwnerRepo(args);
+  if (!owner || !repo) {
+    console.error("slowcook workload: cannot resolve the target repo (pass --owner/--repo).");
+    process.exit(2);
+  }
+  const identity = await resolveForgeIdentity(owner, repo);
+  const checkoutLine = checkoutStatusLine(args.repoRoot, args.baseBranch);
+  const fetchArgs = { owner, repo, token: identity.token };
+  const issues = await fetchTriggerIssues(fetchArgs);
+  const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts(fetchArgs);
+  const specReady = gatherSpecReadyFacts(args.repoRoot, openHeadRefs);
+  const jobs = [
+    ...deriveResubmitJobs(agentPrFacts),
+    ...deriveTasteJobs(agentPrFacts),
+    ...deriveRecipeJobs(specReady),
+    ...deriveBrewJobs(await gatherBrewReadyFacts(fetchArgs, specReady, openHeadRefs)),
+    ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
+  ];
+  if (args.json) {
+    console.log(
+      JSON.stringify(
+        { identity: identity.forgeIdentity, checkout: checkoutLine, workload: summarizeWorkload(issues, jobs), jobs },
+        null,
+        2
+      )
+    );
+    return;
+  }
+  console.log(
+    renderWorkloadView({ identity: identity.forgeIdentity, checkoutLine, issues, jobs })
+  );
+}
+
+/** Forge identity, in preference order (ledger O2): App installation
+ *  token (posts as <app-slug>[bot]; configured-but-broken is a hard
+ *  stop) → operator token. Shared by run and workload. */
+async function resolveForgeIdentity(
+  owner: string,
+  repo: string
+): Promise<{ token: string; forgeIdentity: string }> {
+  if (appAuthConfigured()) {
+    try {
+      const minted = await mintInstallationToken(owner, repo);
+      return { token: minted.token, forgeIdentity: `${minted.appSlug}[bot]` };
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exit(2);
+    }
+  }
+  const envToken = process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
+  if (!envToken) {
+    console.error(
+      "slowcook worker: no forge identity configured.\n" +
+        "  Either set the GitHub App identity (SLOWCOOK_GITHUB_APP_ID +\n" +
+        "  SLOWCOOK_GITHUB_APP_PRIVATE_KEY_PATH — agents then post as the App's\n" +
+        "  [bot] user), or set GITHUB_TOKEN / GH_TOKEN (posts as that account):\n" +
+        "  GH_TOKEN=$(gh auth token) slowcook worker run --dry-run"
+    );
+    process.exit(2);
+  }
+  return { token: envToken, forgeIdentity: "operator-token" };
 }
 
 async function runPass(argv: string[]): Promise<void> {
@@ -128,32 +199,7 @@ async function runPass(argv: string[]): Promise<void> {
   //      OPERATOR as author; fine for bootstrap, wrong attribution at scale.
   // An App that is CONFIGURED but cannot mint is a hard stop — silently
   // posting as the operator would defeat the reason the App exists.
-  let token: string;
-  let forgeIdentity: string;
-  if (appAuthConfigured()) {
-    try {
-      const minted = await mintInstallationToken(owner, repo);
-      token = minted.token;
-      forgeIdentity = `${minted.appSlug}[bot]`;
-    } catch (e) {
-      console.error((e as Error).message);
-      process.exit(2);
-    }
-  } else {
-    const envToken = process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
-    if (!envToken) {
-      console.error(
-        "slowcook worker: no forge identity configured.\n" +
-          "  Either set the GitHub App identity (SLOWCOOK_GITHUB_APP_ID +\n" +
-          "  SLOWCOOK_GITHUB_APP_PRIVATE_KEY_PATH — agents then post as the App's\n" +
-          "  [bot] user), or set GITHUB_TOKEN / GH_TOKEN (posts as that account):\n" +
-          "  GH_TOKEN=$(gh auth token) slowcook worker run --dry-run"
-      );
-      process.exit(2);
-    }
-    token = envToken;
-    forgeIdentity = "operator-token";
-  }
+  const { token, forgeIdentity } = await resolveForgeIdentity(owner, repo);
   console.log(`identity: ${forgeIdentity}`);
 
   mkdirSync(args.logsDir, { recursive: true });
