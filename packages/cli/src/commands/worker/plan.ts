@@ -425,6 +425,7 @@ export function deriveTasteJobs(prs: AgentPrFact[]): WorkerJob[] {
  * spec PR review/merge that produced the state.
  */
 export const DERIVED_SPEC_MERGED_TRIGGER = "(derived) spec-merged-no-tests";
+export const DERIVED_SPEC_DRIFT_TRIGGER = "(derived) spec-manifest-drift";
 
 export interface SpecReadyFact {
   storyId: string;
@@ -434,6 +435,10 @@ export interface SpecReadyFact {
   specParses: boolean;
   invariantsNonEmpty: boolean;
   manifestExists: boolean;
+  /** The spec's content hash no longer matches the one the manifest was
+   *  recorded against (D10) — the tests certify a spec that no longer
+   *  exists. False when either hash is unknown (pre-drift manifests). */
+  specDrifted: boolean;
   /** An open slowcook/tests PR already covers this story. */
   openTestsPr: boolean;
 }
@@ -442,21 +447,32 @@ export function deriveRecipeJobs(facts: SpecReadyFact[]): WorkerJob[] {
   const jobs: WorkerJob[] = [];
   for (const f of facts) {
     if (!f.specParses || !f.invariantsNonEmpty) continue; // not recipe-ready
-    if (f.manifestExists || f.openTestsPr) continue; // tests exist or in flight
+    if (f.openTestsPr) continue; // revision already in flight
+    // Tests exist AND still certify the current spec — nothing to do.
+    // A drifted manifest (D10) is a regeneration job: the tests certify
+    // a spec that no longer exists.
+    if (f.manifestExists && !f.specDrifted) continue;
     if (f.sourceIssue === null) continue; // nowhere to report — skip, visible in workload
+    const drift = f.manifestExists && f.specDrifted;
     jobs.push({
       issue: f.sourceIssue,
       issueTitle: f.title,
       agent: "recipe",
-      triggerLabel: DERIVED_SPEC_MERGED_TRIGGER,
+      triggerLabel: drift ? DERIVED_SPEC_DRIFT_TRIGGER : DERIVED_SPEC_MERGED_TRIGGER,
       storyId: f.storyId,
       cmd: ["slowcook", "recipe", "--spec", f.storyId],
       preconditions: [
-        {
-          name: "spec-merged-no-tests",
-          status: "pass",
-          detail: `spec story-${f.storyId} parses with invariants; no manifest, no open tests PR`,
-        },
+        drift
+          ? {
+              name: "spec-manifest-drift",
+              status: "pass",
+              detail: `spec story-${f.storyId} changed since its tests were recorded (content hash mismatch) — regenerate tests against the current spec`,
+            }
+          : {
+              name: "spec-merged-no-tests",
+              status: "pass",
+              detail: `spec story-${f.storyId} parses with invariants; no manifest, no open tests PR`,
+            },
       ],
       runnable: true,
       priority: 10, // after unblocks/resubmits, before fresh label triggers
@@ -487,6 +503,9 @@ export interface BrewReadyFact {
    *  main is contested; brewing against it builds to a stale contract
    *  (eleven-defects D12, caught by the first `slowcook workload` run). */
   openTestsPr: boolean;
+  /** The spec changed since the tests were recorded (D10) — brewing
+   *  would implement a spec the frozen tests don't certify. */
+  specDrifted: boolean;
   /** Source issue already carries agent:brewed or agent:failed. */
   issueSettled: boolean;
 }
@@ -497,7 +516,7 @@ export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
     if (!f.manifestExists || !f.specParses) continue;
     if (f.openBrewPr || f.issueSettled) continue;
     if (f.sourceIssue === null) continue;
-    const testsContested = f.openTestsPr;
+    const testsContested = f.openTestsPr || f.specDrifted;
     jobs.push({
       issue: f.sourceIssue,
       issueTitle: f.title,
@@ -510,8 +529,10 @@ export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
           ? {
               name: "tests-settled",
               status: "fail" as const,
-              upstream: "taste",
-              detail: `story-${f.storyId}: an open tests PR is revising this story's tests — the manifest on main is contested; brew waits for the review loop to settle`,
+              upstream: f.specDrifted ? "recipe" : "taste",
+              detail: f.specDrifted
+                ? `story-${f.storyId}: the spec changed since its tests were recorded (content-hash drift) — recipe must regenerate before brew implements`
+                : `story-${f.storyId}: an open tests PR is revising this story's tests — the manifest on main is contested; brew waits for the review loop to settle`,
             }
           : {
               name: "tests-merged-no-impl",
