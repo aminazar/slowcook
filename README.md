@@ -80,6 +80,13 @@ slowcook brew --story 007 --budget-usd 5 --max-iterations 10
 | `budget set --monthly 50` | Spend caps |
 | `stories status` | Where every story is in the pipeline |
 | `check prod-honesty` | Catch mock data leaking into production paths |
+| `taste --pr <n> [--merge]` | Reviewer agent: verdict against the PR's full lineage; merges only where gates allow |
+| `worker run` | Unattended loop: derives jobs from repo state, runs one per pass |
+| `app init` | One-click GitHub App so agents post as a bot, not as you |
+
+Agents review each other, but `.brewing/gates.yaml` declares which merges
+stay human — see [docs/worker.md](docs/worker.md) for the unattended
+operating model (worker, taste, gates, review rounds).
 
 Run `slowcook --help` for the full surface, or `slowcook <command> --help` for one command.
 
