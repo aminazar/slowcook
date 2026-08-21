@@ -275,6 +275,23 @@ Entry format:
   operator manually re-runs recipe --pr + taste --pr --merge on those two;
   #221 (3 reviews) converges automatically.
 
+## G13 — brew derivation re-implemented already-shipped work
+
+- **surfaced by**: minutes after "go brew" was enabled, the worker started
+  `brew --story 001` — a story shipped months before the worker existed.
+  Killed at ~2 min spend; aborted branch discarded. (Also defused: the
+  stale W0 test label `agent:brew` on #43/story-005 became a live trigger
+  the moment brew entered LIVE_STAGES.)
+- **root cause**: brew-readiness was derived from timeless artifacts
+  (spec + manifest + open unsettled issue) — true for every old-era story,
+  whose issues predate the worker's labels. "Already implemented" is not
+  visible in the index (old stories are `status: active`).
+- **fix**: brew candidates must carry `agent:reciped` — the label the
+  worker's OWN recipe stage publishes. Brew follows recipe in this chain;
+  state the worker didn't publish is state it must not assume.
+- **verified**: derivation test updated; workload on the box shows only
+  worker-era stories as brew candidates.
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as
