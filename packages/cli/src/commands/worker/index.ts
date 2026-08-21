@@ -644,10 +644,44 @@ function ensureBaseCheckout(repoRoot: string, base: string): void {
   } else {
     execSync(`git checkout ${base}`, { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] });
   }
-  execSync(`git pull --ff-only origin ${base}`, {
-    cwd: repoRoot,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  try {
+    execSync(`git pull --ff-only origin ${base}`, {
+      cwd: repoRoot,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch {
+    // Divergence is a NAMED condition, not an anonymous crash: a local-only
+    // commit on base (e.g. crash-recovery residue) means this checkout no
+    // longer describes origin — a human must reconcile, the worker must
+    // not derive from it.
+    const ahead = execSync(`git log --oneline origin/${base}..${base}`, {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    console.error(
+      `slowcook worker: precondition checkout-ref FAILED — local ${base} diverged from origin/${base}` +
+        (ahead.length > 0 ? ` (${ahead.length} local-only commit(s)):\n  ${ahead.slice(0, 5).join("\n  ")}` : ".") +
+        `\n  Reconcile (rebase/drop the local commits) before the worker runs again.`
+    );
+    process.exit(2);
+  }
+  // The workload describes origin/<base>; assert out loud that we stand
+  // there (eleven-defects D2, ledger O1: a pass once derived while the
+  // checkout sat on a side branch and nothing said so).
+  const headRef = execSync("git rev-parse --abbrev-ref HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
+  const headSha = execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
+  const originSha = execSync(`git rev-parse origin/${base}`, { cwd: repoRoot, encoding: "utf8" }).trim();
+  if (headRef !== base || headSha !== originSha) {
+    console.error(
+      `slowcook worker: precondition checkout-ref FAILED — expected ${base} @ ${originSha.slice(0, 9)}, ` +
+        `standing on ${headRef} @ ${headSha.slice(0, 9)}. Refusing to derive a workload this checkout does not describe.`
+    );
+    process.exit(2);
+  }
+  console.log(`checkout: ${base} @ ${headSha.slice(0, 9)} (matches origin/${base})`);
 }
 
 
