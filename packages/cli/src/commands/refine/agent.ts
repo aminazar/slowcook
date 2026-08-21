@@ -1257,13 +1257,19 @@ export async function runResubmitRefinement(
       const m = pr.head_branch?.match(/slowcook\/spec\/story-(.+)$/);
       if (m && m[1]) {
         storyId = m[1];
-        // Make the checkout MATCH the PR before touching any file. Fail
-        // closed on a dirty tree rather than mixing work.
+        // MERGED PR → the amendment applies to the CURRENT spec on the
+        // base branch, never to the frozen pre-merge PR branch. Checking
+        // out the old branch made the follow-up re-create the file and
+        // silently DROP every post-review fix the merge carried (rewo
+        // ledger G14). The follow-up branch then forks from base.
+        const targetBranch = pr.merged ? ctx.baseBranch : pr.head_branch;
+        // Make the checkout MATCH the target before touching any file.
+        // Fail closed on a dirty tree rather than mixing work.
         const current = execSync("git branch --show-current", {
           cwd: ctx.repoRoot,
           encoding: "utf8",
         }).trim();
-        if (current !== pr.head_branch) {
+        if (current !== targetBranch) {
           const dirty = execSync("git status --porcelain", {
             cwd: ctx.repoRoot,
             encoding: "utf8",
@@ -1273,13 +1279,15 @@ export async function runResubmitRefinement(
           if (dirty.length > 0) {
             return {
               kind: "noop",
-              reason: `checkout is on ${current || "(detached)"} with uncommitted changes — refusing to switch to ${pr.head_branch}`,
+              reason: `checkout is on ${current || "(detached)"} with uncommitted changes — refusing to switch to ${targetBranch}`,
             };
           }
-          execSync(`git fetch origin ${pr.head_branch}`, { cwd: ctx.repoRoot });
-          execSync(`git checkout ${pr.head_branch}`, { cwd: ctx.repoRoot });
-          execSync(`git reset --hard origin/${pr.head_branch}`, { cwd: ctx.repoRoot });
-          console.log(`  checked out ${pr.head_branch} (PR #${ctx.prNumber} is authoritative)`);
+          execSync(`git fetch origin ${targetBranch}`, { cwd: ctx.repoRoot });
+          execSync(`git checkout ${targetBranch}`, { cwd: ctx.repoRoot });
+          execSync(`git reset --hard origin/${targetBranch}`, { cwd: ctx.repoRoot });
+          console.log(
+            `  checked out ${targetBranch} (PR #${ctx.prNumber}${pr.merged ? " is merged — amending the CURRENT spec on base" : " is authoritative"})`
+          );
         }
       }
     } catch (e) {
@@ -1373,7 +1381,11 @@ export async function runResubmitRefinement(
     cacheSystem: true,
     model: ctx.refineModel,
     messages: [{ role: "user", content: userMessage }],
-    maxTokens: 8192,
+    // Amendments rewrite the WHOLE spec; 8192 truncated a real one
+    // mid-line (rewo G14: the file ended `- "RLS: n"`). Stream so the
+    // SDK accepts the larger cap.
+    maxTokens: 32000,
+    stream: true,
   });
 
   const parsed = parseAgentOutput(response.text, {
