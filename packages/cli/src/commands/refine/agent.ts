@@ -1251,9 +1251,11 @@ export async function runResubmitRefinement(
   // `refine --pr 218` (story-019) amended story-021 and pushed a pollution
   // commit onto the wrong PR (rewo run, ledger G9).
   let storyId: string | null = null;
+  let prHeadBranch: string | null = null;
   if (ctx.forge.getPullRequest) {
     try {
       const pr = await ctx.forge.getPullRequest(ctx.prNumber);
+      if (!pr.merged) prHeadBranch = pr.head_branch ?? null;
       // Follow-up branches are story-<id>-amend-<ts>; the story id stops
       // before the -amend suffix (ledger G15).
       const m = pr.head_branch?.match(/slowcook\/spec\/story-(.+?)(?:-amend-\d+)?$/);
@@ -1508,7 +1510,10 @@ export async function runResubmitRefinement(
   // Pick branch: same branch (force-push) when the PR is open; a fresh
   // timestamped follow-up branch when the PR is already merged so the
   // new PR has a clean head and doesn't collide with the merged branch.
-  const originalBranch = scopedSpecBranch(ctx.projectScope ?? "", storyId);
+  // THE PR's REAL HEAD is authoritative for open PRs (ledger G16: the
+  // reconstructed name pushed an amendment to the MERGED original branch
+  // while the open follow-up PR stayed unchanged).
+  const originalBranch = prHeadBranch ?? scopedSpecBranch(ctx.projectScope ?? "", storyId);
   const followUpBranch = isFollowUp
     ? scopedSpecBranch(ctx.projectScope ?? "", storyId, `amend-${ctx.now.getTime()}`)
     : null;
