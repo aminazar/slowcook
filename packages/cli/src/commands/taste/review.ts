@@ -14,7 +14,7 @@
  * is the worker's mapping contract.
  */
 
-export type PrKind = "spec" | "tests";
+export type PrKind = "spec" | "tests" | "brew";
 
 export interface TasteContext {
   prNumber: number;
@@ -34,6 +34,9 @@ export interface TasteContext {
   /** Trimmed PR discussion thread (taste's own findings excluded) — the
    *  venue where PM rulings and relays land during review rounds. */
   prThread: string | null;
+  /** The story's test manifest (brew reviews: the frozen contract the
+   *  implementation must satisfy). */
+  manifestJson: string | null;
 }
 
 export interface TasteFinding {
@@ -49,7 +52,13 @@ export interface TasteVerdict {
 
 export function buildTastePrompt(ctx: TasteContext): { system: string; user: string } {
   const system = `You are slowcook's reviewer agent ("taste") for pipeline PRs on a software project.
-You review the ${ctx.kind === "tests" ? "generated TEST SUITE" : "generated SPEC"} for one story against its full lineage.
+You review the ${
+    ctx.kind === "tests"
+      ? "generated TEST SUITE"
+      : ctx.kind === "brew"
+        ? "agent-written IMPLEMENTATION"
+        : "generated SPEC"
+  } for one story against its full lineage.
 
 Judge:
 ${
@@ -58,7 +67,14 @@ ${
 - Are the tests honest (no auto-pass, no tautologies, no testing of mocks-of-mocks)?
 - Would they be red before implementation and green after a correct one?
 - Quality: determinism, isolation, clear naming. Style nits are nits, not blockers.`
-    : `- Does the spec faithfully capture the source issue and the PM's answers? Name contradictions.
+    : ctx.kind === "brew"
+      ? `- Does the diff implement the spec's invariants — nothing missing, nothing invented beyond the spec?
+- TEST TAMPERING IS ALWAYS BLOCKING: the tests are the frozen contract; any change under tests/ in an implementation diff means the agent moved the goalposts.
+- Scope discipline: only files this story needs; flag drive-by edits.
+- Migrations/schema changes must match the spec's approved proposals exactly.
+- Does the code handle the spec's failure scenarios (not just the happy path)?
+- NOTE: your verdict here is ADVISORY — implementation merges are a human gate; write findings as briefing notes for the human reviewer.`
+      : `- Does the spec faithfully capture the source issue and the PM's answers? Name contradictions.
 - Are invariants testable and unambiguous? Are scenarios concrete?
 - Scope: nothing invented beyond the issue + answers; nothing load-bearing missing.`
 }
@@ -86,6 +102,11 @@ Respond with ONLY a JSON object:
   }
   if (ctx.specYaml) {
     parts.push(`## Spec (story-${ctx.storyId})\n\n\`\`\`yaml\n${ctx.specYaml}\n\`\`\``);
+  }
+  if (ctx.manifestJson) {
+    parts.push(
+      `## Test manifest (the frozen contract this implementation must satisfy)\n\n\`\`\`json\n${ctx.manifestJson}\n\`\`\``
+    );
   }
   parts.push(`## Diff under review\n\n\`\`\`diff\n${ctx.diff}\n\`\`\``);
   return { system, user: parts.join("\n\n---\n\n") };

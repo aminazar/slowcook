@@ -60,7 +60,7 @@ export async function taste(argv: string[]): Promise<void> {
 
   const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: args.pr });
   const head = pr.head?.ref ?? "";
-  const kindMatch = head.match(/slowcook\/(spec|tests)\/story-(.+?)(?:-amend-\d+)?$/);
+  const kindMatch = head.match(/slowcook\/(spec|tests|brew)\/story-(.+?)(?:-amend-\d+)?$/);
   if (!kindMatch) {
     console.error(
       `slowcook taste: PR #${args.pr} head "${head}" is not a slowcook spec/tests branch — refusing to review what no agent owns.`
@@ -144,6 +144,17 @@ export async function taste(argv: string[]): Promise<void> {
     sourceIssueBody,
     issueThread,
     prThread,
+    manifestJson: (() => {
+      if (kind !== "brew") return null;
+      try {
+        return readFileSync(
+          join(args.repoRoot, ".brewing", "manifests", `story-${storyId}.json`),
+          "utf8"
+        ).slice(0, 8000);
+      } catch {
+        return null;
+      }
+    })(),
   };
 
   const model = resolveModel("taste", args.model);

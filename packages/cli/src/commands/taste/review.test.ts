@@ -62,6 +62,7 @@ describe("buildTastePrompt", () => {
       sourceIssueBody: "body",
       issueThread: "@pm: 1. b",
       prThread: "@aminazar: ruling — option 2 stands",
+      manifestJson: null,
     };
     expect(buildTastePrompt({ ...base, kind: "tests" as const }).system).toContain("invariant with no test");
     expect(buildTastePrompt({ ...base, kind: "spec" as const }).system).toContain("source issue");
@@ -73,5 +74,14 @@ describe("buildTastePrompt", () => {
     expect(buildTastePrompt({ ...base, prThread: null, kind: "spec" as const }).user).not.toContain(
       "PR discussion thread"
     );
+    const brew = buildTastePrompt({
+      ...base,
+      kind: "brew" as const,
+      headBranch: "slowcook/brew/story-019",
+      manifestJson: '{"tests":["tests/integration/story-019.test.ts > merges"]}',
+    });
+    expect(brew.system).toContain("TEST TAMPERING IS ALWAYS BLOCKING");
+    expect(brew.system).toContain("ADVISORY");
+    expect(brew.user).toContain("frozen contract");
   });
 });
