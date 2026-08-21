@@ -54,6 +54,7 @@ import {
   parseRollupKeys,
   renderRollupBody,
 } from "./pm-rollup.js";
+import { needsTriageReply, renderTriageReply, STALE_PREMISE_MARKER } from "./stale-premise.js";
 import { mapLiveOutcome, commentHeader } from "./live.js";
 import { acquireWorkerLock, releaseWorkerLock } from "./worker-lock.js";
 import { pmCc } from "../../lib/pm-notify.js";
@@ -273,6 +274,11 @@ async function runPass(argv: string[]): Promise<void> {
         );
       } catch (e) {
         console.error(`warn: pm-rollup reconcile failed: ${(e as Error).message}`);
+      }
+      try {
+        await triageStalePremiseComments({ owner, repo, token }, args.repoRoot, openHeadRefs);
+      } catch (e) {
+        console.error(`warn: stale-premise triage failed: ${(e as Error).message}`);
       }
     }
 
@@ -758,6 +764,69 @@ function ensureBaseCheckout(repoRoot: string, base: string): void {
   console.log(`checkout: ${base} @ ${headSha.slice(0, 9)} (matches origin/${base})`);
 }
 
+
+/** D9 — reply once to fresh human comments on merged agent PRs, routing
+ *  them to the live venue (nothing watches merged threads otherwise). */
+async function triageStalePremiseComments(
+  args: FetchArgs,
+  repoRoot: string,
+  openHeadRefs: string[]
+): Promise<void> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  const { data: closed } = await octokit.pulls.list({
+    owner: args.owner,
+    repo: args.repo,
+    state: "closed",
+    sort: "updated",
+    direction: "desc",
+    per_page: 15,
+  });
+  for (const pr of closed) {
+    const m = pr.head?.ref?.match(/slowcook\/(spec|tests|brew)\/story-(.+?)(?:-amend-\d+)?$/);
+    if (!m || !pr.merged_at) continue;
+    const kind = m[1]!;
+    const storyId = m[2]!;
+    const { data: comments } = await octokit.issues.listComments({
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: pr.number,
+      per_page: 100,
+    });
+    const mapped = comments.map((c) => ({
+      isBot:
+        c.user?.type === "Bot" || (c.body ?? "").includes(STALE_PREMISE_MARKER),
+      createdAt: c.created_at,
+    }));
+    if (!needsTriageReply(pr.merged_at, mapped)) continue;
+    let sourceIssue: number | null = null;
+    try {
+      const index = readIndex(repoRoot);
+      const src = index.stories?.[storyId]?.source_issue?.match(/(\d+)\s*$/)?.[1];
+      if (src) sourceIssue = Number(src);
+    } catch { /* venue falls back */ }
+    const successor = openHeadRefs.find((r) => r.includes(`story-${storyId}`));
+    let successorPr: number | null = null;
+    if (successor) {
+      try {
+        const { data: openPrs } = await octokit.pulls.list({
+          owner: args.owner,
+          repo: args.repo,
+          state: "open",
+          head: `${args.owner}:${successor}`,
+          per_page: 1,
+        });
+        successorPr = openPrs[0]?.number ?? null;
+      } catch { /* venue falls back */ }
+    }
+    await octokit.issues.createComment({
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: pr.number,
+      body: renderTriageReply({ kind, storyId, sourceIssue, successorPr }),
+    });
+    console.log(`stale-premise: routed fresh comment on merged PR #${pr.number} (story-${storyId})`);
+  }
+}
 
 /** D6 — reconcile the single PM roll-up issue from derived state. */
 async function reconcilePmRollup(
