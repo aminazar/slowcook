@@ -458,6 +458,55 @@ export function deriveRecipeJobs(facts: SpecReadyFact[]): WorkerJob[] {
   return jobs;
 }
 
+/**
+ * W2-brew: a story with a merged spec AND a recorded manifest AND no brew
+ * PR (open or done) asks for brew — the implementation stage. Real spend:
+ * enabled only when the operator's --enable includes brew ("go brew",
+ * 2026-08-21). Guards: source issue must not already carry agent:brewed /
+ * agent:failed (checked by the wrapper), and an open slowcook/brew branch
+ * for the story suppresses the job (the re-fire guard).
+ */
+export const DERIVED_BREW_READY_TRIGGER = "(derived) tests-merged-no-impl";
+
+export interface BrewReadyFact {
+  storyId: string;
+  sourceIssue: number | null;
+  title: string;
+  manifestExists: boolean;
+  specParses: boolean;
+  /** An open slowcook/brew PR already covers this story. */
+  openBrewPr: boolean;
+  /** Source issue already carries agent:brewed or agent:failed. */
+  issueSettled: boolean;
+}
+
+export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
+  const jobs: WorkerJob[] = [];
+  for (const f of facts) {
+    if (!f.manifestExists || !f.specParses) continue;
+    if (f.openBrewPr || f.issueSettled) continue;
+    if (f.sourceIssue === null) continue;
+    jobs.push({
+      issue: f.sourceIssue,
+      issueTitle: f.title,
+      agent: "brew",
+      triggerLabel: DERIVED_BREW_READY_TRIGGER,
+      storyId: f.storyId,
+      cmd: ["slowcook", "brew", "--story", f.storyId, "--budget-usd", "10"],
+      preconditions: [
+        {
+          name: "tests-merged-no-impl",
+          status: "pass",
+          detail: `story-${f.storyId}: spec + manifest on main, no brew PR, issue unsettled`,
+        },
+      ],
+      runnable: true,
+      priority: 15, // after reviews (5) and recipe (10); before fresh label triggers
+    });
+  }
+  return jobs;
+}
+
 /** The per-pass report — impossible to state from labels alone (plan §1). */
 export interface WorkloadSummary {
   issuesScanned: number;
