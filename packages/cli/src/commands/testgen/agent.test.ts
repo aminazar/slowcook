@@ -17,6 +17,7 @@ import {
   buildStylingPresenceTestContent,
   resolveImportToSourcePath,
   mineTestExemplars,
+  collectTargetSpecs,
 } from "./agent.js";
 import type { Spec } from "@slowcook-ai/core";
 import { normalizeSpecId } from "./index.js";
@@ -996,5 +997,54 @@ describe("mineTestExemplars", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("collectTargetSpecs force-regenerate mode (D4)", () => {
+  function repoWithSpec(uiBehavior: string): string {
+    const r = mkdtempSync(join(tmpdir(), "d4-"));
+    mkdirSync(join(r, "specs"), { recursive: true });
+    mkdirSync(join(r, "tests/integration"), { recursive: true });
+    writeFileSync(
+      join(r, "specs", "_index.yaml"),
+      `schema_version: 1\nstories:\n  "019":\n    title: backend-only story\n    status: active\n`
+    );
+    writeFileSync(
+      join(r, "specs", "story-019.yaml"),
+      [
+        `story_id: "019"`,
+        `title: backend-only story`,
+        `status: active`,
+        `created_at: "2026-08-21"`,
+        `supersedes: []`,
+        `superseded_by: null`,
+        `actors: []`,
+        `preconditions: []`,
+        `invariants: []`,
+        `acceptance_scenarios: []`,
+        `non_goals: []`,
+        uiBehavior,
+      ]
+        .filter(Boolean)
+        .join("\n") + "\n"
+    );
+    // Existing handler tests -> the explicit --spec path is a force re-emit.
+    writeFileSync(join(r, "tests/integration", "story-019.test.ts"), "// existing\n");
+    return r;
+  }
+  const ctxFor = (repoRoot: string) =>
+    ({ repoRoot, specId: "019", all: false }) as unknown as Parameters<typeof collectTargetSpecs>[0];
+
+  it("backend-only spec re-emits handler-only, never full", () => {
+    const targets = collectTargetSpecs(ctxFor(repoWithSpec("")));
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.mode).toBe("handler-only");
+  });
+
+  it("spec with ui_behavior (both tests on disk) re-emits full", () => {
+    const r = repoWithSpec(`ui_behavior:\n  page: shows the merge result`);
+    writeFileSync(join(r, "tests/integration", "story-019-ui.test.tsx"), "// existing\n");
+    const targets = collectTargetSpecs(ctxFor(r));
+    expect(targets[0]!.mode).toBe("full");
   });
 });
