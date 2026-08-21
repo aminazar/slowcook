@@ -50,6 +50,13 @@ export function parseFileBlocks(text: string): Array<{ path: string; content: st
   return out;
 }
 
+function recordManifest(ctx: TestsResubmitContext, storyId: string): void {
+  execSync(
+    `${JSON.stringify(process.execPath)} ${JSON.stringify(process.argv[1] ?? "slowcook")} manifest record --story ${storyId} --cwd ${JSON.stringify(ctx.repoRoot)}`,
+    { cwd: ctx.repoRoot, stdio: ["ignore", "inherit", "inherit"] }
+  );
+}
+
 export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void> {
   const octokit = new Octokit({ auth: ctx.token, userAgent: "slowcook-ai/cli recipe-resubmit" });
   const { data: pr } = await octokit.pulls.get({
@@ -155,6 +162,31 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
 
   const noChange = response.text.match(/^NO_CHANGES\s+(.*)$/m)?.[1];
   if (noChange) {
+    // Even with no test-file change, the MANIFEST may be the stale artifact
+    // (G12's second face: the model can only emit test files, and correctly
+    // says so). Re-record it; a resulting diff is a manifest-only amendment.
+    recordManifest(ctx, storyId);
+    const manifestDirty = execSync("git status --porcelain -- .brewing/manifests", {
+      cwd: ctx.repoRoot,
+      encoding: "utf8",
+    }).trim();
+    if (manifestDirty) {
+      execSync(`git add .brewing/manifests/`, { cwd: ctx.repoRoot });
+      execSync(
+        `git -c user.name="slowcook" -c user.email="agents@slowcook.dev" commit -m "recipe: re-record story-${storyId} manifest per PR #${ctx.prNumber} review"`,
+        { cwd: ctx.repoRoot }
+      );
+      execSync(`git push origin ${branch}`, { cwd: ctx.repoRoot });
+      await octokit.issues.createComment({
+        owner: ctx.owner,
+        repo: ctx.repo,
+        issue_number: ctx.prNumber,
+        body: `### slowcook · recipe resubmit\n\nNo test-file change warranted (${noChange}) — but the manifest was stale; re-recorded and pushed so every test file is part of the green gate.`,
+      });
+      console.log(`Tests amended: manifest-only`);
+      console.log(`Pushed to branch ${branch}.`);
+      return;
+    }
     await octokit.issues.createComment({
       owner: ctx.owner,
       repo: ctx.repo,
@@ -178,10 +210,7 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
   // renames tests without re-recording the manifest leaves those tests
   // unenforced by the ratchet — taste rightly blocks the merge. Re-record
   // as part of every amendment so the commit carries file+manifest together.
-  execSync(
-    `${JSON.stringify(process.execPath)} ${JSON.stringify(process.argv[1] ?? "slowcook")} manifest record --story ${storyId} --cwd ${JSON.stringify(ctx.repoRoot)}`,
-    { cwd: ctx.repoRoot, stdio: ["ignore", "inherit", "inherit"] }
-  );
+  recordManifest(ctx, storyId);
   execSync(`git add tests/ .brewing/manifests/`, { cwd: ctx.repoRoot });
   execSync(
     `git -c user.name="slowcook" -c user.email="agents@slowcook.dev" commit -m "recipe: resubmit story-${storyId} per PR #${ctx.prNumber} review"`,
