@@ -174,6 +174,7 @@ export class AnthropicClient implements LlmClient {
       costUsd: costUsdForUsage(args.model, usage),
       model: args.model,
       rateLimits,
+      stopReason: response.stop_reason ?? undefined,
     };
   }
 }

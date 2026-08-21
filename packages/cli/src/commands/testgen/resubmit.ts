@@ -25,6 +25,7 @@ import { join, dirname } from "node:path";
 import { Octokit } from "@octokit/rest";
 import type { LlmClient } from "@slowcook-ai/core";
 import { costEntryUsd, costMarker } from "@slowcook-ai/llm-anthropic";
+import { truncatedEmissionError } from "../../lib/emission-guard.js";
 
 export interface TestsResubmitContext {
   prNumber: number;
@@ -189,6 +190,13 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
     maxTokens: 32000,
     stream: true,
   });
+  {
+    const cut = truncatedEmissionError(response, `recipe resubmit story-${storyId}`);
+    if (cut) {
+      console.error(cut);
+      process.exit(2);
+    }
+  }
 
   const noChange = response.text.match(/^NO_CHANGES\s+(.*)$/m)?.[1];
   if (noChange) {

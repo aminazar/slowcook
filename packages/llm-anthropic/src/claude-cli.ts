@@ -118,6 +118,7 @@ export class ClaudeCliClient implements LlmClient {
     const stdout = await this.run(cliArgs, renderCliPrompt(args.messages));
     let text = "";
     let parsed: CliResult | null = null;
+    let stopReason: string | undefined;
     for (const line of stdout.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed.startsWith("{")) continue;
@@ -128,10 +129,13 @@ export class ClaudeCliClient implements LlmClient {
         continue;
       }
       if (evt.type === "assistant") {
-        const message = evt.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
+        const message = evt.message as
+          | { content?: Array<{ type?: string; text?: string }>; stop_reason?: string | null }
+          | undefined;
         for (const block of message?.content ?? []) {
           if (block.type === "text" && typeof block.text === "string") text += block.text;
         }
+        if (typeof message?.stop_reason === "string") stopReason = message.stop_reason;
       } else if (evt.type === "result") {
         parsed = evt as unknown as CliResult;
       }
@@ -155,6 +159,7 @@ export class ClaudeCliClient implements LlmClient {
       usage,
       costUsd: costUsdForUsage(args.model, usage),
       model: args.model,
+      stopReason,
     };
   }
 }
