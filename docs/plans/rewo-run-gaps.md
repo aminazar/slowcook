@@ -315,3 +315,59 @@ not `origin/main` (verified state from 2026-08-19 said main). Harmless in
 dry-run, wrong for live runs: the worker records `gitSha` but nothing
 asserts "the checkout is on the ref this workload claims to describe".
 Doctor/worker check to add: expected-ref assertion per pass.
+
+## G14 — follow-up amendment branched from the frozen pre-merge branch
+
+- **surfaced by**: after spec PR #218 merged, a PM ruling comment spawned
+  follow-up amendment PR #224 — built on the OLD `slowcook/spec/story-019`
+  branch (pre-merge freeze). The diff re-created the whole spec file,
+  dropped post-review fixes, and the amendment itself arrived truncated
+  mid-line (`- "RLS: n"`) at the 8192-token cap.
+- **root cause**: two faults. (1) Resubmit reconstructed the original
+  branch name and reused it even when the PR was already merged — the
+  branch is a fossil once squash-merge lands; the CURRENT spec lives on
+  base. (2) `maxTokens: 8192` silently truncated a full-spec rewrite.
+- **fix**: merged PRs amend the CURRENT spec on a fresh
+  `story-<id>-amend-<ts>` branch off base; amendment calls use
+  `maxTokens: 32000, stream: true`. #224 closed, branch deleted.
+- **verified**: PR #225 (the redo) shows a clean incremental diff on base.
+
+## G15 — amend-branch names broke the storyId regex
+
+- **surfaced by**: `refine --pr 225` failed with ENOENT on
+  `specs/story-019-amend-1787…yaml` — the greedy
+  `story-(.+)$` capture swallowed the `-amend-<ts>` suffix into the id.
+  Taste had the same regex and would have refused the PR as unowned.
+- **root cause**: G14's new branch naming was invented without updating
+  the two consumers that parse story ids out of branch names. A naming
+  convention IS an interface; its parsers must ship in the same change.
+- **fix**: non-greedy capture with an optional suffix:
+  `story-(.+?)(?:-amend-\d+)?$` in refine resubmit AND taste (PR #442).
+- **verified**: box run BOX_G15_OK; refine + taste both resolve story-019
+  from the amend branch.
+
+## G16 — resubmit pushed the amendment to a dead branch
+
+- **surfaced by**: `refine --pr 225` reported success but PR #225 never
+  changed — the push went to a freshly reconstructed
+  `slowcook/spec/story-019` (the merged fossil name), resurrecting it as
+  a stray remote branch while the real head `story-019-amend-…` sat
+  untouched. Taste then re-reviewed an unchanged diff.
+- **root cause**: checkout learned PR-authoritative branch resolution in
+  G9, but the PUSH target was still computed from the story id. Read and
+  write paths must resolve the branch the same way — one authority.
+- **fix**: `prHeadBranch` hoisted and used as the push target whenever
+  the PR is open (PR #443); stray remote branch deleted.
+- **verified**: next resubmit pushed to
+  `slowcook/spec/story-019-amend-1787311921017` — PR #225 updated.
+
+## §5a shipped — gate declarations (`.brewing/gates.yaml`)
+
+Not a gap — the plan's gate-declaration item, made real on PM request
+("keep some vibe and qa gates for me"). Each artifact kind declares who
+closes its gate: `agent` (taste may merge on approve) or `human` (taste
+reviews and advises; the merge is the PM's — `--merge` never overrides).
+Conservative defaults: spec/tests agent, brew/vibe/eye human; invalid
+values fall back to defaults, never fail open. Approve-at-human-gate
+cc's the PM. Shipped PR #444; rewo declares its gates in
+`.brewing/gates.yaml` on main (71b7c21).
