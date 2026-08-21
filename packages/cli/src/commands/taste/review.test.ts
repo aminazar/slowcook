@@ -61,11 +61,17 @@ describe("buildTastePrompt", () => {
       sourceIssueTitle: "#215 dedupe",
       sourceIssueBody: "body",
       issueThread: "@pm: 1. b",
+      prThread: "@aminazar: ruling — option 2 stands",
     };
     expect(buildTastePrompt({ ...base, kind: "tests" as const }).system).toContain("invariant with no test");
     expect(buildTastePrompt({ ...base, kind: "spec" as const }).system).toContain("source issue");
     const user = buildTastePrompt({ ...base, kind: "tests" as const }).user;
     expect(user).toContain("#215 dedupe");
     expect(user).toContain("PM Q&A");
+    expect(user).toContain("PR discussion thread");
+    expect(user).toContain("ruling — option 2 stands");
+    expect(buildTastePrompt({ ...base, prThread: null, kind: "spec" as const }).user).not.toContain(
+      "PR discussion thread"
+    );
   });
 });

@@ -109,6 +109,28 @@ export async function taste(argv: string[]): Promise<void> {
     /* lineage best-effort */
   }
 
+  // The PR's own discussion thread — where PM rulings/relays land during
+  // review rounds. Taste's own findings comments are excluded (it must not
+  // treat its past verdicts as lineage evidence).
+  let prThread: string | null = null;
+  try {
+    const { data: prComments } = await octokit.issues.listComments({
+      owner,
+      repo,
+      issue_number: args.pr,
+      per_page: 100,
+    });
+    prThread =
+      prComments
+        .filter((c) => !(c.body ?? "").startsWith("**slowcook-taste**"))
+        .slice(-8)
+        .map((c) => `@${c.user?.login}: ${(c.body ?? "").slice(0, 2000)}`)
+        .join("\n\n")
+        .slice(0, 10_000) || null;
+  } catch {
+    /* lineage best-effort */
+  }
+
   const ctx: TasteContext = {
     prNumber: args.pr,
     prTitle: pr.title,
@@ -121,6 +143,7 @@ export async function taste(argv: string[]): Promise<void> {
     sourceIssueTitle,
     sourceIssueBody,
     issueThread,
+    prThread,
   };
 
   const model = resolveModel("taste", args.model);
