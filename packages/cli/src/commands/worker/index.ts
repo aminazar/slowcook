@@ -579,19 +579,42 @@ function gitShaOf(repoRoot: string): string {
 }
 
 
-/** Put the checkout on the base branch, up to date. Fail closed on dirt. */
+/**
+ * Put the checkout on the base branch, up to date. Two kinds of "dirt"
+ * (ledger G11 — the worker wedged itself for hours over the difference):
+ *
+ * - MODIFIED/staged tracked files: real uncommitted work → hard stop.
+ * - UNTRACKED-only residue: what switching to an older agent branch
+ *   leaves behind (files tracked on base but not on that branch become
+ *   untracked after reset --hard). Agents commit+push within their job,
+ *   so between jobs untracked = branch-switch debris; the checkout's
+ *   owner (this worker) cleans it and moves on.
+ */
 function ensureBaseCheckout(repoRoot: string, base: string): void {
-  const dirty = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" })
+  const lines = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" })
     .split("\n")
     .filter((l) => l.trim() && !l.includes(".brewing/history-index"));
-  if (dirty.length > 0) {
+  const modified = lines.filter((l) => !l.startsWith("??"));
+  if (modified.length > 0) {
     console.error(
-      `slowcook worker: checkout at ${repoRoot} has uncommitted changes — refusing to touch it.\n` +
-        `  ${dirty.slice(0, 5).join("\n  ")}`
+      `slowcook worker: checkout at ${repoRoot} has MODIFIED tracked files — refusing to touch it.\n` +
+        `  ${modified.slice(0, 5).join("\n  ")}`
     );
     process.exit(2);
   }
-  execSync(`git checkout ${base}`, { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] });
+  const untracked = lines.filter((l) => l.startsWith("??"));
+  if (untracked.length > 0) {
+    console.log(
+      `note: cleaning ${untracked.length} untracked path(s) — branch-switch residue between jobs`
+    );
+    execSync(`git checkout -f ${base}`, { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] });
+    execSync(`git clean -fd -e .brewing/history-index.json`, {
+      cwd: repoRoot,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } else {
+    execSync(`git checkout ${base}`, { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] });
+  }
   execSync(`git pull --ff-only origin ${base}`, {
     cwd: repoRoot,
     stdio: ["ignore", "ignore", "pipe"],

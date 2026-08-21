@@ -238,6 +238,25 @@ Entry format:
 - **verified**: parser + derivation tests (round cap, spec→refine,
   tests→recipe routing); live on #221–#223 after deploy.
 
+## G11 — the worker wedged itself over branch-switch residue
+
+- **surfaced by**: every pass from ~00:55 to ~02:48 (2026-08-21) failing
+  with "checkout has uncommitted changes: ?? .brewing/diagrams/ ?? mock/".
+  Refine's #129 resubmit had checked out a months-old spec branch;
+  `reset --hard` there turned main's tracked `mock/` and
+  `.brewing/diagrams/` into UNTRACKED leftovers, and the fail-closed dirt
+  check refused every later pass. Self-inflicted denial of service.
+- **root cause**: one dirt rule for two different situations. Modified
+  tracked files are real uncommitted work; untracked-only residue is what
+  switching to an older branch leaves behind — and since agents commit+
+  push within their jobs, between-jobs untracked = debris by definition.
+- **fix**: ensureBaseCheckout splits the cases — modified files still
+  hard-stop; untracked-only triggers `checkout -f base` + `git clean -fd`
+  (history-index preserved) with a logged note. Box manually unwedged the
+  same way.
+- **verified**: suite green; the wedge scenario replays on every old-branch
+  resubmit and next passes proceed.
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as
