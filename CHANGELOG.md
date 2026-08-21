@@ -6,6 +6,61 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.34.0 · core 0.18.0 · llm-anthropic 0.25.0 · forge-github 0.16.0 — the agent-worker release
+
+Three days of dogfooding label-triggered agents against a real repo
+(reworthy/app): the pipeline refined issues into specs, generated tests,
+review-looped them, and shipped its first two implementations
+(rewo #228/#229) — with every defect the run exposed mechanized into a
+fix (ledger G1–G24, `docs/plans/rewo-run-gaps.md`) plus an approved
+eleven-item hardening plan (`docs/plans/eleven-defects.md`), all landed
+here.
+
+**The unattended surface** (docs/worker.md is the operating manual):
+
+- `slowcook worker run` — poll-driven worker: derives its workload from
+  artifacts (labels only publish state), tri-state preconditions naming
+  the responsible upstream agent, one job per pass, trace tree per job.
+- `slowcook taste --pr N [--merge]` — reviewer agent: full-lineage review
+  (source issue + PM Q&A + spec + the PR's own thread + diff; test
+  manifest for code PRs), structured verdict, bounded agent↔agent review
+  rounds (4, then the PM arbitrates). Advisory on implementation PRs.
+- `.brewing/gates.yaml` — per-artifact-kind gate declarations: `agent`
+  (taste may merge on approve) or `human` (taste briefs; the merge is the
+  PM's — `--merge` never overrides). Conservative defaults; typos fall
+  back human-side.
+- `slowcook app init` — GitHub App via the one-click manifest flow;
+  agents post as `<app-slug>[bot]`, fail-closed if configured-but-broken.
+- `slowcook workload` — read-only dump of what the worker sees (its
+  first run caught a real derivation hazard, G21).
+- `slowcook doctor` — six named fail-closed checks (live App-token mint,
+  LLM seam incl. the ANTHROPIC_API_KEY-outranks-OAuth trap, pricing
+  coverage, checkout sync, worktree hygiene, deps).
+- `slowcook worker deploy --host <ssh>` — mechanized box deploy whose
+  freshness assertion peeled four distinct staleness lies before its
+  first green run (G23).
+
+**Honesty mechanisms**, each born from a live failure:
+
+- Emission guard: `stop_reason == max_tokens` is a failed emission —
+  never persisted (schema checks can't catch a schema-valid truncation).
+- Discovery certifies the committed artifact: manual runs refuse
+  worktree residue under src|tests (G20); the discovery gate's error
+  now reaches the model that must fix it (G19); fossil branches of
+  merged rounds are cleared PR-authoritatively (G18, G14).
+- Spec drift: manifests record `spec_sha256`; a changed spec derives a
+  test-regeneration job and blocks brew until tests re-certify (D10) —
+  as does an open tests PR (G21).
+- PM ergonomics: one reconciled "waiting on the PM" roll-up issue (one
+  mention per NEW item), stale-premise triage replies on merged PRs,
+  awaiting-pm labels cleared on consume (G22).
+- Worker asserts its checkout matches origin/base out loud each pass;
+  commit messages go through `-F` (multi-line-safe); testgen respects
+  the spec's scope (no phantom UI expectations).
+
+**Costs**: opus-4-8/4-6 priced, opus-4-7 corrected (was 3× over);
+taste joins the cost-marker agents.
+
 ## cli 0.33.0 · stack-solidity 0.3.0 · stack-ts 0.11.0 — two days against a real Solidity suite
 
 Everything here came out of dogfooding `brew` against a Foundry acceptance

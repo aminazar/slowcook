@@ -82,6 +82,9 @@ slowcook brew --story 007 --budget-usd 5 --max-iterations 10
 | `check prod-honesty` | Catch mock data leaking into production paths |
 | `taste --pr <n> [--merge]` | Reviewer agent: verdict against the PR's full lineage; merges only where gates allow |
 | `worker run` | Unattended loop: derives jobs from repo state, runs one per pass |
+| `workload` | Read-only view of what the worker sees — every job, every precondition, what runs next |
+| `doctor` | Verify and name every worker precondition (live checks, fail-closed) |
+| `worker deploy --host <ssh>` | Ship slowcook to a worker box with a dist-freshness assertion |
 | `app init` | One-click GitHub App so agents post as a bot, not as you |
 
 Agents review each other, but `.brewing/gates.yaml` declares which merges
