@@ -41,6 +41,10 @@ export function remoteBuildScript(dir: string): string {
   return [
     `cd ${shq(dir)}`,
     `touch .deploy-build-stamp`,
+    // Orphaned dist files (source deleted, artifact remains) survive any
+    // rebuild and are importable lies — the first dogfood deploy caught
+    // four of them. Clean slate, then force-build.
+    `rm -rf packages/*/dist`,
     `npx tsc -b --force`,
     `stale=$(find packages/*/dist -type f -name '*.js' ! -newer .deploy-build-stamp | head -5)`,
     `if [ -n "$stale" ]; then echo "STALE DIST after build:"; echo "$stale"; exit 9; fi`,
