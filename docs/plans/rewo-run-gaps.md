@@ -405,3 +405,18 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   fresh branch starts from base.
 - **verified**: rerun of `recipe --spec 019` on the box cleared the
   fossil and opened the regenerated tests PR.
+
+## G19 — the discovery gate's feedback was filtered out of its own loop
+
+- **surfaced by**: two consecutive resubmit rounds on tests PR #226 made
+  the IDENTICAL mistake (bare import of `@/lib/supabase/admin`, a module
+  brew hasn't created) despite the gate posting the exact error as PR
+  feedback after round one. Round two hit the 2-strike terminal stop.
+- **root cause**: the gate posts its error as a `### slowcook ·` comment
+  — and the resubmit's feedback gatherer excludes ALL `### slowcook ·`
+  comments as "own chatter". The gate wrote into a channel its own
+  reader filters out; the model never saw the error it was told to fix.
+- **fix**: `isFeedbackComment` — own chatter stays excluded EXCEPT
+  comments carrying the discovery-gate marker.
+- **verified**: third resubmit round on #226 switched to the committed
+  throwing-stub pattern and passed discovery.

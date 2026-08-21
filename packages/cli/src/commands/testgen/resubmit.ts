@@ -52,6 +52,13 @@ export function parseFileBlocks(text: string): Array<{ path: string; content: st
 
 const DISCOVERY_GATE_MARKER = "slowcook-discovery-gate";
 
+/** Own chatter is not feedback — EXCEPT discovery-gate errors, which are
+ *  written precisely so the next round can fix them (G19: excluding them
+ *  made the model repeat the same bare import blind, twice). */
+export function isFeedbackComment(body: string): boolean {
+  return !body.startsWith("### slowcook ·") || body.includes(DISCOVERY_GATE_MARKER);
+}
+
 /** Record the story manifest; returns null on success or the error tail. */
 function recordManifest(ctx: TestsResubmitContext, storyId: string): string | null {
   try {
@@ -127,7 +134,7 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
       .slice(-4)
       .map((r) => `## Review by @${r.user?.login} (${r.state}) at ${r.submitted_at}\n${r.body}`),
     ...comments
-      .filter((c) => !(c.body ?? "").startsWith("### slowcook ·"))
+      .filter((c) => isFeedbackComment(c.body ?? ""))
       .slice(-6)
       .map((c) => `## Comment by @${c.user?.login} at ${c.created_at}\n${c.body}`),
     ...inline
