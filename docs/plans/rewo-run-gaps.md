@@ -420,3 +420,21 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   comments carrying the discovery-gate marker.
 - **verified**: third resubmit round on #226 switched to the committed
   throwing-stub pattern and passed discovery.
+
+## G20 — discovery certified the worktree, not the committed artifact
+
+- **surfaced by**: tests PR #226 was broken as committed (imported
+  `@/lib/supabase/admin`, no stub in the PR) yet passed generation-time
+  discovery — untracked residue from earlier rounds resolved the import.
+  The residue even contained a README documenting BOTH needed stubs;
+  only one was staged. Resubmit could not heal it (it may only write
+  under tests/; stubs live in src/) — recovered by hand-committing the
+  stub to the PR branch.
+- **root cause**: discovery runs against the worktree; the "untracked =
+  ok" dirt rule let residue accumulate that shadowed the committed tree.
+  A gate that certifies an artifact must see ONLY that artifact.
+- **fix**: discovery hygiene — manual `recipe` runs fail closed (exit 2)
+  when modified/untracked files exist under src|tests, listing them;
+  worker workspaces keep being auto-cleaned each pass.
+- **verified**: unit tests (untracked-dir collapse caught via -uall);
+  clean-tree rerun of `recipe --pr 226` recorded an honest manifest.

@@ -163,6 +163,11 @@ export async function testgen(argv: string[], cliVersion: string): Promise<void>
     repo = repo ?? detected.repo;
   }
 
+  // Discovery certifies the COMMITTED artifact — refuse to let worktree
+  // residue under src|tests make it lie (ledger G20).
+  const { assertDiscoveryHygiene } = await import("../../lib/discovery-hygiene.js");
+  assertDiscoveryHygiene(args.repoRoot);
+
   // PR-driven resubmit: answer reviews on an existing tests PR (G10).
   if (args.prNumber) {
     const { runTestsResubmit } = await import("./resubmit.js");
