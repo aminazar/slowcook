@@ -470,3 +470,24 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   removed by hand once.
 - **verified**: next live pass reconciles #227 down to the round-cap
   item only.
+
+## G23 — the deploy was an onion of staleness lies (three layers deep)
+
+- **surfaced by**: dogfooding `worker deploy` (D7). Its deterministic
+  freshness assertion (no dist file may predate the build stamp) failed
+  three consecutive times, each exposing a DIFFERENT lie the manual
+  rsync+tsc recipe had been living with:
+  1. **Orphaned dist**: artifacts whose sources left the tree survive
+     every rebuild and stay importable (four found, from an early-session
+     rsync of a feature branch).
+  2. **Stale dep dist**: with orphans wiped, the root tsc failed on
+     `@slowcook-ai/review-overlay` — that package's stale dist had been
+     silently satisfying the workspace dependency on every prior deploy.
+  3. **tsbuildinfo ghost (G1's)**: excluded from rsync transfer AND
+     `--delete`, stale build state persists on the box; with dist wiped,
+     each package's `tsc -b` exits 0 building NOTHING.
+- **fix**: deploy = rm dist + purge tsbuildinfo + pnpm install +
+  per-package builds + stamp assertion. Fourth run: green receipt,
+  working CLI.
+- **verified**: `deployed 136de416d … — dist fresh`; box
+  `slowcook 0.33.0` runs from the rebuilt dist.
