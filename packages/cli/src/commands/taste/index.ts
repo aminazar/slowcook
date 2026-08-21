@@ -24,6 +24,7 @@ import { resolveModel } from "../../lib/model-defaults.js";
 import { costEntryUsd, costMarker } from "@slowcook-ai/llm-anthropic";
 import { readIndex } from "../refine/spec-yaml.js";
 import { pmCc } from "../../lib/pm-notify.js";
+import { loadGates } from "../../lib/gates.js";
 import {
   buildTastePrompt,
   parseTasteVerdict,
@@ -145,9 +146,17 @@ export async function taste(argv: string[]): Promise<void> {
   const usd = costEntryUsd(model, response.usage);
   const header = `**slowcook-taste** · PR #${args.pr} · story-${storyId}`;
 
+  // Gate declarations (.brewing/gates.yaml): a "human" gate means taste
+  // reviews and advises but THE MERGE IS THE PM's — authority granted by
+  // --merge never overrides a declared human gate.
+  const gates = loadGates(args.repoRoot);
+  const humanGate = gates[kind] === "human";
   let merged = false;
   let mergeNote = "";
-  if (verdict.verdict === "approve" && args.merge) {
+  if (verdict.verdict === "approve" && humanGate) {
+    console.log(`gate: ${kind} is declared human — merge left to the PM`);
+  }
+  if (verdict.verdict === "approve" && args.merge && !humanGate) {
     try {
       // Agent PRs are born drafts; an approved draft is ready by definition.
       if (pr.draft) {
@@ -173,9 +182,14 @@ export async function taste(argv: string[]): Promise<void> {
       ? "\n\n" + costMarker({ agent: "taste", usd, tokensIn: response.usage.inputTokens, tokensOut: response.usage.outputTokens, cacheRead: response.usage.cacheReadTokens, cacheCreate: response.usage.cacheCreateTokens, model })
       : "";
   const body =
-    renderReviewBody(verdict, { header, merged, mergeAuthority: args.merge }) +
+    renderReviewBody(verdict, { header, merged, mergeAuthority: args.merge && !humanGate }) +
+    (humanGate && verdict.verdict === "approve"
+      ? `\n\n🔒 **${kind} is a declared human gate** — merge is the PM's call.`
+      : "") +
     (mergeNote ? `\n\n⚠️ Merge failed: ${mergeNote}` : "") +
-    (verdict.verdict === "request_changes" || mergeNote ? pmCc(args.repoRoot) : "") +
+    (verdict.verdict === "request_changes" || mergeNote || (humanGate && verdict.verdict === "approve")
+      ? pmCc(args.repoRoot)
+      : "") +
     costLine;
   await octokit.pulls.createReview({
     owner,
