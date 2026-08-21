@@ -306,7 +306,7 @@ describe("deriveTasteJobs (reviewer stage)", () => {
   });
 });
 
-import { deriveBrewJobs } from "./plan.js";
+import { deriveBrewJobs, deriveRecipeJobs } from "./plan.js";
 
 describe("deriveBrewJobs (W2-brew)", () => {
   const fact = (over: Partial<import("./plan.js").BrewReadyFact>) => ({
@@ -317,6 +317,7 @@ describe("deriveBrewJobs (W2-brew)", () => {
     specParses: true,
     openBrewPr: false,
     openTestsPr: false,
+    specDrifted: false,
     issueSettled: false,
     ...over,
   });
@@ -335,6 +336,26 @@ describe("deriveBrewJobs (W2-brew)", () => {
 
   it("no manifest = not brew-ready", () => {
     expect(deriveBrewJobs([fact({ manifestExists: false })])).toHaveLength(0);
+  });
+
+  it("spec drift blocks brew (upstream: recipe) and derives regeneration (D10)", () => {
+    const bjobs = deriveBrewJobs([fact({ specDrifted: true })]);
+    expect(bjobs[0]!.runnable).toBe(false);
+    expect(bjobs[0]!.preconditions[0]!.upstream).toBe("recipe");
+    const sf = {
+      storyId: "020",
+      sourceIssue: 216,
+      title: "taxonomy",
+      specParses: true,
+      invariantsNonEmpty: true,
+      manifestExists: true,
+      specDrifted: true,
+      openTestsPr: false,
+    };
+    const rjobs = deriveRecipeJobs([sf]);
+    expect(rjobs).toHaveLength(1);
+    expect(rjobs[0]!.preconditions[0]!.name).toBe("spec-manifest-drift");
+    expect(deriveRecipeJobs([{ ...sf, specDrifted: false }])).toHaveLength(0);
   });
 
   it("an open tests PR contests the manifest — job derived but BLOCKED on taste (D12)", () => {

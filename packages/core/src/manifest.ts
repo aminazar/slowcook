@@ -24,6 +24,10 @@ export interface Manifest {
   tests: TestEntry[];
   /** Per-suite metadata about how discovery was performed. */
   suites: SuiteRecord[];
+  /** sha256 of the spec these tests were generated against (eleven-defects
+   * D10). Absent on pre-drift manifests — consumers treat absence as
+   * "unknown", never as drift. */
+  spec_sha256?: string;
 }
 
 export interface SuiteRecord {
@@ -80,6 +84,8 @@ export function buildManifest(args: {
   tests: TestEntry[];
   suites: SuiteRecord[];
   now?: Date;
+  /** sha256 of the source spec (D10 drift detection). */
+  specSha256?: string;
 }): Manifest {
   return {
     schema_version: 1,
@@ -88,5 +94,6 @@ export function buildManifest(args: {
     story_id: args.storyId,
     tests: args.tests,
     suites: args.suites,
+    ...(args.specSha256 !== undefined ? { spec_sha256: args.specSha256 } : {}),
   };
 }

@@ -6,6 +6,7 @@ import {
   appendFileSync,
 } from "node:fs";
 import { dirname, join, isAbsolute } from "node:path";
+import { createHash } from "node:crypto";
 import {
   buildManifest,
   diffManifest,
@@ -231,11 +232,24 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
   const rungCount = rungedTests.filter((t) => t.release_order !== undefined).length;
   if (rungCount > 0) console.log(`  rungs: ${rungCount}/${rungedTests.length} tests carry release_order (ladder-ready)`);
 
+  // D10 — fingerprint the spec these tests certify, so the worker can
+  // derive "tests are stale" when the spec changes out from under them.
+  let specSha256: string | undefined;
+  if (args.storyId) {
+    try {
+      const specBytes = readFileSync(
+        join(args.cwd ?? process.cwd(), "specs", `story-${args.storyId}.yaml`)
+      );
+      specSha256 = createHash("sha256").update(specBytes).digest("hex");
+    } catch { /* no spec file — hash stays unknown */ }
+  }
+
   const m = buildManifest({
     slowcookVersion: CLI_VERSION,
     storyId: args.storyId,
     tests: rungedTests,
     suites: filteredSuites,
+    ...(specSha256 !== undefined ? { specSha256 } : {}),
   });
 
   // Ensure directory exists

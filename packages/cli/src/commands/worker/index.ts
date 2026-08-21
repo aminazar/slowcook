@@ -958,6 +958,7 @@ async function gatherBrewReadyFacts(
       specParses: f.specParses,
       openBrewPr,
       openTestsPr,
+      specDrifted: f.specDrifted,
       issueSettled,
     });
   }
@@ -984,9 +985,25 @@ function gatherSpecReadyFacts(repoRoot: string, openHeadRefs: string[]): SpecRea
     } catch {
       /* not recipe-ready */
     }
-    const manifestExists = existsSync(
-      join(repoRoot, ".brewing", "manifests", `story-${storyId}.json`)
-    );
+    const manifestPath = join(repoRoot, ".brewing", "manifests", `story-${storyId}.json`);
+    const manifestExists = existsSync(manifestPath);
+    // D10 — drift by content hash: what spec were these tests recorded
+    // against, and is that still the spec? Pre-drift manifests carry no
+    // hash: that's "unknown", never drift (don't churn old-era stories).
+    let specDrifted = false;
+    if (manifestExists && specParses) {
+      try {
+        const recorded = (
+          JSON.parse(readFileSync(manifestPath, "utf8")) as { spec_sha256?: string }
+        ).spec_sha256;
+        if (recorded) {
+          const current = createHash("sha256")
+            .update(readFileSync(join(repoRoot, "specs", `story-${storyId}.yaml`)))
+            .digest("hex");
+          specDrifted = recorded !== current;
+        }
+      } catch { /* unreadable manifest — unknown, not drift */ }
+    }
     const openTestsPr = openHeadRefs.some((r) => r.includes(`slowcook/tests/story-${storyId}`));
     const srcNum = entry.source_issue?.match(/(\d+)\s*$/)?.[1];
     out.push({
@@ -996,6 +1013,7 @@ function gatherSpecReadyFacts(repoRoot: string, openHeadRefs: string[]): SpecRea
       specParses,
       invariantsNonEmpty,
       manifestExists,
+      specDrifted,
       openTestsPr,
     });
   }
