@@ -375,7 +375,14 @@ export interface AgentPrFact {
 export function deriveTasteJobs(prs: AgentPrFact[]): WorkerJob[] {
   const jobs: WorkerJob[] = [];
   for (const pr of prs) {
-    if (!pr.headBranch.includes("slowcook/spec/") && !pr.headBranch.includes("slowcook/tests/"))
+    // Brew (code) PRs get an ADVISORY review — taste never merges them
+    // (brew is a human gate by default); the verdict is prep for the PM
+    // (eleven-defects D8).
+    if (
+      !pr.headBranch.includes("slowcook/spec/") &&
+      !pr.headBranch.includes("slowcook/tests/") &&
+      !pr.headBranch.includes("slowcook/brew/")
+    )
       continue;
     // ANY review newer than the code is the author-agent's turn.
     if (

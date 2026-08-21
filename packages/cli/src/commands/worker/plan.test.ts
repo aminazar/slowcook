@@ -298,6 +298,12 @@ describe("deriveTasteJobs (reviewer stage)", () => {
   it("non-agent branches are not taste's business", () => {
     expect(deriveTasteJobs([pr({ headBranch: "feature/foo" })])).toHaveLength(0);
   });
+
+  it("brew (code) PRs derive an advisory taste job (D8)", () => {
+    const jobs = deriveTasteJobs([pr({ headBranch: "slowcook/brew/story-019" })]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.cmd).toContain("taste");
+  });
 });
 
 import { deriveBrewJobs } from "./plan.js";

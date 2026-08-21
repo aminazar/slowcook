@@ -49,7 +49,10 @@ slowcook taste --pr <n> [--merge]
 `taste` reviews an agent-authored PR **against its full lineage**: the
 source issue and its PM Q&A thread, the frozen spec, the PR's own
 discussion thread (where rulings land during review rounds), and the
-diff. It returns a structured verdict — `approve` or `request_changes`
+diff. Implementation (brew) PRs are reviewed too — against the spec AND
+the frozen test manifest, with test tampering always blocking — but the
+verdict is **advisory**: brew is a human gate, so taste briefs the
+human reviewer and never merges. It returns a structured verdict — `approve` or `request_changes`
 with severity-tagged findings — posted as a review under the agent
 identity, with changes-requested findings also posted as a timeline
 comment so the author agent can consume them.
