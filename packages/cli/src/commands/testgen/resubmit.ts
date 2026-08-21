@@ -174,7 +174,15 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, b.content, "utf8");
   }
-  execSync(`git add tests/`, { cwd: ctx.repoRoot });
+  // The manifest IS the green gate (ledger G12): an amendment that adds or
+  // renames tests without re-recording the manifest leaves those tests
+  // unenforced by the ratchet — taste rightly blocks the merge. Re-record
+  // as part of every amendment so the commit carries file+manifest together.
+  execSync(
+    `${JSON.stringify(process.execPath)} ${JSON.stringify(process.argv[1] ?? "slowcook")} manifest record --story ${storyId} --cwd ${JSON.stringify(ctx.repoRoot)}`,
+    { cwd: ctx.repoRoot, stdio: ["ignore", "inherit", "inherit"] }
+  );
+  execSync(`git add tests/ .brewing/manifests/`, { cwd: ctx.repoRoot });
   execSync(
     `git -c user.name="slowcook" -c user.email="agents@slowcook.dev" commit -m "recipe: resubmit story-${storyId} per PR #${ctx.prNumber} review"`,
     { cwd: ctx.repoRoot }

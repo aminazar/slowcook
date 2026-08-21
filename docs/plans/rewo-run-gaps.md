@@ -257,6 +257,24 @@ Entry format:
 - **verified**: suite green; the wedge scenario replays on every old-branch
   resubmit and next passes proceed.
 
+## G12 — recipe's resubmit amended tests without re-recording the manifest
+
+- **surfaced by**: taste's round-3/4 verdicts on #221–#223 (2026-08-21
+  ~03:15–03:31): summaries PRAISED the suites while a blocking finding
+  recurred — amended/added test files (e.g. story-020-rls-and-constraints)
+  absent from `.brewing/manifests/story-020.json`. The manifest is the
+  ratchet's green gate, so unmanifested tests would be silently
+  unenforced; taste was RIGHT to block, and the agent conversation could
+  never converge — #222/#223 burned to the MAX_REVIEW_ROUNDS cap.
+- **root cause**: `recipe --pr` wrote amended test files but never
+  re-recorded the story manifest (and edited test titles orphaned old
+  manifest ids).
+- **fix**: resubmit runs `manifest record --story <id>` after writing
+  files, committing files + manifest together.
+- **arbitration**: #222/#223 sit at the cap by a now-fixed defect — the
+  operator manually re-runs recipe --pr + taste --pr --merge on those two;
+  #221 (3 reviews) converges automatically.
+
 ## O2 (observation) — agent comments post as the operator, not as an agent
 
 Amin's UX note: worker/agent comments on reworthy/app show `aminazar` as
