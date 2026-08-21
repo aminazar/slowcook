@@ -18,6 +18,7 @@ describe("worker deploy (D7 / G1)", () => {
     expect(s).toContain("*.tsbuildinfo"); // stale build state survives rsync exclusions — purge or tsc builds nothing
     expect(s).toContain("pnpm install");
     expect(s).toContain("pnpm -r --silent build"); // every package's OWN build — bare tsc left workspace deps to stale dist
+    expect(s).toContain("chmod +x packages/cli/dist/cli.js"); // rebuilt cli.js loses the exec bit
     expect(s).toContain("! -newer .deploy-build-stamp");
     expect(s).toContain("exit 9");
     expect(s).toContain("DIST_FRESH");
