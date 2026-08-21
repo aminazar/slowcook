@@ -48,6 +48,11 @@ export function remoteBuildScript(dir: string): string {
     // leaves workspace deps (review-overlay) to be satisfied by stale
     // dist. Install first — deps drift between deploys.
     `rm -rf packages/*/dist`,
+    // tsbuildinfo is excluded from BOTH transfer and --delete, so stale
+    // copies persist on the box forever — with dist wiped, each package's
+    // \`tsc -b\` then "successfully" builds NOTHING (G1's ghost, caught by
+    // the third dogfood deploy). Purge before building.
+    `find packages -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete`,
     `pnpm install --silent`,
     `pnpm -r --silent build`,
     `stale=$(find packages/*/dist -type f -name '*.js' ! -newer .deploy-build-stamp | head -5)`,
