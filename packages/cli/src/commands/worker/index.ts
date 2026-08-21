@@ -85,6 +85,10 @@ export async function worker(argv: string[]): Promise<void> {
       return runPass(argv.slice(1));
     case "workload":
       return inspectWorkload(argv.slice(1));
+    case "deploy": {
+      const { workerDeploy } = await import("./deploy.js");
+      return workerDeploy(argv.slice(1));
+    }
     case "systemd":
       return printSystemd(argv.slice(1));
     case undefined:

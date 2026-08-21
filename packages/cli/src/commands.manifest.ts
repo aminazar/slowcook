@@ -274,7 +274,7 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
   {
     name: "worker",
     usage: "slowcook worker run (--dry-run | --enable refine) [--cwd <path>] [--owner <login>] [--repo <name>] [--logs-dir <path>] [--lock <path>] [--job-timeout-mins <n>] [--json]",
-    description: "Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. --enable runs a stage live (label off → spawn → trace → result label / failure comment); stages beyond refine land one verified handoff at a time. `worker systemd` prints the box units.",
+    description: "Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. --enable runs a stage live (label off → spawn → trace → result label / failure comment); stages beyond refine land one verified handoff at a time. `worker systemd` prints the box units; `worker deploy --host <ssh>` ships the checkout (G1 exclusions, forced remote build, deterministic dist-freshness assertion).",
     group: "ops",
     status: "alpha",
   },
