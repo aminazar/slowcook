@@ -310,6 +310,7 @@ describe("deriveBrewJobs (W2-brew)", () => {
     manifestExists: true,
     specParses: true,
     openBrewPr: false,
+    openTestsPr: false,
     issueSettled: false,
     ...over,
   });
@@ -328,5 +329,15 @@ describe("deriveBrewJobs (W2-brew)", () => {
 
   it("no manifest = not brew-ready", () => {
     expect(deriveBrewJobs([fact({ manifestExists: false })])).toHaveLength(0);
+  });
+
+  it("an open tests PR contests the manifest — job derived but BLOCKED on taste (D12)", () => {
+    const jobs = deriveBrewJobs([fact({ openTestsPr: true })]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.runnable).toBe(false);
+    const pre = jobs[0]!.preconditions[0]!;
+    expect(pre.name).toBe("tests-settled");
+    expect(pre.status).toBe("fail");
+    expect(pre.upstream).toBe("taste");
   });
 });
