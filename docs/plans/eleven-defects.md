@@ -135,3 +135,25 @@ dogfooding the rewo run.
 - Never touch local `main` (Amin's unpushed commits bed3d20/ba0dd48).
 - Any new defect discovered while executing this plan gets a ledger
   entry (G21+) and, if in scope, folds into the phase list.
+
+## COMPLETED — 2026-08-21 (PRs #452–#469)
+
+All eleven items shipped with verified merges, deployed via `worker
+deploy`, and dogfooded where the pipeline allowed:
+
+- D1 emission guard (#452) · D2 ref assertion (#453, wedge-tested live)
+- D3 tempfile commits (#454) · D4 spec-scoped regeneration (#455)
+- D5 workload+doctor (#456, both live; first workload run caught G21)
+- D6 PM roll-up (#458, live; first run caught G22 and surfaced #129)
+- D7 worker deploy (#460–#463, #467 — its assertion peeled the G23
+  onion: orphaned dist, stale dep dist, tsbuildinfo ghost, exec bit)
+- D8 taste-for-brew advisory (#465; live dogfood rides first brew PR)
+- D9 stale-premise triage (#466, live: planted comment on merged #221
+  drew the routing reply to successor #226)
+- D10 spec drift (#469, live: out-of-band edit → drift derivation +
+  brew block; revert → clean) · D11 logo hint (#468)
+- Bonus derivation fix: D12/G21 brew-blocked-on-open-tests (#457)
+
+Still pending live validation on future pipeline activity: D1 (next
+truncated emission), D3 (next multi-line agent commit), D4 (next
+backend-only regeneration), D8 (first brew PR). All are armed.
