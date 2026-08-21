@@ -279,6 +279,20 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     status: "alpha",
   },
   {
+    name: "workload",
+    usage: "slowcook workload [--cwd <path>] [--owner <login>] [--repo <name>] [--json]",
+    description: "Read-only view of what the worker sees: derived jobs in priority order, each precondition with status and responsible upstream agent, and what the next pass would run. Never mutates the checkout — a mismatched checkout is reported, not repaired.",
+    group: "ops",
+    status: "alpha",
+  },
+  {
+    name: "doctor",
+    usage: "slowcook doctor [--cwd <path>] [--owner <login>] [--repo <name>]",
+    description: "Verify and NAME every worker precondition, one line each: checkout sync, worktree hygiene, forge identity (live App-token mint, not a file check), LLM seam (including the ANTHROPIC_API_KEY-outranks-OAuth trap), pricing coverage for default models, installed dependencies. Fail-closed: exit 1 on any failure.",
+    group: "ops",
+    status: "alpha",
+  },
+  {
     name: "port",
     usage: "slowcook port --story <id> [--cwd <path>] [--dry-run] [--force]",
     description: "Deterministic mock/ → src/ copy. Pre-brew CI step; applies the useScenarioFixture → useDataDomain rewrite.",

@@ -35,6 +35,7 @@ import { upsertAgentDocs } from "./commands/upsert-agent-docs.js";
 import { knowledgeAdd } from "./commands/knowledge-add.js";
 import { stories } from "./commands/stories/index.js";
 import { worker } from "./commands/worker/index.js";
+import { doctor } from "./commands/doctor/index.js";
 import { app } from "./commands/app/index.js";
 import { taste } from "./commands/taste/index.js";
 import { costLog } from "./commands/cost-log.js";
@@ -119,6 +120,16 @@ async function main(): Promise<void> {
     case "app": {
       // `slowcook app init` — org-owned GitHub App via the manifest flow.
       await app(args.slice(1));
+      return;
+    }
+    case "workload": {
+      // `slowcook workload` — read-only view of the derived worker workload (D5).
+      await worker(["workload", ...args.slice(1)]);
+      return;
+    }
+    case "doctor": {
+      // `slowcook doctor` — verify and name every worker precondition (D5).
+      await doctor(args.slice(1));
       return;
     }
     case "worker": {
