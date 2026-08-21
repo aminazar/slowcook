@@ -467,7 +467,7 @@ function specHasUiBehavior(spec: Spec): boolean {
   return !!spec.ui_behavior && Object.keys(spec.ui_behavior).length > 0;
 }
 
-function collectTargetSpecs(ctx: TestgenContext): TargetSpec[] {
+export function collectTargetSpecs(ctx: TestgenContext): TargetSpec[] {
   const index = readIndex(ctx.repoRoot);
   const all = Object.entries(index.stories)
     .filter(([, entry]) => entry.status === "active")
@@ -513,7 +513,11 @@ function collectTargetSpecs(ctx: TestgenContext): TargetSpec[] {
       // commit. 0.12.2+: previously this silently skipped on --spec
       // too, contradicting the help.
       if (!ctx.specId) continue;
-      targets.push({ spec, mode: "full" });
+      // Force-regenerate honors the spec's SCOPE (eleven-defects D4): a
+      // backend-only story re-emits handler tests only — "full" here made
+      // the emit parser demand a <ui_test_file> the spec never asked for
+      // (story-019 regeneration warned "degrading" on correct output).
+      targets.push({ spec, mode: hasUi ? "full" : "handler-only" });
       continue;
     }
 
