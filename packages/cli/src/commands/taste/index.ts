@@ -149,6 +149,13 @@ export async function taste(argv: string[]): Promise<void> {
   let mergeNote = "";
   if (verdict.verdict === "approve" && args.merge) {
     try {
+      // Agent PRs are born drafts; an approved draft is ready by definition.
+      if (pr.draft) {
+        await octokit.graphql(
+          `mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }`,
+          { id: pr.node_id }
+        );
+      }
       await octokit.pulls.merge({
         owner,
         repo,
