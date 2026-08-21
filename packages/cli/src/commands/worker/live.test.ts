@@ -70,7 +70,7 @@ describe("mapRefineOutcome", () => {
 
 describe("mapLiveOutcome", () => {
   it("stages beyond the enabled set fail closed rather than pretending", () => {
-    const o = mapLiveOutcome("brew", 0, "all green");
+    const o = mapLiveOutcome("eye", 0, "all green");
     expect(o.outcome).toBe("failed");
     expect(o.detail).toContain("not enabled");
   });
@@ -103,5 +103,27 @@ describe("mapRecipeOutcome (W2)", () => {
     const o = mapRecipeOutcome(0, "Noop: nothing to generate.\n");
     expect(o.resultLabel).toBeNull();
     expect(o.detail).toContain("no-op");
+  });
+});
+
+import { mapBrewOutcome } from "./live.js";
+
+describe("mapBrewOutcome (W2-brew)", () => {
+  it("green run maps to agent:brewed and asks the worker to open the PR", () => {
+    const o = mapBrewOutcome(
+      0,
+      "✓ All story tests green after 4 iteration(s). 2 checkpoint(s), $3.12 spent.\nBranch pushed: slowcook/brew/story-019-1755700000000\n"
+    );
+    expect(o.outcome).toBe("success");
+    expect(o.resultLabel).toBe("agent:brewed");
+    expect(o.openPrFromBranch).toBe("slowcook/brew/story-019-1755700000000");
+    expect(o.detail).toContain("$3.12");
+  });
+
+  it("a halt carries its named reason and is terminal", () => {
+    const o = mapBrewOutcome(1, "✗ Halted: budget_exhausted\n");
+    expect(o.outcome).toBe("failed");
+    expect(o.resultLabel).toBe("agent:failed");
+    expect(o.detail).toContain("budget_exhausted");
   });
 });

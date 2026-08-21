@@ -25,6 +25,12 @@ export interface LiveOutcome {
   artifacts: string[];
   detail: string;
   /**
+   * A branch the agent pushed that still needs a PR (brew pushes its impl
+   * branch but opens nothing). The worker opens a draft PR — plumbing,
+   * not a decision.
+   */
+  openPrFromBranch?: string;
+  /**
    * Issues the chain continues on (e.g. sub-issues refine filed when a
    * split was approved). The worker applies the refine trigger to each —
    * advancement is automatic except at a declared gate (plan §1), and the
@@ -191,6 +197,38 @@ export function mapTasteOutcome(exitCode: number, stdout: string): LiveOutcome {
   };
 }
 
+/** Map a finished `slowcook brew` process to worker state. */
+export function mapBrewOutcome(exitCode: number, stdout: string): LiveOutcome {
+  if (exitCode === 0) {
+    const branch = stdout.match(/^Branch pushed: (\S+)$/m)?.[1];
+    const summary = stdout.match(/^✓ (All story tests green.*)$/m)?.[1];
+    if (branch) {
+      return {
+        outcome: "success",
+        resultLabel: RESULT_LABELS.brew,
+        artifacts: [branch],
+        detail: `${summary ?? "brew succeeded"} — branch ${branch}; worker opens the impl PR.`,
+        openPrFromBranch: branch,
+      };
+    }
+    return {
+      outcome: "success",
+      resultLabel: null,
+      artifacts: [],
+      detail: "brew exited 0 without a pushed branch — inspect the trace.",
+    };
+  }
+  const halt = stdout.match(/^✗ Halted: (.+)$/m)?.[1];
+  return {
+    outcome: "failed",
+    resultLabel: FAILED_LABEL,
+    artifacts: [],
+    detail: halt
+      ? `brew halted: ${halt} — terminal until a human relabels.`
+      : `brew exited ${exitCode} — terminal until a human relabels.`,
+  };
+}
+
 export function mapLiveOutcome(agent: AgentKind, exitCode: number, stdout: string): LiveOutcome {
   switch (agent) {
     case "refine":
@@ -199,6 +237,8 @@ export function mapLiveOutcome(agent: AgentKind, exitCode: number, stdout: strin
       return mapRecipeOutcome(exitCode, stdout);
     case "taste":
       return mapTasteOutcome(exitCode, stdout);
+    case "brew":
+      return mapBrewOutcome(exitCode, stdout);
     default:
       // W2+: recipe / brew / eye mappings land one stage at a time, each
       // only after the upstream handoff contract is verified (plan §6).

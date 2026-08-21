@@ -299,3 +299,34 @@ describe("deriveTasteJobs (reviewer stage)", () => {
     expect(deriveTasteJobs([pr({ headBranch: "feature/foo" })])).toHaveLength(0);
   });
 });
+
+import { deriveBrewJobs } from "./plan.js";
+
+describe("deriveBrewJobs (W2-brew)", () => {
+  const fact = (over: Partial<import("./plan.js").BrewReadyFact>) => ({
+    storyId: "019",
+    sourceIssue: 215,
+    title: "Crawler dedupe",
+    manifestExists: true,
+    specParses: true,
+    openBrewPr: false,
+    issueSettled: false,
+    ...over,
+  });
+
+  it("spec+manifest with no impl yields a budget-capped brew job", () => {
+    const jobs = deriveBrewJobs([fact({})]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.cmd).toEqual(["slowcook", "brew", "--story", "019", "--budget-usd", "10"]);
+    expect(jobs[0]!.agent).toBe("brew");
+  });
+
+  it("an open brew PR or a settled issue suppresses the job", () => {
+    expect(deriveBrewJobs([fact({ openBrewPr: true })])).toHaveLength(0);
+    expect(deriveBrewJobs([fact({ issueSettled: true })])).toHaveLength(0);
+  });
+
+  it("no manifest = not brew-ready", () => {
+    expect(deriveBrewJobs([fact({ manifestExists: false })])).toHaveLength(0);
+  });
+});

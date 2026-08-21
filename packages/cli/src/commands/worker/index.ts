@@ -30,6 +30,7 @@ import {
   deriveResubmitJobs,
   deriveRecipeJobs,
   deriveTasteJobs,
+  deriveBrewJobs,
   DERIVED_SPEC_REVIEW_TRIGGER,
   summarizeWorkload,
   renderWorkloadLine,
@@ -39,6 +40,7 @@ import {
   type IssueFact,
   type StoryArtifactFacts,
   type SpecReadyFact,
+  type BrewReadyFact,
   type AgentPrFact,
   type WorkerJob,
 } from "./plan.js";
@@ -50,7 +52,7 @@ import type { AgentKind } from "./plan.js";
 
 /** Stages allowed to run live in this build. Widened one phase at a time
  *  (plan §6) — never before the upstream handoff contract is verified. */
-const LIVE_STAGES: ReadonlySet<AgentKind> = new Set(["refine", "recipe", "taste"]);
+const LIVE_STAGES: ReadonlySet<AgentKind> = new Set(["refine", "recipe", "taste", "brew"]);
 
 interface RunArgs {
   repoRoot: string;
@@ -177,10 +179,14 @@ async function runPass(argv: string[]): Promise<void> {
     const issues = await fetchTriggerIssues({ owner, repo, token });
     const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts({ owner, repo, token });
     // Unanswered spec-PR feedback outranks fresh triggers (plan §1 rule 1).
+    const specReady = gatherSpecReadyFacts(args.repoRoot, openHeadRefs);
     const jobs = [
       ...deriveResubmitJobs(agentPrFacts),
       ...deriveTasteJobs(agentPrFacts),
-      ...deriveRecipeJobs(gatherSpecReadyFacts(args.repoRoot, openHeadRefs)),
+      ...deriveRecipeJobs(specReady),
+      ...deriveBrewJobs(
+        await gatherBrewReadyFacts({ owner, repo, token }, specReady, openHeadRefs)
+      ),
       ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
     ];
     const summary = summarizeWorkload(issues, jobs);
@@ -412,7 +418,7 @@ async function processLive(
   const result = spawnSync(process.execPath, [process.argv[1]!, ...spawnArgs], {
     cwd: args.repoRoot,
     encoding: "utf8",
-    timeout: args.jobTimeoutMins * 60_000,
+    timeout: (job.agent === "brew" ? Math.max(60, args.jobTimeoutMins) : args.jobTimeoutMins) * 60_000,
     maxBuffer: 64 * 1024 * 1024,
     // The worker resolved ONE forge identity; hand it to the agent under
     // both names — agents disagree on which they read (refine hard-requires
@@ -478,6 +484,29 @@ async function processLive(
         })
       );
     }
+  if (mapped.openPrFromBranch) {
+    try {
+      const { data: createdPr } = await forgeMutate(gh.token, (o) =>
+        o.pulls.create({
+          owner: gh.owner,
+          repo: gh.repo,
+          head: mapped.openPrFromBranch!,
+          base: "main",
+          draft: true,
+          title: `brew: ${job.storyId ? `story-${job.storyId}` : `#${job.issue}`} — ${job.issueTitle}`,
+          body:
+            `${commentHeader(job.agent, job.issue, runId)}\n\n` +
+            `Implementation branch pushed by brew; all story tests green in the run. ` +
+            `Closes #${job.issue}.`,
+        })
+      );
+      console.log(`  impl PR opened: #${createdPr.number}`);
+    } catch (e) {
+      console.error(
+        `warning: could not open the impl PR from ${mapped.openPrFromBranch}: ${(e as Error).message}`
+      );
+    }
+  }
   // Chain continuation onto issues the agent filed (approved split): the
   // human gate was the PM's 👍; labeling the children is transport, not a
   // decision, so the worker does it (plan §1 — no human as transport layer).
@@ -501,7 +530,7 @@ async function processLive(
           body:
         `${commentHeader(job.agent, job.issue, runId)}\n\n` +
         `🛑 **${job.agent} failed** — ${mapped.detail}\n\n` +
-        `<details><summary>stderr tail</summary>\n\n\`\`\`\n${tail(stderr, 30)}\n\`\`\`\n</details>\n\n` +
+        `<details><summary>output tail</summary>\n\n\`\`\`\n${tail(stderr.trim() ? stderr : stdout, 30)}\n\`\`\`\n</details>\n\n` +
         `Terminal until a human relabels \`${job.triggerLabel}\`.` + pmCc(args.repoRoot),
         })
       );
@@ -619,6 +648,50 @@ function ensureBaseCheckout(repoRoot: string, base: string): void {
     cwd: repoRoot,
     stdio: ["ignore", "ignore", "pipe"],
   });
+}
+
+
+/** Brew-readiness facts: spec+manifest present, no brew PR, issue unsettled. */
+async function gatherBrewReadyFacts(
+  args: FetchArgs,
+  specReady: SpecReadyFact[],
+  openHeadRefs: string[]
+): Promise<BrewReadyFact[]> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  const out: BrewReadyFact[] = [];
+  for (const f of specReady) {
+    if (!f.manifestExists || !f.specParses || f.sourceIssue === null) continue;
+    const openBrewPr = openHeadRefs.some((r) => r.includes(`slowcook/brew/story-${f.storyId}`));
+    let issueSettled = false;
+    if (!openBrewPr) {
+      try {
+        const { data: issue } = await octokit.issues.get({
+          owner: args.owner,
+          repo: args.repo,
+          issue_number: f.sourceIssue,
+        });
+        const labels = (issue.labels ?? []).map((l) =>
+          typeof l === "string" ? l : (l.name ?? "")
+        );
+        issueSettled =
+          issue.state === "closed" ||
+          labels.includes(RESULT_LABELS.brew) ||
+          labels.includes(FAILED_LABEL);
+      } catch {
+        issueSettled = true; // can't verify — do not spend
+      }
+    }
+    out.push({
+      storyId: f.storyId,
+      sourceIssue: f.sourceIssue,
+      title: f.title,
+      manifestExists: f.manifestExists,
+      specParses: f.specParses,
+      openBrewPr,
+      issueSettled,
+    });
+  }
+  return out;
 }
 
 /** Stories whose merged spec awaits tests — the recipe derivation facts. */
