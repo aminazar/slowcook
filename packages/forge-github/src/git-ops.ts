@@ -1,4 +1,7 @@
 import { execSync } from "node:child_process";
+import { writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { BranchOperations } from "@slowcook-ai/core";
 
 /**
@@ -23,9 +26,16 @@ export class LocalGitOps implements BranchOperations {
   }
 
   async commit(message: string): Promise<void> {
-    // Use -F with a temp file would be safer for multi-line; for now, single-line messages only.
-    const safe = message.replace(/"/g, '\\"');
-    this.run(`git commit -m "${safe}"`);
+    // -F <tempfile>: multi-line messages and shell metacharacters arrive
+    // byte-identical (eleven-defects D3 — the -m "…" escaping supported
+    // single-line messages only).
+    const file = join(tmpdir(), `slowcook-commit-${process.pid}-${Date.now()}.txt`);
+    writeFileSync(file, message, "utf8");
+    try {
+      this.run(`git commit -F ${shellQuote(file)}`);
+    } finally {
+      rmSync(file, { force: true });
+    }
   }
 
   async push(branch: string): Promise<void> {
