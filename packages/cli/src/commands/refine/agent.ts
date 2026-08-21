@@ -1254,7 +1254,9 @@ export async function runResubmitRefinement(
   if (ctx.forge.getPullRequest) {
     try {
       const pr = await ctx.forge.getPullRequest(ctx.prNumber);
-      const m = pr.head_branch?.match(/slowcook\/spec\/story-(.+)$/);
+      // Follow-up branches are story-<id>-amend-<ts>; the story id stops
+      // before the -amend suffix (ledger G15).
+      const m = pr.head_branch?.match(/slowcook\/spec\/story-(.+?)(?:-amend-\d+)?$/);
       if (m && m[1]) {
         storyId = m[1];
         // MERGED PR → the amendment applies to the CURRENT spec on the
