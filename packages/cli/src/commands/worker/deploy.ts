@@ -55,6 +55,10 @@ export function remoteBuildScript(dir: string): string {
     `find packages -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete`,
     `pnpm install --silent`,
     `pnpm -r --silent build`,
+    // The clean rebuild recreates cli.js without the executable bit —
+    // any symlinked \`slowcook\` binary then dies with Permission denied
+    // (fifth dogfood layer). tsc never sets +x; the deploy must.
+    `chmod +x packages/cli/dist/cli.js`,
     `stale=$(find packages/*/dist -type f -name '*.js' ! -newer .deploy-build-stamp | head -5)`,
     `if [ -n "$stale" ]; then echo "STALE DIST after build:"; echo "$stale"; exit 9; fi`,
     `rm -f .deploy-build-stamp`,
