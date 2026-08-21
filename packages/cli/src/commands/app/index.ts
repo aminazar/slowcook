@@ -159,7 +159,11 @@ Credentials written (keep the PEM secret):
 FINAL STEP — install it on the repos you choose (any repo, any time):
    ${created.installUrl}
 
-Agents then post as ${created.slug}[bot] on every repo you install it on.`);
+Agents then post as ${created.slug}[bot] on every repo you install it on.
+
+Optional polish — give the App the slowcook logo (GitHub only allows
+this by hand): ${created.htmlUrl} → Display information → upload
+https://raw.githubusercontent.com/aminazar/slowcook/main/docs/screenshots/logo.png`);
 }
 
 function openBrowser(url: string): void {
