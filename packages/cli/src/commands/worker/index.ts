@@ -673,8 +673,15 @@ async function gatherBrewReadyFacts(
         const labels = (issue.labels ?? []).map((l) =>
           typeof l === "string" ? l : (l.name ?? "")
         );
+        // Brew follows recipe IN THIS CHAIN: only issues the worker's own
+        // recipe stage marked agent:reciped are brew candidates. Old-era
+        // stories (shipped before the worker existed) have spec+manifest
+        // but never got the label — without this guard the derivation
+        // re-implements already-shipped work (ledger G13: the worker
+        // started brewing story-001).
         issueSettled =
           issue.state === "closed" ||
+          !labels.includes(RESULT_LABELS.recipe) ||
           labels.includes(RESULT_LABELS.brew) ||
           labels.includes(FAILED_LABEL);
       } catch {
