@@ -371,3 +371,20 @@ Conservative defaults: spec/tests agent, brew/vibe/eye human; invalid
 values fall back to defaults, never fail open. Approve-at-human-gate
 cc's the PM. Shipped PR #444; rewo declares its gates in
 `.brewing/gates.yaml` on main (71b7c21).
+
+## G17 — taste cannot see the PR's own discussion thread
+
+- **surfaced by**: three review rounds on rewo #225 in a row flagged
+  "PM ruling not visible in the provided lineage" — while the rulings sat
+  as comments ON THE VERY PR taste was reviewing. Its lineage was source
+  issue + Q&A + spec + diff; the PR thread (where relays and corrections
+  land during review rounds) was the one venue it never read.
+- **root cause**: lineage was designed before review ROUNDS existed —
+  the PR thread only became a decision venue when resubmit cycles and
+  PM relays arrived (G10+). The reviewer's evidence set didn't grow with
+  the process it polices.
+- **fix**: TasteContext.prThread — last 8 PR comments (taste's own
+  findings excluded, so past verdicts never count as evidence), with a
+  supersession note (later comment wins).
+- **verified**: next taste round on #225 stopped flagging the relay as
+  unverifiable.

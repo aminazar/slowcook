@@ -31,6 +31,9 @@ export interface TasteContext {
   sourceIssueBody: string | null;
   /** Trimmed PM Q&A thread from the source issue. */
   issueThread: string | null;
+  /** Trimmed PR discussion thread (taste's own findings excluded) — the
+   *  venue where PM rulings and relays land during review rounds. */
+  prThread: string | null;
 }
 
 export interface TasteFinding {
@@ -75,6 +78,11 @@ Respond with ONLY a JSON object:
   }
   if (ctx.issueThread) {
     parts.push(`## PM Q&A thread (trimmed)\n\n${ctx.issueThread}`);
+  }
+  if (ctx.prThread) {
+    parts.push(
+      `## PR discussion thread (trimmed)\n\nRulings and PM relays posted here are part of the lineage — a later comment supersedes an earlier one.\n\n${ctx.prThread}`
+    );
   }
   if (ctx.specYaml) {
     parts.push(`## Spec (story-${ctx.storyId})\n\n\`\`\`yaml\n${ctx.specYaml}\n\`\`\``);
