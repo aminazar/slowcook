@@ -43,9 +43,13 @@ export function remoteBuildScript(dir: string): string {
     `touch .deploy-build-stamp`,
     // Orphaned dist files (source deleted, artifact remains) survive any
     // rebuild and are importable lies — the first dogfood deploy caught
-    // four of them. Clean slate, then force-build.
+    // four of them. Clean slate, then build EVERY package by its own
+    // build script: the second dogfood deploy proved a bare root tsc
+    // leaves workspace deps (review-overlay) to be satisfied by stale
+    // dist. Install first — deps drift between deploys.
     `rm -rf packages/*/dist`,
-    `npx tsc -b --force`,
+    `pnpm install --silent`,
+    `pnpm -r --silent build`,
     `stale=$(find packages/*/dist -type f -name '*.js' ! -newer .deploy-build-stamp | head -5)`,
     `if [ -n "$stale" ]; then echo "STALE DIST after build:"; echo "$stale"; exit 9; fi`,
     `rm -f .deploy-build-stamp`,
