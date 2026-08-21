@@ -46,6 +46,14 @@ import {
 } from "./plan.js";
 import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
 import { checkoutStatusLine, renderWorkloadView } from "./workload.js";
+import {
+  AWAITING_PM_LABEL,
+  ROLLUP_MARKER,
+  ROLLUP_TITLE,
+  buildRollupItems,
+  parseRollupKeys,
+  renderRollupBody,
+} from "./pm-rollup.js";
 import { mapLiveOutcome, commentHeader } from "./live.js";
 import { acquireWorkerLock, releaseWorkerLock } from "./worker-lock.js";
 import { pmCc } from "../../lib/pm-notify.js";
@@ -247,6 +255,22 @@ async function runPass(argv: string[]): Promise<void> {
       ) + "\n",
       "utf8"
     );
+
+    // PM halt roll-up (D6): reconcile the one "waiting on the PM" issue
+    // from derived state. Live passes only (dry-run mutates nothing);
+    // best-effort — a roll-up failure must never kill the pass.
+    if (!args.dryRun) {
+      try {
+        await reconcilePmRollup(
+          { owner, repo, token },
+          args.repoRoot,
+          issues,
+          agentPrFacts
+        );
+      } catch (e) {
+        console.error(`warn: pm-rollup reconcile failed: ${(e as Error).message}`);
+      }
+    }
 
     let processed: { job: WorkerJob; traceDir: string; outcome: JobOutcome } | null = null;
     if (jobs.length > 0) {
@@ -730,6 +754,88 @@ function ensureBaseCheckout(repoRoot: string, base: string): void {
   console.log(`checkout: ${base} @ ${headSha.slice(0, 9)} (matches origin/${base})`);
 }
 
+
+/** D6 — reconcile the single PM roll-up issue from derived state. */
+async function reconcilePmRollup(
+  args: FetchArgs,
+  repoRoot: string,
+  issues: IssueFact[],
+  prs: AgentPrFact[]
+): Promise<void> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  const awaitingPm = (
+    await octokit.paginate(octokit.issues.listForRepo, {
+      owner: args.owner,
+      repo: args.repo,
+      state: "open",
+      labels: AWAITING_PM_LABEL,
+      per_page: 100,
+    })
+  )
+    .filter((i) => !i.pull_request)
+    .map((i) => ({ number: i.number, title: i.title }));
+  const items = buildRollupItems({ awaitingPm, issues, prs });
+
+  // Find the roll-up issue by its body marker (open first, else the most
+  // recent closed one — reopening keeps the thread's history).
+  const candidates = await octokit.paginate(octokit.issues.listForRepo, {
+    owner: args.owner,
+    repo: args.repo,
+    state: "all",
+    creator: undefined,
+    per_page: 100,
+  });
+  const rollup = candidates.find(
+    (i) => !i.pull_request && (i.body ?? "").includes(ROLLUP_MARKER)
+  );
+
+  if (!rollup) {
+    if (items.length === 0) return; // nothing waiting, nothing to create
+    const { data: created } = await octokit.issues.create({
+      owner: args.owner,
+      repo: args.repo,
+      title: ROLLUP_TITLE,
+      body: renderRollupBody(items),
+    });
+    await octokit.issues.createComment({
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: created.number,
+      body:
+        `New item(s) waiting on the PM:\n` +
+        items.map((i) => `- ${i.text}`).join("\n") +
+        pmCc(repoRoot),
+    });
+    console.log(`pm-rollup: created #${created.number} with ${items.length} item(s)`);
+    return;
+  }
+
+  const previousKeys = parseRollupKeys(rollup.body ?? "");
+  const fresh = items.filter((i) => !previousKeys.has(i.key));
+  await octokit.issues.update({
+    owner: args.owner,
+    repo: args.repo,
+    issue_number: rollup.number,
+    body: renderRollupBody(items),
+    state: items.length === 0 ? "closed" : "open",
+  });
+  if (fresh.length > 0) {
+    await octokit.issues.createComment({
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: rollup.number,
+      body:
+        `New item(s) waiting on the PM:\n` +
+        fresh.map((i) => `- ${i.text}`).join("\n") +
+        pmCc(repoRoot),
+    });
+  }
+  if (items.length === 0 && rollup.state === "open") {
+    console.log(`pm-rollup: all clear — closed #${rollup.number}`);
+  } else if (fresh.length > 0) {
+    console.log(`pm-rollup: #${rollup.number} updated, ${fresh.length} new item(s) (PM mentioned)`);
+  }
+}
 
 /** Brew-readiness facts: spec+manifest present, no brew PR, issue unsettled. */
 async function gatherBrewReadyFacts(
