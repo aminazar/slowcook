@@ -742,6 +742,9 @@ async function gatherBrewReadyFacts(
   for (const f of specReady) {
     if (!f.manifestExists || !f.specParses || f.sourceIssue === null) continue;
     const openBrewPr = openHeadRefs.some((r) => r.includes(`slowcook/brew/story-${f.storyId}`));
+    const openTestsPr = openHeadRefs.some((r) =>
+      r.includes(`slowcook/tests/story-${f.storyId}`)
+    );
     let issueSettled = false;
     if (!openBrewPr) {
       try {
@@ -775,6 +778,7 @@ async function gatherBrewReadyFacts(
       manifestExists: f.manifestExists,
       specParses: f.specParses,
       openBrewPr,
+      openTestsPr,
       issueSettled,
     });
   }

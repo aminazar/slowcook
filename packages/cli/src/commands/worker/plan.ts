@@ -476,6 +476,10 @@ export interface BrewReadyFact {
   specParses: boolean;
   /** An open slowcook/brew PR already covers this story. */
   openBrewPr: boolean;
+  /** An open tests PR is REVISING this story's tests — the manifest on
+   *  main is contested; brewing against it builds to a stale contract
+   *  (eleven-defects D12, caught by the first `slowcook workload` run). */
+  openTestsPr: boolean;
   /** Source issue already carries agent:brewed or agent:failed. */
   issueSettled: boolean;
 }
@@ -486,6 +490,7 @@ export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
     if (!f.manifestExists || !f.specParses) continue;
     if (f.openBrewPr || f.issueSettled) continue;
     if (f.sourceIssue === null) continue;
+    const testsContested = f.openTestsPr;
     jobs.push({
       issue: f.sourceIssue,
       issueTitle: f.title,
@@ -494,13 +499,20 @@ export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
       storyId: f.storyId,
       cmd: ["slowcook", "brew", "--story", f.storyId, "--budget-usd", "10"],
       preconditions: [
-        {
-          name: "tests-merged-no-impl",
-          status: "pass",
-          detail: `story-${f.storyId}: spec + manifest on main, no brew PR, issue unsettled`,
-        },
+        testsContested
+          ? {
+              name: "tests-settled",
+              status: "fail" as const,
+              upstream: "taste",
+              detail: `story-${f.storyId}: an open tests PR is revising this story's tests — the manifest on main is contested; brew waits for the review loop to settle`,
+            }
+          : {
+              name: "tests-merged-no-impl",
+              status: "pass" as const,
+              detail: `story-${f.storyId}: spec + manifest on main, no brew PR, no open tests PR, issue unsettled`,
+            },
       ],
-      runnable: true,
+      runnable: !testsContested,
       priority: 15, // after reviews (5) and recipe (10); before fresh label triggers
     });
   }

@@ -438,3 +438,19 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   worker workspaces keep being auto-cleaned each pass.
 - **verified**: unit tests (untracked-dir collapse caught via -uall);
   clean-tree rerun of `recipe --pr 226` recorded an honest manifest.
+
+## G21 — brew derived as runnable while the story's tests were being revised
+
+- **surfaced by**: the FIRST run of the new `slowcook workload` command
+  (eleven-defects D5, dogfooding its own build): brew·story-019 showed
+  "runnable" while tests PR #226 was open mid-review-loop. With the
+  timer on, one taste request-changes round would have let the next
+  pass brew against the contested old manifest on main.
+- **root cause**: brew-readiness facts checked for an open BREW PR but
+  not an open TESTS PR — "manifest exists on main" was read as settled
+  when a revision of that very manifest was in flight.
+- **fix**: `openTestsPr` fact; a contested story derives a BLOCKED brew
+  job with named precondition `tests-settled` (upstream: taste) — still
+  visible in the workload, never spendable.
+- **verified**: box workload after deploy shows brew·019 BLOCKED on
+  tests-settled while #226 is open; 020/021 stay runnable.
