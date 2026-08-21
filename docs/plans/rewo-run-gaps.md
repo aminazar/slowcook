@@ -491,3 +491,16 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   working CLI.
 - **verified**: `deployed 136de416d … — dist fresh`; box
   `slowcook 0.33.0` runs from the rebuilt dist.
+
+## G24 — brew's branch suffix broke the story-id parse (G15's sibling)
+
+- **surfaced by**: brew's first delivered PR (#228) pushed branch
+  `slowcook/brew/story-020-1787338062527` — the timestamp suffix isn't
+  `-amend-N`, so the G15 regex would have parsed the story id as
+  `020-1787338062527`, costing taste its spec + manifest lineage.
+- **root cause**: same interface lesson as G15 — a THIRD branch-naming
+  variant (brew's timestamp) shipped without updating the parsers.
+- **fix**: story-id regex also strips a bare 13-digit timestamp suffix
+  (taste + stale-premise triage).
+- **verified**: taste on #228 resolves story-020 and carries the spec +
+  manifest into the advisory review.
