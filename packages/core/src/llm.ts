@@ -59,6 +59,12 @@ export interface LlmUsage {
 export interface LlmResponse {
   text: string;
   usage: LlmUsage;
+  /** Why generation stopped ("end_turn", "max_tokens", …). "max_tokens"
+   * means the text is TRUNCATED — artifact writers must treat it as a
+   * failed emission, never persist it (ledger G14: a schema-valid but
+   * mid-line-cut spec was pushed). Optional; adapters that cannot know
+   * leave it undefined, which callers treat as complete. */
+  stopReason?: string;
   /** Adapter-computed cost for this call. CLI never does price arithmetic
    * itself — the adapter contract preserves this boundary. */
   costUsd: number;

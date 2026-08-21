@@ -38,6 +38,7 @@ import {
 } from "./spec-validate.js";
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import { scopedSpecBranch } from "../../lib/project-scope.js";
+import { truncatedEmissionError } from "../../lib/emission-guard.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -479,6 +480,13 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     // temperature omitted — newer reasoning-enabled Claude models reject it.
   });
 
+  {
+    const cut = truncatedEmissionError(agentResponse, `refine story-${storyId}`);
+    if (cut) {
+      console.error(cut);
+      process.exit(2);
+    }
+  }
   roundCostUsd += agentResponse.costUsd;
   totalTokensIn += agentResponse.usage.inputTokens;
   totalTokensOut += agentResponse.usage.outputTokens;
@@ -1391,6 +1399,13 @@ export async function runResubmitRefinement(
     maxTokens: 32000,
     stream: true,
   });
+  {
+    const cut = truncatedEmissionError(response, `refine amend story-${storyId}`);
+    if (cut) {
+      console.error(cut);
+      process.exit(2);
+    }
+  }
 
   const parsed = parseAgentOutput(response.text, {
     storyId,

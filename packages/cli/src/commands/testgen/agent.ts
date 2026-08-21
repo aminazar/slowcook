@@ -20,6 +20,7 @@ import {
 import { readIndex, readSpec, SPECS_DIR } from "../refine/spec-yaml.js";
 import { readContextMd } from "../refine/context.js";
 import { TESTGEN_SYSTEM } from "./prompts.js";
+import { truncatedEmissionError } from "../../lib/emission-guard.js";
 
 export const LABEL_TESTS_READY = "tests-ready";
 export const LABEL_OVERRIDE_FREEZE = "override-freeze";
@@ -786,6 +787,10 @@ async function generateTestBundle(
     messages: [{ role: "user", content: userMessage }],
     maxTokens: 16384,
   });
+  {
+    const cut = truncatedEmissionError(raw, `testgen story-${spec.story_id}`);
+    if (cut) throw new Error(cut);
+  }
 
   const bundle = parseTestgenBundle(raw.text, spec.story_id, mode);
   return {
