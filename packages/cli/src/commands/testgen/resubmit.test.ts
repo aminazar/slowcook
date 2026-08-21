@@ -20,3 +20,16 @@ describe("parseFileBlocks", () => {
     expect(parseFileBlocks("I would change nothing.")).toEqual([]);
   });
 });
+
+describe("isFeedbackComment", () => {
+  it("excludes own chatter but keeps discovery-gate errors (G19)", async () => {
+    const { isFeedbackComment } = await import("./resubmit.js");
+    expect(isFeedbackComment("### slowcook · recipe resubmit\n\nAmended 2 test files")).toBe(false);
+    expect(
+      isFeedbackComment(
+        "### slowcook · recipe resubmit <!-- slowcook-discovery-gate -->\n\n🛑 The amendment failed test discovery"
+      )
+    ).toBe(true);
+    expect(isFeedbackComment("@aminazar: please restore the tie-break test")).toBe(true);
+  });
+});
