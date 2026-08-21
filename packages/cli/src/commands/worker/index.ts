@@ -782,7 +782,7 @@ async function triageStalePremiseComments(
     per_page: 15,
   });
   for (const pr of closed) {
-    const m = pr.head?.ref?.match(/slowcook\/(spec|tests|brew)\/story-(.+?)(?:-amend-\d+)?$/);
+    const m = pr.head?.ref?.match(/slowcook\/(spec|tests|brew)\/story-(.+?)(?:-amend-\d+|-\d{13})?$/);
     if (!m || !pr.merged_at) continue;
     const kind = m[1]!;
     const storyId = m[2]!;
