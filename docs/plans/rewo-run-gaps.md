@@ -454,3 +454,19 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   visible in the workload, never spendable.
 - **verified**: box workload after deploy shows brew·019 BLOCKED on
   tests-settled while #226 is open; 020/021 stay runnable.
+
+## G22 — the awaiting-pm label outlived the answered question
+
+- **surfaced by**: the FIRST PM roll-up (D6 dogfood, issue #227) listed
+  #215/#216/#217 as "waiting on the PM" — questions answered days ago,
+  specs merged, tests merged. The `slowcook-awaiting-pm` label was added
+  when questions were posted and never removed when the answers were
+  consumed, so the derived roll-up faithfully reported a stale marker.
+- **root cause**: half a lifecycle — publish-on-wait without
+  clear-on-consume. Any derived view is only as honest as the state it
+  derives from.
+- **fix**: refine removes the label on both consumption paths
+  (spec-emitted, split-executed); the three stale labels on rewo
+  removed by hand once.
+- **verified**: next live pass reconciles #227 down to the round-cap
+  item only.

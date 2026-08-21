@@ -287,6 +287,9 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
         );
         await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_MULTIFURCATION_PROPOSED);
         await ctx.forge.removeIssueLabel(ctx.issueNumber, "needs-refinement");
+        try {
+          await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_AWAITING_PM);
+        } catch { /* label may not be present (G22) */ }
         return {
           kind: "split-executed",
           subIssues: filed.map((f) => f.number),
@@ -781,6 +784,12 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     } catch {
       /* best effort */
     }
+    // The PM's answers are consumed — the wait marker must not outlive it
+    // (ledger G22: stale awaiting-pm labels resurfaced long-answered
+    // questions in the first PM roll-up).
+    try {
+      await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_AWAITING_PM);
+    } catch { /* label may not be present */ }
     return { kind: "spec-emitted", specPath, prUrl: pr.url, prNumber: pr.number };
   } catch (e) {
     const status = (e as { status?: number }).status;
