@@ -184,6 +184,52 @@ export async function testgen(argv: string[], cliVersion: string): Promise<void>
     ? `slowcook/tests/story-${args.specId}`
     : `slowcook/tests/batch-${Date.now()}`;
 
+  // G18: a regeneration must not trip over the previous round's fossil.
+  // The PR is the authority: a local branch with an OPEN PR belongs to
+  // resubmit (`recipe --pr N`), never to a fresh run; without an open PR
+  // the branch is a fossil of a merged/closed round — delete it (and any
+  // stale remote copy) so the fresh branch starts from base.
+  if (args.specId) {
+    const localExists = (() => {
+      try {
+        execSync(`git rev-parse --verify --quiet refs/heads/${branchName}`, {
+          cwd: args.repoRoot,
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    if (localExists) {
+      const { Octokit } = await import("@octokit/rest");
+      const octokit = new Octokit({ auth: githubToken, userAgent: "slowcook-ai/cli testgen" });
+      const { data: openPrs } = await octokit.pulls.list({
+        owner,
+        repo,
+        state: "open",
+        head: `${owner}:${branchName}`,
+        per_page: 1,
+      });
+      if (openPrs.length > 0) {
+        console.error(
+          `testgen: branch ${branchName} has open PR #${openPrs[0]!.number} — use \`slowcook recipe --pr ${openPrs[0]!.number}\` to amend it instead of regenerating.`
+        );
+        process.exit(2);
+      }
+      execSync(`git branch -D ${branchName}`, { cwd: args.repoRoot, stdio: ["ignore", "ignore", "ignore"] });
+      try {
+        execSync(`git push origin --delete ${branchName}`, {
+          cwd: args.repoRoot,
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+      } catch {
+        /* no stale remote — fine */
+      }
+      console.log(`testgen: cleared fossil branch ${branchName} (its PR is merged/closed).`);
+    }
+  }
+
   const ctx: TestgenContext = {
     repoRoot: args.repoRoot,
     forge,

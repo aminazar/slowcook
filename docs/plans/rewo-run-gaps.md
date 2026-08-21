@@ -388,3 +388,20 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   supersession note (later comment wins).
 - **verified**: next taste round on #225 stopped flagging the relay as
   unverifiable.
+
+## G18 — testgen regeneration trips over the previous round's fossil branch
+
+- **surfaced by**: `recipe --spec 019` after the spec amendment (#225
+  merged): `fatal: a branch named 'slowcook/tests/story-019' already
+  exists` — the local branch from the merged #221 round was never
+  cleaned, and `createBranch` uses `checkout -b`.
+- **root cause**: same disease as G14, testgen edition — agent branch
+  names are deterministic per story, but nothing distinguished "fresh
+  run" from "fossil of a merged round". The collision guard that
+  protects parallel runs also blocked legitimate regeneration.
+- **fix**: PR-authoritative fossil clearing before branch creation: an
+  open PR on the branch routes to `recipe --pr N` (resubmit, exit 2);
+  no open PR → the branch is a fossil, deleted locally and remotely,
+  fresh branch starts from base.
+- **verified**: rerun of `recipe --spec 019` on the box cleared the
+  fossil and opened the regenerated tests PR.
