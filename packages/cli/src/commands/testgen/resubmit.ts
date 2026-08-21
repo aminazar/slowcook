@@ -50,11 +50,28 @@ export function parseFileBlocks(text: string): Array<{ path: string; content: st
   return out;
 }
 
-function recordManifest(ctx: TestsResubmitContext, storyId: string): void {
-  execSync(
-    `${JSON.stringify(process.execPath)} ${JSON.stringify(process.argv[1] ?? "slowcook")} manifest record --story ${storyId} --cwd ${JSON.stringify(ctx.repoRoot)}`,
-    { cwd: ctx.repoRoot, stdio: ["ignore", "inherit", "inherit"] }
-  );
+const DISCOVERY_GATE_MARKER = "slowcook-discovery-gate";
+
+/** Record the story manifest; returns null on success or the error tail. */
+function recordManifest(ctx: TestsResubmitContext, storyId: string): string | null {
+  try {
+    execSync(
+      `${JSON.stringify(process.execPath)} ${JSON.stringify(process.argv[1] ?? "slowcook")} manifest record --story ${storyId} --cwd ${JSON.stringify(ctx.repoRoot)}`,
+      { cwd: ctx.repoRoot, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    return null;
+  } catch (e) {
+    const err = e as { stdout?: Buffer; stderr?: Buffer; message?: string };
+    const tail = [err.stdout?.toString() ?? "", err.stderr?.toString() ?? ""]
+      .join("\n")
+      // eslint-disable-next-line no-control-regex
+      .replace(/\[[0-9;]*m/g, "")
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(-15)
+      .join("\n");
+    return tail || err.message || "manifest record failed";
+  }
 }
 
 export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void> {
@@ -72,9 +89,15 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
   }
 
   // Checkout must MATCH the PR (G9) — fail closed on dirt.
+  // Modified tracked files = real uncommitted work → hard stop. Untracked
+  // files are branch-switch residue (G11) — reset --hard below handles the
+  // tracked tree, and residue never enters our commits (we add tests/ and
+  // manifests only).
   const dirty = execSync("git status --porcelain", { cwd: ctx.repoRoot, encoding: "utf8" })
     .split("\n")
-    .filter((l) => l.trim() && !l.includes(".brewing/history-index"));
+    .filter(
+      (l) => l.trim() && !l.startsWith("??") && !l.includes(".brewing/history-index")
+    );
   if (dirty.length > 0) {
     console.error(`slowcook recipe: checkout has uncommitted changes — refusing.`);
     process.exit(2);
@@ -165,7 +188,25 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
     // Even with no test-file change, the MANIFEST may be the stale artifact
     // (G12's second face: the model can only emit test files, and correctly
     // says so). Re-record it; a resulting diff is a manifest-only amendment.
-    recordManifest(ctx, storyId);
+    const noChangeDiscoveryError = recordManifest(ctx, storyId);
+    if (noChangeDiscoveryError) {
+      const priorGate = comments.some((c) => (c.body ?? "").includes(DISCOVERY_GATE_MARKER));
+      await octokit.issues.createComment({
+        owner: ctx.owner,
+        repo: ctx.repo,
+        issue_number: ctx.prNumber,
+        body:
+          `### slowcook · recipe resubmit <!-- ${DISCOVERY_GATE_MARKER} -->\n\n` +
+          `🛑 Test discovery fails on this branch:\n\n\`\`\`\n${noChangeDiscoveryError}\n\`\`\`` +
+          (priorGate ? `\n\nSecond consecutive discovery failure — stopping; a human should look.` : ""),
+      });
+      if (priorGate) {
+        console.error("slowcook recipe: second consecutive discovery failure — terminal.");
+        process.exit(2);
+      }
+      console.log("Noop: discovery fails on the branch — error posted as feedback.");
+      return;
+    }
     const manifestDirty = execSync("git status --porcelain -- .brewing/manifests", {
       cwd: ctx.repoRoot,
       encoding: "utf8",
@@ -210,7 +251,36 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
   // renames tests without re-recording the manifest leaves those tests
   // unenforced by the ratchet — taste rightly blocks the merge. Re-record
   // as part of every amendment so the commit carries file+manifest together.
-  recordManifest(ctx, storyId);
+  // A DISCOVERY failure means the amendment itself is broken (e.g. a bare
+  // import of a not-yet-implemented module): revert it, feed the exact
+  // error back to the PR, and hard-stop on the second consecutive failure
+  // — never crash-loop, never push undiscoverable tests.
+  const discoveryError = recordManifest(ctx, storyId);
+  if (discoveryError) {
+    execSync(`git checkout -- tests/ .brewing/manifests/ 2>/dev/null || true`, {
+      cwd: ctx.repoRoot,
+      shell: "/bin/bash",
+    });
+    const priorGate = comments.some((c) => (c.body ?? "").includes(DISCOVERY_GATE_MARKER));
+    await octokit.issues.createComment({
+      owner: ctx.owner,
+      repo: ctx.repo,
+      issue_number: ctx.prNumber,
+      body:
+        `### slowcook · recipe resubmit <!-- ${DISCOVERY_GATE_MARKER} -->\n\n` +
+        `🛑 The amendment failed **test discovery** and was reverted — undiscoverable tests can gate nothing:\n\n` +
+        `\`\`\`\n${discoveryError}\n\`\`\`\n\n` +
+        (priorGate
+          ? `This is the second consecutive discovery failure — stopping; a human should look.`
+          : `The next amendment round sees this error and must fix the discovery break (use the committed throwing-stub pattern, never a bare import of a module brew hasn't created).`),
+    });
+    if (priorGate) {
+      console.error("slowcook recipe: second consecutive discovery failure — terminal.");
+      process.exit(2);
+    }
+    console.log(`Noop: amendment failed discovery — reverted; error posted as feedback.`);
+    return;
+  }
   execSync(`git add tests/ .brewing/manifests/`, { cwd: ctx.repoRoot });
   execSync(
     `git -c user.name="slowcook" -c user.email="agents@slowcook.dev" commit -m "recipe: resubmit story-${storyId} per PR #${ctx.prNumber} review"`,
