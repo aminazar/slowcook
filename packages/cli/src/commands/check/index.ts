@@ -19,6 +19,32 @@ import { runProdHonestyCli } from "./prod-honesty.js";
 import { runProdBundleCli } from "./prod-bundle.js";
 import { runSurfaceParityCli } from "./surface-parity.js";
 import { runStyleDriftCli } from "./style-drift.js";
+import { runRatchetProtection } from "./ratchet-protection-run.js";
+
+/**
+ * CI gate: an owned artifact changes only through its owning agent —
+ * authorised by a labelled issue OR a recorded derived trigger. Fails
+ * closed: without --base it cannot see the diff, and a gate that passes
+ * when blind protects nothing.
+ */
+function runRatchetProtectionCli(argv: string[]): void {
+  let repoRoot = process.cwd();
+  let base = "";
+  let head = "HEAD";
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]; const next = argv[i + 1];
+    if (a === "--cwd" && next) { repoRoot = next; i++; }
+    else if (a === "--base" && next) { base = next; i++; }
+    else if (a === "--head" && next) { head = next; i++; }
+  }
+  if (!base) {
+    console.error("slowcook check ratchet-protection: --base <ref> is required (the merge-base to diff against).");
+    process.exit(64);
+  }
+  const { ok, report } = runRatchetProtection({ repoRoot, base, head });
+  console.log(report);
+  if (!ok) process.exit(1);
+}
 
 export async function check(argv: string[], _cliVersion: string): Promise<void> {
   const sub = argv[0];
@@ -35,6 +61,8 @@ export async function check(argv: string[], _cliVersion: string): Promise<void> 
       return runSurfaceParityCli(argv.slice(1));
     case "style-drift":
       return runStyleDriftCli(argv.slice(1));
+    case "ratchet-protection":
+      return runRatchetProtectionCli(argv.slice(1));
     case undefined:
     case "help":
     case "--help":
@@ -57,6 +85,7 @@ Usage:
   slowcook check prod-honesty [--cwd <path>] [--dir <src>]
   slowcook check prod-bundle [--cwd <path>] [--dist <dist>]
   slowcook check surface-parity [--cwd <path>] [--update-baseline]
+  slowcook check ratchet-protection --base <ref> [--head <ref>] [--cwd <path>]
   slowcook check ratchet-protection --base <ref> [--head <ref>] [--cwd <path>]
   slowcook check spec [file...] [--cwd <path>]
 
