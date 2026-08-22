@@ -158,7 +158,66 @@ function parseDdl(ddl: string): {
     }
   }
 
+  // 3. `drop table [if exists] <name>` — a dropped table must LEAVE the
+  // diagram. The extractor ignoring drops is how rewo's extract kept
+  // showing member_rewos/reactions months after migration 00013 removed
+  // them — and refine, faithfully using that context, wrote a spec
+  // mandating a re-point of a dead table (2026-08-22).
+  const dropRe = /drop\s+table\s+(?:if\s+exists\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+  while ((m = dropRe.exec(normalised)) !== null) {
+    const tableName = m[1]!;
+    entities.delete(tableName);
+    for (let i = relationships.length - 1; i >= 0; i--) {
+      if (relationships[i]!.from === tableName || relationships[i]!.to === tableName) {
+        relationships.splice(i, 1);
+      }
+    }
+  }
+
+  // 4. `alter table <name> rename to <new>` — same reality rule.
+  const renameRe =
+    /alter\s+table\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+rename\s+to\s+([a-z_][a-z0-9_]*)/gi;
+  while ((m = renameRe.exec(normalised)) !== null) {
+    const [, oldName, newName] = m;
+    const entity = entities.get(oldName!);
+    if (entity) {
+      entities.delete(oldName!);
+      entities.set(newName!, { ...entity, name: newName! });
+      for (const rel of relationships) {
+        if (rel.from === oldName) rel.from = newName!;
+        if (rel.to === oldName) rel.to = newName!;
+      }
+    }
+  }
+
   return { entities, relationships };
+}
+
+/**
+ * Database FUNCTIONS in the DDL — name, argument list, security mode.
+ * The ERD showed tables only, so `merge_rewos` (migration 00015) was
+ * invisible to refine and the story-019 spec mandated CREATING a
+ * function that already existed — with the opposite argument order.
+ * Drops are honored the same way as tables.
+ */
+export function ddlFunctions(
+  ddl: string
+): Array<{ name: string; args: string; definer: boolean }> {
+  const normalised = ddl.replace(/\r\n/g, "\n");
+  const out = new Map<string, { name: string; args: string; definer: boolean }>();
+  const createFnRe =
+    /create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?([a-z_][a-z0-9_]*)\s*\(([^)]*)\)[\s\S]*?\$\$[\s\S]*?\$\$\s*language\s+\w+(\s+security\s+definer)?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = createFnRe.exec(normalised)) !== null) {
+    out.set(m[1]!, {
+      name: m[1]!,
+      args: m[2]!.replace(/\s+/g, " ").trim(),
+      definer: m[3] !== undefined,
+    });
+  }
+  const dropFnRe = /drop\s+function\s+(?:if\s+exists\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+  while ((m = dropFnRe.exec(normalised)) !== null) out.delete(m[1]!);
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
