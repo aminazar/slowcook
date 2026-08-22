@@ -117,3 +117,16 @@ each was added after a real failure (the full record lives in
 - **Fail-closed identity and pricing**: unknown model pricing, broken App
   credentials, or a dirty checkout stop the pass loudly rather than
   proceeding on assumptions.
+
+## Environment state vs gate evidence
+
+A split in logic is a split in files (2026-08-22 ruling):
+
+- **`.brewing/local/`** — machine-local environment state: brew run logs
+  and patches, the brew lock, the history-index cache. One `.gitignore`
+  line covers it (`slowcook upsert-agent-docs` adds it). **Nothing under
+  this root may ever be read by a gate.**
+- **Versioned evidence** — what gates judge at PR time, so it must be
+  committed: `.brewing/manifests/`, `.brewing/ownership.json`,
+  `.brewing/provenance/authored.json`, `.brewing/gates.yaml`,
+  `.brewing/stack.json`, and `specs/`.

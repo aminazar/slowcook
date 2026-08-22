@@ -632,7 +632,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     try {
       const diff = execSync("git diff", { cwd: ctx.repoRoot, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
       if (!diff.trim()) return null;
-      const rel = join(".brewing", "runs", "patches", `story-${ctx.storyId}-iter-${iterN}.patch`);
+      const rel = join(".brewing", "local", "runs", "patches", `story-${ctx.storyId}-iter-${iterN}.patch`);
       const abs = join(ctx.repoRoot, rel);
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, diff, "utf8");

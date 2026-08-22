@@ -27,7 +27,7 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, utimesS
 import { dirname, join } from "node:path";
 import { hostname } from "node:os";
 
-export const LOCK_PATH = ".brewing/brew.lock";
+export const LOCK_PATH = ".brewing/local/brew.lock"; // env state lives under .brewing/local/ (ratchet-adoption)
 
 /** A foreign-host lock is presumed dead after this long without a heartbeat. */
 export const STALE_AFTER_MS = 30 * 60 * 1000;

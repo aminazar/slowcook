@@ -99,7 +99,7 @@ describe("acquire / release against a real directory", () => {
   });
 
   it("a corrupt lock file does not wedge the repo forever", () => {
-    mkdirSync(join(repo, ".brewing"), { recursive: true });
+    mkdirSync(join(repo, ".brewing/local"), { recursive: true });
     writeFileSync(join(repo, LOCK_PATH), "{ not json", "utf8");
     expect(acquireLock(repo, "002", { now: T0, thisHost: "box-a", pid: 111 }).acquired).toBe(true);
   });

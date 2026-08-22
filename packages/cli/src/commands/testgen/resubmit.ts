@@ -105,7 +105,7 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
   const dirty = execSync("git status --porcelain", { cwd: ctx.repoRoot, encoding: "utf8" })
     .split("\n")
     .filter(
-      (l) => l.trim() && !l.startsWith("??") && !l.includes(".brewing/history-index")
+      (l) => l.trim() && !l.startsWith("??") && !l.includes(".brewing/history-index") && !l.includes(".brewing/local/")
     );
   if (dirty.length > 0) {
     console.error(`slowcook recipe: checkout has uncommitted changes — refusing.`);

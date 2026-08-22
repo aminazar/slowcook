@@ -1,4 +1,5 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { historyIndexReadPath } from "../../lib/local-state.js";
 import { join } from "node:path";
 import YAML from "yaml";
 
@@ -232,7 +233,7 @@ export function readEntitiesDigest(repoRoot: string): string | null {
  * testgen to consume in detail.
  */
 export function readHistoryIndexDigest(repoRoot: string, opts: { skipOverlapWithAuto?: boolean } = {}): string | null {
-  const path = join(repoRoot, ".brewing/history-index.json");
+  const path = historyIndexReadPath(repoRoot);
   if (!existsSync(path)) return null;
   try {
     const idx = JSON.parse(readFileSync(path, "utf8")) as {

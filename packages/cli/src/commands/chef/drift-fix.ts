@@ -31,6 +31,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { historyIndexReadPath } from "../../lib/local-state.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
@@ -349,7 +350,7 @@ Frozen surface: tests/{integration,schema,acceptance}/ + .brewing/{auto-gen,code
 }
 
 function loadHistoryIndex(repoRoot: string): unknown {
-  const path = join(repoRoot, ".brewing/history-index.json");
+  const path = historyIndexReadPath(repoRoot);
   if (!existsSync(path)) return {};
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return {}; }
 }
