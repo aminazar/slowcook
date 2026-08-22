@@ -26,6 +26,7 @@ import { Octokit } from "@octokit/rest";
 import type { LlmClient } from "@slowcook-ai/core";
 import { costEntryUsd, costMarker } from "@slowcook-ai/llm-anthropic";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
+import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
 
 export interface TestsResubmitContext {
   prNumber: number;
@@ -295,6 +296,21 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
     }
     console.log(`Noop: amendment failed discovery — reverted; error posted as feedback.`);
     return;
+  }
+  // Provenance: review-derived amendment — the entry rides the same
+  // commit as the amended tests (ratchet-adoption "producers").
+  try {
+    const ledgerRel = appendAuthored(ctx.repoRoot, {
+      agent: "recipe",
+      files: blocks.map((b) => b.path),
+      derived: triggerFromEnv() ?? {
+        reason: "(derived) tests-pr-review",
+        evidence: `feedback on PR #${ctx.prNumber}`,
+      },
+    });
+    execSync(`git add ${ledgerRel}`, { cwd: ctx.repoRoot });
+  } catch (e) {
+    console.warn(`[recipe resubmit] provenance entry not written: ${(e as Error).message}`);
   }
   execSync(`git add tests/ .brewing/manifests/`, { cwd: ctx.repoRoot });
   execSync(

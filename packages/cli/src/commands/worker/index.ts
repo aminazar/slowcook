@@ -503,7 +503,17 @@ async function processLive(
     // The worker resolved ONE forge identity; hand it to the agent under
     // both names — agents disagree on which they read (refine hard-requires
     // GITHUB_TOKEN while gh-based envs export GH_TOKEN; ledger G4).
-    env: { ...process.env, GITHUB_TOKEN: gh.token, GH_TOKEN: gh.token },
+    // The derived trigger travels too: the agent records it verbatim in
+    // its provenance ledger entry, citing the same reason and trace the
+    // worker's own audit trail carries (ratchet-adoption "producers").
+    env: {
+      ...process.env,
+      GITHUB_TOKEN: gh.token,
+      GH_TOKEN: gh.token,
+      SLOWCOOK_TRIGGER_REASON: job.triggerLabel,
+      SLOWCOOK_TRIGGER_EVIDENCE: `worker pass on #${job.issue}${job.storyId ? ` (story-${job.storyId})` : ""}: ${job.preconditions.map((p) => p.detail).join("; ").slice(0, 300)}`,
+      SLOWCOOK_TRIGGER_TRACE: runId,
+    },
   });
   const timedOut = result.error !== undefined && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
   const exitCode = result.status ?? -1;

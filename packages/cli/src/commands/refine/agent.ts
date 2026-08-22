@@ -39,6 +39,7 @@ import {
 import { SpecProposalsSchema } from "./spec-yaml.js";
 import { scopedSpecBranch } from "../../lib/project-scope.js";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
+import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -707,6 +708,26 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
   await ctx.forge.git.createBranch(branch);
   await ctx.forge.git.stage(specPath);
   await ctx.forge.git.stage(`specs/_index.yaml`);
+  // Provenance: the ledger entry rides THE SAME COMMIT as the spec — it
+  // is that commit's authorization record (ratchet-adoption "producers").
+  try {
+    let issueLabels: string[] | undefined;
+    try {
+      issueLabels = (await ctx.forge.getIssue(ctx.issueNumber)).labels;
+    } catch { /* derived trigger may still authorise */ }
+    const trigger = triggerFromEnv();
+    const ledgerRel = appendAuthored(ctx.repoRoot, {
+      agent: "refine",
+      files: [`specs/story-${spec.story_id}.yaml`, "specs/_index.yaml"],
+      issue: ctx.issueNumber,
+      ...(issueLabels ? { issue_labels: issueLabels } : {}),
+      ...(trigger ? { derived: trigger } : {}),
+      story_consent: { story_id: spec.story_id, evidence: `source issue #${ctx.issueNumber}` },
+    });
+    await ctx.forge.git.stage(ledgerRel);
+  } catch (e) {
+    console.warn(`[refine] provenance entry not written: ${(e as Error).message}`);
+  }
   for (const f of mockResult.written) {
     await ctx.forge.git.stage(f);
   }
@@ -1463,6 +1484,23 @@ export async function runResubmitRefinement(
   // Write, stage, commit
   const specPath = writeSpec(ctx.repoRoot, parsed.spec);
   await ctx.forge.git.stage(join(SPECS_DIR, `story-${storyId}.yaml`));
+  // Provenance: amendments are review-derived work — record the derived
+  // trigger (worker env when spawned; the PR itself otherwise).
+  try {
+    const trigger = triggerFromEnv() ?? {
+      reason: "(derived) spec-pr-review",
+      evidence: `feedback on PR #${ctx.prNumber}`,
+    };
+    const ledgerRel = appendAuthored(ctx.repoRoot, {
+      agent: "refine",
+      files: [join(SPECS_DIR, `story-${storyId}.yaml`)],
+      derived: trigger,
+      story_consent: { story_id: storyId, evidence: `amendment of PR #${ctx.prNumber}` },
+    });
+    await ctx.forge.git.stage(ledgerRel);
+  } catch (e) {
+    console.warn(`[refine amend] provenance entry not written: ${(e as Error).message}`);
+  }
 
   // 0.14.0-α.1 mockup-first data-layer seam — emit `.mock.ts` files
   // for any fixture domains in the amended spec. Skipped silently
