@@ -61,6 +61,36 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
   }
 
   for (const [suiteName, suite] of Object.entries(config.test)) {
+    // tap-prove suites (pgTAP via `supabase test db` / pg_prove): the
+    // runner's own line output is the result format — one line per test
+    // FILE, `<path> .. ok` on pass. No JSON reporter, no vitest scoping.
+    if (suite.reporter_format === "tap-prove") {
+      const { stdout, stderr, code } = exec(suite.run_command, options.cwd, resolveSuiteEnv(suite.env));
+      suites.push({ suite: suiteName, command: suite.run_command, exit_code: code, stdout_bytes: stdout.length });
+      const proveLine = /^(\S+\.sql)\s+\.\.+\s+(\S.*)$/;
+      let parsedAny = false;
+      for (const raw of stdout.split("\n")) {
+        const m = raw.trim().match(proveLine);
+        if (!m) continue;
+        parsedAny = true;
+        const rel = m[1]!.startsWith(options.cwd + "/")
+          ? m[1]!.slice(options.cwd.length + 1)
+          : m[1]!;
+        const ok = /^ok(?:\s|$)/.test(m[2]!.trim());
+        tests.push({
+          id: rel,
+          file: rel,
+          status: ok ? "passed" : "failed",
+          ...(ok ? {} : { failure_message: m[2]!.trim().slice(0, 300) }),
+        });
+      }
+      if (!parsedAny && code !== 0) {
+        errors.push(
+          `[${suiteName}] exit ${code}, no parsable prove output. First 400 chars of stderr: ${stderr.slice(0, 400)}`
+        );
+      }
+      continue;
+    }
     // For `run`, we want vitest's JSON reporter. We append `--reporter=json`
     // to the declared run_command if it's a vitest command and doesn't already
     // specify a reporter. Keep it additive (caller can override in stack.json).
