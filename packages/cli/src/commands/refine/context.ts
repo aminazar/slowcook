@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { historyIndexReadPath } from "../../lib/local-state.js";
+import { emitSchemaDiagram } from "../map/index.js";
 import { join } from "node:path";
 import YAML from "yaml";
 
@@ -426,6 +427,31 @@ export function readBrownfieldExtracts(repoRoot: string): string | null {
   const blocks: string[] = [];
 
   const schemaPath = join(repoRoot, ".brewing/diagrams/schema.mmd");
+  // FRESHNESS CONTRACT (2026-08-22): a stale extract is poisoned context —
+  // rewo's showed tables dropped months earlier and no functions at all,
+  // and refine faithfully specced against that fiction. The extract
+  // records the newest migration it saw; if migrations moved on (or the
+  // extract predates the freshness marker), regenerate BEFORE reading —
+  // deterministic file parsing, costs milliseconds.
+  try {
+    const migDir = join(repoRoot, "supabase/migrations");
+    if (existsSync(migDir)) {
+      const newest = readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort().pop();
+      const marker = existsSync(schemaPath)
+        ? readFileSync(schemaPath, "utf8").match(/<!-- freshness: (.+?) -->/)?.[1]
+        : undefined;
+      if (newest && marker !== newest) {
+        const r = emitSchemaDiagram(repoRoot);
+        if (r.written) {
+          console.log(
+            `[refine] schema extract was ${marker ? `stale (saw ${marker}, newest ${newest})` : "unversioned"} — regenerated before use`
+          );
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[refine] schema-extract freshness check failed: ${(e as Error).message}`);
+  }
   if (existsSync(schemaPath)) {
     try {
       const content = readFileSync(schemaPath, "utf8");

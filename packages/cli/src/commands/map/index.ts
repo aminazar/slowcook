@@ -10,7 +10,7 @@ import {
   CODE_MAP_MD_PATH,
 } from "./render.js";
 import type { CodeMap } from "./scan.js";
-import { ddlToMermaidErd } from "../refine/mermaid.js";
+import { ddlToMermaidErd, ddlFunctions } from "../refine/mermaid.js";
 import { emitTokensCatalog } from "./emit-tokens.js";
 import { buildEntitiesArtifact } from "./emit-typeorm.js";
 
@@ -269,6 +269,17 @@ export function emitSchemaDiagram(repoRoot: string): {
   }
   const ddl = files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
   const mermaid = ddlToMermaidErd(ddl);
+  // Functions are schema reality too — a spec that "creates" an existing
+  // function (or calls a missing one) is exactly the brownfield failure
+  // this extract exists to prevent.
+  const fns = ddlFunctions(ddl);
+  const fnSection =
+    fns.length > 0
+      ? "\n\n## Database functions (from the same migrations)\n\n" +
+        fns
+          .map((f) => `- \`${f.name}(${f.args})\`${f.definer ? " — SECURITY DEFINER" : ""}`)
+          .join("\n")
+      : "";
   // Count entities — quick parse of the rendered output.
   // Each entity becomes a `  NAME {` line in the erDiagram block.
   const entityCount = (mermaid.match(/^ {2}[A-Z_]+\s*\{/gm) ?? []).length;
@@ -278,7 +289,8 @@ export function emitSchemaDiagram(repoRoot: string): {
   const outPath = join(outDir, "schema.mmd");
   const header =
     `<!-- Auto-emitted by \`slowcook map --emit-schema\`. Do not hand-edit; regenerate. -->\n` +
-    `<!-- Source: ${files.length} migration file(s) under supabase/migrations/. -->\n\n`;
-  writeFileSync(outPath, header + mermaid + "\n", "utf8");
+    `<!-- Source: ${files.length} migration file(s) under supabase/migrations/. -->\n` +
+    `<!-- freshness: ${files[files.length - 1]} -->\n\n`;
+  writeFileSync(outPath, header + mermaid + fnSection + "\n", "utf8");
   return { written: true, entityCount, migrationsCount: files.length };
 }
