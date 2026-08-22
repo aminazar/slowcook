@@ -39,14 +39,23 @@ export interface TestsResubmitContext {
 }
 
 /** Parse `<file path="...">...</file>` blocks from model output. */
-export function parseFileBlocks(text: string): Array<{ path: string; content: string }> {
+export function parseFileBlocks(
+  text: string,
+  opts?: { allowStubPaths?: string[] }
+): Array<{ path: string; content: string }> {
   const out: Array<{ path: string; content: string }> = [];
   const re = /<file path="([^"]+)">\n?([\s\S]*?)<\/file>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const path = m[1]!.trim();
-    // Never let the model write outside the tests tree or escape the repo.
-    if (!path.startsWith("tests/") || path.includes("..")) continue;
+    if (path.includes("..")) continue;
+    // Writes are confined to the tests tree — PLUS the throwing stubs
+    // testgen itself authored (marker-verified by the caller): a review
+    // finding against a stub's doc comment was otherwise unfixable by
+    // the artifact's own agent.
+    const allowed =
+      path.startsWith("tests/") || (opts?.allowStubPaths ?? []).includes(path);
+    if (!allowed) continue;
     out.push({ path, content: (m[2] ?? "").replace(/\n?$/, "\n") });
   }
   return out;
@@ -148,7 +157,22 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
     return;
   }
 
-  const testPaths = files.map((f) => f.filename).filter((f) => f.startsWith("tests/"));
+  const testPaths = files
+    .map((f) => f.filename)
+    .filter(
+      (f) =>
+        f.startsWith("tests/") ||
+        (f.startsWith("src/") &&
+          (() => {
+            try {
+              return readFileSync(join(ctx.repoRoot, f), "utf8")
+                .split("\n")[0]!
+                .includes("@slowcook-stub");
+            } catch {
+              return false;
+            }
+          })())
+    );
   const currentFiles = testPaths
     .map((p) => {
       try {
@@ -161,9 +185,22 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
     .join("\n\n");
   let specYaml = "";
   try {
-    specYaml = readFileSync(join(ctx.repoRoot, "specs", `story-${storyId}.yaml`), "utf8");
+    // From origin/<base>, NEVER the branch worktree (ledger G26 family):
+    // this checkout is on the PR branch, whose spec predates amendments —
+    // the author would argue from a fossil constitution while the
+    // reviewer (fixed in G26) reads the real one.
+    const baseRef = pr.base?.ref ?? "main";
+    specYaml = execSync(`git show origin/${baseRef}:specs/story-${storyId}.yaml`, {
+      cwd: ctx.repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   } catch {
-    /* spec context best-effort */
+    try {
+      specYaml = readFileSync(join(ctx.repoRoot, "specs", `story-${storyId}.yaml`), "utf8");
+    } catch {
+      /* spec context best-effort */
+    }
   }
 
   const system = `You are slowcook's test-generation agent amending a tests PR in answer to review feedback.
@@ -253,7 +290,19 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
     console.log(`Noop: model judged no change warranted (${noChange}).`);
     return;
   }
-  const blocks = parseFileBlocks(response.text);
+  // Stub files this PR carries (testgen's own artifacts): src/ files whose
+  // first line bears the @slowcook-stub marker are amendable too.
+  const stubPaths = files
+    .map((f) => f.filename)
+    .filter((f) => f.startsWith("src/"))
+    .filter((f) => {
+      try {
+        return readFileSync(join(ctx.repoRoot, f), "utf8").split("\n")[0]!.includes("@slowcook-stub");
+      } catch {
+        return false;
+      }
+    });
+  const blocks = parseFileBlocks(response.text, { allowStubPaths: stubPaths });
   if (blocks.length === 0) {
     console.error("slowcook recipe: no parseable file blocks in the amendment — failing closed.");
     process.exit(2);
