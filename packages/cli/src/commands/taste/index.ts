@@ -81,9 +81,23 @@ export async function taste(argv: string[]): Promise<void> {
   // context is stated in the prompt by its absence, never faked.
   let specYaml: string | null = null;
   try {
-    specYaml = readFileSync(join(args.repoRoot, "specs", `story-${storyId}.yaml`), "utf8");
+    // The spec must come from the BASE branch, never the working tree
+    // (ledger G26): a resubmit leaves the checkout on the PR branch,
+    // whose spec predates amendments — taste then argues against a
+    // contract that no longer exists. `git show` is deterministic and
+    // checkout-independent.
+    const base = pr.base?.ref ?? "main";
+    specYaml = execSync(`git show origin/${base}:specs/story-${storyId}.yaml`, {
+      cwd: args.repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   } catch {
-    /* spec PR under review may BE the spec — it's in the diff */
+    try {
+      specYaml = readFileSync(join(args.repoRoot, "specs", `story-${storyId}.yaml`), "utf8");
+    } catch {
+      /* spec PR under review may BE the spec — it's in the diff */
+    }
   }
   let sourceIssueTitle: string | null = null;
   let sourceIssueBody: string | null = null;

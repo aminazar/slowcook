@@ -522,3 +522,20 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   model feedback.
 - **verified**: next amendment round on #231 re-emitted with quoted
   strings; no stubs in the merged spec.
+
+## G26 — taste read the spec from whatever branch the checkout sat on
+
+- **surfaced by**: tests PR #226 deadlocked at round cap: taste kept
+  blocking the SQL suite as "contradicting the frozen spec" — quoting
+  the PRE-amendment spec. The resubmit (G9's PR-authoritative checkout)
+  leaves the worktree on the PR branch; taste, run next, read
+  specs/story-019.yaml from THAT branch, which predates the merged
+  reality-correction (#231). The reviewer argued against a contract
+  that no longer existed while the suite agreed with the real one.
+- **root cause**: lineage read from an uncontrolled working tree. The
+  spec is not part of a tests PR — its authoritative home is the base
+  branch, and only `git show origin/<base>:…` is checkout-independent.
+- **fix**: taste resolves the spec via `git show origin/<base>` with a
+  file-read fallback (spec PRs still carry theirs in the diff).
+- **verified**: next taste round on #226 judged against the amended
+  spec; the argument-order blocker dissolved.
