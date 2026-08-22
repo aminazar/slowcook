@@ -10,10 +10,13 @@ latter.
 
 - **No override, ever, for provenanced artifacts** (#415's core stance
   survives intact).
-- **Backfill records truth, not fake agency**: only artifacts with NO
-  ledger history qualify, exactly once, as `agent: "human-legacy"` +
-  HEAD hash + the sanctioning human merge. First touch ratchets the
-  artifact into strict enforcement — one-way, like everything else.
+- **Baseline at install, never backfill-on-gap** (Amin's ruling,
+  2026-08-22): grandfathering happens ONCE, at the moment this slowcook
+  version is adopted — one atomic commit hashing every owned artifact
+  at HEAD as `agent: "pre-provenance"` entries, sanctioned by the human
+  who ran it. THEN the ratchet arms, unconditionally strict. There is
+  no ongoing "find a gap → backfill the gap" mode — that pairing is a
+  rubber stamp waiting to happen.
 - **Derived triggers are first-class authorization**: the worker's
   "derived state, not label state" model and #415's issue-label
   provenance are reconciled by recording the trigger in the entry, not
@@ -36,9 +39,11 @@ dropped (they diverged; plans travel in their own commits now).
   `{kind:"derived",reason,evidence,trace?}`. Rules gain
   `allowed_triggers` (default: owner's label + owner's derived reasons —
   resubmit, regeneration, drift).
-- New verdict class `legacy-unprovenanced` (distinct from violation):
-  owned path changed, ledger has NO entry for the path ever. Emitted
-  with the exact backfill command.
+- New verdict class `baseline-missing` (distinct from violation): an
+  ownership config exists but the ledger carries no baseline header —
+  the gate FAILS with the exact `slowcook provenance init` instruction.
+  (No warn window: baseline belongs to install time, so its absence is
+  a setup error, not a grace state.)
 - Malformed `ownership.json` fails CLOSED (loud exit), never silent
   fallback to defaults.
 
@@ -52,20 +57,29 @@ sha256 as authored, trigger, story consent where required):
 - Entries are committed IN THE SAME COMMIT as the artifact (they are the
   provenance of that commit).
 
-### R3 — `slowcook provenance backfill`
-- `--path <p>` (or `--all-legacy`): verifies the path has no ledger
-  history, records `human-legacy` entry at HEAD hash with the invoking
-  human + reason. Refuses provenanced paths loudly.
-- CI verdict for `legacy-unprovenanced` = WARN + instruction, not FAIL,
-  for a grace window declared in ownership.json
-  (`adoption: "warn-until: <date>"` or `"strict"`); rewo starts at warn,
-  flips to strict once the three live stories' artifacts are backfilled.
+### R3 — `slowcook provenance init` (install-time baseline)
+- Runs once per repo, at adoption/upgrade: enumerates every owned
+  artifact (ownership rules + manifest test files), hashes each at
+  HEAD, writes `agent: "pre-provenance"` entries plus a ledger
+  `baseline: {commit, at, by}` header, all in ONE commit.
+- Refuses to run twice (a baseline exists = the ratchet is armed;
+  re-baselining would launder hand edits). Adding a NEW ownership rule
+  later extends the baseline only for paths that rule newly covers,
+  recorded the same way.
+- The gate is strict from the commit after the baseline. No warn mode.
 
-### R4 — environment/evidence split
-- `.gitignore` templates (init + docs): `.brewing/runs/`, worker logs,
-  `workload.json`, `history-index.json` (already), traces.
-- Documented contract in docs/worker.md: what must be committed and why
-  (gates can only judge what the checkout carries).
+### R4 — environment/evidence split (structural, per Amin's ruling)
+- A split in logic is a split in FILES: one ignored root for everything
+  environmental — `.brewing/local/` — covered by a single gitignore
+  line. Migrate: `history-index.json`, brew `runs/`, any worker-local
+  state → `.brewing/local/…` (readers fall back to the old paths for
+  one version).
+- Evidence stays versioned at stable paths: `.brewing/manifests/`,
+  `.brewing/ownership.json`, `.brewing/provenance/authored.json`,
+  `.brewing/gates.yaml`, `stack.json`. No file mixes both kinds.
+- Documented contract in docs/worker.md: gates can only judge what the
+  checkout carries; nothing under `.brewing/local/` may ever be read by
+  a gate.
 
 ### R5 — arm on rewo, dogfood
 - Ship workflow via templates; arm in warn mode; backfill the touched
