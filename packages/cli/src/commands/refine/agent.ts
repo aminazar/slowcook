@@ -1381,13 +1381,17 @@ export async function runResubmitRefinement(
   ]);
   const pmTimeline = timelineComments.filter((c) => {
     const body = c.body ?? "";
-    if (body.startsWith("### slowcook ·")) return false;
+    // Own chatter is not feedback — EXCEPT emission-gate errors, written
+    // precisely so the next round can fix them (G19/G25b).
+    if (body.startsWith("### slowcook ·") && !body.includes("slowcook-emission-gate")) return false;
     return true;
   });
   const pmReview = reviewComments.filter((c) => {
     if (c.is_bot) return false;
     const body = c.body ?? "";
-    if (body.startsWith("### slowcook ·")) return false;
+    // Own chatter is not feedback — EXCEPT emission-gate errors, written
+    // precisely so the next round can fix them (G19/G25b).
+    if (body.startsWith("### slowcook ·") && !body.includes("slowcook-emission-gate")) return false;
     return true;
   });
 
@@ -1488,11 +1492,19 @@ export async function runResubmitRefinement(
   {
     const casualties = normalizationCasualties(parsed.spec as unknown as Record<string, unknown>);
     if (casualties.length > 0) {
-      console.error(
-        `refine amend story-${storyId}: ${casualties.length} scenario/invariant string(s) were mangled by YAML parsing — ` +
-          `wrap strings containing ': ' or '{ }' in double quotes and re-emit. Mangled entries:\n  ` +
-          casualties.join("\n  ")
-      );
+      const msg =
+        `${casualties.length} scenario/invariant string(s) were mangled by YAML parsing — ` +
+        `wrap strings containing ': ' or '{ }' in double quotes and re-emit. Mangled entries:\n  ` +
+        casualties.join("\n  ");
+      // The error must land where the NEXT round reads feedback (G19's
+      // lesson: a gate that only prints to the console teaches nobody).
+      try {
+        await ctx.forge.createIssueComment(
+          ctx.prNumber,
+          `### slowcook · refine amend <!-- slowcook-emission-gate -->\n\n🛑 The amendment was REFUSED (not pushed):\n\n${msg}`
+        );
+      } catch { /* console error still stands */ }
+      console.error(`refine amend story-${storyId}: ${msg}`);
       process.exit(2);
     }
   }
