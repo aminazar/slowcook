@@ -127,6 +127,12 @@ async function main(): Promise<void> {
       await worker(["workload", ...args.slice(1)]);
       return;
     }
+    case "provenance": {
+      // `slowcook provenance init` — one-time baseline arming the ratchet.
+      const { provenance } = await import("./commands/provenance/index.js");
+      await provenance(args.slice(1));
+      return;
+    }
     case "doctor": {
       // `slowcook doctor` — verify and name every worker precondition (D5).
       await doctor(args.slice(1));

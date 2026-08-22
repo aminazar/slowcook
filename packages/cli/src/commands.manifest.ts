@@ -286,6 +286,13 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     status: "alpha",
   },
   {
+    name: "provenance",
+    usage: "slowcook provenance init [--cwd <path>] [--by <name>]",
+    description: "One-time ratchet baseline: sanction every owned artifact (specs, manifest tests) as it stands, in one ledger entry + baseline header. Strict enforcement from the next commit; refuses to run twice (re-baselining would launder hand edits).",
+    group: "ops",
+    status: "alpha",
+  },
+  {
     name: "doctor",
     usage: "slowcook doctor [--cwd <path>] [--owner <login>] [--repo <name>]",
     description: "Verify and NAME every worker precondition, one line each: checkout sync, worktree hygiene, forge identity (live App-token mint, not a file check), LLM seam (including the ANTHROPIC_API_KEY-outranks-OAuth trap), pricing coverage for default models, installed dependencies. Fail-closed: exit 1 on any failure.",
