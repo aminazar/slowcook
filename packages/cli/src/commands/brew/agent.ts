@@ -593,6 +593,41 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     });
   }
 
+  // TESTS_BROKEN pre-flight (ledger G27): when the story's failures are
+  // dominated by one shared NON-assertion error (a setup crash — missing
+  // export, unresolvable module), the suite cannot initialize and no
+  // amount of src/ iteration can green it: the broken file is the frozen
+  // tests' own. Halt IMMEDIATELY with the error surfaced — story-019's
+  // brew burned $6.24 discovering "mockUnification is not a function"
+  // one read-only iteration at a time.
+  {
+    const setupCrashRe = /is not a function|is not defined|Cannot find (module|package)|ReferenceError|TypeError/;
+    const storyFailures = baseline.tests.filter(
+      (t) => expectedTestIds.has(t.id) && t.status !== "passed" && t.failure_message
+    );
+    const crashes = storyFailures.filter((t) => setupCrashRe.test(t.failure_message ?? ""));
+    if (storyFailures.length >= 4 && crashes.length / storyFailures.length > 0.5) {
+      const byMsg = new Map<string, number>();
+      for (const t of crashes) {
+        const key = (t.failure_message ?? "").slice(0, 120);
+        byMsg.set(key, (byMsg.get(key) ?? 0) + 1);
+      }
+      const [topMsg, topCount] = [...byMsg.entries()].sort((a, b) => b[1] - a[1])[0]!;
+      return haltFor(ctx, {
+        reason: "TESTS_BROKEN",
+        iterations: 0,
+        checkpoints: 0,
+        greenCount: greenSet.size,
+        totalCount: expectedTestIds.size,
+        spendUsd: 0,
+        summary:
+          `${crashes.length}/${storyFailures.length} of the story's failing tests crash in SETUP rather than failing an assertion ` +
+          `(${topCount}x: \`${topMsg}\`). The frozen suite cannot initialize — no implementation change can green it. ` +
+          `Fix the tests artifact (recipe resubmit) before brewing; not one iteration was spent.`,
+      });
+    }
+  }
+
   if (redSet.size === 0) {
     return {
       kind: "success",

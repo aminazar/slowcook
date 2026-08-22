@@ -68,6 +68,7 @@ export type HaltReason =
    */
   | "MANIFEST_MISSING"
   | "MANIFEST_DRIFT"
+  | "TESTS_BROKEN"
   /**
    * P5 (ladder) — greening the current target repeatedly breaks the same
    * already-green test. That is not an agent failure: the SPEC disagrees
@@ -311,6 +312,15 @@ export function defaultSuggestedActions(
           id: "resolve_contradiction",
           label: "Decide which requirement wins",
           description: "Two tests demand incompatible behavior — satisfying the target keeps breaking a green test. A backprop claim was filed naming the pair. Amend the spec (supersede one side), then re-run brew.",
+        },
+      ];
+    case "TESTS_BROKEN":
+      return [
+        {
+          id: "fix_tests_artifact",
+          label: "Fix the tests artifact — the suite cannot initialize",
+          description:
+            "The story's failures are SETUP crashes (missing export / unresolvable module), not assertions — no implementation change can green them. Fix via `slowcook recipe --pr <tests-pr>` (or a tests-fix PR); the crash message in the summary names the missing surface. Re-run brew only once the tests execute (red is fine; crashing is not).",
         },
       ];
     case "MANIFEST_DRIFT":
