@@ -556,3 +556,20 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   (marker-verified, first line).
 - **verified**: next round amended the member_rewos assertions and the
   stub doc in one pass.
+
+## G27 — brew burned its budget on a suite that could not initialize
+
+- **surfaced by**: story-019's first brew: baseline 4/20 green, halt at
+  the iteration cap 4/20 green, $6.24 — seventeen tests were dying in
+  SETUP (`mockUnification is not a function`: the frozen helper's export
+  name diverged from the tests across amendment rounds, then a second
+  missing adapter surfaced behind it). Brew cannot edit tests/, so it
+  circled read-only for four straight iterations.
+- **root cause**: the baseline treated setup crashes as ordinary reds.
+  A red assertion is brew's job; a crash in the tests' own plumbing is
+  recipe's — and no iteration budget distinguishes them.
+- **fix**: TESTS_BROKEN pre-flight — when >half the story's failures
+  share a non-assertion crash signature, halt at iteration 0 with the
+  dominant message surfaced and the recipe-resubmit route named.
+- **verified**: unit build green; the recovered suite (PR #232) is the
+  live proof-path — brew re-runs only after the tests execute.
