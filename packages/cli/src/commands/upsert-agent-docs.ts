@@ -314,7 +314,8 @@ function upsertGitignore(repoRoot: string, dryRun: boolean): "added" | "already-
   // an explicit allowlist for curated/.
   const needsAuto = !body.includes(".brewing/repo-knowledge/auto/");
   const needsCuratedAllow = !body.includes("!.brewing/repo-knowledge/curated/");
-  if (!needsAuto && !needsCuratedAllow) return "already-present";
+  const needsLocal = !body.includes(".brewing/local/");
+  if (!needsAuto && !needsCuratedAllow && !needsLocal) return "already-present";
   if (dryRun) return "added";
   const block = [
     "",
@@ -323,6 +324,9 @@ function upsertGitignore(repoRoot: string, dryRun: boolean): "added" | "already-
     "# organizational memory tracked in git.",
     ".brewing/repo-knowledge/auto/",
     "!.brewing/repo-knowledge/curated/",
+    "# .brewing/local/ is ENVIRONMENT state (run logs, caches, locks) —",
+    "# never versioned, never read by a gate.",
+    ".brewing/local/",
     "",
   ].join("\n");
   const next = body.endsWith("\n") ? body + block : body + "\n" + block;

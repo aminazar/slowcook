@@ -712,7 +712,7 @@ function gitShaOf(repoRoot: string): string {
 function ensureBaseCheckout(repoRoot: string, base: string): void {
   const lines = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" })
     .split("\n")
-    .filter((l) => l.trim() && !l.includes(".brewing/history-index"));
+    .filter((l) => l.trim() && !l.includes(".brewing/history-index") && !l.includes(".brewing/local/"));
   const modified = lines.filter((l) => !l.startsWith("??"));
   if (modified.length > 0) {
     console.error(
@@ -727,7 +727,7 @@ function ensureBaseCheckout(repoRoot: string, base: string): void {
       `note: cleaning ${untracked.length} untracked path(s) — branch-switch residue between jobs`
     );
     execSync(`git checkout -f ${base}`, { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] });
-    execSync(`git clean -fd -e .brewing/history-index.json`, {
+    execSync(`git clean -fd -e .brewing/history-index.json -e .brewing/local`, {
       cwd: repoRoot,
       stdio: ["ignore", "ignore", "pipe"],
     });

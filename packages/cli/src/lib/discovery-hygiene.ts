@@ -25,7 +25,8 @@ export function dirtyDiscoveryPaths(repoRoot: string): string[] {
     .filter(
       (e) =>
         (e.path.startsWith("src/") || e.path.startsWith("tests/")) &&
-        !e.path.includes(".brewing/history-index")
+        !e.path.includes(".brewing/history-index") &&
+        !e.path.includes(".brewing/local/")
     )
     .map((e) => `${e.status} ${e.path}`);
 }

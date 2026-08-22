@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { runsDir } from "../../lib/local-state.js";
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
@@ -437,8 +438,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   // Rolling per-iteration log. Operator can `ssh runner; tail -f` this
   // during long brews to see progress without waiting for CI log flush.
   const runLogPath = join(
-    args.repoRoot,
-    ".brewing/runs",
+    runsDir(args.repoRoot),
     `story-${args.storyId}-${runTag}`,
     "iterations.log"
   );

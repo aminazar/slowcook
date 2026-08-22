@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { historyIndexWritePath } from "../../lib/local-state.js";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
@@ -463,7 +464,7 @@ function emitHistoryIndex(repoRoot: string): void {
   }
 
   try {
-    const indexPath = join(repoRoot, ".brewing/history-index.json");
+    const indexPath = historyIndexWritePath(repoRoot);
     mkdirSync(dirname(indexPath), { recursive: true });
     writeFileSync(indexPath, JSON.stringify(idx, null, 2), "utf8");
     const ga = idx.git_attention;

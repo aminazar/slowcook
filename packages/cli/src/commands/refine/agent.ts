@@ -1317,7 +1317,7 @@ export async function runResubmitRefinement(
             encoding: "utf8",
           })
             .split("\n")
-            .filter((l) => l.trim() && !l.includes(".brewing/history-index"));
+            .filter((l) => l.trim() && !l.includes(".brewing/history-index") && !l.includes(".brewing/local/"));
           if (dirty.length > 0) {
             return {
               kind: "noop",
