@@ -27,6 +27,7 @@ import type { LlmClient } from "@slowcook-ai/core";
 import { costEntryUsd, costMarker } from "@slowcook-ai/llm-anthropic";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
 import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
+import { parseStoryBranch } from "../../lib/story-branch.js";
 
 export interface TestsResubmitContext {
   prNumber: number;
@@ -100,9 +101,7 @@ export async function runTestsResubmit(ctx: TestsResubmitContext): Promise<void>
     pull_number: ctx.prNumber,
   });
   const branch = pr.head?.ref ?? "";
-  // Suffix family (G15/G24/G24b): amend timestamps, fix-N counters — the
-  // story id stops before any of them.
-  const storyId = branch.match(/slowcook\/tests\/story-(.+?)(?:-amend-\d+|-fix-\d+|-\d{13})?$/)?.[1];
+  const storyId = parseStoryBranch(branch)?.kind === "tests" ? parseStoryBranch(branch)!.storyId : undefined;
   if (!storyId) {
     console.log(`Noop: PR #${ctx.prNumber} head "${branch}" is not a slowcook tests branch.`);
     return;

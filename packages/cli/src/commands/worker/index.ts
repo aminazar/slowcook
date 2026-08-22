@@ -58,6 +58,7 @@ import { needsTriageReply, renderTriageReply, STALE_PREMISE_MARKER } from "./sta
 import { mapLiveOutcome, commentHeader } from "./live.js";
 import { acquireWorkerLock, releaseWorkerLock } from "./worker-lock.js";
 import { pmCc } from "../../lib/pm-notify.js";
+import { parseStoryBranch } from "../../lib/story-branch.js";
 import type { AgentKind } from "./plan.js";
 
 /** Stages allowed to run live in this build. Widened one phase at a time
@@ -792,7 +793,8 @@ async function triageStalePremiseComments(
     per_page: 15,
   });
   for (const pr of closed) {
-    const m = pr.head?.ref?.match(/slowcook\/(spec|tests|brew)\/story-(.+?)(?:-amend-\d+|-\d{13})?$/);
+    const parsedBranch = pr.head?.ref ? parseStoryBranch(pr.head.ref) : null;
+    const m = parsedBranch ? [pr.head!.ref, parsedBranch.kind, parsedBranch.storyId] : null;
     if (!m || !pr.merged_at) continue;
     const kind = m[1]!;
     const storyId = m[2]!;

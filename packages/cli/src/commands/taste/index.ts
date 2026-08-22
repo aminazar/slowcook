@@ -25,6 +25,7 @@ import { costEntryUsd, costMarker } from "@slowcook-ai/llm-anthropic";
 import { readIndex } from "../refine/spec-yaml.js";
 import { pmCc } from "../../lib/pm-notify.js";
 import { loadGates } from "../../lib/gates.js";
+import { parseStoryBranch } from "../../lib/story-branch.js";
 import {
   buildTastePrompt,
   parseTasteVerdict,
@@ -60,7 +61,8 @@ export async function taste(argv: string[]): Promise<void> {
 
   const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: args.pr });
   const head = pr.head?.ref ?? "";
-  const kindMatch = head.match(/slowcook\/(spec|tests|brew)\/story-(.+?)(?:-amend-\d+|-\d{13})?$/);
+  const parsed = parseStoryBranch(head);
+  const kindMatch = parsed ? [head, parsed.kind, parsed.storyId] : null;
   if (!kindMatch) {
     console.error(
       `slowcook taste: PR #${args.pr} head "${head}" is not a slowcook spec/tests branch — refusing to review what no agent owns.`

@@ -40,6 +40,7 @@ import { SpecProposalsSchema, normalizationCasualties } from "./spec-yaml.js";
 import { scopedSpecBranch } from "../../lib/project-scope.js";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
 import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
+import { parseStoryBranch } from "../../lib/story-branch.js";
 import type {
   ForgeAdapter,
   Issue,
@@ -1307,7 +1308,8 @@ export async function runResubmitRefinement(
       if (!pr.merged) prHeadBranch = pr.head_branch ?? null;
       // Follow-up branches are story-<id>-amend-<ts>; the story id stops
       // before the -amend suffix (ledger G15).
-      const m = pr.head_branch?.match(/slowcook\/spec\/story-(.+?)(?:-amend-\d+)?$/);
+      const _pb = pr.head_branch ? parseStoryBranch(pr.head_branch) : null;
+      const m = _pb && _pb.kind === "spec" ? [pr.head_branch, _pb.storyId] : null;
       if (m && m[1]) {
         storyId = m[1];
         // MERGED PR → the amendment applies to the CURRENT spec on the
