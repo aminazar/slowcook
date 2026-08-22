@@ -36,7 +36,7 @@ import {
   validateComponentReuseShape,
   validateRouteCollisions,
 } from "./spec-validate.js";
-import { SpecProposalsSchema } from "./spec-yaml.js";
+import { SpecProposalsSchema, normalizationCasualties } from "./spec-yaml.js";
 import { scopedSpecBranch } from "../../lib/project-scope.js";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
 import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
@@ -661,6 +661,17 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     );
     for (const f of validationFindings) {
       console.warn(`  - ${f.path}: ${f.message} (${f.action})`);
+    }
+  }
+  {
+    const casualties = normalizationCasualties(spec as unknown as Record<string, unknown>);
+    if (casualties.length > 0) {
+      console.error(
+        `refine story-${spec.story_id}: ${casualties.length} scenario/invariant string(s) were mangled by YAML parsing (G25) — ` +
+          `wrap strings containing ': ' or '{ }' in double quotes. Mangled entries:\n  ` +
+          casualties.join("\n  ")
+      );
+      process.exit(2);
     }
   }
   const specPath = writeSpec(ctx.repoRoot, spec);
@@ -1467,6 +1478,22 @@ export async function runResubmitRefinement(
       isFollowUp = pr.state === "closed" && pr.merged;
     } catch {
       // If we can't fetch PR state, behave like older versions.
+    }
+  }
+
+  // G25 — a scenario the YAML normalizer could only stub out is a FAILED
+  // emission: persisting "[NORMALIZED_OBJECT]" poisons testgen and every
+  // later reader. The error text doubles as the model's next-round
+  // feedback: quote strings containing YAML-meaningful characters.
+  {
+    const casualties = normalizationCasualties(parsed.spec as unknown as Record<string, unknown>);
+    if (casualties.length > 0) {
+      console.error(
+        `refine amend story-${storyId}: ${casualties.length} scenario/invariant string(s) were mangled by YAML parsing — ` +
+          `wrap strings containing ': ' or '{ }' in double quotes and re-emit. Mangled entries:\n  ` +
+          casualties.join("\n  ")
+      );
+      process.exit(2);
     }
   }
 

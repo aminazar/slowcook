@@ -186,3 +186,16 @@ describe("repo-local field passthrough", () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 });
+
+describe("normalizationCasualties (G25)", () => {
+  it("flags stubbed entries, passes clean specs", async () => {
+    const { normalizationCasualties } = await import("./spec-yaml.js");
+    expect(
+      normalizationCasualties({
+        invariants: ["fine", '[NORMALIZED_OBJECT] {"Given x":null}'],
+        acceptance_scenarios: ["ok"],
+      })
+    ).toHaveLength(1);
+    expect(normalizationCasualties({ invariants: ["all good"] })).toHaveLength(0);
+  });
+});

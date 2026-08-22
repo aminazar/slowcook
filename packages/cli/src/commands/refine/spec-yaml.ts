@@ -305,6 +305,28 @@ export function normalizeScenarioArrays<T extends Record<string, unknown>>(doc: 
   return out as T;
 }
 
+/**
+ * Entries the normalizer could only mark, not repair (ledger G25): a
+ * scenario written with unquoted YAML-meaningful characters (the rewo
+ * amendment's inline `{ from_id: ..., to_id: ... }` call syntax) parses
+ * as a nested map and survives only as a "[NORMALIZED_OBJECT]" stub.
+ * Persisting the stub poisons every downstream consumer — emissions
+ * carrying any casualty must FAIL, with this list as the feedback.
+ */
+export function normalizationCasualties(spec: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const key of ["acceptance_scenarios", "preconditions", "invariants", "non_goals"]) {
+    const val = spec[key];
+    if (!Array.isArray(val)) continue;
+    for (const entry of val) {
+      if (typeof entry === "string" && entry.startsWith("[NORMALIZED_OBJECT]")) {
+        out.push(`${key}: ${entry.slice(0, 120)}…`);
+      }
+    }
+  }
+  return out;
+}
+
 export function listActiveSpecs(repoRoot: string): Spec[] {
   const dir = join(repoRoot, SPECS_DIR);
   if (!existsSync(dir)) return [];
