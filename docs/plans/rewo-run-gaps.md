@@ -539,3 +539,20 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   file-read fallback (spec PRs still carry theirs in the diff).
 - **verified**: next taste round on #226 judged against the amended
   spec; the argument-order blocker dissolved.
+
+## G26b — the author agent read the fossil spec too (and could not fix stubs)
+
+- **surfaced by**: after G26 fixed the REVIEWER's spec source, #226 kept
+  deadlocking from the other side: the resubmit twice declared
+  NO_CHANGES, its reason quoting "the frozen spec, which mandates
+  member_rewos re-pointing and canonical-first" — the PRE-amendment
+  spec read from the checked-out PR branch. Reviewer and author were
+  arguing from different constitutions. Separately, taste demanded a
+  stub-doc correction the resubmit was structurally unable to make
+  (writes confined to tests/; stubs live in src/).
+- **fix**: resubmit reads the spec from origin/<base> (same rule as
+  G26); parseFileBlocks accepts src/ paths ONLY when the caller
+  allowlists them as this PR's own @slowcook-stub files
+  (marker-verified, first line).
+- **verified**: next round amended the member_rewos assertions and the
+  stub doc in one pass.

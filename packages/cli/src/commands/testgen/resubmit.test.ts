@@ -33,3 +33,18 @@ describe("isFeedbackComment", () => {
     expect(isFeedbackComment("@aminazar: please restore the tie-break test")).toBe(true);
   });
 });
+
+
+describe("stub-file amendment scope (G26b)", () => {
+  it("src stub paths pass only when allowlisted; other src writes never", () => {
+    const text = '<file path="src/lib/links/process-unification-job.ts">// @slowcook-stub story-019\n</file>\n<file path="src/lib/evil.ts">x</file>\n<file path="tests/integration/a.test.ts">t</file>';
+    const blocks = parseFileBlocks(text, {
+      allowStubPaths: ["src/lib/links/process-unification-job.ts"],
+    });
+    expect(blocks.map((b) => b.path)).toEqual([
+      "src/lib/links/process-unification-job.ts",
+      "tests/integration/a.test.ts",
+    ]);
+    expect(parseFileBlocks(text).map((b) => b.path)).toEqual(["tests/integration/a.test.ts"]);
+  });
+});
