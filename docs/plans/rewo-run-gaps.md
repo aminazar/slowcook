@@ -504,3 +504,21 @@ cc's the PM. Shipped PR #444; rewo declares its gates in
   (taste + stale-premise triage).
 - **verified**: taste on #228 resolves story-020 and carries the spec +
   manifest into the advisory review.
+
+## G25 — the YAML normalizer stubbed mangled scenarios and refine SHIPPED them
+
+- **surfaced by**: the story-019 "adapt to reality" amendment (PR #231):
+  the corrected call syntax `.rpc('merge_rewos', { from_id: …, to_id: … })`
+  inside unquoted scenario strings parsed as nested YAML maps; the
+  normalizer's last-resort fallback stubbed them as
+  `[NORMALIZED_OBJECT] {…}` — and the amendment pushed those stubs into
+  the spec, where they would have poisoned testgen.
+- **root cause**: a lossy fallback with no fail-closed consumer — the
+  marker existed to make corruption VISIBLE, but nothing refused to
+  persist it.
+- **fix**: `normalizationCasualties()` + hard-fail guards in both refine
+  emission and amendment paths; the error text names the mangled entries
+  and the cure (quote YAML-meaningful strings), doubling as next-round
+  model feedback.
+- **verified**: next amendment round on #231 re-emitted with quoted
+  strings; no stubs in the merged spec.
