@@ -65,6 +65,15 @@ export function parseByReporterFormat(
     // parser only ever knew `playwright-list-lines`). Accept both.
     case "playwright-json":
       return parsePlaywrightList(output);
+    // tap-prove (2026-08-22, rewo pgTAP gating): discovery output is one
+    // test FILE per line (e.g. `ls supabase/tests/database/*.test.sql`);
+    // the file path is both id and name — pg_prove reports per-file.
+    case "tap-prove":
+      return output
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith("#"))
+        .map((file) => ({ id: file, file }));
     default:
       throw new Error(
         `Unknown reporter_format: ${JSON.stringify(format)}. ` +

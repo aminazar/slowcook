@@ -254,3 +254,47 @@ describe("suite env reaches the runner", () => {
     expect(seen[0]).toBeUndefined();
   });
 });
+
+describe("tap-prove suites (pgTAP gating, 2026-08-22)", () => {
+  const config = {
+    language: "typescript" as const,
+    package_manager: "npm" as const,
+    test: {
+      db: {
+        runner: "pg_prove",
+        run_command: "npx supabase test db",
+        discover_command: "ls supabase/tests/database/*.test.sql",
+        reporter_format: "tap-prove",
+      },
+    },
+  };
+
+  it("parses prove lines into per-file results, stripping the cwd prefix", () => {
+    const stdout = [
+      "/repo/supabase/tests/database/00-smoke.test.sql .. ok",
+      "/repo/supabase/tests/database/story-019-merge-rewos.test.sql .. Dubious, test returned 3",
+      "Test Summary Report",
+      "story-019-merge-rewos.test.sql (Wstat: 768 Tests: 0 Failed: 0)",
+    ].join("\n");
+    const r = runTests(config as never, {
+      cwd: "/repo",
+      exec: () => ({ stdout, stderr: "", code: 1 }),
+    });
+    expect(r.tests).toHaveLength(2);
+    expect(r.tests[0]).toMatchObject({
+      file: "supabase/tests/database/00-smoke.test.sql",
+      status: "passed",
+    });
+    expect(r.tests[1]!.status).toBe("failed");
+    expect(r.tests[1]!.failure_message).toContain("Dubious");
+  });
+
+  it("nonzero exit with no parseable lines = suite error, not silence", () => {
+    const r = runTests(config as never, {
+      cwd: "/repo",
+      exec: () => ({ stdout: "container exploded", stderr: "boom", code: 1 }),
+    });
+    expect(r.tests).toHaveLength(0);
+    expect(r.error ?? "").not.toBe(undefined);
+  });
+});
