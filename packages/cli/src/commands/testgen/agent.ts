@@ -21,6 +21,7 @@ import { readIndex, readSpec, SPECS_DIR } from "../refine/spec-yaml.js";
 import { readContextMd } from "../refine/context.js";
 import { TESTGEN_SYSTEM } from "./prompts.js";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
+import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
 
 export const LABEL_TESTS_READY = "tests-ready";
 export const LABEL_OVERRIDE_FREEZE = "override-freeze";
@@ -299,6 +300,31 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
   for (const id of actuallyRemoved) {
     await ctx.forge.git.stage(join(TESTS_INTEGRATION_DIR, `story-${id}.test.ts`));
     await ctx.forge.git.stage(join(MANIFESTS_DIR, `story-${id}.json`));
+  }
+  // Provenance: the ledger entry rides the same commit as the tests —
+  // owned files only (tests + removed tests); stubs live under src/,
+  // which nobody owns (ratchet-adoption "producers").
+  try {
+    const trigger = triggerFromEnv() ?? {
+      reason: "(derived) spec-merged-no-tests",
+      evidence: `generation for ${generated.map((g) => `story-${g.spec.story_id}`).join(", ")} (${ctx.specId ? "operator --spec" : "batch"})`,
+    };
+    const ownedFiles = [
+      ...generated.flatMap((g) => [
+        ...(g.testPath && g.fileContents ? [g.testPath] : []),
+        ...(g.uiTestPath && g.uiFileContents ? [g.uiTestPath] : []),
+        ...g.extraTestFiles.map((e) => e.path),
+      ]),
+      ...actuallyRemoved.map((id) => join(TESTS_INTEGRATION_DIR, `story-${id}.test.ts`)),
+    ];
+    const ledgerRel = appendAuthored(ctx.repoRoot, {
+      agent: "recipe",
+      files: ownedFiles,
+      derived: trigger,
+    });
+    await ctx.forge.git.stage(ledgerRel);
+  } catch (e) {
+    console.warn(`[testgen] provenance entry not written: ${(e as Error).message}`);
   }
   const storyIds = generated.map((g) => g.spec.story_id);
   await ctx.forge.git.commit(
