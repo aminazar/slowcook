@@ -362,6 +362,11 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
     console.warn(`[recipe resubmit] provenance entry not written: ${(e as Error).message}`);
   }
   execSync(`git add tests/ .brewing/manifests/`, { cwd: ctx.repoRoot });
+  // Amended stub files must ride the same commit (G26c: they were
+  // written but never staged — the fix silently stayed in the worktree).
+  for (const sp of blocks.map((b) => b.path).filter((p2) => p2.startsWith("src/"))) {
+    execSync(`git add ${JSON.stringify(sp)}`, { cwd: ctx.repoRoot });
+  }
   execSync(
     `git -c user.name="slowcook" -c user.email="agents@slowcook.dev" commit -m "recipe: resubmit story-${storyId} per PR #${ctx.prNumber} review"`,
     { cwd: ctx.repoRoot }
