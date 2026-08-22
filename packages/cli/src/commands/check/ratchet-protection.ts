@@ -172,7 +172,10 @@ export function verifyProtection(input: ProtectionInput): ProtectionVerdict {
   const sanctioned: ProtectionVerdict["sanctioned"] = [];
 
   for (const { path, rule } of owned) {
-    const entry = input.ledger.find((e) => e.files.includes(path));
+    // LAST matching entry wins: authorship history accretes (the baseline
+    // entry covers a file first; the agent that later amends it appends a
+    // newer entry — first-match would shadow it forever).
+    const entry = [...input.ledger].reverse().find((e) => e.files.includes(path));
 
     if (!entry) {
       violations.push({
