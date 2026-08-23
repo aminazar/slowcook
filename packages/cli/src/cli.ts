@@ -223,6 +223,12 @@ async function main(): Promise<void> {
     case "catchup":
       await catchup(args.slice(1), VERSION);
       return;
+    case "verify": {
+      // PR-E (2026-08-23) — the human merge-gate battery as one command.
+      const { verify } = await import("./commands/verify/index.js");
+      await verify(args.slice(1));
+      return;
+    }
     case "brew":
       // 0.18.0-α.8 prototype — `brew --pair-sim` invokes the local
       // pair-brew simulator (driver + navigator) instead of the
