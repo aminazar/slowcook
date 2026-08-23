@@ -256,7 +256,17 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
   if (!args.skipInstall) {
     console.log(`  npm    install in mock/`);
     try {
-      execSync(`npm install --silent`, { cwd: mockDir, stdio: ["ignore", "inherit", "inherit"] });
+      (() => {
+      try {
+        execSync(`npm install --silent`, { cwd: mockDir, stdio: ["ignore", "inherit", "inherit"] });
+      } catch {
+        // Peer-dep conflicts are routine in mock trees (overlay's react
+        // range vs the mock's). Fall back rather than crash-loop a host
+        // service running under systemd Restart=.
+        console.warn(`  npm    resolver conflict — retrying with --legacy-peer-deps`);
+        execSync(`npm install --silent --legacy-peer-deps`, { cwd: mockDir, stdio: ["ignore", "inherit", "inherit"] });
+      }
+    })();
     } catch (e) {
       console.error(`npm install failed: ${(e as Error).message}`);
       process.exit(2);
