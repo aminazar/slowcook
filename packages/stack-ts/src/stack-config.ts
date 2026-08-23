@@ -10,6 +10,11 @@ export interface SuiteConfig {
   runner: string;
   run_command: string;
   discover_command: string;
+  /** Optional full-environment reset before verification (e.g.
+   *  "npx supabase db reset"). `slowcook verify` runs it when present —
+   *  "already running" DB states are verification theater; only a full
+   *  replay proves a branch's migrations build. */
+  reset_command?: string;
   reporter_format: ReporterFormat | string;
   /**
    * Environment applied to this suite's run AND discover commands.
@@ -131,6 +136,9 @@ export function validateStackConfig(raw: unknown): StackConfig {
         discover_command: s["discover_command"],
         reporter_format: s["reporter_format"] as ReporterFormat,
       };
+      if (typeof s["reset_command"] === "string" && s["reset_command"].trim()) {
+        suites[name]!.reset_command = s["reset_command"];
+      }
       if (s["env"] !== undefined) {
         if (typeof s["env"] !== "object" || s["env"] === null || Array.isArray(s["env"])) {
           throw new StackConfigError(`stack.json test.${name}.env must be an object of string values`);
