@@ -207,17 +207,20 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
       );
       process.exit(2);
     }
-    // Recompute per-suite counts from the filtered set so the manifest's
-    // `suites[].test_count` reflects the FILTERED total, not raw discovery.
-    filteredSuites = suites.map((s) => ({
-      ...s,
-      test_count: filteredTests.filter((t) =>
-        // Heuristic: tests whose suite-of-origin matches this suite name.
-        // Slowcook only has one vitest suite today; this is a forward-
-        // compat hedge for multi-suite stacks.
-        true
-      ).length,
-    }));
+    // Recompute per-suite counts from the filtered set. 2026-08-23:
+    // discovery now attributes each test to its suite of origin — the old
+    // "one vitest suite" heuristic stamped EVERY suite with the same
+    // total (a story-016 manifest advertised a 26-test playwright suite
+    // that did not exist). Suites left with zero story tests drop out of
+    // the frozen contract entirely.
+    filteredSuites = suites
+      .map((s) => ({
+        ...s,
+        test_count: filteredTests.filter(
+          (t) => (t as { suite?: string }).suite === s.suite
+        ).length,
+      }))
+      .filter((s) => s.test_count > 0);
   }
 
   // P4 — harvest @slowcook-rung markers so ladder mode has its release order.

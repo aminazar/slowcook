@@ -42,7 +42,7 @@ export interface TestsResubmitContext {
 /** Parse `<file path="...">...</file>` blocks from model output. */
 export function parseFileBlocks(
   text: string,
-  opts?: { allowStubPaths?: string[] }
+  opts?: { allowStubPaths?: string[]; allowRoots?: string[] }
 ): Array<{ path: string; content: string }> {
   const out: Array<{ path: string; content: string }> = [];
   const re = /<file path="([^"]+)">\n?([\s\S]*?)<\/file>/g;
@@ -51,15 +51,41 @@ export function parseFileBlocks(
     const path = m[1]!.trim();
     if (path.includes("..")) continue;
     // Writes are confined to the tests tree — PLUS the throwing stubs
-    // testgen itself authored (marker-verified by the caller): a review
-    // finding against a stub's doc comment was otherwise unfixable by
-    // the artifact's own agent.
+    // testgen itself authored (marker-verified by the caller), PLUS any
+    // declared suite roots (2026-08-23: taste demanded pgTAP tests under
+    // supabase/tests/ that this guard forbade — a structural dead-end
+    // where the reviewer requires what the author may not write; a human
+    // had to author the db suite by hand).
     const allowed =
-      path.startsWith("tests/") || (opts?.allowStubPaths ?? []).includes(path);
+      path.startsWith("tests/") ||
+      (opts?.allowStubPaths ?? []).includes(path) ||
+      (opts?.allowRoots ?? []).some((r) => path.startsWith(r));
     if (!allowed) continue;
     out.push({ path, content: (m[2] ?? "").replace(/\n?$/, "\n") });
   }
   return out;
+}
+
+
+/**
+ * Directory roots of declared test suites, derived from each suite's
+ * discover_command (path-ish tokens containing "/"). Lets resubmit write
+ * db-tier tests (e.g. supabase/tests/database/) that its reviewer can
+ * demand — writes stay confined to DECLARED suite homes, never src/.
+ */
+export function suiteWriteRoots(stackJson: unknown): string[] {
+  const roots = new Set<string>();
+  const test = (stackJson as { test?: Record<string, { discover_command?: string }> } | null)?.test;
+  for (const suite of Object.values(test ?? {})) {
+    for (const tok of (suite.discover_command ?? "").split(/\s+/)) {
+      if (!tok.includes("/") || tok.startsWith("-") || tok.includes("..")) continue;
+      const dir = tok.replace(/\/[^/]*[*?][^/]*$/, "/");
+      if (dir.includes("*") || dir.includes("?")) continue;
+      if (dir.startsWith("/") || dir.startsWith("src/")) continue;
+      roots.add(dir.endsWith("/") ? dir : dir.replace(/\/[^/]+$/, "/"));
+    }
+  }
+  return [...roots];
 }
 
 const DISCOVERY_GATE_MARKER = "slowcook-discovery-gate";
@@ -303,7 +329,13 @@ No prose outside the file blocks. If no change is warranted, output exactly: NO_
         return false;
       }
     });
-  const blocks = parseFileBlocks(response.text, { allowStubPaths: stubPaths });
+  let allowRoots: string[] = [];
+  try {
+    allowRoots = suiteWriteRoots(
+      JSON.parse(readFileSync(join(ctx.repoRoot, ".brewing", "stack.json"), "utf8"))
+    );
+  } catch { /* no stack.json → tests/ only, as before */ }
+  const blocks = parseFileBlocks(response.text, { allowStubPaths: stubPaths, allowRoots });
   if (blocks.length === 0) {
     console.error("slowcook recipe: no parseable file blocks in the amendment — failing closed.");
     process.exit(2);
