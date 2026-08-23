@@ -79,7 +79,7 @@ interface BrewArgs {
  */
 /** Flags that consume the following token as their value. */
 const VALUE_FLAGS = new Set([
-  "--story", "--cwd", "--owner", "--repo", "--budget-usd", "--max-iterations",
+  "--story", "--spec", "--cwd", "--owner", "--repo", "--budget-usd", "--max-iterations",
   "--wall-clock-minutes", "--model", "--base", "--mode", "--navigator-model",
   "--stall-iterations", "--max-tool-rounds", "--reset-after-failures", "--emit-model",
 ]);
@@ -109,7 +109,7 @@ function parseArgs(argv: string[]): BrewArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = argv[i + 1];
-    if (arg === "--story" && next) { args.storyId = next; i++; }
+    if ((arg === "--story" || arg === "--spec") && next) { args.storyId = next; i++; }
     else if (arg === "--cwd" && next) { args.repoRoot = next; i++; }
     else if (arg === "--owner" && next) { args.owner = next; i++; }
     else if (arg === "--repo" && next) { args.repo = next; i++; }
@@ -183,7 +183,7 @@ commits only when a red test flips to green. Halts when budget or
 iteration cap is hit, or when all story tests are green.
 
 Usage:
-  slowcook brew --story <id> [options]
+  slowcook brew --story <id> [options]      (--spec is an accepted alias)
 
 Options:
   --story <id>               Story id to brew (required)

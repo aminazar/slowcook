@@ -29,7 +29,7 @@ function parseArgs(argv: string[]): TestgenArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = argv[i + 1];
-    if (arg === "--spec" && next) {
+    if ((arg === "--spec" || arg === "--story") && next) {
       args.specId = normalizeSpecId(next);
       i++;
     } else if (arg === "--pr" && next) {
@@ -76,7 +76,7 @@ are removed in the same PR; \`override-freeze\` is auto-applied because the
 supersede chain in the spec provides the audit trail.
 
 Usage:
-  slowcook testgen [--spec <id>] [--all] [options]
+  slowcook testgen [--spec <id>] [--all] [options]   (--story is an accepted alias)
 
 Options:
   --spec <id>      Generate tests for a specific story id (re-runs even if
