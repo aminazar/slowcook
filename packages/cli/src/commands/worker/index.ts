@@ -18,7 +18,7 @@
  *   systemd  print the service + timer units for a box install
  */
 
-import { execSync, spawnSync } from "node:child_process";
+import { execSync, spawnSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -46,6 +46,7 @@ import {
 } from "./plan.js";
 import { writeTrace, traceDirName, type JobOutcome } from "./trace.js";
 import { checkoutStatusLine, renderWorkloadView } from "./workload.js";
+import { pickLaneJobs, ensureLane } from "./lanes.js";
 import {
   AWAITING_PM_LABEL,
   ROLLUP_MARKER,
@@ -74,6 +75,8 @@ interface RunArgs {
   enable: Set<AgentKind>;
   /** Hard wall-clock cap per live job, minutes. */
   jobTimeoutMins: number;
+  /** PR-F — concurrent lanes per pass (worktrees); 1 = classic serial. */
+  lanes: number;
   logsDir: string;
   lockPath: string | undefined;
   baseBranch: string;
@@ -284,20 +287,39 @@ async function runPass(argv: string[]): Promise<void> {
     }
 
     let processed: { job: WorkerJob; traceDir: string; outcome: JobOutcome } | null = null;
+    let processedAll: Array<{ job: WorkerJob; traceDir: string; outcome: JobOutcome }> = [];
     if (jobs.length > 0) {
-      // One job per pass (plan §2). The ordering policy already put the
-      // most urgent first: blocked jobs surface their upstream gap before
-      // fresh work advances. In live mode, only enabled stages execute —
-      // the rest stay visible in the workload and untouched.
+      // One job per pass classically (plan §2); with --lanes N (PR-F),
+      // up to N runnable jobs on DISTINCT stories run concurrently, each
+      // in its own worktree lane — at most one db-touching job, and that
+      // one keeps the MAIN checkout (the local database stack is a
+      // per-directory singleton).
       if (args.dryRun) {
         const job = jobs[0]!;
         processed = processDry(job, args, forgeIdentity);
+      } else if (args.lanes > 1) {
+        const laneJobs = pickLaneJobs(jobs, args.enable, args.lanes);
+        if (laneJobs.length > 0) {
+          console.log(`lanes: running ${laneJobs.length} job(s) concurrently`);
+          processedAll = await Promise.all(
+            laneJobs.map((job, k) => {
+              const laneRoot = ensureLane(args.repoRoot, k, args.baseBranch);
+              if (k > 0) console.log(`  lane-${k}: ${laneRoot} → #${job.issue} ${job.agent}`);
+              return processLive(job, args, { owner, repo, token }, forgeIdentity, laneRoot);
+            })
+          );
+          processed = processedAll[0] ?? null;
+        } else {
+          const job = jobs.find((j) => args.enable.has(j.agent));
+          if (job) processed = await processLive(job, args, { owner, repo, token }, forgeIdentity);
+        }
       } else {
         const job = jobs.find((j) => args.enable.has(j.agent));
         if (job) {
           processed = await processLive(job, args, { owner, repo, token }, forgeIdentity);
         }
       }
+      if (processed && processedAll.length === 0) processedAll = [processed];
     }
 
     if (args.json) {
@@ -309,6 +331,11 @@ async function runPass(argv: string[]): Promise<void> {
     for (const j of summary.jobs) {
       console.log(
         `  #${j.issue} ${j.agent}${j.storyId ? ` (story-${j.storyId})` : ""} — ${j.runnable ? "runnable" : "BLOCKED: precondition missing"}`
+      );
+    }
+    for (const done of processedAll.slice(1)) {
+      console.log(
+        `\nprocessed (lane) #${done.job.issue} → ${done.outcome}\n  trace: ${done.traceDir}`
       );
     }
     if (processed) {
@@ -398,6 +425,45 @@ function processDry(
   return { job, traceDir, outcome };
 }
 
+
+/**
+ * Promise-form of spawnSync with the same result surface the worker
+ * reads (status/stdout/stderr/error.ETIMEDOUT). PR-F needs jobs to run
+ * CONCURRENTLY across lanes; spawnSync would serialize the pass.
+ */
+function spawnAgentAsync(
+  execPath: string,
+  argv: string[],
+  opts: { cwd: string; encoding: "utf8"; timeout: number; maxBuffer: number; env: NodeJS.ProcessEnv }
+): Promise<{ status: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException }> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(execPath, argv, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    }, opts.timeout);
+    child.stdout.on("data", (d: Buffer) => { if (stdout.length < opts.maxBuffer) stdout += d.toString("utf8"); });
+    child.stderr.on("data", (d: Buffer) => { if (stderr.length < opts.maxBuffer) stderr += d.toString("utf8"); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        const err = new Error("spawn ETIMEDOUT") as NodeJS.ErrnoException;
+        err.code = "ETIMEDOUT";
+        resolvePromise({ status: null, stdout, stderr, error: err });
+      } else {
+        resolvePromise({ status: code, stdout, stderr });
+      }
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolvePromise({ status: null, stdout, stderr, error: err as NodeJS.ErrnoException });
+    });
+  });
+}
+
 /**
  * Execute one job live (W1+). The worker stays thin: remove the trigger
  * label (crash-safe — a stuck job never re-fires), spawn the agent,
@@ -409,8 +475,10 @@ async function processLive(
   job: WorkerJob,
   args: RunArgs,
   gh: { owner: string; repo: string; token: string },
-  forgeIdentity: string
+  forgeIdentity: string,
+  laneRoot?: string
 ): Promise<{ job: WorkerJob; traceDir: string; outcome: JobOutcome }> {
+  const jobRoot = laneRoot ?? args.repoRoot;
   const octokit = new Octokit({ auth: gh.token, userAgent: "slowcook-ai/cli worker" });
   const now = new Date();
   const runId = traceDirName(job, now);
@@ -434,8 +502,8 @@ async function processLive(
     envNames: presentEnvNames(),
     backend: detectBackend(),
     forgeIdentity,
-    cwd: args.repoRoot,
-    gitSha: gitShaOf(args.repoRoot),
+    cwd: laneRoot ?? args.repoRoot,
+    gitSha: gitShaOf(laneRoot ?? args.repoRoot),
     startedAt: now.toISOString(),
   };
 
@@ -495,9 +563,9 @@ async function processLive(
   }
 
   // Spawn the agent through this same CLI entrypoint.
-  const spawnArgs = [...job.cmd.slice(1), "--cwd", args.repoRoot];
-  const result = spawnSync(process.execPath, [process.argv[1]!, ...spawnArgs], {
-    cwd: args.repoRoot,
+  const spawnArgs = [...job.cmd.slice(1), "--cwd", jobRoot];
+  const result = await spawnAgentAsync(process.execPath, [process.argv[1]!, ...spawnArgs], {
+    cwd: jobRoot,
     encoding: "utf8",
     timeout: (job.agent === "brew" ? Math.max(60, args.jobTimeoutMins) : args.jobTimeoutMins) * 60_000,
     maxBuffer: 64 * 1024 * 1024,
@@ -1202,6 +1270,7 @@ function parseRunArgs(argv: string[]): RunArgs {
     dryRun: false,
     enable: new Set<AgentKind>(),
     jobTimeoutMins: 30,
+    lanes: 1,
     logsDir: join(process.cwd(), ".slowcook", "worker-logs"),
     lockPath: undefined,
     baseBranch: "main",
@@ -1233,6 +1302,9 @@ function parseRunArgs(argv: string[]): RunArgs {
       i++;
     } else if (a === "--dry-run") {
       out.dryRun = true;
+    } else if (a === "--lanes" && next) {
+      out.lanes = Math.max(1, Number(next) || 1);
+      i++;
     } else if (a === "--enable" && next) {
       for (const s of next.split(",").map((x) => x.trim()).filter(Boolean)) {
         out.enable.add(s as AgentKind);
