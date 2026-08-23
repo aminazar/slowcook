@@ -86,6 +86,34 @@ export function migrationCollisions(
   return out;
 }
 
+
+/** Per-file tsc error counts from raw tsc output. Pure; exported for tests. */
+export function tscErrorCounts(output: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const line of output.split("\n")) {
+    const m = line.match(/^(.+?)\(\d+,\d+\): error TS/);
+    if (m) counts.set(m[1]!, (counts.get(m[1]!) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Ratchet comparison: which files got WORSE than the baseline (new files
+ * with errors, or higher counts)? Pre-existing debt passes; regressions
+ * fail. Pure; exported for tests.
+ */
+export function typecheckRegressions(
+  baseline: ReadonlyMap<string, number>,
+  current: ReadonlyMap<string, number>
+): Array<{ file: string; was: number; now: number }> {
+  const out: Array<{ file: string; was: number; now: number }> = [];
+  for (const [file, now] of current) {
+    const was = baseline.get(file) ?? 0;
+    if (now > was) out.push({ file, was, now });
+  }
+  return out;
+}
+
 export async function verify(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const failures: string[] = [];
@@ -141,15 +169,61 @@ export async function verify(argv: string[]): Promise<void> {
     console.log("·  db-replay  (skipped by --skip-db)");
   }
 
-  // 3 — typecheck
+  // 3 — typecheck RATCHET. Brownfield repos carry type debt (rewo: 142
+  // pre-existing errors, all in tests that run green because vitest
+  // transpiles without checking). Failing on the stock is unusable and
+  // fixing it by hand is not the human's job — so the gate fails only on
+  // files that got WORSE than the recorded baseline, and tightens the
+  // baseline automatically whenever reality improves.
   const typecheck = (stackConfig as { lint?: { typecheck_command?: string } }).lint?.typecheck_command;
   if (typecheck) {
+    let tscOut = "";
+    let clean = false;
     try {
       execSync(typecheck, { cwd: args.repoRoot, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
-      section("typecheck", true, `\`${typecheck}\``);
+      clean = true;
     } catch (e) {
-      const out = String((e as { stdout?: string }).stdout ?? "") + String((e as { stderr?: string }).stderr ?? "");
-      section("typecheck", false, `\`${typecheck}\`:\n${out.trim().split("\n").slice(0, 10).join("\n")}`);
+      tscOut = String((e as { stdout?: string }).stdout ?? "") + String((e as { stderr?: string }).stderr ?? "");
+    }
+    if (clean) {
+      section("typecheck", true, `\`${typecheck}\` — zero errors`);
+    } else {
+      const current = tscErrorCounts(tscOut);
+      const baselinePath = join(args.repoRoot, ".brewing", "local", "typecheck-baseline.json");
+      let baseline: Map<string, number> | null = null;
+      try {
+        baseline = new Map(Object.entries(JSON.parse(readFileSync(baselinePath, "utf8")) as Record<string, number>));
+      } catch { /* no baseline yet */ }
+      const total = [...current.values()].reduce((a, b) => a + b, 0);
+      if (!baseline) {
+        const { mkdirSync, writeFileSync } = await import("node:fs");
+        mkdirSync(join(args.repoRoot, ".brewing", "local"), { recursive: true });
+        writeFileSync(baselinePath, JSON.stringify(Object.fromEntries(current), null, 2), "utf8");
+        section(
+          "typecheck",
+          true,
+          `${total} pre-existing error(s) across ${current.size} file(s) — baseline RECORDED (ratchet arms now; new errors fail from the next run)`
+        );
+      } else {
+        const regressions = typecheckRegressions(baseline, current);
+        if (regressions.length > 0) {
+          section(
+            "typecheck",
+            false,
+            `type errors INCREASED vs baseline:\n` +
+              regressions.slice(0, 8).map((r) => `     ${r.file}: ${r.was} → ${r.now}`).join("\n")
+          );
+        } else {
+          section("typecheck", true, `${total} error(s), none new vs baseline (pre-existing debt tracked in ${baselinePath})`);
+          // Tighten: reality improved → the baseline follows it down.
+          const improved = [...baseline.entries()].some(([f, was]) => (current.get(f) ?? 0) < was);
+          if (improved) {
+            const { writeFileSync } = await import("node:fs");
+            writeFileSync(baselinePath, JSON.stringify(Object.fromEntries(current), null, 2), "utf8");
+            console.log("   (baseline tightened — improvements are locked in)");
+          }
+        }
+      }
     }
   } else {
     console.log("·  typecheck  (no lint.typecheck_command in stack.json)");
