@@ -10,6 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { createLlmClient } from "../refine/llm.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
@@ -84,7 +85,7 @@ Options:
   --review-comment-id <id>     Reply threaded under this inline comment id.
 
 Environment:
-  ANTHROPIC_API_KEY            (required) Anthropic API key.
+  Runs on SLOWCOOK_LLM=claude-cli (subscription) or ANTHROPIC_API_KEY.
   GITHUB_TOKEN                 (required) for fetching PR comments + force-push.
 `);
 }
@@ -277,10 +278,9 @@ function listBranchFiles(repoRoot: string, branch: string): Array<{ path: string
 export async function plate(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
 
-  const anthropicApiKey = process.env["ANTHROPIC_API_KEY"];
   const githubToken = process.env["GITHUB_TOKEN"];
-  if (!anthropicApiKey || !githubToken) {
-    console.error("ANTHROPIC_API_KEY + GITHUB_TOKEN environment variables are required.");
+  if (!githubToken) {
+    console.error("GITHUB_TOKEN (or GH_TOKEN) is required.");
     process.exit(2);
   }
 
@@ -503,7 +503,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
 
   const ctx: PlateContext = {
     repoRoot: args.repoRoot,
-    anthropicApiKey,
+    llm: await createLlmClient(),
     model: args.model,
     storyId,
     prNumber: pr.number,
