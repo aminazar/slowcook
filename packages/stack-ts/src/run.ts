@@ -20,6 +20,11 @@ export interface RunResult {
   ran: boolean;
   /** If !ran: why. E.g., "exit 1 with no JSON output — vitest may have crashed". */
   error?: string;
+  /** Per-suite runner failures, so callers can act on ONE broken suite
+   * without discarding the verdicts of the suites that ran (the story-016
+   * lesson: a broken acceptance runner waived the whole final gate and a
+   * schema story shipped with no migration). */
+  suiteErrors?: { suite: string; error: string }[];
   tests: TestResult[];
   /** Per-suite metadata for diagnostics. */
   suites: {
@@ -53,6 +58,7 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
   const tests: TestResult[] = [];
   const suites: RunResult["suites"] = [];
   const errors: string[] = [];
+  const suiteErrors: { suite: string; error: string }[] = [];
   const exec = options.exec ?? defaultExec;
   const maxBuffer = options.maxBuffer ?? 128 * 1024 * 1024;
 
@@ -85,9 +91,9 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
         });
       }
       if (!parsedAny && code !== 0) {
-        errors.push(
-          `[${suiteName}] exit ${code}, no parsable prove output. First 400 chars of stderr: ${stderr.slice(0, 400)}`
-        );
+        const msg = `exit ${code}, no parsable prove output. First 400 chars of stderr: ${stderr.slice(0, 400)}`;
+        errors.push(`[${suiteName}] ${msg}`);
+        suiteErrors.push({ suite: suiteName, error: msg });
       }
       continue;
     }
@@ -121,13 +127,14 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
       });
       const parsed = parseVitestJson(stdout, suite.run_command, { cwd: options.cwd });
       if (parsed.length === 0 && code !== 0) {
-        errors.push(
-          `[${suiteName}] exit ${code}, no parsable JSON. First 400 chars of stderr: ${stderr.slice(0, 400)}`
-        );
+        const msg = `exit ${code}, no parsable JSON. First 400 chars of stderr: ${stderr.slice(0, 400)}`;
+        errors.push(`[${suiteName}] ${msg}`);
+        suiteErrors.push({ suite: suiteName, error: msg });
       }
       tests.push(...parsed);
     } catch (e) {
       errors.push(`[${suiteName}] ${(e as Error).message}`);
+      suiteErrors.push({ suite: suiteName, error: (e as Error).message });
       suites.push({
         suite: suiteName,
         command: cmd,
@@ -139,7 +146,7 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
 
   return errors.length === 0
     ? { ran: true, tests, suites }
-    : { ran: false, error: errors.join("; "), tests, suites };
+    : { ran: false, error: errors.join("; "), suiteErrors, tests, suites };
 }
 
 function shouldAppendJsonReporter(cmd: string): boolean {
