@@ -24,7 +24,7 @@
 // slowcook's tools mounted over MCP; dollars stay at list price.
 // 2026-08-23 (Amin's ruling): the seam gained tool-protocol emulation, so
 // the tool-loop agents joined too; vibe was text-only all along.
-export const CLI_BACKEND_SUPPORTED = ["refine", "brew", "vibe", "investigate", "sift"] as const;
+export const CLI_BACKEND_SUPPORTED = ["refine", "brew", "vibe", "investigate", "sift", "plate"] as const;
 
 /** Does this command run on the local `claude` login? Widened so callers can
  *  ask with a plain command string. */

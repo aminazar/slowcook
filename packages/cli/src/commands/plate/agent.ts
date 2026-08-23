@@ -13,7 +13,7 @@
  * couldn't parse a response — re-run with `/plate` to retry").
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import type { LlmClient } from "@slowcook-ai/core";
 import {
   PLATE_AMENDMENT_SYSTEM,
   buildPlateAmendmentPrompt,
@@ -24,13 +24,12 @@ import {
   type VibeChangeRequest,
   type VibeFileBlock,
 } from "../vibe/emit.js";
-import { costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 
 const MAX_TOKENS = 8192;
 
 export interface PlateContext {
   repoRoot: string;
-  anthropicApiKey: string;
+  llm: LlmClient;
   model: string;
   storyId: string;
   prNumber: number;
@@ -78,7 +77,7 @@ function parsePlateSummary(body: string): string | null {
 }
 
 export async function runPlate(ctx: PlateContext): Promise<PlateResult> {
-  const anthropic = new Anthropic({ apiKey: ctx.anthropicApiKey });
+  const llm = ctx.llm;
 
   const userBlocks = buildPlateAmendmentPrompt({
     storyId: ctx.storyId,
@@ -88,19 +87,16 @@ export async function runPlate(ctx: PlateContext): Promise<PlateResult> {
     feedback: ctx.feedback,
   });
 
-  const response = await anthropic.messages.create({
+  const response = await llm.complete({
     model: ctx.model,
-    max_tokens: MAX_TOKENS,
+    maxTokens: MAX_TOKENS,
     system: PLATE_AMENDMENT_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
-    messages: [{ role: "user", content: userBlocks }],
+    messages: [{ role: "user", content: userBlocks as never }],
+    stream: true,
   });
 
-  const spendUsd = costUsd(response, ctx.model);
-
-  let finalText = "";
-  for (const block of response.content) {
-    if (block.type === "text") finalText = block.text;
-  }
+  const spendUsd = response.costUsd;
+  const finalText = response.text;
 
   const parsed = parseVibeOutput(finalText);
   const summary = parsePlateSummary(finalText) ?? "";
@@ -124,17 +120,6 @@ export async function runPlate(ctx: PlateContext): Promise<PlateResult> {
   };
 }
 
-function costUsd(response: Anthropic.Messages.Message, model: string): number {
-  const usage = response.usage as Anthropic.Messages.Usage & {
-    cache_read_input_tokens?: number;
-    cache_creation_input_tokens?: number;
-  };
-  return costUsdForUsage(model, {
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
-    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-    cacheCreateTokens: usage.cache_creation_input_tokens ?? 0,
-  });
-}
+
 
 export { parsePlateSummary };
