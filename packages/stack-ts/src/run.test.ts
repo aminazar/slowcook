@@ -343,9 +343,9 @@ describe("parsePlaywrightRunJson (2026-08-23)", () => {
   it("produces ids identical to the list parser's shape (manifest ↔ runner agreement)", () => {
     const got = parsePlaywrightRunJson(JSON.stringify(doc));
     expect(got.map((t) => t.id)).toEqual([
-      "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > unauthenticated visit redirects to /login [chromium-desktop]",
-      "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > Gate 1: /login page is clean at mobile viewport [chromium-desktop]",
-      "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > unknown handle returns notFound UI [chromium-desktop]",
+      "story-005.spec.ts > story-005 /u/<handle> — acceptance > unauthenticated visit redirects to /login [chromium-desktop]",
+      "story-005.spec.ts > story-005 /u/<handle> — acceptance > Gate 1: /login page is clean at mobile viewport [chromium-desktop]",
+      "story-005.spec.ts > story-005 /u/<handle> — acceptance > unknown handle returns notFound UI [chromium-desktop]",
     ]);
   });
 

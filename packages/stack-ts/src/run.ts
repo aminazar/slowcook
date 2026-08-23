@@ -386,7 +386,6 @@ export function parsePlaywrightRunJson(stdout: string): TestResult[] {
     return [];
   }
   const results: TestResult[] = [];
-  const relPrefix = playwrightTestDirPrefix(doc.config);
 
   type PwSuite = {
     title?: string;
@@ -407,7 +406,11 @@ export function parsePlaywrightRunJson(stdout: string): TestResult[] {
     const isFileSuite = suite.title !== undefined && suite.title === suite.file;
     const chain = isFileSuite ? titles : [...titles, ...(suite.title ? [suite.title] : [])];
     for (const spec of suite.specs ?? []) {
-      const file = relPrefix + (spec.file ?? suite.file ?? "");
+      // File paths stay exactly as playwright's JSON reports them
+      // (testDir-relative) — list mode prints the same form, so the two
+      // parsers agree without any prefix reconstruction (live-verified
+      // on rewo: prefix recovery from rootDir produced mismatched ids).
+      const file = spec.file ?? suite.file ?? "";
       for (const t of spec.tests ?? []) {
         const agg = t.status ?? "";
         const status: TestResult["status"] =
@@ -431,12 +434,3 @@ export function parsePlaywrightRunJson(stdout: string): TestResult[] {
   return results;
 }
 
-/** The path prefix list-mode prepends to suite.file — testDir relative to
- * the project cwd, recovered from config.rootDir's tail when it names a
- * directory inside the repo (best-effort; "" when indeterminate). */
-function playwrightTestDirPrefix(config?: { rootDir?: string }): string {
-  const root = config?.rootDir ?? "";
-  const m = root.match(/(?:^|\/)(tests?\/.*)$/);
-  if (m && m[1]) return m[1].endsWith("/") ? m[1] : m[1] + "/";
-  return "";
-}
