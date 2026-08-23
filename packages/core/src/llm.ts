@@ -19,6 +19,13 @@ export interface LlmClient {
 export type LlmContentBlock =
   | { type: "text"; text: string }
   | {
+      /** Result of a tool the CALLER executed for a prior toolUse. */
+      type: "tool_result";
+      tool_use_id: string;
+      content: string;
+      is_error?: boolean;
+    }
+  | {
       type: "image";
       source: {
         type: "base64";
@@ -30,6 +37,22 @@ export type LlmContentBlock =
 export interface LlmMessage {
   role: "user" | "assistant";
   content: string | LlmContentBlock[];
+}
+
+/** A tool the model may call. Same shape the Anthropic API uses; the
+ * claude-cli adapter emulates the protocol over structured text so
+ * subscription auth serves agentic loops too (2026-08-23, Amin's ruling:
+ * every agent must run on the same CLI auth). */
+export interface LlmToolDef {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface LlmToolUse {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
 }
 
 export interface LlmRequest {
@@ -47,6 +70,10 @@ export interface LlmRequest {
    * take >10 min. Rate-limit headers are not captured when streaming.
    */
   stream?: boolean;
+  /** Tools the model may call this round. The caller owns the loop:
+   * execute each returned toolUse and send tool_result blocks in the
+   * next user message. */
+  tools?: LlmToolDef[];
 }
 
 export interface LlmUsage {
@@ -65,6 +92,9 @@ export interface LlmResponse {
    * mid-line-cut spec was pushed). Optional; adapters that cannot know
    * leave it undefined, which callers treat as complete. */
   stopReason?: string;
+  /** Tool calls the model made this round ("tool_use" stop reason on the
+   * API backend; parsed from the emulation protocol on claude-cli). */
+  toolUses?: LlmToolUse[];
   /** Adapter-computed cost for this call. CLI never does price arithmetic
    * itself — the adapter contract preserves this boundary. */
   costUsd: number;

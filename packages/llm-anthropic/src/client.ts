@@ -106,6 +106,8 @@ export class AnthropicClient implements LlmClient {
         role: m.role,
         content: m.content as never,
       })),
+      // Tools pass through natively — the API speaks this protocol itself.
+      ...(args.tools && args.tools.length > 0 ? { tools: args.tools as never } : {}),
     };
     // 0.19.0-α.31 (sc#69) — use withResponse() so we can read the raw
     // Response object and pull `anthropic-ratelimit-*` headers.
@@ -145,10 +147,17 @@ export class AnthropicClient implements LlmClient {
       throw err;
     }
 
-    const first = response.content[0];
-    if (!first || first.type !== "text") {
+    let text = "";
+    const toolUses: { id: string; name: string; input: Record<string, unknown> }[] = [];
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
+      else if (block.type === "tool_use") {
+        toolUses.push({ id: block.id, name: block.name, input: block.input as Record<string, unknown> });
+      }
+    }
+    if (text === "" && toolUses.length === 0) {
       throw new Error(
-        `Expected a text response from Claude, got: ${JSON.stringify(response.content).slice(0, 200)}`
+        `Expected text or tool_use from Claude, got: ${JSON.stringify(response.content).slice(0, 200)}`
       );
     }
 
@@ -169,7 +178,8 @@ export class AnthropicClient implements LlmClient {
       cacheCreateTokens: raw?.cache_creation_input_tokens ?? 0,
     };
     return {
-      text: first.text,
+      text,
+      ...(toolUses.length > 0 ? { toolUses } : {}),
       usage,
       costUsd: costUsdForUsage(args.model, usage),
       model: args.model,

@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
-import type { LlmClient, LlmRequest, LlmResponse } from "@slowcook-ai/core";
+import type {
+  LlmToolDef,
+  LlmToolUse, LlmClient, LlmRequest, LlmResponse } from "@slowcook-ai/core";
 import { costUsdForUsage } from "./pricing.js";
 
 /**
@@ -66,14 +68,74 @@ interface CliResult {
 /** the transcript folded into one prompt — the CLI is single-shot per call. */
 export function renderCliPrompt(messages: LlmRequest["messages"]): string {
   const parts = messages.map((m) => {
-    if (typeof m.content !== "string") {
-      throw new Error(
-        "claude-cli adapter is text-only — image/content-block messages need the ANTHROPIC_API_KEY adapter"
-      );
-    }
-    return `[${m.role}]\n${m.content}`;
+    if (typeof m.content === "string") return `[${m.role}]\n${m.content}`;
+    // Content blocks: text and tool_result serialize to structured text
+    // (the tool-emulation protocol); images still need the API adapter.
+    const rendered = m.content
+      .map((b) => {
+        if (b.type === "text") return b.text;
+        if (b.type === "tool_result") {
+          return (
+            `<tool_result id="${b.tool_use_id}"${b.is_error ? " error=\"true\"" : ""}>\n` +
+            `${b.content}\n</tool_result>`
+          );
+        }
+        throw new Error(
+          "claude-cli adapter cannot serialize image blocks — use the ANTHROPIC_API_KEY adapter"
+        );
+      })
+      .join("\n\n");
+    return `[${m.role}]\n${rendered}`;
   });
   return parts.join("\n\n") + "\n\n[assistant]\n";
+}
+
+/**
+ * Tool-protocol emulation (2026-08-23, Amin's ruling: every agent runs on
+ * the same CLI subscription auth). The API speaks tool_use natively; the
+ * CLI is a pure text model, so the protocol is emulated: the tool catalog
+ * is appended to the system prompt, the model emits calls as one fenced
+ * JSON block, the adapter parses them into LlmToolUse entries, and the
+ * caller's tool_result blocks travel back as structured text (above).
+ */
+export function toolProtocolSystemSuffix(tools: LlmToolDef[]): string {
+  const catalog = tools
+    .map(
+      (t) =>
+        `- ${t.name}: ${t.description}\n  input JSON schema: ${JSON.stringify(t.input_schema)}`
+    )
+    .join("\n");
+  return (
+    `\n\n## Tools\n\nYou may call these tools:\n${catalog}\n\n` +
+    "To call tools, end your reply with EXACTLY ONE fenced block:\n" +
+    "```tool_calls\n" +
+    '[{"name": "<tool name>", "input": { ... }}]\n' +
+    "```\n" +
+    "Then STOP — the results arrive in the next message as <tool_result> blocks. " +
+    "When you are done and need no more tools, reply WITHOUT a tool_calls block."
+  );
+}
+
+export function parseEmulatedToolCalls(
+  text: string
+): { text: string; toolUses: LlmToolUse[] } {
+  const m = text.match(/```tool_calls\s*\n([\s\S]*?)```\s*$/);
+  if (!m) return { text, toolUses: [] };
+  try {
+    const calls = JSON.parse(m[1]!) as Array<{ name?: string; input?: Record<string, unknown> }>;
+    const toolUses = calls
+      .filter((c) => typeof c.name === "string")
+      .map((c, i) => ({
+        id: `emul_${Date.now()}_${i}`,
+        name: c.name!,
+        input: c.input ?? {},
+      }));
+    return { text: text.slice(0, m.index).trim(), toolUses };
+  } catch {
+    // Malformed JSON: hand the raw text back — the caller sees no tool
+    // calls and the loop naturally re-prompts or finishes.
+    return { text, toolUses: [] };
+  }
 }
 
 /**
@@ -113,7 +175,10 @@ export class ClaudeCliClient implements LlmClient {
       "--verbose", // stream-json in print mode requires it
       "--model", args.model,
       "--disallowedTools", "*", // pure text model — no host access, ever
-      "--system-prompt", args.system,
+      "--system-prompt",
+      args.tools && args.tools.length > 0
+        ? args.system + toolProtocolSystemSuffix(args.tools)
+        : args.system,
     ];
     const stdout = await this.run(cliArgs, renderCliPrompt(args.messages));
     let text = "";
@@ -154,8 +219,16 @@ export class ClaudeCliClient implements LlmClient {
       cacheReadTokens: parsed.usage?.cache_read_input_tokens ?? 0,
       cacheCreateTokens: parsed.usage?.cache_creation_input_tokens ?? 0,
     };
+    let toolUses: LlmToolUse[] = [];
+    if (args.tools && args.tools.length > 0) {
+      const parsed2 = parseEmulatedToolCalls(text);
+      text = parsed2.text;
+      toolUses = parsed2.toolUses;
+      if (toolUses.length > 0) stopReason = "tool_use";
+    }
     return {
       text,
+      ...(toolUses.length > 0 ? { toolUses } : {}),
       usage,
       costUsd: costUsdForUsage(args.model, usage),
       model: args.model,
