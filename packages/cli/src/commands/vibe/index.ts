@@ -12,6 +12,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { createLlmClient } from "../refine/llm.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
@@ -102,7 +103,7 @@ Options:
   --dry-run           Skip git/PR ops; just emit files in-place.
 
 Environment:
-  ANTHROPIC_API_KEY   (required) Anthropic API key.
+  Runs on SLOWCOOK_LLM=claude-cli (subscription) or ANTHROPIC_API_KEY.
   GITHUB_TOKEN        (required unless --dry-run) for opening the PR.
 `);
 }
@@ -362,7 +363,7 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
     return;
   }
 
-  const anthropicApiKey = requireApiKey("vibe");
+  const llm = await createLlmClient();
 
   // Spec must exist
   const specPath = join(args.repoRoot, "specs", `story-${args.specId}.yaml`);
@@ -397,7 +398,7 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
 
   const ctx: VibeContext = {
     repoRoot: args.repoRoot,
-    anthropicApiKey,
+    llm,
     model: args.model,
     storyId: args.specId,
     cliVersion,

@@ -21,7 +21,7 @@ import {
 } from "node:fs";
 import { join, resolve, isAbsolute } from "node:path";
 import { execSync } from "node:child_process";
-import Anthropic from "@anthropic-ai/sdk";
+import type { LlmClient, LlmMessage, LlmToolUse } from "@slowcook-ai/core";
 import { outlineFile } from "../brew/agent.js";
 import {
   findReferences,
@@ -39,7 +39,6 @@ import {
   BUG_PROFILE_SCHEMA_VERSION,
 } from "./schema.js";
 import { resolveModel } from "../../lib/model-defaults.js";
-import { costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 
 const MAX_ROUNDS = 12;
 const MAX_FILE_READ_BYTES = 20000;
@@ -47,7 +46,9 @@ const DEFAULT_MODEL = resolveModel("investigate");
 
 export interface InvestigateContext {
   repoRoot: string;
-  anthropicApiKey: string;
+  /** Backend-agnostic LLM client (2026-08-23: agentic tool loops run on
+   * both the API and claude-cli subscription auth via the seam). */
+  llm: LlmClient;
   model: string;
   /** Filled in by the caller; the LLM doesn't pick the bug-id. */
   bugId: string;
@@ -81,7 +82,7 @@ export interface InvestigateResult {
 export async function runInvestigation(
   ctx: InvestigateContext
 ): Promise<InvestigateResult> {
-  const anthropic = new Anthropic({ apiKey: ctx.anthropicApiKey });
+  const llm = ctx.llm;
   const userPrompt = buildInvestigateUserPrompt({
     issueNumber: ctx.issue.number,
     issueTitle: ctx.issue.title,
@@ -89,9 +90,7 @@ export async function runInvestigation(
     prior_comments: ctx.issue.priorComments,
   });
 
-  const messages: Anthropic.Messages.MessageParam[] = [
-    { role: "user", content: userPrompt },
-  ];
+  const messages: LlmMessage[] = [{ role: "user", content: userPrompt }];
 
   let spendUsd = 0;
   let rounds = 0;
@@ -99,29 +98,22 @@ export async function runInvestigation(
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     rounds = round + 1;
-    const response = await anthropic.messages.create({
+    const response = await llm.complete({
       model: ctx.model,
-      max_tokens: 4096,
+      maxTokens: 4096,
       system: INVESTIGATE_SYSTEM,
       tools: INVESTIGATE_TOOLS,
       messages,
     });
-    spendUsd += costUsd(response, ctx.model);
+    spendUsd += response.costUsd;
 
-    // Capture the latest text block before any tool execution so we
-    // always have *something* to surface even if the round was
-    // tool-only.
-    for (const block of response.content) {
-      if (block.type === "text") finalText = block.text;
-    }
-
-    const toolUses = response.content.filter(
-      (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
-    );
+    if (response.text) finalText = response.text;
+    const toolUses = response.toolUses ?? [];
 
     // If the model returned tool calls, execute them and feed back.
-    if (response.stop_reason === "tool_use" && toolUses.length > 0) {
-      const toolResults: Anthropic.Messages.MessageParam = {
+    if (toolUses.length > 0) {
+      messages.push({ role: "assistant", content: response.text || "(tool calls)" });
+      messages.push({
         role: "user",
         content: toolUses.map((t) => {
           const result = executeReadOnlyTool(ctx.repoRoot, t);
@@ -132,9 +124,7 @@ export async function runInvestigation(
             is_error: result.is_error,
           };
         }),
-      };
-      messages.push({ role: "assistant", content: response.content });
-      messages.push(toolResults);
+      });
       continue;
     }
 
@@ -158,17 +148,15 @@ export async function runInvestigation(
         "- `<bug_profile>` block with the schema fields if you have a concrete failure locus.\n" +
         "- `<halt>` block with a one-line description of what you couldn't disambiguate.\n",
     });
-    const retry = await anthropic.messages.create({
+    const retry = await llm.complete({
       model: ctx.model,
-      max_tokens: 4096,
+      maxTokens: 4096,
       system: INVESTIGATE_SYSTEM,
       tools: INVESTIGATE_TOOLS,
       messages,
     });
-    spendUsd += costUsd(retry, ctx.model);
-    for (const block of retry.content) {
-      if (block.type === "text") finalText = block.text;
-    }
+    spendUsd += retry.costUsd;
+    if (retry.text) finalText = retry.text;
   }
 
   const halted = parseHaltBlock(finalText);
@@ -202,10 +190,7 @@ interface ToolResult {
   is_error: boolean;
 }
 
-function executeReadOnlyTool(
-  repoRoot: string,
-  tool: Anthropic.Messages.ToolUseBlock
-): ToolResult {
+function executeReadOnlyTool(repoRoot: string, tool: LlmToolUse): ToolResult {
   const input = tool.input as Record<string, unknown>;
   try {
     switch (tool.name) {
@@ -544,37 +529,6 @@ function unquote(s: string): string {
     .replace(/\\"/g, '"')
     .replace(/\\\\/g, "\\")
     .replace(/\\n/g, "\n");
-}
-
-// -------------------------------------------------------------------------
-// Cost accounting (mirrors brew's matchPricing without depending on it)
-// -------------------------------------------------------------------------
-
-/**
- * Cost for one API response, from the ONE canonical pricing table
- * (dovizir handover R1/R2). This file used to carry its own copy — four
- * commands did, plus brew, so PRICING_PER_M_TOKENS existed FIVE times and
- * every copy had its own `if (!pricing) return 0`. Fixing one changed nothing
- * about the running system's safety, which is exactly R2's point.
- */
-function costUsd(
-  response: Anthropic.Messages.Message,
-  model: string
-): number {
-  const usage = response.usage as
-    | {
-        input_tokens?: number;
-        output_tokens?: number;
-        cache_read_input_tokens?: number;
-        cache_creation_input_tokens?: number;
-      }
-    | undefined;
-  return costUsdForUsage(model, {
-    inputTokens: usage?.input_tokens ?? 0,
-    outputTokens: usage?.output_tokens ?? 0,
-    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
-    cacheCreateTokens: usage?.cache_creation_input_tokens ?? 0,
-  });
 }
 
 void DEFAULT_MODEL;

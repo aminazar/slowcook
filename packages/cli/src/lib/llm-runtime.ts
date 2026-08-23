@@ -22,7 +22,9 @@
  *  through the `LlmClient` seam). Everything else needs API tool-use. */
 // #393 — brew joined via the MCP bridge: the CLI runs the tool loop with
 // slowcook's tools mounted over MCP; dollars stay at list price.
-export const CLI_BACKEND_SUPPORTED = ["refine", "brew"] as const;
+// 2026-08-23 (Amin's ruling): the seam gained tool-protocol emulation, so
+// the tool-loop agents joined too; vibe was text-only all along.
+export const CLI_BACKEND_SUPPORTED = ["refine", "brew", "vibe", "investigate", "sift"] as const;
 
 /** Does this command run on the local `claude` login? Widened so callers can
  *  ask with a plain command string. */

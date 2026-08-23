@@ -23,7 +23,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { execSync } from "node:child_process";
-import Anthropic from "@anthropic-ai/sdk";
+import type { LlmClient, LlmMessage, LlmToolUse } from "@slowcook-ai/core";
 import { type RunResult } from "@slowcook-ai/stack-ts";
 import {
   validateStackConfig,
@@ -38,14 +38,14 @@ import {
 } from "../brew/retrieval.js";
 import { SIFT_SYSTEM, SIFT_TOOLS, buildSiftTurnPrompt } from "./prompts.js";
 import { type BugProfile } from "../investigate/schema.js";
-import { costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 
 const MAX_ROUNDS_PER_ITER = 8;
 const MAX_FILE_READ_BYTES = 20000;
 
 export interface SiftContext {
   repoRoot: string;
-  anthropicApiKey: string;
+  /** Backend-agnostic LLM client (2026-08-23 seam tools). */
+  llm: LlmClient;
   model: string;
   bugProfile: BugProfile;
   /** Repo-relative path to the regression test file. */
@@ -76,7 +76,7 @@ export interface SiftResult {
 }
 
 export async function runSift(ctx: SiftContext): Promise<SiftResult> {
-  const anthropic = new Anthropic({ apiKey: ctx.anthropicApiKey });
+  const llm = ctx.llm;
   const filesTouched = new Set<string>();
   let spendUsd = 0;
   let lastTestResult: RunResult | null = null;
@@ -112,36 +112,29 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
       priorEdits,
     });
 
-    const messages: Anthropic.Messages.MessageParam[] = [
-      { role: "user", content: turnPrompt },
-    ];
+    const messages: LlmMessage[] = [{ role: "user", content: turnPrompt }];
 
     let haltReason: string | null = null;
     let editsThisTurn = 0;
 
     for (let round = 0; round < MAX_ROUNDS_PER_ITER; round++) {
-      const response = await anthropic.messages.create({
+      const response = await llm.complete({
         model: ctx.model,
-        max_tokens: 4096,
+        maxTokens: 4096,
         system: SIFT_SYSTEM,
         tools: SIFT_TOOLS,
         messages,
       });
-      spendUsd += costUsd(response, ctx.model);
+      spendUsd += response.costUsd;
 
-      // Look for <halt> in any text block.
-      for (const block of response.content) {
-        if (block.type === "text") {
-          const halt = parseHalt(block.text);
-          if (halt !== null) haltReason = halt;
-        }
+      if (response.text) {
+        const halt = parseHalt(response.text);
+        if (halt !== null) haltReason = halt;
       }
       if (haltReason !== null) break;
 
-      const toolUses = response.content.filter(
-        (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
-      );
-      if (response.stop_reason !== "tool_use" || toolUses.length === 0) break;
+      const toolUses = response.toolUses ?? [];
+      if (toolUses.length === 0) break;
 
       const toolResults = toolUses.map((t) => {
         const result = executeTool(ctx, t);
@@ -156,7 +149,7 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
           is_error: result.is_error,
         };
       });
-      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "assistant", content: response.text || "(tool calls)" });
       messages.push({ role: "user", content: toolResults });
     }
 
@@ -223,7 +216,7 @@ interface ToolResult {
 
 function executeTool(
   ctx: SiftContext,
-  tool: Anthropic.Messages.ToolUseBlock
+  tool: LlmToolUse
 ): ToolResult {
   const input = tool.input as Record<string, unknown>;
   try {
@@ -422,32 +415,7 @@ export function parseHalt(text: string): string | null {
 // Cost accounting (mirrors investigate's; same pricing table)
 // -------------------------------------------------------------------------
 
-/**
- * Cost for one API response, from the ONE canonical pricing table
- * (dovizir handover R1/R2). This file used to carry its own copy — four
- * commands did, plus brew, so PRICING_PER_M_TOKENS existed FIVE times and
- * every copy had its own `if (!pricing) return 0`. Fixing one changed nothing
- * about the running system's safety, which is exactly R2's point.
- */
-function costUsd(
-  response: Anthropic.Messages.Message,
-  model: string
-): number {
-  const usage = response.usage as
-    | {
-        input_tokens?: number;
-        output_tokens?: number;
-        cache_read_input_tokens?: number;
-        cache_creation_input_tokens?: number;
-      }
-    | undefined;
-  return costUsdForUsage(model, {
-    inputTokens: usage?.input_tokens ?? 0,
-    outputTokens: usage?.output_tokens ?? 0,
-    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
-    cacheCreateTokens: usage?.cache_creation_input_tokens ?? 0,
-  });
-}
+
 
 // -------------------------------------------------------------------------
 // Bug profile rendering (compact YAML for prompt — full schema in
