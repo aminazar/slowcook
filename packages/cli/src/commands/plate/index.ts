@@ -27,6 +27,7 @@ import { classifyComment, type Classification } from "./classify.js";
 import { routeHint } from "./route-hint.js";
 import type { PlateFeedback } from "./prompts.js";
 import { resolveModel } from "../../lib/model-defaults.js";
+import { loadAnsweredIds, recordAnsweredIds } from "./answered-store.js";
 
 const APPROVED_LABEL = "slowcook-mockup-approved";
 
@@ -380,8 +381,15 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
   const filterByDate = (c: { createdAt: string }): boolean =>
     cutoffDate ? c.createdAt > cutoffDate : true;
 
-  const rawTimeline = fetchTimelineComments(pr.number).filter(filterByDate);
-  const inlineComments = fetchInlineComments(pr.number).filter(filterByDate);
+  // 2026-08-23 — answered-comment ledger. The commit-date cutoff alone
+  // cannot make no-op rounds idempotent (no commit → no cutoff → the same
+  // comment re-answered every timer tick). Anything a prior run considered
+  // is excluded here and recorded again when this run's reply lands.
+  const answeredIds = loadAnsweredIds(args.repoRoot, pr.number);
+  const notAnswered = (c: { id: number }): boolean => !answeredIds.has(c.id);
+  const rawTimeline = fetchTimelineComments(pr.number).filter(filterByDate).filter(notAnswered);
+  const inlineComments = fetchInlineComments(pr.number).filter(filterByDate).filter(notAnswered);
+  const consideredIds = [...rawTimeline.map((c) => c.id), ...inlineComments.map((c) => c.id)];
 
   // 0.16.0-α.7 — split timeline comments into review-overlay (structured,
   // classified) vs free-prose (unstructured, treated as before).
@@ -492,6 +500,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
     } else {
       console.log("Nothing to amend. Exiting cleanly.");
     }
+    recordAnsweredIds(args.repoRoot, pr.number, consideredIds);
     return;
   }
 
@@ -546,6 +555,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
         replies: breadcrumbReplies,
       })
     );
+    recordAnsweredIds(args.repoRoot, pr.number, consideredIds);
     return;
   }
 
@@ -588,6 +598,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
           }
         )
       );
+      recordAnsweredIds(args.repoRoot, pr.number, consideredIds);
       return;
     }
   }
@@ -638,6 +649,7 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
       }
     )
   );
+  recordAnsweredIds(args.repoRoot, pr.number, consideredIds);
   console.log(`Plate amendment pushed + summary posted on PR #${pr.number}.`);
 }
 
