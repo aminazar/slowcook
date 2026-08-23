@@ -346,7 +346,11 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     };
     if (proxy) overlayEnv["GH_PROXY"] = proxy.url;
     if (authServer) {
-      overlayEnv["AUTH_BASE"] = authServer.url;
+      // Remote-box hosting (2026-08-23): the auth helper binds localhost,
+      // but the BROWSER needs a public URL — a reverse proxy fronts it.
+      // SLOWCOOK_PUBLIC_AUTH_BASE advertises that URL to the overlay
+      // while the server keeps its localhost bind.
+      overlayEnv["AUTH_BASE"] = process.env["SLOWCOOK_PUBLIC_AUTH_BASE"] ?? authServer.url;
       overlayEnv["REVIEW_CLIENT_ID"] = reviewClientId;
     }
     for (const [k, v] of Object.entries(overlayEnv)) {
