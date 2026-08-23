@@ -97,6 +97,25 @@ export function runTests(config: StackConfig, options: RunOptions): RunResult {
       }
       continue;
     }
+    // 2026-08-23 — playwright suites get their own JSON reporter + parser.
+    // They previously fell through to the vitest parser, so ANY failing
+    // acceptance test produced "exit 1, no parsable JSON" — a phantom
+    // broken-runner that (pre fail-closed gate) waived the whole verdict.
+    if (/\bplaywright\b/.test(suite.run_command)) {
+      const pwCmd = /--reporter/.test(suite.run_command)
+        ? suite.run_command
+        : `${suite.run_command} --reporter=json`;
+      const { stdout, stderr, code } = exec(pwCmd, options.cwd, resolveSuiteEnv(suite.env));
+      suites.push({ suite: suiteName, command: pwCmd, exit_code: code, stdout_bytes: stdout.length });
+      const parsed = parsePlaywrightRunJson(stdout);
+      if (parsed.length === 0 && code !== 0) {
+        const msg = `exit ${code}, no parsable playwright JSON. First 400 chars of stderr: ${stderr.slice(0, 400)}`;
+        errors.push(`[${suiteName}] ${msg}`);
+        suiteErrors.push({ suite: suiteName, error: msg });
+      }
+      tests.push(...parsed);
+      continue;
+    }
     // For `run`, we want vitest's JSON reporter. We append `--reporter=json`
     // to the declared run_command if it's a vitest command and doesn't already
     // specify a reporter. Keep it additive (caller can override in stack.json).
@@ -343,4 +362,81 @@ function findMatchingClose(s: string): number {
     }
   }
   return -1;
+}
+
+
+/**
+ * Parse `playwright test --reporter=json` output. Ids MUST match
+ * parsePlaywrightList: "<file> > <titles...> [<project>]", where <file>
+ * is the path as playwright prints it in list mode (testDir-prefixed).
+ * The JSON's suite.file is relative to the testDir, so the file-level
+ * suite title chain is dropped from titles and the config's testDir-
+ * relative prefix is recovered from config.rootDir when possible.
+ */
+export function parsePlaywrightRunJson(stdout: string): TestResult[] {
+  const start = stdout.indexOf("{");
+  if (start === -1) return [];
+  let doc: {
+    config?: { rootDir?: string; projects?: Array<{ testDir?: string }> };
+    suites?: unknown[];
+  };
+  try {
+    doc = JSON.parse(stdout.slice(start)) as typeof doc;
+  } catch {
+    return [];
+  }
+  const results: TestResult[] = [];
+  const relPrefix = playwrightTestDirPrefix(doc.config);
+
+  type PwSuite = {
+    title?: string;
+    file?: string;
+    specs?: Array<{
+      title?: string;
+      file?: string;
+      tests?: Array<{
+        projectName?: string;
+        status?: string;
+        results?: Array<{ status?: string; duration?: number; error?: { message?: string } }>;
+      }>;
+    }>;
+    suites?: PwSuite[];
+  };
+
+  const walk = (suite: PwSuite, titles: string[]): void => {
+    const isFileSuite = suite.title !== undefined && suite.title === suite.file;
+    const chain = isFileSuite ? titles : [...titles, ...(suite.title ? [suite.title] : [])];
+    for (const spec of suite.specs ?? []) {
+      const file = relPrefix + (spec.file ?? suite.file ?? "");
+      for (const t of spec.tests ?? []) {
+        const agg = t.status ?? "";
+        const status: TestResult["status"] =
+          agg === "expected" || agg === "flaky"
+            ? "passed"
+            : agg === "skipped"
+              ? "skipped"
+              : "failed";
+        const firstErr = (t.results ?? []).find((r) => r.error?.message)?.error?.message;
+        results.push({
+          id: `${file} > ${[...chain, spec.title ?? ""].filter(Boolean).join(" > ")} [${t.projectName ?? ""}]`,
+          file,
+          status,
+          ...(status === "failed" && firstErr ? { failure_message: firstErr.slice(0, 500) } : {}),
+        });
+      }
+    }
+    for (const sub of suite.suites ?? []) walk(sub, chain);
+  };
+  for (const s of (doc.suites ?? []) as PwSuite[]) walk(s, []);
+  return results;
+}
+
+/** The path prefix list-mode prepends to suite.file — testDir relative to
+ * the project cwd, recovered from config.rootDir's tail when it names a
+ * directory inside the repo (best-effort; "" when indeterminate). */
+function playwrightTestDirPrefix(config?: { rootDir?: string }): string {
+  const root = config?.rootDir ?? "";
+  const m = root.match(/(?:^|\/)(tests?\/.*)$/);
+  if (m && m[1]) return m[1].endsWith("/") ? m[1] : m[1] + "/";
+  return "";
 }

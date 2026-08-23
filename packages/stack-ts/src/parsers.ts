@@ -40,13 +40,29 @@ export function parseVitestList(output: string): TestEntry[] {
  * for the parser implementation OR write a thin wrapper that emits
  * vitest-list-lines from playwright (via a custom reporter).
  */
-export function parsePlaywrightList(_output: string): TestEntry[] {
-  if (typeof console !== "undefined") {
-    console.warn(
-      "[stack-ts] parsePlaywrightList: discovery not implemented; suite returns [] tests."
-    );
+/**
+ * 2026-08-23 — real implementation (was a stub returning []). Parses
+ * `npx playwright test --list` lines:
+ *   `  [chromium-desktop] › tests/acceptance/story-005.spec.ts:21:7 › describe › title`
+ * Id shape mirrors vitest ("<file> > <titles...>") with the project
+ * appended, and MUST match parsePlaywrightRunJson's ids — the manifest
+ * (discovery) and the runner (results) meet on these strings.
+ */
+export function parsePlaywrightList(output: string): TestEntry[] {
+  const entries: TestEntry[] = [];
+  const line = /^\s*\[([^\]]+)\]\s*›\s*(.+?):\d+:\d+\s*›\s*(.+)$/;
+  for (const raw of output.split("\n")) {
+    const m = raw.match(line);
+    if (!m) continue;
+    const project = m[1]!.trim();
+    const file = m[2]!.trim();
+    const titles = m[3]!.split("›").map((t) => t.trim()).filter(Boolean);
+    entries.push({
+      id: `${file} > ${titles.join(" > ")} [${project}]`,
+      file,
+    });
   }
-  return [];
+  return entries;
 }
 
 export function parseByReporterFormat(
