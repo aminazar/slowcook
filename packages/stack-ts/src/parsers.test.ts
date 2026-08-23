@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import {
+  parsePlaywrightList, describe, it, expect } from "vitest";
 import {
   parseVitestList,
   parsePlaywrightList,
@@ -84,5 +85,26 @@ describe("parseByReporterFormat", () => {
     expect(() => parseByReporterFormat("martian-yaml", "")).toThrow(
       /Unknown reporter_format/
     );
+  });
+});
+
+describe("parsePlaywrightList (2026-08-23 — real implementation)", () => {
+  it("parses list lines into vitest-shaped ids with project suffix", () => {
+    const out = [
+      "Listing tests:",
+      "  [chromium-desktop] › tests/acceptance/story-005.spec.ts:21:7 › story-005 /u/<handle> — acceptance › unauthenticated visit redirects to /login",
+      "  [chromium-desktop] › tests/acceptance/story-005.spec.ts:34:7 › story-005 /u/<handle> — acceptance › Gate 1: /login page is clean at mobile viewport",
+      "Total: 2 tests in 1 file",
+    ].join("\n");
+    const got = parsePlaywrightList(out);
+    expect(got).toHaveLength(2);
+    expect(got[0]).toEqual({
+      id: "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > unauthenticated visit redirects to /login [chromium-desktop]",
+      file: "tests/acceptance/story-005.spec.ts",
+    });
+  });
+
+  it("returns [] on non-list output instead of throwing", () => {
+    expect(parsePlaywrightList("Error: something broke")).toEqual([]);
   });
 });

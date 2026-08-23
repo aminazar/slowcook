@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runTests, parseVitestJson } from "./run.js";
+import { runTests, parseVitestJson, parsePlaywrightRunJson } from "./run.js";
 import type { StackConfig } from "./stack-config.js";
 
 function mkConfig(runCommand = "npx vitest run"): StackConfig {
@@ -296,5 +296,74 @@ describe("tap-prove suites (pgTAP gating, 2026-08-22)", () => {
     });
     expect(r.tests).toHaveLength(0);
     expect(r.error ?? "").not.toBe(undefined);
+  });
+});
+
+describe("parsePlaywrightRunJson (2026-08-23)", () => {
+  const doc = {
+    config: { rootDir: "/root/rewo/tests/acceptance" },
+    suites: [
+      {
+        title: "story-005.spec.ts",
+        file: "story-005.spec.ts",
+        specs: [],
+        suites: [
+          {
+            title: "story-005 /u/<handle> — acceptance",
+            file: "story-005.spec.ts",
+            specs: [
+              {
+                title: "unauthenticated visit redirects to /login",
+                file: "story-005.spec.ts",
+                tests: [
+                  {
+                    projectName: "chromium-desktop",
+                    status: "unexpected",
+                    results: [{ status: "failed", error: { message: "expected /login got /u/x" } }],
+                  },
+                ],
+              },
+              {
+                title: "Gate 1: /login page is clean at mobile viewport",
+                file: "story-005.spec.ts",
+                tests: [{ projectName: "chromium-desktop", status: "expected", results: [{ status: "passed" }] }],
+              },
+              {
+                title: "unknown handle returns notFound UI",
+                file: "story-005.spec.ts",
+                tests: [{ projectName: "chromium-desktop", status: "skipped", results: [] }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("produces ids identical to the list parser's shape (manifest ↔ runner agreement)", () => {
+    const got = parsePlaywrightRunJson(JSON.stringify(doc));
+    expect(got.map((t) => t.id)).toEqual([
+      "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > unauthenticated visit redirects to /login [chromium-desktop]",
+      "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > Gate 1: /login page is clean at mobile viewport [chromium-desktop]",
+      "tests/acceptance/story-005.spec.ts > story-005 /u/<handle> — acceptance > unknown handle returns notFound UI [chromium-desktop]",
+    ]);
+  });
+
+  it("maps aggregate statuses: unexpected→failed(+message), expected→passed, skipped→skipped", () => {
+    const got = parsePlaywrightRunJson(JSON.stringify(doc));
+    expect(got.map((t) => t.status)).toEqual(["failed", "passed", "skipped"]);
+    expect(got[0]!.failure_message).toContain("expected /login got /u/x");
+  });
+
+  it("tolerates a log prefix before the JSON and returns [] on garbage", () => {
+    expect(parsePlaywrightRunJson("booting webserver...\n" + JSON.stringify(doc))).toHaveLength(3);
+    expect(parsePlaywrightRunJson("no json here")).toEqual([]);
+  });
+
+  it("flaky counts as passed (it eventually passed)", () => {
+    const flaky = JSON.parse(JSON.stringify(doc)) as typeof doc;
+    flaky.suites[0]!.suites![0]!.specs![0]!.tests![0]!.status = "flaky";
+    const got = parsePlaywrightRunJson(JSON.stringify(flaky));
+    expect(got[0]!.status).toBe("passed");
   });
 });
