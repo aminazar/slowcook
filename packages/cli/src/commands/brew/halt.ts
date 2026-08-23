@@ -70,6 +70,16 @@ export type HaltReason =
   | "MANIFEST_DRIFT"
   | "TESTS_BROKEN"
   /**
+   * 2026-08-23 (story-016 post-mortem) — the final gate fails CLOSED.
+   * FINAL_GATE_RUNNER_BROKEN: a declared suite's runner failed at the
+   * final gate; shipping without its verdict once let a schema story
+   * merge with no migration. STORY_SUITE_RED: story-scoped tests are
+   * red at the gate despite the loop reporting green — a contract the
+   * loop could not see or satisfy.
+   */
+  | "FINAL_GATE_RUNNER_BROKEN"
+  | "STORY_SUITE_RED"
+  /**
    * P5 (ladder) — greening the current target repeatedly breaks the same
    * already-green test. That is not an agent failure: the SPEC disagrees
    * with itself, and a machine cannot resolve a contradiction between two
@@ -270,6 +280,32 @@ export function defaultSuggestedActions(
           id: "regenerate_tests_tier1",
           label: "Regenerate tests at tier-1",
           description: "Run testgen again for this story with the tier-1 (`vi.mock`) shape so brewing can actually affect test pass/fail.",
+        },
+      ];
+    case "FINAL_GATE_RUNNER_BROKEN":
+      return [
+        {
+          id: "fix_suite_runner",
+          label: "Fix the broken suite runner",
+          description: "A suite declared in .brewing/stack.json failed to run at the final gate. Fix its environment (the halt summary names the suite and stderr), or remove the suite from stack.json if it is intentionally not runnable here — a declared suite is a promise.",
+        },
+        {
+          id: "rerun_brew",
+          label: "Re-run brew after the runner is fixed",
+          description: "The implementation branch was NOT pushed. Once the runner works, re-run brew; completed iterations re-verify quickly.",
+        },
+      ];
+    case "STORY_SUITE_RED":
+      return [
+        {
+          id: "inspect_story_reds",
+          label: "Inspect the story-scoped red tests",
+          description: "Story tests outside the loop's tracked set are red at the final gate (the halt summary names them). Usually a suite tier the contract missed — check the story's db/acceptance suites.",
+        },
+        {
+          id: "regenerate_manifest",
+          label: "Re-record the manifest",
+          description: "Run `slowcook manifest record --story <id>` so the contract covers every suite, then re-run brew.",
         },
       ];
     case "MANIFEST_MISSING":

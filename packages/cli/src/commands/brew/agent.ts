@@ -23,9 +23,12 @@ import {
 import {
   runTests,
   runLint,
+  discoverTests,
   validateStackConfig,
   type StackConfig,
 } from "../../stack-resolve.js";
+import { foldCrossSuiteTests } from "./cross-suite.js";
+import { finalGateVerdict } from "./gate-verdict.js";
 import { recordBrewProvenance, readProvenance, renderPriorContextBlock } from "./provenance.js";
 import { gatherPatternIndex, renderPatternIndexBlock } from "./patterns.js";
 import { sliceSpecForTarget, renderSpecSlice } from "./spec-slice.js";
@@ -432,6 +435,25 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     tests: Array<{ id: string; file: string; release_order?: number }>;
   };
+  // 2026-08-23 (story-016 post-mortem) — cross-suite story contract. The
+  // recorded manifest historically listed only the primary (vitest) tier;
+  // story-matched tests in other declared suites (pgTAP db, acceptance)
+  // were invisible to the red-set and a schema story could go "green"
+  // with no migration. Cheap discovery over every suite folds them in;
+  // the loop then brews them like any other red.
+  try {
+    const discovery = discoverTests(ctx.stackConfig, { cwd: ctx.repoRoot });
+    const folded = foldCrossSuiteTests(manifest.tests, discovery.tests, ctx.storyId);
+    if (folded.length > 0) {
+      manifest.tests = [...manifest.tests, ...folded];
+      appendRunLog(
+        ctx,
+        `CROSS_SUITE  +${folded.length} story test(s) beyond the recorded manifest folded into the contract: ${folded.map((t) => t.id).join(", ").slice(0, 300)}`
+      );
+    }
+  } catch (e) {
+    appendRunLog(ctx, `CROSS_SUITE_DISCOVERY_ERROR  ${(e as Error).message.slice(0, 200)}`);
+  }
   // LADDER MODE: the manifest is the whole coherent suite, but the agent sees
   // only the released prefix — rung k must be green before rung k+1 exists.
   // Without --ladder (or without release_order fields) this is exactly the
@@ -1554,48 +1576,73 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // imported by tests in other stories.
     appendRunLog(ctx, `FINAL_GATE  running full suite to check for transitive regressions…`);
     const finalRun = runTestSuite(ctx); // no scope = full suite
-    if (!finalRun.ran) {
+    // 2026-08-23 (story-016 post-mortem) — FAIL CLOSED. The old mercy path
+    // ("proceeding without full-suite verdict") let ONE broken suite runner
+    // discard every other suite's verdict, and a schema story shipped with
+    // no migration while its db suite sat red. A declared suite is a
+    // promise: fix the runner or remove the suite from .brewing/stack.json.
+    const verdict = finalGateVerdict(finalRun, expectedTestIds, fullBaselineGreen);
+    if (verdict.kind === "runner_broken") {
       appendRunLog(
         ctx,
-        `FINAL_GATE_RUNNER_BROKEN  ${finalRun.error ?? "(unknown)"} — proceeding without full-suite verdict`
+        `FINAL_GATE_RUNNER_BROKEN  suites=[${verdict.brokenSuites.join(", ")}] — halting (fail closed)`
       );
-    } else {
-      const finalRed = finalRun.tests.filter((t) => t.status !== "passed");
-      // 0.12.3+ — TRUE regression detection. A "transitive regression"
-      // is a test that was green at baseline AND is now red. Pre-
-      // existing red tests on main (other-story unbrewed tests) are
-      // NOT regressions — they were already red and brew didn't touch
-      // them. Without this filter the gate halts every brew on a
-      // multi-story project that has unbrewed stories sitting at red.
-      const transitiveBreaks = finalRed.filter(
-        (t) => !expectedTestIds.has(t.id) && fullBaselineGreen.has(t.id)
-      );
-      const preExistingRed = finalRed.filter(
-        (t) => !expectedTestIds.has(t.id) && !fullBaselineGreen.has(t.id)
-      );
-      if (transitiveBreaks.length > 0) {
-        appendRunLog(
-          ctx,
-          `FINAL_GATE_REGRESSION  true_regressions=${transitiveBreaks.length} pre_existing_red=${preExistingRed.length} first_regression=${transitiveBreaks[0]?.id?.slice(0, 100)}`
-        );
-        // Halt: brew can't ship a PR that breaks unrelated tests.
-        // The operator can rerun with a wider scope or hand-fix.
-        return haltFor(ctx, {
-          reason: "TRANSITIVE_REGRESSION",
-          iterations: iterationLogs.length,
-          checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
-          greenCount: greenSet.size,
-          totalCount: expectedTestIds.size,
-          spendUsd,
-          iterationLogs,
-          summary: `Story tests all green, but the full-suite gate found ${transitiveBreaks.length} TRUE regression(s) in tests OUTSIDE the story manifest (tests that WERE green at baseline and went red). Pre-existing reds on main (${preExistingRed.length}) are NOT counted. Brew touched code that other stories' tests cover. First true regression: \`${transitiveBreaks[0]?.id?.slice(0, 200)}\`. Hand-investigate or expand the next brew's manifest scope.`,
-        });
-      }
-      appendRunLog(
-        ctx,
-        `FINAL_GATE  pass  full_suite_green=${finalRun.tests.filter((t) => t.status === "passed").length} pre_existing_red=${preExistingRed.length}`
-      );
+      return haltFor(ctx, {
+        reason: "FINAL_GATE_RUNNER_BROKEN",
+        iterations: iterationLogs.length,
+        checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+        greenCount: greenSet.size,
+        totalCount: expectedTestIds.size,
+        spendUsd,
+        iterationLogs,
+        summary:
+          `Story tests are green, but the final gate could not obtain a full-suite verdict: ` +
+          `suite runner(s) [${verdict.brokenSuites.join(", ")}] failed to run. Detail: ${verdict.detail.slice(0, 500)}. ` +
+          `A declared suite is a promise — fix the runner (or remove the suite from .brewing/stack.json if it is intentionally not runnable here), then re-run brew. ` +
+          `Nothing was pushed: shipping without the verdict is how a schema story once merged with no migration.`,
+      });
     }
+    if (verdict.kind === "story_red") {
+      appendRunLog(
+        ctx,
+        `FINAL_GATE_STORY_RED  count=${verdict.storyRed.length} first=${verdict.storyRed[0]?.id?.slice(0, 100)}`
+      );
+      return haltFor(ctx, {
+        reason: "STORY_SUITE_RED",
+        iterations: iterationLogs.length,
+        checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+        greenCount: greenSet.size,
+        totalCount: expectedTestIds.size,
+        spendUsd,
+        iterationLogs,
+        summary:
+          `${verdict.storyRed.length} story-scoped test(s) are red at the final gate: ` +
+          verdict.storyRed.slice(0, 3).map((t) => `\`${t.id.slice(0, 150)}\`${t.failure_message ? ` (${t.failure_message.slice(0, 150)})` : ""}`).join("; ") +
+          `. The loop reported green for its tracked set, so this indicates a contract the loop could not see or satisfy — investigate before shipping.`,
+      });
+    }
+    if (verdict.kind === "regression") {
+      appendRunLog(
+        ctx,
+        `FINAL_GATE_REGRESSION  true_regressions=${verdict.breaks.length} pre_existing_red=${verdict.preExistingRed} first_regression=${verdict.breaks[0]?.id?.slice(0, 100)}`
+      );
+      // Halt: brew can't ship a PR that breaks unrelated tests.
+      // The operator can rerun with a wider scope or hand-fix.
+      return haltFor(ctx, {
+        reason: "TRANSITIVE_REGRESSION",
+        iterations: iterationLogs.length,
+        checkpoints: iterationLogs.filter((l) => l.outcome === "checkpoint").length,
+        greenCount: greenSet.size,
+        totalCount: expectedTestIds.size,
+        spendUsd,
+        iterationLogs,
+        summary: `Story tests all green, but the full-suite gate found ${verdict.breaks.length} TRUE regression(s) in tests OUTSIDE the story manifest (tests that WERE green at baseline and went red). Pre-existing reds on main (${verdict.preExistingRed}) are NOT counted. Brew touched code that other stories' tests cover. First true regression: \`${verdict.breaks[0]?.id?.slice(0, 200)}\`. Hand-investigate or expand the next brew's manifest scope.`,
+      });
+    }
+    appendRunLog(
+      ctx,
+      `FINAL_GATE  pass  full_suite_green=${verdict.fullGreen} pre_existing_red=${verdict.preExistingRed}`
+    );
     await pushBranch(ctx);
     const checkpointsCount = iterationLogs.filter((l) => l.outcome === "checkpoint").length;
     await openBrewPullRequest(ctx, {
