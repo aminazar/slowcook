@@ -80,8 +80,68 @@ describe("buildTastePrompt", () => {
       headBranch: "slowcook/brew/story-019",
       manifestJson: '{"tests":["tests/integration/story-019.test.ts > merges"]}',
     });
-    expect(brew.system).toContain("TEST TAMPERING IS ALWAYS BLOCKING");
+    expect(brew.system).toContain("TEST TAMPERING");
     expect(brew.system).toContain("ADVISORY");
     expect(brew.user).toContain("frozen contract");
+  });
+});
+
+describe("PR-D (2026-08-23): present-vs-history evidence", () => {
+  const base = {
+    prNumber: 9,
+    prTitle: "t",
+    prBody: "",
+    headBranch: "slowcook/brew/story-016",
+    kind: "brew" as const,
+    storyId: "016",
+    diff: "diff --git a/x b/x",
+    specYaml: null,
+    sourceIssueTitle: null,
+    sourceIssueBody: null,
+    issueThread: null,
+    prThread: null,
+    manifestJson: null,
+    headFiles: null,
+    commitSubjects: null,
+  };
+
+  it("renders current head files as authoritative over thread claims", () => {
+    const { user } = buildTastePrompt({
+      ...base,
+      headFiles: [{ path: "tests/integration/story-016.test.ts", content: "it('x')" }],
+    });
+    expect(user).toContain("Current state of key files at the PR head");
+    expect(user).toContain("authoritative over any historical claims");
+    expect(user).toContain("tests/integration/story-016.test.ts");
+  });
+
+  it("renders commit subjects so arbitration commits are visible", () => {
+    const { user } = buildTastePrompt({
+      ...base,
+      commitSubjects: ["fix(human gate): byline column", "brew iter 3"],
+    });
+    expect(user).toContain("Commits on this PR branch");
+    expect(user).toContain("fix(human gate): byline column");
+  });
+
+  it("system prompt carries the history-is-history rule for every kind", () => {
+    for (const kind of ["spec", "tests", "brew"] as const) {
+      const { system } = buildTastePrompt({ ...base, kind });
+      expect(system).toContain("The PR thread and any errors it mentions are HISTORY");
+      expect(system).toContain("NEVER report a defect as current");
+    }
+  });
+
+  it("brew tampering rule carries the PM-arbitration exception", () => {
+    const { system } = buildTastePrompt(base);
+    expect(system).toContain("PM arbitration");
+    expect(system).toContain("AUTHORIZED");
+    expect(system).toContain("faithfully implement the recorded ruling");
+  });
+
+  it("omits the sections cleanly when absent", () => {
+    const { user } = buildTastePrompt(base);
+    expect(user).not.toContain("Current state of key files");
+    expect(user).not.toContain("Commits on this PR branch");
   });
 });

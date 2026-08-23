@@ -37,6 +37,14 @@ export interface TasteContext {
   /** The story's test manifest (brew reviews: the frozen contract the
    *  implementation must satisfy). */
   manifestJson: string | null;
+  /** CURRENT contents of key story files at the PR head (2026-08-23):
+   *  the diff shows deltas and the thread shows history — neither is the
+   *  present. Reviews must judge these, not recalled thread claims. */
+  headFiles: Array<{ path: string; content: string }> | null;
+  /** Recent commit subjects on the PR branch — PM-arbitration commits
+   *  ("human gate", "PM arbitration") are visible here, so authorized
+   *  test edits are distinguishable from agent goalpost-moving. */
+  commitSubjects: string[] | null;
 }
 
 export interface TasteFinding {
@@ -69,7 +77,7 @@ ${
 - Quality: determinism, isolation, clear naming. Style nits are nits, not blockers.`
     : ctx.kind === "brew"
       ? `- Does the diff implement the spec's invariants — nothing missing, nothing invented beyond the spec?
-- TEST TAMPERING IS ALWAYS BLOCKING: the tests are the frozen contract; any change under tests/ in an implementation diff means the agent moved the goalposts.
+- TEST TAMPERING: the tests are the frozen contract; a change under tests/ in an implementation diff normally means the agent moved the goalposts — BLOCKING. Exception: when the PR thread or a commit subject records an explicit PM arbitration/ruling ("PM arbitration", "human gate", "ruling") covering those edits, they are AUTHORIZED — judge whether the edits faithfully implement the recorded ruling instead of flagging tampering.
 - Scope discipline: only files this story needs; flag drive-by edits.
 - Migrations/schema changes must match the spec's approved proposals exactly.
 - Does the code handle the spec's failure scenarios (not just the happy path)?
@@ -78,6 +86,13 @@ ${
 - Are invariants testable and unambiguous? Are scenarios concrete?
 - Scope: nothing invented beyond the issue + answers; nothing load-bearing missing.`
 }
+
+Evidence rules:
+- The diff, the spec, and the "Current state" file sections are the PRESENT.
+- The PR thread and any errors it mentions are HISTORY — earlier rounds may
+  have been fixed since. NEVER report a defect as current on the strength of
+  a thread comment alone; verify it against the current file contents or the
+  diff, and if you cannot, phrase it as a question, not a finding.
 
 Verdict rules — fail closed:
 - "approve" ONLY when there are no blocking findings.
@@ -106,6 +121,17 @@ Respond with ONLY a JSON object:
   if (ctx.manifestJson) {
     parts.push(
       `## Test manifest (the frozen contract this implementation must satisfy)\n\n\`\`\`json\n${ctx.manifestJson}\n\`\`\``
+    );
+  }
+  if (ctx.commitSubjects && ctx.commitSubjects.length > 0) {
+    parts.push(`## Commits on this PR branch (newest last)\n\n${ctx.commitSubjects.map((c) => `- ${c}`).join("\n")}`);
+  }
+  if (ctx.headFiles && ctx.headFiles.length > 0) {
+    parts.push(
+      `## Current state of key files at the PR head (authoritative over any historical claims in the thread)\n\n` +
+        ctx.headFiles
+          .map((f) => `### ${f.path}\n\n\`\`\`\n${f.content}\n\`\`\``)
+          .join("\n\n")
     );
   }
   parts.push(`## Diff under review\n\n\`\`\`diff\n${ctx.diff}\n\`\`\``);

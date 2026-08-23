@@ -147,6 +147,66 @@ export async function taste(argv: string[]): Promise<void> {
     /* lineage best-effort */
   }
 
+  // 2026-08-23 (PR-D) — the PRESENT, deterministically. The diff shows
+  // deltas and the thread shows history; reviews were recalling stale
+  // thread errors as current defects. Fetch the head and read the
+  // story's key files as they ARE (git show against FETCH_HEAD — the
+  // checkout-independent G26 pattern), plus commit subjects so PM-
+  // arbitration commits are visible to the tampering rule.
+  let headFiles: Array<{ path: string; content: string }> | null = null;
+  let commitSubjects: string[] | null = null;
+  try {
+    const { data: prFiles } = await octokit.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: args.pr,
+      per_page: 100,
+    });
+    execSync(`git fetch origin ${JSON.stringify(head)}`, {
+      cwd: args.repoRoot,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    const keyPaths = prFiles
+      .map((f) => f.filename)
+      .filter(
+        (f) =>
+          f.startsWith("tests/") ||
+          f.startsWith("supabase/tests/") ||
+          f.startsWith("specs/") ||
+          f.startsWith(".brewing/manifests/")
+      )
+      .slice(0, 8);
+    headFiles = [];
+    for (const path of keyPaths) {
+      try {
+        const content = execSync(`git show FETCH_HEAD:${JSON.stringify(path)}`, {
+          cwd: args.repoRoot,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+          maxBuffer: 4 * 1024 * 1024,
+        });
+        headFiles.push({ path, content: content.slice(0, 12_000) });
+      } catch {
+        /* deleted at head — its absence IS the current state */
+      }
+    }
+    if (headFiles.length === 0) headFiles = null;
+  } catch {
+    headFiles = null;
+  }
+  try {
+    const { data: prCommits } = await octokit.pulls.listCommits({
+      owner,
+      repo,
+      pull_number: args.pr,
+      per_page: 50,
+    });
+    commitSubjects = prCommits.map((c) => (c.commit.message ?? "").split("\n")[0]!.slice(0, 120));
+    if (commitSubjects.length === 0) commitSubjects = null;
+  } catch {
+    commitSubjects = null;
+  }
+
   const ctx: TasteContext = {
     prNumber: args.pr,
     prTitle: pr.title,
@@ -171,6 +231,8 @@ export async function taste(argv: string[]): Promise<void> {
         return null;
       }
     })(),
+    headFiles,
+    commitSubjects,
   };
 
   const model = resolveModel("taste", args.model);
