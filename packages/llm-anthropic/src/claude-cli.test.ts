@@ -51,15 +51,30 @@ describe("ClaudeCliClient", () => {
     expect(stdin).toContain("[user]\ngenerate tests for story-054");
   });
 
-  it("refuses content-block (image) messages explicitly — text-only adapter", async () => {
+  it("text and tool_result blocks serialize; images still refuse (need the API adapter)", async () => {
     const client = new ClaudeCliClient(async () => cliJson());
+    // text blocks now serialize fine (tool-emulation era)
     await expect(
       client.complete({
         system: "s",
-        messages: [{ role: "user", content: [{ type: "text", text: "x" }] as never }],
+        messages: [{ role: "user", content: [{ type: "text", text: "x" }] }],
         model: "claude-opus-4-7",
       })
-    ).rejects.toThrow(/text-only/);
+    ).resolves.toBeTruthy();
+    await expect(
+      client.complete({
+        system: "s",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/png", data: "x" } },
+            ],
+          },
+        ],
+        model: "claude-opus-4-7",
+      })
+    ).rejects.toThrow(/image/);
   });
 
   it("surfaces CLI errors and non-JSON explicitly — never a fabricated reply", async () => {
