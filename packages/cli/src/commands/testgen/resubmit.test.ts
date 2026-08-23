@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFileBlocks } from "./resubmit.js";
+import { parseFileBlocks, suiteWriteRoots } from "./resubmit.js";
 
 describe("parseFileBlocks", () => {
   it("parses file blocks and confines writes to tests/", () => {
@@ -46,5 +46,41 @@ describe("stub-file amendment scope (G26b)", () => {
       "tests/integration/a.test.ts",
     ]);
     expect(parseFileBlocks(text).map((b) => b.path)).toEqual(["tests/integration/a.test.ts"]);
+  });
+});
+
+describe("suiteWriteRoots (2026-08-23 — db-tier write scope)", () => {
+  it("derives declared suite directories from discover commands", () => {
+    const roots = suiteWriteRoots({
+      test: {
+        backend: { discover_command: "npx vitest list" },
+        db: { discover_command: "ls supabase/tests/database/*.test.sql" },
+        acceptance: { discover_command: "npx playwright test --list" },
+      },
+    });
+    expect(roots).toEqual(["supabase/tests/database/"]);
+  });
+
+  it("never yields src/ or absolute or traversal roots", () => {
+    const roots = suiteWriteRoots({
+      test: {
+        a: { discover_command: "ls src/evil/*.ts" },
+        b: { discover_command: "ls /etc/*.conf" },
+        c: { discover_command: "ls ../up/*.sql" },
+      },
+    });
+    expect(roots).toEqual([]);
+  });
+
+  it("parseFileBlocks admits declared roots and still refuses others", () => {
+    const text =
+      '<file path="supabase/tests/database/story-9-x.test.sql">select 1;</file>' +
+      '<file path="supabase/migrations/999_evil.sql">drop table x;</file>' +
+      '<file path="tests/integration/a.test.ts">ok</file>';
+    const blocks = parseFileBlocks(text, { allowRoots: ["supabase/tests/database/"] });
+    expect(blocks.map((b) => b.path)).toEqual([
+      "supabase/tests/database/story-9-x.test.sql",
+      "tests/integration/a.test.ts",
+    ]);
   });
 });

@@ -4,7 +4,7 @@ import type { StackConfig } from "./stack-config.js";
 import { parseByReporterFormat } from "./parsers.js";
 
 export interface DiscoveryResult {
-  tests: TestEntry[];
+  tests: (TestEntry & { suite?: string })[];
   suites: SuiteRecord[];
   /** Any suite-level errors we caught while discovering. Empty on success. */
   errors: { suite: string; message: string }[];
@@ -32,7 +32,7 @@ export function discoverTests(
   config: StackConfig,
   options: DiscoverOptions
 ): DiscoveryResult {
-  const tests: TestEntry[] = [];
+  const tests: (TestEntry & { suite?: string })[] = [];
   const suites: SuiteRecord[] = [];
   const errors: { suite: string; message: string }[] = [];
   const exec = options.exec ?? defaultExec;
@@ -45,7 +45,12 @@ export function discoverTests(
   for (const [suiteName, suite] of Object.entries(config.test)) {
     try {
       const output = exec(suite.discover_command, options.cwd, maxBuffer);
-      const suiteTests = parseByReporterFormat(suite.reporter_format, output);
+      const suiteTests = parseByReporterFormat(suite.reporter_format, output).map(
+        // per-suite attribution (2026-08-23): manifest record needs to know
+        // which suite each test came from — the old "one vitest suite"
+        // heuristic stamped every suite with the same count.
+        (t) => ({ ...t, suite: suiteName })
+      );
       tests.push(...suiteTests);
       suites.push({
         suite: suiteName,
