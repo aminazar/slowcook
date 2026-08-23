@@ -22,7 +22,7 @@ import { runSift, type SiftContext, type SiftResult } from "./agent.js";
 import { loadBugProfile } from "../recipe-regression/index.js";
 import { validateStackConfig, type StackConfig } from "../../stack-resolve.js";
 import type { BugProfile } from "../investigate/schema.js";
-import { requireApiKey } from "../../lib/llm-runtime.js";
+import { createLlmClient } from "../refine/llm.js";
 import { resolveModel } from "../../lib/model-defaults.js";
 
 interface SiftArgs {
@@ -111,7 +111,7 @@ Options:
   --dry-run              Print plan + exit; don't make LLM calls.
 
 Environment:
-  ANTHROPIC_API_KEY (required unless --dry-run)
+  Runs on SLOWCOOK_LLM=claude-cli (subscription) or ANTHROPIC_API_KEY (unless --dry-run)
   GITHUB_TOKEN      (optional; not used by sift directly today)
 
 Exit codes:
@@ -174,11 +174,11 @@ export async function sift(argv: string[], cliVersion: string): Promise<void> {
     process.exit(0);
   }
 
-  const apiKey = requireApiKey("sift");
+  const llm = await createLlmClient();
 
   const ctx: SiftContext = {
     repoRoot: args.repoRoot,
-    anthropicApiKey: apiKey,
+    llm,
     model: args.model,
     bugProfile,
     regressionTestPath,

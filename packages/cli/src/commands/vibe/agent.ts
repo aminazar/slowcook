@@ -14,7 +14,7 @@
  * PR opening.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import type { LlmClient, LlmMessage } from "@slowcook-ai/core";
 import {
   VIBE_SYSTEM,
   buildVibeUserPrompt,
@@ -25,7 +25,6 @@ import {
   type VibeChangeRequest,
   type VibeFileBlock,
 } from "./emit.js";
-import { costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { resolveModel } from "../../lib/model-defaults.js";
 
 const DEFAULT_MODEL = resolveModel("vibe");
@@ -33,7 +32,9 @@ const MAX_TOKENS = 8192;
 
 export interface VibeContext {
   repoRoot: string;
-  anthropicApiKey: string;
+  /** Backend-agnostic LLM client (2026-08-23) — vibe is text-only and
+   * always could have run on the CLI subscription; now it does. */
+  llm: LlmClient;
   model: string;
   storyId: string;
   cliVersion: string;
@@ -74,7 +75,7 @@ export type VibeResult =
     };
 
 export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
-  const anthropic = new Anthropic({ apiKey: ctx.anthropicApiKey });
+  const llm = ctx.llm;
 
   const userPrompt = buildVibeUserPrompt({
     storyId: ctx.storyId,
@@ -82,9 +83,7 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
     similarPagesHint: ctx.similarPagesHint,
   });
 
-  const messages: Anthropic.Messages.MessageParam[] = [
-    { role: "user", content: userPrompt },
-  ];
+  const messages: LlmMessage[] = [{ role: "user", content: userPrompt }];
 
   let spendUsd = 0;
   let rounds = 0;
@@ -92,16 +91,15 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
 
   // Round 1 — fresh emit.
   rounds += 1;
-  const r1 = await anthropic.messages.create({
+  const r1 = await llm.complete({
     model: ctx.model,
-    max_tokens: MAX_TOKENS,
+    maxTokens: MAX_TOKENS,
     system: VIBE_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
     messages,
+    stream: true,
   });
-  spendUsd += costUsd(r1, ctx.model);
-  for (const block of r1.content) {
-    if (block.type === "text") finalText = block.text;
-  }
+  spendUsd += r1.costUsd;
+  if (r1.text) finalText = r1.text;
 
   // Format-compliance retry (single nudge) if no <file> blocks parsed.
   // Mirrors investigate's pattern from 0.13.0-alpha.2c.
@@ -114,16 +112,15 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
       content:
         "Your previous reply contained no `<file path=\"...\">...</file>` blocks. Slowcook's parser greps for those literal tags. Re-emit now using the Output format from your system prompt: each file as a separate `<file path=\"...\">contents</file>` block. No prose preamble or postscript.",
     });
-    const r2 = await anthropic.messages.create({
+    const r2 = await llm.complete({
       model: ctx.model,
-      max_tokens: MAX_TOKENS,
+      maxTokens: MAX_TOKENS,
       system: VIBE_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
       messages,
+      stream: true,
     });
-    spendUsd += costUsd(r2, ctx.model);
-    for (const block of r2.content) {
-      if (block.type === "text") finalText = block.text;
-    }
+    spendUsd += r2.costUsd;
+    if (r2.text) finalText = r2.text;
     parsed = parseVibeOutput(finalText);
   }
 
@@ -147,15 +144,4 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
   };
 }
 
-function costUsd(response: Anthropic.Messages.Message, model: string): number {
-  const usage = response.usage as Anthropic.Messages.Usage & {
-    cache_read_input_tokens?: number;
-    cache_creation_input_tokens?: number;
-  };
-  return costUsdForUsage(model, {
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
-    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-    cacheCreateTokens: usage.cache_creation_input_tokens ?? 0,
-  });
-}
+

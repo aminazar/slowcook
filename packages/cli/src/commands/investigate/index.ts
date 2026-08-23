@@ -14,6 +14,7 @@
  */
 
 import { mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { createLlmClient } from "../refine/llm.js";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
@@ -202,14 +203,9 @@ export async function investigate(
     return finaliseProfile(profile, args, bugId, cliVersion);
   }
 
-  // ---- Real agent path (alpha.2b) ----
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!apiKey) {
-    console.error(
-      "slowcook investigate: ANTHROPIC_API_KEY is required (or use --stub for placeholder)"
-    );
-    process.exit(78);
-  }
+  // ---- Real agent path (alpha.2b; 2026-08-23: backend-agnostic via the
+  // seam — runs on ANTHROPIC_API_KEY or SLOWCOOK_LLM=claude-cli alike) ----
+  const llm = await createLlmClient();
 
   console.error(
     `slowcook investigate (${cliVersion}) — issue #${args.issueNumber}, model ${args.model}, bug-id ${bugId}.`
@@ -220,7 +216,7 @@ export async function investigate(
   console.error(`Running investigation agent (read-only tools, max 12 rounds)…`);
   const result = await runInvestigation({
     repoRoot: args.repoRoot,
-    anthropicApiKey: apiKey,
+    llm,
     model: args.model,
     bugId,
     cliVersion,
