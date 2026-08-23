@@ -21,6 +21,7 @@ interface BrewArgs {
   repoRoot: string;
   owner?: string;
   repo?: string;
+  pr?: number;
   budgetUsd: number;
   maxIterations: number;
   wallClockMs: number;
@@ -79,7 +80,7 @@ interface BrewArgs {
  */
 /** Flags that consume the following token as their value. */
 const VALUE_FLAGS = new Set([
-  "--story", "--spec", "--cwd", "--owner", "--repo", "--budget-usd", "--max-iterations",
+  "--story", "--spec", "--pr", "--cwd", "--owner", "--repo", "--budget-usd", "--max-iterations",
   "--wall-clock-minutes", "--model", "--base", "--mode", "--navigator-model",
   "--stall-iterations", "--max-tool-rounds", "--reset-after-failures", "--emit-model",
 ]);
@@ -110,6 +111,7 @@ function parseArgs(argv: string[]): BrewArgs {
     const arg = argv[i];
     const next = argv[i + 1];
     if ((arg === "--story" || arg === "--spec") && next) { args.storyId = next; i++; }
+    else if (arg === "--pr" && next) { args.pr = numericFlag("--pr", next, "int"); i++; }
     else if (arg === "--cwd" && next) { args.repoRoot = next; i++; }
     else if (arg === "--owner" && next) { args.owner = next; i++; }
     else if (arg === "--repo" && next) { args.repo = next; i++; }
@@ -165,8 +167,8 @@ function parseArgs(argv: string[]): BrewArgs {
       process.exit(64);
     }
   }
-  if (!args.storyId) {
-    console.error("Missing required --story <id>");
+  if (!args.storyId && !args.pr) {
+    console.error("Missing required --story <id> (or --pr <n> for a review resubmit)");
     printHelp();
     process.exit(64);
   }
@@ -338,6 +340,37 @@ function detectOwnerRepo(cwd: string): { owner: string; repo: string } | null {
 
 export async function brew(argv: string[], cliVersion: string): Promise<void> {
   const args = parseArgs(argv);
+  // PR-B (2026-08-23) — review resubmit: amend an existing brew PR per
+  // its feedback instead of brewing a story from scratch.
+  if (args.pr) {
+    const githubTokenR = process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
+    if (!githubTokenR) {
+      console.error("GITHUB_TOKEN environment variable is not set.");
+      process.exit(2);
+    }
+    let owner = args.owner;
+    let repo = args.repo;
+    if (!owner || !repo) {
+      const detected = detectOwnerRepo(args.repoRoot);
+      if (!detected) {
+        console.error("Could not detect owner/repo from git remote. Pass --owner and --repo.");
+        process.exit(2);
+      }
+      owner = owner ?? detected.owner;
+      repo = repo ?? detected.repo;
+    }
+    const { runBrewResubmit } = await import("./resubmit-io.js");
+    await runBrewResubmit({
+      pr: args.pr,
+      repoRoot: args.repoRoot,
+      model: args.model,
+      budgetUsd: args.budgetUsd === 10 ? 5 : args.budgetUsd,
+      owner,
+      repo,
+      token: githubTokenR,
+    });
+    return;
+  }
   console.log(renderModelTable([
     { stage: "brew", flag: argv.includes("--model") ? args.model : undefined },
   ]));

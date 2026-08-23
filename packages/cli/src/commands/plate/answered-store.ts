@@ -15,19 +15,19 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-const STORE_REL = join(".brewing", "local", "plate-answered.json");
+const DEFAULT_STORE = "plate-answered.json";
 /** Per-PR cap — old ids age out; GitHub ids are monotonic so keep newest. */
 const MAX_IDS_PER_PR = 1000;
 
 type Store = Record<string, number[]>;
 
-function storePath(repoRoot: string): string {
-  return join(repoRoot, STORE_REL);
+function storePath(repoRoot: string, storeName: string): string {
+  return join(repoRoot, ".brewing", "local", storeName);
 }
 
-function loadStore(repoRoot: string): Store {
+function loadStore(repoRoot: string, storeName: string): Store {
   try {
-    const parsed = JSON.parse(readFileSync(storePath(repoRoot), "utf8")) as unknown;
+    const parsed = JSON.parse(readFileSync(storePath(repoRoot, storeName), "utf8")) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Store;
     }
@@ -37,23 +37,28 @@ function loadStore(repoRoot: string): Store {
   return {};
 }
 
-export function loadAnsweredIds(repoRoot: string, prNumber: number): Set<number> {
-  const ids = loadStore(repoRoot)[String(prNumber)];
+export function loadAnsweredIds(
+  repoRoot: string,
+  prNumber: number,
+  storeName: string = DEFAULT_STORE
+): Set<number> {
+  const ids = loadStore(repoRoot, storeName)[String(prNumber)];
   return new Set(Array.isArray(ids) ? ids.filter((n) => typeof n === "number") : []);
 }
 
 export function recordAnsweredIds(
   repoRoot: string,
   prNumber: number,
-  ids: ReadonlyArray<number>
+  ids: ReadonlyArray<number>,
+  storeName: string = DEFAULT_STORE
 ): void {
   if (ids.length === 0) return;
-  const store = loadStore(repoRoot);
+  const store = loadStore(repoRoot, storeName);
   const key = String(prNumber);
   const merged = Array.from(new Set([...(store[key] ?? []), ...ids]));
   merged.sort((a, b) => a - b);
   store[key] = merged.slice(-MAX_IDS_PER_PR);
-  const p = storePath(repoRoot);
+  const p = storePath(repoRoot, storeName);
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(store, null, 2), "utf8");
 }
