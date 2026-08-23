@@ -6,6 +6,60 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.35.0 · stack-ts 0.12.0 — the release where the pipeline caught its own lies
+
+Everything here comes from one week of letting slowcook's agents build a
+real feature end-to-end (three stories on a live app) and fixing every
+failure the run exposed, permanently, instead of working around it.
+
+**Change control: artifacts now carry their paper trail.** Specs and
+tests can only change through the agent responsible for them. Every time
+an agent writes one of these files, it records *who wrote it, why, and
+what triggered the work* in a small ledger file that travels in the same
+commit. A new one-time command, `slowcook provenance init`, takes a
+snapshot of everything as it stands today — after that, any hand edit to
+a protected file is blocked in CI. There is deliberately no "just this
+once" override: if a spec is wrong, the fix is to run the agent that
+owns it.
+
+**Databases stopped being invisible.** Test suites that run against fake
+in-memory databases kept saying "all green" while the real database
+rules (row security, table shapes, function signatures) were wrong or
+missing. Two additions close that gap: SQL test files (pgTAP) are now
+first-class citizens — recorded, run, and gated exactly like regular
+tests (`reporter_format: "tap-prove"` in stack.json) — and the schema
+summary agents read before writing specs now notices when tables were
+dropped or renamed, lists the database functions that already exist, and
+refreshes itself whenever migrations change. This mattered: on the live
+app, the old summary still showed a table deleted months earlier, and an
+agent faithfully wrote a spec around the ghost.
+
+**The implementation agent stopped burning money on broken
+foundations.** When a test suite can't even start up (a missing export,
+a typo'd import), no amount of implementation work can make it pass —
+but the agent used to grind through its whole budget discovering that.
+Now it checks first: if the story's tests are crashing rather than
+failing, it stops immediately, names the exact error, and points at the
+repair route. First live run of this check: zero dollars spent on a
+suite that the day before had cost $6.
+
+**Reviewers and writers now read the same contract.** The reviewing
+agent and the revising agent were each reading the spec from whatever
+git branch happened to be checked out — sometimes an outdated copy — and
+once spent three review rounds arguing past each other, each quoting a
+different version. Both now read the spec from the main branch directly,
+regardless of checkout state.
+
+**Small but painful fixes:** branch names with suffixes (amendments, fix
+rounds, timestamps) are parsed by one shared piece of code instead of
+four slightly-different copies that each broke in turn; a garbled AI
+response can no longer be saved into a spec (it's rejected with an
+explanation the next attempt can read); machine-local files (run logs,
+caches, locks) moved under one folder, `.brewing/local/`, that a single
+gitignore line covers — so they stop leaking into pull requests.
+
+---
+
 ## cli 0.34.0 · core 0.18.0 · llm-anthropic 0.25.0 · forge-github 0.16.0 — the agent-worker release
 
 Three days of dogfooding label-triggered agents against a real repo
