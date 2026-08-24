@@ -74,7 +74,16 @@ ${
     ? `- Do the tests faithfully cover the spec's invariants and scenarios? Name any invariant with no test.
 - Are the tests honest (no auto-pass, no tautologies, no testing of mocks-of-mocks)?
 - Would they be red before implementation and green after a correct one?
-- Quality: determinism, isolation, clear naming. Style nits are nits, not blockers.`
+- Quality: determinism, isolation, clear naming. Style nits are nits, not blockers.
+- WHAT THE TESTS MOCK IS AN ARCHITECTURAL CLAIM: the mocked seam must match the
+  runtime context the spec implies. A background job/crawler must mock the
+  service-role (admin) client, never the request-scoped/cookie client; a
+  request handler the reverse. Twice, suites mocked the WRONG module and their
+  green enforced a defect the reviewer praised. Name any mock whose seam
+  contradicts the spec's runtime context — that is blocking, not a nit.
+- Fixtures must return the shapes the real dependency returns (e.g. PostgREST
+  returns ARRAYS for multi-row selects — a fixture handing back a bare object
+  forces the implementation to grow normalization hacks for the mock's sake).`
     : ctx.kind === "brew"
       ? `- Does the diff implement the spec's invariants — nothing missing, nothing invented beyond the spec?
 - TEST TAMPERING: the tests are the frozen contract; a change under tests/ in an implementation diff normally means the agent moved the goalposts — BLOCKING. Exception: when the PR thread or a commit subject records an explicit PM arbitration/ruling ("PM arbitration", "human gate", "ruling") covering those edits, they are AUTHORIZED — judge whether the edits faithfully implement the recorded ruling instead of flagging tampering.

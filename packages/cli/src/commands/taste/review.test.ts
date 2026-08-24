@@ -145,3 +145,28 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
     expect(user).not.toContain("Commits on this PR branch");
   });
 });
+
+describe("mock-boundary review dimension (2026-08-24)", () => {
+  it("tests-kind prompts carry the mocked-seam and fixture-shape rules", () => {
+    const { system } = buildTastePrompt({
+      prNumber: 1,
+      prTitle: "t",
+      prBody: "",
+      headBranch: "slowcook/tests/story-020",
+      kind: "tests",
+      storyId: "020",
+      diff: "",
+      specYaml: null,
+      sourceIssueTitle: null,
+      sourceIssueBody: null,
+      issueThread: null,
+      prThread: null,
+      manifestJson: null,
+      headFiles: null,
+      commitSubjects: null,
+    });
+    expect(system).toContain("ARCHITECTURAL CLAIM");
+    expect(system).toContain("service-role (admin) client");
+    expect(system).toContain("ARRAYS for multi-row selects");
+  });
+});
