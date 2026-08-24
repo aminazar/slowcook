@@ -719,7 +719,21 @@ export function ReviewShell(props: ReviewShellProps): JSX.Element | null {
   if (!enabled || typeof document === "undefined") return null;
   // Gate (b): nothing to review on this page → don't show the pill. (Recomputed on
   // the marker-scan tick, so it follows SPA navigation.)
-  if (requireTargets && !document.querySelector(sel)) return null;
+  if (requireTargets && !document.querySelector(sel)) {
+    // 2026-08-24 (#370) — the silent gate gets a voice. Two Next apps
+    // "never rendered the pill under App Router"; days of framework
+    // suspicion later, the cause was THIS line: a real app has zero
+    // review anchors, and the context gate hid the pill by design with
+    // no way to discover why. One console.info per page, then quiet.
+    if (typeof window !== "undefined" && !(window as { __scReviewGateLogged?: boolean }).__scReviewGateLogged) {
+      (window as { __scReviewGateLogged?: boolean }).__scReviewGateLogged = true;
+      console.info(
+        `[review-overlay] pill hidden: no [${anchorAttribute}] targets on this page ` +
+          `(requireTargets is on). For whole-page review of an app without anchors, pass requireTargets={false}.`
+      );
+    }
+    return null;
+  }
 
   // node → element: semantic anchors by attribute; `dom:` fallbacks by path.
   const findNodeEl = (node: string): HTMLElement | null => {
