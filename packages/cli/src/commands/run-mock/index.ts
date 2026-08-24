@@ -393,7 +393,12 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     console.log(``);
   }
 
-  const dev: ChildProcess = spawn("npm", ["run", "dev"], { cwd: mockDir, env, stdio: "inherit" });
+  // 2026-08-24 (#501 child lifecycle) — detached:true makes the dev server
+  // lead its OWN process group, so cleanup can signal the whole tree.
+  // `child.kill()` alone signals only the npm wrapper; its vite grandchild
+  // survived unit restarts twice on the rewo box, holding :3100 and serving
+  // a stale branch until killed by port.
+  const dev: ChildProcess = spawn("npm", ["run", "dev"], { cwd: mockDir, env, stdio: "inherit", detached: true });
 
   // Step 5: background poll for branch updates.
   let pollTimer: NodeJS.Timeout | null = null;
@@ -481,7 +486,15 @@ export async function runMock(argv: string[], _cliVersion: string): Promise<void
     if (proxy) { try { proxy.close(); } catch { /* ignore */ } }
     if (authServer) { try { authServer.close(); } catch { /* ignore */ } }
     if (dev && !dev.killed) {
-      try { dev.kill(signal as NodeJS.Signals ?? "SIGTERM"); } catch { /* ignore */ }
+      const sig = (signal as NodeJS.Signals) ?? "SIGTERM";
+      // Kill the process GROUP (negative pid) so npm's vite grandchild
+      // dies with it; fall back to the single child if the group is gone.
+      try {
+        if (dev.pid) process.kill(-dev.pid, sig);
+        else dev.kill(sig);
+      } catch {
+        try { dev.kill(sig); } catch { /* ignore */ }
+      }
     }
     if (stashedRef) {
       try {
