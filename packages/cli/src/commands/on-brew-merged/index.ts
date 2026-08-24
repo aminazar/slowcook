@@ -15,11 +15,21 @@ import { parseCostMarkers } from "../refine/llm.js";
  * refine → on-spec-merged → testgen → on-tests-merged → brew → here.
  */
 
+
+/** Stage labels that must come off a shipped issue. Pure; exported for tests. */
+export function stageLabelsToRemove(labels: Array<string | { name?: string }>): string[] {
+  return labels
+    .map((l) => (typeof l === "string" ? l : l.name ?? ""))
+    .filter((n) => n.startsWith("agent:") || n === "needs-refinement" || n === "spec-ready");
+}
+
 interface Args {
   prNumber: number;
   repoRoot: string;
   owner?: string;
   repo?: string;
+  /** 2026-08-24 — keep the source issue open (labels still advance). */
+  noClose?: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -42,6 +52,8 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === "--repo" && next) {
       args.repo = next;
       i++;
+    } else if (arg === "--no-close") {
+      args.noClose = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -302,7 +314,7 @@ export async function onBrewMerged(argv: string[]): Promise<void> {
   const body =
     `### slowcook · shipped 🎉\n\n` +
     `[PR #${args.prNumber}](https://github.com/${owner}/${repo}/pull/${args.prNumber}) merged — ` +
-    `\`story-${storyId}\` is now on main. This issue is considered shipped; feel free to close it.\n` +
+    `\`story-${storyId}\` is now on main.\n` +
     costSummaryMd +
     `\nPipeline trail:\n` +
     `- **refine** — \`spec-ready\` (earlier in this thread)\n` +
@@ -320,6 +332,39 @@ export async function onBrewMerged(argv: string[]): Promise<void> {
     console.error(
       `  failed to post comment on #${sourceIssue}: ${(e as Error).message}`
     );
+  }
+
+  // 2026-08-24 (#501 "the board lies on human merges") — advance the
+  // BOARD, not just the thread: every merge path lands here (the
+  // workflow fires on pull_request.closed regardless of who clicked
+  // merge), so this is the one place label state can be made truthful.
+  // Stage labels (agent:*) come off, `shipped` goes on, and the issue
+  // closes as completed (--no-close to keep it open; a human can always
+  // reopen). Best-effort per mutation — a label API hiccup must not
+  // undo the shipped comment.
+  try {
+    const { data: issue } = await octokit.issues.get({ owner, repo, issue_number: sourceIssue });
+    const stageLabels = stageLabelsToRemove(issue.labels ?? []);
+    for (const name of stageLabels) {
+      try {
+        await octokit.issues.removeLabel({ owner, repo, issue_number: sourceIssue, name });
+      } catch { /* already gone */ }
+    }
+    await octokit.issues.addLabels({ owner, repo, issue_number: sourceIssue, labels: ["shipped"] });
+    if (!args.noClose && issue.state === "open") {
+      await octokit.issues.update({
+        owner,
+        repo,
+        issue_number: sourceIssue,
+        state: "closed",
+        state_reason: "completed",
+      });
+      console.log(`Board advanced: #${sourceIssue} labeled shipped + closed (stage labels removed: ${stageLabels.join(", ") || "none"}).`);
+    } else {
+      console.log(`Board advanced: #${sourceIssue} labeled shipped (left open${args.noClose ? " by --no-close" : ""}).`);
+    }
+  } catch (e) {
+    console.error(`  board advancement failed (comment already posted): ${(e as Error).message}`);
   }
   console.log("Done.");
 }
