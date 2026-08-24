@@ -6,6 +6,7 @@ import {
   parseVibeOutput,
   writeVibeFiles,
   validateAndResolveVibePath,
+  buildMockCheck,
 } from "./emit.js";
 
 function mkRepo(): string {
@@ -179,5 +180,31 @@ describe("writeVibeFiles", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildMockCheck (2026-08-24 — a mockup that doesn't build is not reviewable)", () => {
+  it("vite shape runs vite build in the mock root and passes on success", () => {
+    const calls: Array<{ cmd: string; cwd: string }> = [];
+    const r = buildMockCheck("/repo", "mock", "vite", (cmd, cwd) => { calls.push({ cmd, cwd }); });
+    expect(r.ok).toBe(true);
+    expect(calls[0]!.cmd).toContain("vite build");
+    expect(calls[0]!.cwd).toBe("/repo/mock");
+  });
+
+  it("captures build errors on failure", () => {
+    const r = buildMockCheck("/repo", "mock", "vite", () => {
+      const e = new Error("boom") as Error & { stderr?: string };
+      e.stderr = "entry file src/main.tsx: Could not resolve ./App";
+      throw e;
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors).toContain("Could not resolve ./App");
+  });
+
+  it("unknown shapes skip with a stated reason instead of passing silently", () => {
+    const r = buildMockCheck("/repo", "mock", "static-html", () => {});
+    expect(r.ok).toBe(true);
+    expect(r.skipped).toContain("static-html");
   });
 });

@@ -405,6 +405,7 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
     specYaml,
     projectContext,
     mockShape: mockShapeConfig.shape,
+    mockRoot: mockShapeConfig.mock_root,
   };
 
   const result = await runVibe(ctx);
@@ -417,6 +418,13 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
       console.error("\n--- agent's final text ---\n");
       console.error(result.finalText);
     }
+    process.exit(1);
+  }
+
+  if (result.kind === "build-failure") {
+    console.error(
+      `Vibe's mockup does NOT build after a repair round — refusing to open a broken PR. Spend: $${result.spendUsd.toFixed(4)}.\n\nBuild errors:\n${result.errors}`
+    );
     process.exit(1);
   }
 

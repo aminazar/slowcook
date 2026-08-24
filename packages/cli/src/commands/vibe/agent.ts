@@ -22,6 +22,7 @@ import {
 import {
   parseVibeOutput,
   writeVibeFiles,
+  buildMockCheck,
   type VibeChangeRequest,
   type VibeFileBlock,
 } from "./emit.js";
@@ -56,9 +57,20 @@ export interface VibeContext {
    * primitives in the system prompt.
    */
   mockShape?: "vite" | "nextjs";
+  /** Mock root dir from mock.yaml (default "mock") — build-check cwd. */
+  mockRoot?: string;
+  /** Tests inject true; the build check needs a real toolchain. */
+  skipBuildCheck?: boolean;
 }
 
 export type VibeResult =
+  | {
+      kind: "build-failure";
+      errors: string;
+      finalText: string;
+      spendUsd: number;
+      rounds: number;
+    }
   | {
       kind: "emitted";
       files: VibeFileBlock[];
@@ -133,7 +145,59 @@ export async function runVibe(ctx: VibeContext): Promise<VibeResult> {
     };
   }
 
-  const writtenPaths = writeVibeFiles(ctx.repoRoot, parsed.files);
+  let writtenPaths = writeVibeFiles(ctx.repoRoot, parsed.files);
+
+  // 2026-08-24 (#501) — a mockup that does not BUILD is not a reviewable
+  // artifact (story-016 shipped a dead entry file + unmounted overlay; a
+  // human hand-wired it). One build check, one repair round, then fail
+  // loudly rather than open a broken PR.
+  if (!ctx.skipBuildCheck) {
+    let check = buildMockCheck(ctx.repoRoot, ctx.mockRoot ?? "mock", ctx.mockShape ?? "vite");
+    if (check.skipped) {
+      console.log(`  build-check skipped: ${check.skipped}`);
+    } else if (!check.ok) {
+      console.log(`  mock build FAILED — one repair round…`);
+      rounds += 1;
+      const repair = await ctx.llm.complete({
+        model: ctx.model,
+        maxTokens: 32_000,
+        system: VIBE_SYSTEM(ctx.projectContext, ctx.mockShape ?? "nextjs"),
+        messages: [
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: finalText },
+          {
+            role: "user",
+            content:
+              `The emitted mockup does NOT build. Build errors:\n\n${check.errors}\n\n` +
+              `Re-emit ONLY the files that need to change (same <file path=...> format), fixing every error. ` +
+              `Remember the entry file must actually mount the app and the overlay — dead files that merely parse are not a mockup.`,
+          },
+        ],
+        stream: true,
+      });
+      spendUsd += repair.costUsd;
+      const reparsed = parseVibeOutput(repair.text);
+      if (reparsed.files.length > 0) {
+        const repairedPaths = writeVibeFiles(ctx.repoRoot, reparsed.files);
+        writtenPaths = Array.from(new Set([...writtenPaths, ...repairedPaths]));
+        const merged = new Map(parsed.files.map((f) => [f.path, f]));
+        for (const f of reparsed.files) merged.set(f.path, f);
+        parsed = { ...parsed, files: [...merged.values()] };
+      }
+      check = buildMockCheck(ctx.repoRoot, ctx.mockRoot ?? "mock", ctx.mockShape ?? "vite");
+      if (!check.ok) {
+        return {
+          kind: "build-failure",
+          errors: check.errors ?? "(no detail)",
+          finalText,
+          spendUsd,
+          rounds,
+        };
+      }
+      console.log(`  mock builds after repair.`);
+    }
+  }
+
   return {
     kind: "emitted",
     files: parsed.files,
