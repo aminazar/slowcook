@@ -6,6 +6,70 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.36.0 · stack-ts 0.13.0 · llm-anthropic 0.26.0 — the release where the human stopped writing code
+
+One night of running the pipeline as a hands-on human gate (five stories
+shipped on a live app) produced a list of every place the human still had
+to write code by hand. This release removes them: agents do the work, the
+human reviews, comments, and approves.
+
+**The final gate fails closed and sees every suite.** One broken suite
+runner used to void the whole end-of-brew verdict — a schema story once
+shipped "all green" with no database migration because the db suite's red
+was thrown away. Story tests from EVERY declared suite (pgTAP, acceptance)
+now join the contract brew must satisfy, and a broken runner halts the
+brew instead of waiving it. Playwright suites are now genuinely supported
+(list discovery + JSON result parsing) instead of silently parsed as
+vitest.
+
+**Review findings get acted on by agents, not humans.** `slowcook brew
+--pr N` reads unanswered review feedback on an implementation PR, amends
+the code in a bounded tool loop (write scope: implementation surfaces
+only — tests, specs, and manifests are refused with an explicit
+"escalate to the PM" path), verifies with the same fail-closed gate as a
+fresh brew, and reverts everything if verification fails. Reviews judge
+the PRESENT: taste now receives the PR head's current file contents and
+commit history, with hard rules against reporting thread history as a
+current defect and an arbitration-awareness rule so PM-authorized test
+edits stop being flagged as tampering. Tests reviews now judge WHAT a
+suite mocks (a background job mocking the request-scoped client is a
+blocking architectural error, not a style note).
+
+**One command for the human merge gate.** `slowcook verify --story N`
+runs the whole battery: migration-number collision check against the
+base branch, full database replay (new `test.db.reset_command` in
+stack.json), a typecheck RATCHET (pre-existing type debt is baselined
+and tracked; only NEW errors fail — first live run found 142 errors that
+had been shipping green for months), every declared suite, and the story
+contract across all of them.
+
+**Parallel lanes.** `slowcook worker --lanes N` runs up to N jobs per
+pass concurrently, each in a persistent git worktree — distinct stories
+only, and at most one database-touching job per pass (the local database
+stack is a per-directory singleton).
+
+**The pipeline stops spamming and the board stops lying.** Plate records
+which comments it has answered, so a no-op round no longer re-answers
+the same comment every timer tick. `on-brew-merged` now advances the
+BOARD on every merge path — stage labels off, `shipped` on, source issue
+closed — instead of posting "feel free to close it" and leaving stale
+labels.
+
+**Money is visible and survives reverts.** `slowcook cost report` reads
+the per-story spend ledgers (by story, by agent, by model; unpriced
+entries counted honestly, never shown as $0). The ledger itself now
+survives brew's revert machinery — reverted (wasted) iterations were
+having their spend rows silently reset away, which is exactly the spend
+an honest report needs.
+
+Plus: run-mock's dev server dies as a process group (no more escaped
+vite children holding ports across restarts), refine must cite extract
+evidence for any claim that current code "already does" something (or
+mark it an unverified assumption), the `--story`/`--spec` selectors work
+on every stage, and LCR mock hosting uses device-flow GitHub sign-in.
+
+---
+
 ## cli 0.35.0 · stack-ts 0.12.0 — the release where the pipeline caught its own lies
 
 Everything here comes from one week of letting slowcook's agents build a

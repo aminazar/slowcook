@@ -321,6 +321,8 @@ Mandatory entity checks:
 
 7. **Entity prop names are not negotiable** — downstream agents adopt whatever prop name your spec writes. If the entity in the consumer's \`@/lib/entities\` is named X but the spec uses an alias Y, every downstream agent will pick a different one. Decide one canonical name in the spec; reuse it consistently across acceptance scenarios + api_contract + ui_layout. The compiler enforces only what's written; consistency between agents is your job.
 
+8. **Existing-behavior claims need evidence (2026-08-24, the og_site_name lesson)** — any spec statement that current code ALREADY does, captures, stores, or renders something ("the crawler already captures og:site_name", "the page currently shows a live strip") MUST cite the extract that proves it: the migration column, the route, the component in the history index. If the extracts cannot confirm the claim, do NOT write it as a precondition — one spec shipped a precondition asserting crawler-captured columns that existed NOWHERE in the schema, and the implementation had to quietly invent them. Instead: (a) rewrite the claim as \`ASSUMPTION (unverified against extracts)\` in the spec, (b) raise it as a PM question, and (c) word the spec so downstream agents treat the capability as NOT existing until the extracts say otherwise (propose the column/route/component explicitly).
+
 The pre-2026-05-04 way was to lean on prompt-steering: "please use existing names". That was a soft signal LLMs ignored. The entity layer turns the contract into a typecheck — agents that drift compile-fail at brew. Use this. Don't re-introduce the soft-steering pattern by referring to entity columns by improvised names.
 
 ## The spec must be complete
