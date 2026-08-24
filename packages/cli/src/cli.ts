@@ -158,6 +158,12 @@ async function main(): Promise<void> {
       // entries. See packages/cli/src/commands/cost-log.ts.
       const sub = args[1];
       if (sub === "log") { await costLog(args.slice(2)); return; }
+      if (sub === "report") {
+        // 2026-08-24 (#501) — the ledger's read side: per-story/agent/model rollups.
+        const { costReport } = await import("./commands/cost-report.js");
+        await costReport(args.slice(2));
+        return;
+      }
       if (sub === "reprice") {
         const { costReprice } = await import("./commands/cost-reprice.js");
         await costReprice(args.slice(2));
