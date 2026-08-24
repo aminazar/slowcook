@@ -64,7 +64,7 @@ import {
   CODE_MAP_TARGET_MD_PATH,
   renderMarkdown,
 } from "../map/render.js";
-import { appendCostEntry, applyCostToSpec } from "../../cost-store.js";
+import { appendCostEntry, applyCostToSpec, costSidecarPath } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
@@ -2398,10 +2398,29 @@ function snapshotAllowedPaths(ctx: BrewContext): Snapshot {
 }
 
 function revertToSnapshot(ctx: BrewContext, _snapshot: Snapshot): void {
+  // The cost sidecar is EVIDENCE, not agent work-product: spend that
+  // happened is not undone by reverting the diff it bought. The reset
+  // below was silently wiping the just-appended rows of exactly the
+  // reverted (wasted) iterations — the rows honest accounting needs most
+  // (story-016 read $1.72 in the ledger vs $2.80 actually spent).
+  const sidecar = costSidecarPath(ctx.repoRoot, ctx.storyId);
+  let ledger: string | null = null;
+  try {
+    ledger = readFileSync(sidecar, "utf8");
+  } catch {
+    ledger = null;
+  }
   // Hard reset the working tree to HEAD for files inside allowedPaths + frozenPaths surface,
   // plus any untracked files the agent created. Safe because we committed everything before the turn.
   execSync(`git -C "${ctx.repoRoot}" reset --hard HEAD`, { stdio: "ignore" });
   execSync(`git -C "${ctx.repoRoot}" clean -fd`, { stdio: "ignore" });
+  if (ledger !== null) {
+    try {
+      writeFileSync(sidecar, ledger, "utf8");
+    } catch {
+      /* bookkeeping must never fail a revert */
+    }
+  }
 }
 
 /**
