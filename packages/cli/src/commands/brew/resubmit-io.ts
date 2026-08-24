@@ -11,6 +11,7 @@ import { createLlmClient } from "@slowcook-ai/llm-anthropic";
 import { runTests, discoverTests, validateStackConfig, type StackConfig } from "../../stack-resolve.js";
 import { parseStoryBranch } from "../../lib/story-branch.js";
 import { loadAnsweredIds, recordAnsweredIds } from "../plate/answered-store.js";
+import { appendCostEntry } from "../../cost-store.js";
 import { finalGateVerdict } from "./gate-verdict.js";
 import { foldCrossSuiteTests } from "./cross-suite.js";
 import {
@@ -178,6 +179,16 @@ export async function runBrewResubmit(args: BrewResubmitArgs): Promise<void> {
     process.exit(1);
   }
 
+  // Ledger row rides the amendment commit (sidecar completeness, #501).
+  try {
+    appendCostEntry(args.repoRoot, storyId, {
+      agent: "brew-resubmit",
+      usd: outcome.spendUsd,
+      model: args.model,
+      round: `pr-${args.pr}`,
+      at: new Date().toISOString(),
+    });
+  } catch { /* bookkeeping must not fail the amendment */ }
   sh(args.repoRoot, `git add -A`);
   sh(
     args.repoRoot,
