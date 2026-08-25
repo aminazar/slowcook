@@ -39,7 +39,11 @@ import {
 import { SIFT_SYSTEM, SIFT_TOOLS, buildSiftTurnPrompt } from "./prompts.js";
 import { type BugProfile } from "../investigate/schema.js";
 
-const MAX_ROUNDS_PER_ITER = 8;
+// 8 starved multi-file fix_scopes: orientation reads (profile locus,
+// sibling-test idioms) consumed every round and the run halted with
+// zero writes (B-7, 2026-08-25). Reads are cheap; the budget is the
+// real governor.
+const MAX_ROUNDS_PER_ITER = 24;
 const MAX_FILE_READ_BYTES = 20000;
 
 export interface SiftContext {
@@ -116,8 +120,11 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
 
     let haltReason: string | null = null;
     let editsThisTurn = 0;
+    let readsThisTurn = 0;
+    let roundsThisTurn = 0;
 
     for (let round = 0; round < MAX_ROUNDS_PER_ITER; round++) {
+      roundsThisTurn = round + 1;
       const response = await llm.complete({
         model: ctx.model,
         maxTokens: 4096,
@@ -141,6 +148,8 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
         if (result.touched) {
           filesTouched.add(result.touched);
           editsThisTurn += 1;
+        } else {
+          readsThisTurn += 1;
         }
         return {
           type: "tool_result" as const,
@@ -149,6 +158,11 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
           is_error: result.is_error,
         };
       });
+      process.stderr.write(
+        `  iter ${iter} round ${round + 1}/${MAX_ROUNDS_PER_ITER}: ${toolUses
+          .map((t) => `${t.name}(${String((t.input as { path?: unknown })?.path ?? "")})`)
+          .join(", ")} · $${spendUsd.toFixed(2)}\n`
+      );
       messages.push({ role: "assistant", content: response.text || "(tool calls)" });
       messages.push({ role: "user", content: toolResults });
     }
@@ -170,7 +184,7 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
         iterations: iter,
         spendUsd,
         filesTouched: [...filesTouched],
-        haltReason: "agent made no edits this iteration",
+        haltReason: `agent made no edits this iteration (${roundsThisTurn} tool round(s), ${readsThisTurn} read(s) — round cap starved the write?)`,
         lastTestResult,
       };
     }
