@@ -7,7 +7,10 @@ import { dirtyDiscoveryPaths } from "./discovery-hygiene.js";
 
 function initRepo(): string {
   const r = mkdtempSync(join(tmpdir(), "hyg-"));
-  execSync("git init -q && git commit -q --allow-empty -m init", { cwd: r });
+  execSync(
+    'git init -q && git -c user.email=test@slowcook.local -c user.name=test commit -q --allow-empty -m init',
+    { cwd: r },
+  );
   return r;
 }
 
