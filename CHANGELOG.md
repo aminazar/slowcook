@@ -6,7 +6,14 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
-## cli 0.36.0 · stack-ts 0.13.0 · llm-anthropic 0.26.0 — the release where the human stopped writing code
+## cli 0.36.0 · core 0.19.0 · stack-ts 0.13.0 · llm-anthropic 0.26.0 — the release where the human stopped writing code
+
+**The LLM seam speaks tools on both backends** (core 0.19.0 +
+llm-anthropic 0.26.0). `LlmToolDef`/`LlmToolUse` and `tool_result`
+content blocks join the seam; the API adapter passes them through
+natively, and the claude-cli adapter emulates the protocol over
+structured text — so subscription auth serves the same agentic loops an
+API key does.
 
 One night of running the pipeline as a hands-on human gate (five stories
 shipped on a live app) produced a list of every place the human still had
