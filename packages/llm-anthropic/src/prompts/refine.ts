@@ -352,6 +352,16 @@ ${checklist}
 
 When in doubt: propose a default, name the alternative you considered, ask the PM to confirm or override. That is one round of friction. Open-ended questions cost two.
 
+## Coverage scan before every round
+
+(The category taxonomy is adapted from Spec Kit's clarify command — https://github.com/github/spec-kit, MIT.)
+
+Before choosing ask-vs-emit, scan the issue + thread + context against these 9 categories, marking each Clear / Partial / Missing FOR THIS STORY. The scan is internal — never output it; it disciplines which questions exist at all:
+
+functional scope & behavior · domain & data model · interaction & UX flow · non-functional qualities · integration & external dependencies · edge cases & failure handling · constraints & tradeoffs · terminology & consistency · completion signals.
+
+Ask only about Partial/Missing categories that also survive the decide-don't-ask filter above, ordered by impact × uncertainty (your judgment — the node budget below is the hard rule). If the budget fills while a high-impact category is unresolved, name it in the \`<details>\` block as deferred, with a reason.
+
 ## Output formats
 
 When asking: output a SINGLE Markdown comment. **The comment LEADS with the questions** — the PM opens it to see what they need to act on. Decisions you've already made go BELOW the questions inside a collapsed \`<details>\` block. This shape is non-negotiable.
@@ -412,6 +422,9 @@ Rules for the shape:
 - The options are SHORT and use the PM's vocabulary. Not "tier-1 recipe test fixture shape" — write "show a loading spinner or render only when data arrives."
 - The rationale goes UNDER the options, not in the question line. It explains WHY this matters; the PM can skip it if the options are self-evident.
 - NEVER name a slowcook internal agent or pipeline stage in the user-facing text. Bad: "for the recipe test", "plate could add an icon", "the brew agent will...". Good: "for testing", "we could add an icon later", "the implementation will...".
+- **Mark your lean.** When one option is your defensible recommendation, suffix it with \`**(recommended)**\` and put the one-line why in the rationale. A 👍 reaction on the whole comment accepts EVERY recommended option at once — treat those as answered.
+- **Nest only at a true fork.** When the ANSWER to a question changes what must be asked next (and only then), indent the follow-up question(s) under the option that triggers them, ids like \`1a\`, \`1b\`. The PM answers only the path they pick; un-walked branches are pruned — never record their answers, never treat them as decided. A tree with no forks is a list. Hard budget: **≤6 question nodes total per round**, blocking ones first.
+- **"I don't know" is a valid answer.** It routes to your recommended option, recorded as provisional — unless the PM asks you to investigate, in which case gather the evidence and re-ask next round (a second round is a normal outcome, not a failure).
 
 ### Example of bad vs good question shape
 
@@ -451,6 +464,7 @@ When emitting the spec: output ONLY the YAML, nothing before or after, starting 
 - fidelity?: { modes: string[] } — which viewport/scheme cells the visual-fidelity eye must check, as dimension tokens from \`light | dark | mobile | desktop\`. **Emit this whenever the design is mode-specific** (a dark theme, a distinct mobile layout). Derive it from the \`ui_behavior\` keys you wrote: if \`ui_behavior\` mentions \`*_dark\`, include \`dark\`; if it mentions \`mobile_*\`, include \`mobile\`. A spec that only specifies one mode (e.g. light desktop) should NOT list the others — that would force the eye to check cells the design never defined. Omit entirely only when mode is genuinely irrelevant (the eye then falls back to its full default matrix).
 - acceptance_scenarios: string[] (Given/When/Then form)
 - non_goals: string[]
+- clarifications?: [{ session: "YYYY-MM-DD", entries: string[] }] — REQUIRED whenever the thread contains PM answers to your questions. Each entry is one line, \`Q: <the question as asked> → A: <the PM's answer VERBATIM — quoted words, never a paraphrase>\`. 👍-accepted recommendations record as \`→ A: accepted recommended: <option text> (👍)\`. Only walked-path answers appear — pruned branches are omitted entirely. These lines are LAW for downstream agents; a paraphrase here is a defect (one paraphrased relay shipped an unimplementable rule). Format adapted from Spec Kit's Clarifications section (github/spec-kit, MIT).
 - related_specs?: [{ id, relationship: "overlap"|"related"|"superseded", note? }]
 - proposals?: { schema?, ui_layout?, routes?, auth?, perf_budget?, observability?, infra?, api_shape? }
   — see §Proposals below for when to populate this block
@@ -689,6 +703,7 @@ When the context includes a "Brownfield project awareness" section, treat its ex
 - Read the current spec YAML and the PM feedback.
 - Produce an AMENDED spec that incorporates the feedback.
 - Preserve anything the feedback doesn't touch — minimal diff, not a rewrite.
+- **\`clarifications\` is append-only.** Existing entries are the PM's verbatim words — never edit, reword, or delete them. When THIS feedback round contains a new PM ruling, append it as a new session's \`Q: … → A: …\` entry (verbatim quote); when it doesn't, carry the block through untouched.
 - The feedback may include two kinds of comments:
   - **Timeline comments** ("## Timeline comment"): whole-spec-scope feedback.
   - **Inline review comments** ("## Inline comment — @user on specs/story-N.yaml:LINE"): anchored to a specific line in the spec. Each includes a "Context from ..." block showing the YAML lines around the comment's target. Use the context to locate the exact field being reviewed; amend THAT field specifically, not the whole section.

@@ -157,6 +157,15 @@ export interface Spec {
   acceptance_scenarios: string[];
   non_goals: string[];
 
+  /**
+   * S2 (#527) — clarify session log: PM answers recorded VERBATIM,
+   * walked-path only (pruned question branches never appear). Entries
+   * are `Q: <question> → A: <answer>` lines. These are law for
+   * downstream agents; paraphrases are defects. Format adapted from
+   * Spec Kit's Clarifications section (github/spec-kit, MIT).
+   */
+  clarifications?: { session: string; entries: string[] }[];
+
   /** design #8 — viewport/scheme/locale modes the fidelity eye must check. */
   fidelity?: { modes: string[] };
   /**

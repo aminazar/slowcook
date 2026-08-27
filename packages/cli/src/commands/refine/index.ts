@@ -23,10 +23,17 @@ import { isModelPriced } from "@slowcook-ai/llm-anthropic";
  * automated caller does not read "Noop" + exit 0 as "refined fine".
  */
 function reportNoop(
-  outcome: { reason: string; precondition?: "label" | "closed" },
+  outcome: { reason: string; precondition?: "label" | "closed" | "awaiting-pm" },
   requireLabel: boolean
 ): void {
   if (!outcome.precondition) {
+    console.log(`Noop: ${outcome.reason}.`);
+    return;
+  }
+  // S2 (#527): the clarify park is a LEGITIMATE wait state, not a
+  // misconfiguration — exit 0 with a Noop line so the worker maps it
+  // to skip (a nonzero exit would stamp agent:failed, terminal).
+  if (outcome.precondition === "awaiting-pm") {
     console.log(`Noop: ${outcome.reason}.`);
     return;
   }

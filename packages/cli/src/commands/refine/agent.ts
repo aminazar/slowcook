@@ -45,6 +45,7 @@ import type {
   ForgeAdapter,
   Issue,
   Comment,
+  CommentReaction,
   Spec,
   RelationshipVerdict,
 } from "@slowcook-ai/core";
@@ -168,7 +169,45 @@ export type RefineOutcome =
  * `refine --issue 9` on an unlabeled issue printed a Noop and exited 0, which
  * a CI step reads as green).
  */
-export type NoopPrecondition = "label" | "closed";
+export type NoopPrecondition = "label" | "closed" | "awaiting-pm";
+
+/**
+ * S2 (#527) — clarify parking. While `slowcook-awaiting-pm` is on the
+ * issue, a re-triggered refine (label reconciliation, manual bounce)
+ * must NOT re-run the model against an unchanged thread — it would
+ * re-post the same questions and bill for it. The wait resolves only
+ * when the PM actually responded: a human comment AFTER the last
+ * agent questions comment, or a human 👍 reaction ON it (accept every
+ * **(recommended)** option — the G6 reaction plumbing).
+ */
+export type ClarifyParkState = "proceed" | "park" | "thumbs-up-accepted";
+
+export function clarifyParkState(
+  labels: string[],
+  comments: Comment[],
+  reactions: CommentReaction[]
+): ClarifyParkState {
+  if (!labels.includes(LABEL_AWAITING_PM)) return "proceed";
+  const lastQuestions = [...comments]
+    .reverse()
+    .find((c) => c.body.startsWith("### slowcook · refinement agent"));
+  if (!lastQuestions) return "proceed";
+  const humanAfter = comments.some(
+    (c) =>
+      !c.is_bot &&
+      new Date(c.created_at).getTime() > new Date(lastQuestions.created_at).getTime()
+  );
+  if (humanAfter) return "proceed";
+  if (reactions.some((r) => r.content === "+1")) return "thumbs-up-accepted";
+  return "park";
+}
+
+/** The synthetic user turn injected when the PM answered via 👍. */
+export const THUMBS_UP_TURN =
+  "(slowcook system note: the PM reacted 👍 to your last questions comment — " +
+  "every **(recommended)** option is ACCEPTED as answered. Record each in the " +
+  "spec's `clarifications` block as `→ A: accepted recommended: <option text> (👍)` " +
+  "and emit the spec now; do not re-ask.)";
 
 /** Schema for the <sentinel> block the agent uses when it emits a spec. */
 const SpecEmissionFenceStart = "---";
@@ -472,7 +511,29 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
 
   // Step 2: refinement loop (single round — ask or emit based on full history)
   const comments = await ctx.forge.listIssueComments(ctx.issueNumber);
+
+  // S2 (#527) — clarify parking (see clarifyParkState).
+  const lastQuestionsComment = [...comments]
+    .reverse()
+    .find((c) => c.body.startsWith("### slowcook · refinement agent"));
+  const parkReactions =
+    lastQuestionsComment && ctx.forge.listCommentReactions
+      ? await ctx.forge.listCommentReactions(lastQuestionsComment.id)
+      : [];
+  const park = clarifyParkState(issue.labels, comments, parkReactions);
+  if (park === "park") {
+    return {
+      kind: "noop",
+      reason:
+        "awaiting PM answers to the posted questions (no human reply, no 👍 on the questions comment)",
+      precondition: "awaiting-pm",
+    };
+  }
+
   const chat = await buildChatHistory(issue, comments, supersedes);
+  if (park === "thumbs-up-accepted") {
+    chat.push({ role: "user", content: THUMBS_UP_TURN });
+  }
   const storyId = await nextStoryId(ctx.repoRoot, ctx.forge, ctx.projectScope ?? "");
 
   const projectContext = buildProjectContext(ctx.repoRoot);

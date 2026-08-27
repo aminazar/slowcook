@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseAgentOutput, stripModelEmittedDuplicates } from "./agent.js";
+import {
+  parseAgentOutput,
+  stripModelEmittedDuplicates,
+  clarifyParkState,
+  THUMBS_UP_TURN,
+  LABEL_AWAITING_PM,
+} from "./agent.js";
 
 const CTX = {
   storyId: "042",
@@ -198,5 +204,47 @@ describe("parseAgentOutput repo-local passthrough", () => {
       expect(s.prd_ref).toEqual({ file: "docs/PRD.md", anchor: "surface-billing" });
       expect(s.story_id).toBe("099"); // enumerated fields still win
     }
+  });
+});
+
+describe("S2 clarify parking (#527)", () => {
+  const q = {
+    id: 10,
+    author: "bot",
+    body: "### slowcook · refinement agent 🍲\n\n**A few product calls I need from you:**\n1. …",
+    created_at: "2026-08-27T10:00:00Z",
+    is_bot: true,
+  };
+  const humanBefore = { id: 9, author: "amin", body: "context", created_at: "2026-08-27T09:00:00Z", is_bot: false };
+  const humanAfter = { id: 11, author: "amin", body: "1: (a)", created_at: "2026-08-27T11:00:00Z", is_bot: false };
+
+  it("no awaiting-pm label → proceed", () => {
+    expect(clarifyParkState([], [humanBefore, q], [])).toBe("proceed");
+  });
+
+  it("awaiting-pm + no human reply + no reaction → park", () => {
+    expect(clarifyParkState([LABEL_AWAITING_PM], [humanBefore, q], [])).toBe("park");
+  });
+
+  it("a human reply AFTER the questions comment → proceed (answers available)", () => {
+    expect(clarifyParkState([LABEL_AWAITING_PM], [humanBefore, q, humanAfter], [])).toBe("proceed");
+  });
+
+  it("a human comment BEFORE the questions comment does not count", () => {
+    expect(clarifyParkState([LABEL_AWAITING_PM], [humanBefore, q], [])).toBe("park");
+  });
+
+  it("👍 on the questions comment → thumbs-up-accepted (walks all recommendations)", () => {
+    expect(
+      clarifyParkState([LABEL_AWAITING_PM], [humanBefore, q], [{ user: "amin", content: "+1" }])
+    ).toBe("thumbs-up-accepted");
+    expect(THUMBS_UP_TURN).toContain("accepted recommended");
+    expect(THUMBS_UP_TURN).toContain("do not re-ask");
+  });
+
+  it("other reactions do not accept", () => {
+    expect(
+      clarifyParkState([LABEL_AWAITING_PM], [humanBefore, q], [{ user: "amin", content: "eyes" }])
+    ).toBe("park");
   });
 });
