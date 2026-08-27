@@ -45,6 +45,10 @@ export interface TasteContext {
    *  ("human gate", "PM arbitration") are visible here, so authorized
    *  test edits are distinguishable from agent goalpost-moving. */
   commitSubjects: string[] | null;
+  /** S1 (#526): the project constitution prompt block ("" when the
+   *  repo has none). Law over precedent — findings must cite ticked
+   *  slots and stay silent on deliberately-blank ones. */
+  constitution: string;
 }
 
 export interface TasteFinding {
@@ -144,7 +148,7 @@ Respond with ONLY a JSON object:
     );
   }
   parts.push(`## Diff under review\n\n\`\`\`diff\n${ctx.diff}\n\`\`\``);
-  return { system, user: parts.join("\n\n---\n\n") };
+  return { system: system + ctx.constitution, user: parts.join("\n\n---\n\n") };
 }
 
 /** Extract the first balanced JSON object from model text. */

@@ -25,6 +25,7 @@ import { costEntryUsd, costMarker } from "@slowcook-ai/llm-anthropic";
 import { readIndex } from "../refine/spec-yaml.js";
 import { pmCc } from "../../lib/pm-notify.js";
 import { loadGates } from "../../lib/gates.js";
+import { constitutionBlock } from "../../lib/constitution.js";
 import { parseStoryBranch } from "../../lib/story-branch.js";
 import {
   buildTastePrompt,
@@ -233,6 +234,7 @@ export async function taste(argv: string[]): Promise<void> {
     })(),
     headFiles,
     commitSubjects,
+    constitution: constitutionBlock(args.repoRoot),
   };
 
   const model = resolveModel("taste", args.model);

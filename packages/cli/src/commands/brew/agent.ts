@@ -72,6 +72,7 @@ import { touchLock } from "./run-lock.js";
 import { detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, peelIsStandaloneCheckpoint, type PeelResult } from "./testability.js";
 import { ladderWindow, describeWindow } from "./ladder.js";
 import { fileBackpropClaims } from "../../lib/backprop.js";
+import { constitutionBlock } from "../../lib/constitution.js";
 import {
   lessonMessage, compactOldToolResults, estimateTokens, resetDigest,
   COMPACT_AT_TOKENS, RESET_AFTER_FAILURES, type Msg,
@@ -1980,10 +1981,12 @@ async function runTurn(
       system: [
         {
           type: "text",
+          // S1 (#526): constitution appended inside the cached block —
+          // constant across iterations, so the cache hit survives.
           text:
-            ctx.mode === "plate"
+            (ctx.mode === "plate"
               ? BREW_SYSTEM + BREW_PLATE_MODE_ADDENDUM
-              : BREW_SYSTEM,
+              : BREW_SYSTEM) + constitutionBlock(ctx.repoRoot),
           cache_control: { type: "ephemeral" },
         },
       ] as never,
