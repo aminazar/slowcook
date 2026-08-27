@@ -368,3 +368,36 @@ describe("deriveBrewJobs (W2-brew)", () => {
     expect(pre.upstream).toBe("taste");
   });
 });
+
+describe("#536 — drift on shipped stories parks for the PM", () => {
+  const base = {
+    storyId: "019",
+    sourceIssue: 215,
+    title: "story 019",
+    specParses: true,
+    invariantsNonEmpty: true,
+    manifestExists: true,
+    specDrifted: true,
+    openTestsPr: false,
+  };
+
+  it("drift + shipped → non-runnable job naming manifest re-record, never testgen", () => {
+    const jobs = deriveRecipeJobs([{ ...base, storyShipped: true }]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.runnable).toBe(false);
+    expect(jobs[0]!.preconditions[0]!.name).toBe("drift-on-shipped-story");
+    expect(jobs[0]!.preconditions[0]!.detail).toContain("manifest record --story 019");
+  });
+
+  it("drift + NOT shipped → the regeneration path stays runnable (D10 unchanged)", () => {
+    const jobs = deriveRecipeJobs([{ ...base, storyShipped: false }]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.runnable).toBe(true);
+    expect(jobs[0]!.preconditions[0]!.name).toBe("spec-manifest-drift");
+  });
+
+  it("absent storyShipped (fs-only callers) behaves as not-shipped", () => {
+    const jobs = deriveRecipeJobs([base]);
+    expect(jobs[0]!.runnable).toBe(true);
+  });
+});
