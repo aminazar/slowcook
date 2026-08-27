@@ -18,4 +18,7 @@ fi
 if grep -q $'\tfail\t' <<<"$out"; then
   echo "REFUSING: failed checks present" >&2; exit 1
 fi
-exec gh pr merge "$pr" "${@:---rebase --delete-branch}"
+if [ "$#" -eq 0 ]; then
+  exec gh pr merge "$pr" --rebase --delete-branch
+fi
+exec gh pr merge "$pr" "$@"
