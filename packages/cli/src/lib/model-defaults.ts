@@ -91,6 +91,13 @@ export function resolveModel(
 ): string {
   const f = flag?.trim();
   if (f) return f;
+  // Per-stage env (2026-08-27, the cheap-model season): a worker box
+  // declares its ladder in one env file — e.g. SLOWCOOK_MODEL_BREW=
+  // claude-haiku-4-5 — without flattening every stage the way the
+  // global SLOWCOOK_MODEL does. Cascade: flag > per-stage env >
+  // global env > stage default.
+  const perStage = env[`${MODEL_ENV}_${stage.toUpperCase()}`]?.trim();
+  if (perStage) return perStage;
   const e = env[MODEL_ENV]?.trim();
   if (e) return e;
   return STAGE_DEFAULTS[stage];
@@ -101,8 +108,9 @@ export function modelSource(
   stage: Stage,
   flag?: string,
   env: NodeJS.ProcessEnv = process.env
-): "flag" | "env" | "default" {
+): "flag" | "stage-env" | "env" | "default" {
   if (flag?.trim()) return "flag";
+  if (env[`${MODEL_ENV}_${stage.toUpperCase()}`]?.trim()) return "stage-env";
   if (env[MODEL_ENV]?.trim()) return "env";
   return "default";
 }
