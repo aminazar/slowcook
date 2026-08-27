@@ -159,6 +159,15 @@ pnpm -r exec vitest run
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md). Bug reports: [REPORTING.md](./REPORTING.md).
 
+## Acknowledgments
+
+The constitution, clarify, and analyze capabilities adapt ideas from
+[Spec Kit](https://github.com/github/spec-kit), GitHub's Spec-Driven
+Development toolkit (MIT). Where its battle-tested template text is
+used, the borrowed files carry attribution headers. See
+[docs/plans/spec-kit-borrowings.md](./docs/plans/spec-kit-borrowings.md)
+for what was borrowed, what was adapted, and what was deliberately not.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
