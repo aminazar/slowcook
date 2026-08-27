@@ -79,6 +79,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook chef-orchestrate --pr <number> --story <id> [--cwd <path>]
   ```
+- **`analyze`** [alpha] — Deterministic cross-spec + as-built consistency gate for one spec: same endpoint declared with contradictory request fields/responses in another active spec (param names normalized), two specs creating the same table, and cited entities or altered tables that exist nowhere. Exit 1 on findings; taste's spec reviews receive the findings as evidence. Adapted from Spec Kit (github/spec-kit, MIT).
+  ```
+  slowcook analyze --spec <id> [--cwd <path>] [--json]
+  ```
 - **`rule`** [alpha] — Manage the project constitution (.brewing/constitution.md) — the law file every agent stage loads (refine, taste, brew, sift, plate). Three-state decision slots (ticked / deliberately blank with justification / unaddressed) filled lazily; `add` appends a VERBATIM ruling with date, author, and source link. Adapted from Spec Kit (github/spec-kit, MIT) — see docs/plans/spec-kit-borrowings.md.
   ```
   slowcook rule init | slowcook rule add "<verbatim ruling>" [--source <url>] [--by <name>] [--cwd <path>]

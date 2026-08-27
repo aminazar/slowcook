@@ -26,6 +26,7 @@ import { readIndex } from "../refine/spec-yaml.js";
 import { pmCc } from "../../lib/pm-notify.js";
 import { loadGates } from "../../lib/gates.js";
 import { constitutionBlock } from "../../lib/constitution.js";
+import { analyzeSpecYaml, renderFindings } from "../analyze/index.js";
 import { parseStoryBranch } from "../../lib/story-branch.js";
 import {
   buildTastePrompt,
@@ -235,6 +236,17 @@ export async function taste(argv: string[]): Promise<void> {
     headFiles,
     commitSubjects,
     constitution: constitutionBlock(args.repoRoot),
+    analyzeFindings: await (async () => {
+      if (kind !== "spec" || !specYaml) return "";
+      try {
+        const findings = await analyzeSpecYaml(specYaml, args.repoRoot);
+        return findings.length > 0 ? renderFindings(findings) : "";
+      } catch (e) {
+        // Analysis is evidence, not a gate on taste itself — surface the
+        // breakage instead of silently reviewing without it.
+        return `analyze failed to run: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    })(),
   };
 
   const model = resolveModel("taste", args.model);

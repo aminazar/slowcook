@@ -104,6 +104,7 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
     headFiles: null,
     commitSubjects: null,
     constitution: "",
+    analyzeFindings: "",
   };
 
   it("renders current head files as authoritative over thread claims", () => {
@@ -121,6 +122,7 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
       ...base,
       commitSubjects: ["fix(human gate): byline column", "brew iter 3"],
       constitution: "",
+      analyzeFindings: "",
     });
     expect(user).toContain("Commits on this PR branch");
     expect(user).toContain("fix(human gate): byline column");
@@ -167,6 +169,7 @@ describe("mock-boundary review dimension (2026-08-24)", () => {
       headFiles: null,
       commitSubjects: null,
       constitution: "",
+      analyzeFindings: "",
     });
     expect(system).toContain("ARCHITECTURAL CLAIM");
     expect(system).toContain("service-role (admin) client");
