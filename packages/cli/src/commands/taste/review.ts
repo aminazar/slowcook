@@ -49,6 +49,10 @@ export interface TasteContext {
    *  repo has none). Law over precedent — findings must cite ticked
    *  slots and stay silent on deliberately-blank ones. */
   constitution: string;
+  /** S3 (#528): deterministic `slowcook analyze` findings for spec
+   *  reviews ("" when clean or not a spec PR). Machine evidence, not
+   *  opinion — a conflict here is blocking unless the PM has ruled. */
+  analyzeFindings: string;
 }
 
 export interface TasteFinding {
@@ -145,6 +149,14 @@ Respond with ONLY a JSON object:
         ctx.headFiles
           .map((f) => `### ${f.path}\n\n\`\`\`\n${f.content}\n\`\`\``)
           .join("\n\n")
+    );
+  }
+  if (ctx.analyzeFindings) {
+    parts.push(
+      `## Deterministic consistency findings (\`slowcook analyze\`)\n\n` +
+        `These are machine-checked against the other ACTIVE specs and the as-built migrations — ` +
+        `treat each as a blocking finding unless the thread shows a PM ruling that resolves it:\n\n` +
+        "```\n" + ctx.analyzeFindings + "\n```"
     );
   }
   parts.push(`## Diff under review\n\n\`\`\`diff\n${ctx.diff}\n\`\`\``);
