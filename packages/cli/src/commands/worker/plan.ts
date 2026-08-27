@@ -441,6 +441,12 @@ export interface SpecReadyFact {
   specDrifted: boolean;
   /** An open slowcook/tests PR already covers this story. */
   openTestsPr: boolean;
+  /** #536 — the story already SHIPPED (source issue closed or
+   *  agent:brewed). Post-ship drift means the RECORD is stale, not the
+   *  tests: regeneration would rewrite a sanctioned merged suite. The
+   *  wrapper populates this only for drifted facts (one API call each);
+   *  absent = false. */
+  storyShipped?: boolean;
 }
 
 export function deriveRecipeJobs(facts: SpecReadyFact[]): WorkerJob[] {
@@ -454,6 +460,34 @@ export function deriveRecipeJobs(facts: SpecReadyFact[]): WorkerJob[] {
     if (f.manifestExists && !f.specDrifted) continue;
     if (f.sourceIssue === null) continue; // nowhere to report — skip, visible in workload
     const drift = f.manifestExists && f.specDrifted;
+    // #536 — drift on a SHIPPED story parks for the PM instead of
+    // regenerating: the first cheap-model-season pass regenerated tests
+    // for story-019 (shipped weeks earlier) off a stale manifest hash.
+    // The fix is a manifest re-record or a PM ruling, never testgen.
+    if (drift && f.storyShipped) {
+      jobs.push({
+        issue: f.sourceIssue,
+        issueTitle: f.title,
+        agent: "recipe",
+        triggerLabel: DERIVED_SPEC_DRIFT_TRIGGER,
+        storyId: f.storyId,
+        cmd: ["slowcook", "recipe", "--spec", f.storyId],
+        preconditions: [
+          {
+            name: "drift-on-shipped-story",
+            status: "fail",
+            detail:
+              `story-${f.storyId}: manifest spec-hash drift, but the story already shipped — ` +
+              `the record is stale, not the tests. Re-record the manifest ` +
+              `(slowcook manifest record --story ${f.storyId}) or rule on the spec change; ` +
+              `regeneration is refused.`,
+          },
+        ],
+        runnable: false,
+        priority: 10,
+      });
+      continue;
+    }
     jobs.push({
       issue: f.sourceIssue,
       issueTitle: f.title,

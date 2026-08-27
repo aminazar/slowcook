@@ -124,7 +124,7 @@ async function inspectWorkload(argv: string[]): Promise<void> {
   const fetchArgs = { owner, repo, token: identity.token };
   const issues = await fetchTriggerIssues(fetchArgs);
   const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts(fetchArgs);
-  const specReady = gatherSpecReadyFacts(args.repoRoot, openHeadRefs);
+  const specReady = await markShippedStories(fetchArgs, gatherSpecReadyFacts(args.repoRoot, openHeadRefs));
   const jobs = [
     ...deriveResubmitJobs(agentPrFacts),
     ...deriveTasteJobs(agentPrFacts),
@@ -242,7 +242,7 @@ async function runPass(argv: string[]): Promise<void> {
     const issues = await fetchTriggerIssues({ owner, repo, token });
     const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts({ owner, repo, token });
     // Unanswered spec-PR feedback outranks fresh triggers (plan §1 rule 1).
-    const specReady = gatherSpecReadyFacts(args.repoRoot, openHeadRefs);
+    const specReady = await markShippedStories({ owner, repo, token }, gatherSpecReadyFacts(args.repoRoot, openHeadRefs));
     const jobs = [
       ...deriveResubmitJobs(agentPrFacts),
       ...deriveTasteJobs(agentPrFacts),
@@ -1046,6 +1046,38 @@ async function gatherBrewReadyFacts(
 }
 
 /** Stories whose merged spec awaits tests — the recipe derivation facts. */
+/** #536 — for DRIFTED facts only (rare), ask the forge whether the story
+ *  already shipped (issue closed or agent:brewed); post-ship drift parks
+ *  for the PM instead of regenerating a sanctioned merged suite. Fails
+ *  toward shipped ("do not spend"), the brew-guard idiom. */
+async function markShippedStories(
+  args: { owner: string; repo: string; token: string },
+  specReady: SpecReadyFact[]
+): Promise<SpecReadyFact[]> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  return Promise.all(
+    specReady.map(async (f) => {
+      if (!(f.manifestExists && f.specDrifted) || f.sourceIssue === null) return f;
+      try {
+        const { data: issue } = await octokit.issues.get({
+          owner: args.owner,
+          repo: args.repo,
+          issue_number: f.sourceIssue,
+        });
+        const labels = (issue.labels ?? []).map((l) =>
+          typeof l === "string" ? l : (l.name ?? "")
+        );
+        return {
+          ...f,
+          storyShipped: issue.state === "closed" || labels.includes(RESULT_LABELS.brew),
+        };
+      } catch {
+        return { ...f, storyShipped: true };
+      }
+    })
+  );
+}
+
 function gatherSpecReadyFacts(repoRoot: string, openHeadRefs: string[]): SpecReadyFact[] {
   let index;
   try {
