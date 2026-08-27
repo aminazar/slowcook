@@ -79,6 +79,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook chef-orchestrate --pr <number> --story <id> [--cwd <path>]
   ```
+- **`rule`** [alpha] — Manage the project constitution (.brewing/constitution.md) — the law file every agent stage loads (refine, taste, brew, sift, plate). Three-state decision slots (ticked / deliberately blank with justification / unaddressed) filled lazily; `add` appends a VERBATIM ruling with date, author, and source link. Adapted from Spec Kit (github/spec-kit, MIT) — see docs/plans/spec-kit-borrowings.md.
+  ```
+  slowcook rule init | slowcook rule add "<verbatim ruling>" [--source <url>] [--by <name>] [--cwd <path>]
+  ```
 - **`taste`** [alpha] — Reviewer agent for pipeline PRs: reads the story lineage (source issue + PM Q&A + spec + diff), posts a structured verdict as the agent identity, and with --merge merges on approve. Fail-closed: unparseable verdicts merge nothing; blocking findings never approve. The worker derives taste jobs from open agent PRs with no submitted review — the PR is the trigger.
   ```
   slowcook taste --pr <n> [--merge] [--cwd <path>] [--owner <o>] [--repo <r>] [--model <id>]
@@ -239,9 +243,21 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
   ```
   slowcook app init [--org <org>] [--name <app-name>] [--public] [--out-dir <dir>] [--port <n>]
   ```
-- **`worker`** [alpha] — Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. --enable runs a stage live (label off → spawn → trace → result label / failure comment); stages beyond refine land one verified handoff at a time. `worker systemd` prints the box units.
+- **`worker`** [alpha] — Label-triggered agent worker: scan agent:* triggers on open issues, derive the workload, evaluate each agent's preconditions, trace the pass. --enable runs a stage live (label off → spawn → trace → result label / failure comment); stages beyond refine land one verified handoff at a time. `worker systemd` prints the box units; `worker deploy --host <ssh>` ships the checkout (G1 exclusions, forced remote build, deterministic dist-freshness assertion).
   ```
   slowcook worker run (--dry-run | --enable refine) [--cwd <path>] [--owner <login>] [--repo <name>] [--logs-dir <path>] [--lock <path>] [--job-timeout-mins <n>] [--json]
+  ```
+- **`workload`** [alpha] — Read-only view of what the worker sees: derived jobs in priority order, each precondition with status and responsible upstream agent, and what the next pass would run. Never mutates the checkout — a mismatched checkout is reported, not repaired.
+  ```
+  slowcook workload [--cwd <path>] [--owner <login>] [--repo <name>] [--json]
+  ```
+- **`provenance`** [alpha] — One-time ratchet baseline: sanction every owned artifact (specs, manifest tests) as it stands, in one ledger entry + baseline header. Strict enforcement from the next commit; refuses to run twice (re-baselining would launder hand edits).
+  ```
+  slowcook provenance init [--cwd <path>] [--by <name>]
+  ```
+- **`doctor`** [alpha] — Verify and NAME every worker precondition, one line each: checkout sync, worktree hygiene, forge identity (live App-token mint, not a file check), LLM seam (including the ANTHROPIC_API_KEY-outranks-OAuth trap), pricing coverage for default models, installed dependencies. Fail-closed: exit 1 on any failure.
+  ```
+  slowcook doctor [--cwd <path>] [--owner <login>] [--repo <name>]
   ```
 - **`port`** — Deterministic mock/ → src/ copy. Pre-brew CI step; applies the useScenarioFixture → useDataDomain rewrite.
   ```
