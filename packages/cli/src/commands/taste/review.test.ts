@@ -103,6 +103,7 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
     manifestJson: null,
     headFiles: null,
     commitSubjects: null,
+    constitution: "",
   };
 
   it("renders current head files as authoritative over thread claims", () => {
@@ -119,6 +120,7 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
     const { user } = buildTastePrompt({
       ...base,
       commitSubjects: ["fix(human gate): byline column", "brew iter 3"],
+      constitution: "",
     });
     expect(user).toContain("Commits on this PR branch");
     expect(user).toContain("fix(human gate): byline column");
@@ -164,6 +166,7 @@ describe("mock-boundary review dimension (2026-08-24)", () => {
       manifestJson: null,
       headFiles: null,
       commitSubjects: null,
+      constitution: "",
     });
     expect(system).toContain("ARCHITECTURAL CLAIM");
     expect(system).toContain("service-role (admin) client");

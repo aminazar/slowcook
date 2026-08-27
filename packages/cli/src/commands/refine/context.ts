@@ -3,6 +3,7 @@ import { historyIndexReadPath } from "../../lib/local-state.js";
 import { emitSchemaDiagram } from "../map/index.js";
 import { join } from "node:path";
 import YAML from "yaml";
+import { constitutionBlock } from "../../lib/constitution.js";
 
 /**
  * Build the "project context" block that gets injected into the refinement
@@ -81,6 +82,11 @@ export function buildProjectContext(repoRoot: string): string {
   // issue traceability.
   const knowledgeCurated = readKnowledgeCuratedBlock(repoRoot);
   if (knowledgeCurated) sections.push("\n" + knowledgeCurated);
+
+  // S1 (#526) — the constitution outranks everything above: precedent
+  // and history are evidence, the constitution is law.
+  const constitution = constitutionBlock(repoRoot);
+  if (constitution) sections.push(constitution);
 
   return sections.join("\n");
 }

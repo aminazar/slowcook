@@ -38,6 +38,7 @@ import { worker } from "./commands/worker/index.js";
 import { doctor } from "./commands/doctor/index.js";
 import { app } from "./commands/app/index.js";
 import { taste } from "./commands/taste/index.js";
+import { rule } from "./commands/rule.js";
 import { costLog } from "./commands/cost-log.js";
 import { evalCmd } from "./commands/eval/index.js";
 import { devEnv } from "./commands/dev-env/index.js";
@@ -115,6 +116,11 @@ async function main(): Promise<void> {
     case "taste": {
       // `slowcook taste --pr N [--merge]` — reviewer agent for pipeline PRs.
       await taste(args.slice(1));
+      return;
+    }
+    case "rule": {
+      // `slowcook rule init|add` — the project constitution (S1, #526).
+      await rule(args.slice(1));
       return;
     }
     case "app": {

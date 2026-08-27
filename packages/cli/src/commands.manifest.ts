@@ -258,6 +258,13 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "ops",
   },
   {
+    name: "rule",
+    usage: 'slowcook rule init | slowcook rule add "<verbatim ruling>" [--source <url>] [--by <name>] [--cwd <path>]',
+    description: "Manage the project constitution (.brewing/constitution.md) — the law file every agent stage loads (refine, taste, brew, sift, plate). Three-state decision slots (ticked / deliberately blank with justification / unaddressed) filled lazily; `add` appends a VERBATIM ruling with date, author, and source link. Adapted from Spec Kit (github/spec-kit, MIT) — see docs/plans/spec-kit-borrowings.md.",
+    group: "pipeline",
+    status: "alpha",
+  },
+  {
     name: "taste",
     usage: "slowcook taste --pr <n> [--merge] [--cwd <path>] [--owner <o>] [--repo <r>] [--model <id>]",
     description: "Reviewer agent for pipeline PRs: reads the story lineage (source issue + PM Q&A + spec + diff), posts a structured verdict as the agent identity, and with --merge merges on approve. Fail-closed: unparseable verdicts merge nothing; blocking findings never approve. The worker derives taste jobs from open agent PRs with no submitted review — the PR is the trigger.",

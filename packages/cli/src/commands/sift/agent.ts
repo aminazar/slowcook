@@ -37,6 +37,7 @@ import {
   renderReferences,
 } from "../brew/retrieval.js";
 import { SIFT_SYSTEM, SIFT_TOOLS, buildSiftTurnPrompt } from "./prompts.js";
+import { constitutionBlock } from "../../lib/constitution.js";
 import { type BugProfile } from "../investigate/schema.js";
 
 // 8 starved multi-file fix_scopes: orientation reads (profile locus,
@@ -128,7 +129,7 @@ export async function runSift(ctx: SiftContext): Promise<SiftResult> {
       const response = await llm.complete({
         model: ctx.model,
         maxTokens: 4096,
-        system: SIFT_SYSTEM,
+        system: SIFT_SYSTEM + constitutionBlock(ctx.repoRoot),
         tools: SIFT_TOOLS,
         messages,
       });
