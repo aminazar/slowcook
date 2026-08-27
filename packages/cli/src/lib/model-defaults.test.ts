@@ -97,3 +97,20 @@ describe("assertModelPriced (R2)", () => {
     write.mockRestore();
   });
 });
+
+describe("per-stage model env (cheap-model season, 2026-08-27)", () => {
+  it("SLOWCOOK_MODEL_<STAGE> outranks the global env, flag outranks both", () => {
+    const env = { SLOWCOOK_MODEL: "claude-sonnet-5", SLOWCOOK_MODEL_BREW: "claude-haiku-4-5" } as NodeJS.ProcessEnv;
+    expect(resolveModel("brew", undefined, env)).toBe("claude-haiku-4-5");
+    expect(resolveModel("refine", undefined, env)).toBe("claude-sonnet-5");
+    expect(resolveModel("brew", "claude-opus-4-8", env)).toBe("claude-opus-4-8");
+    expect(modelSource("brew", undefined, env)).toBe("stage-env");
+    expect(modelSource("refine", undefined, env)).toBe("env");
+  });
+
+  it("per-stage env alone falls through cleanly for other stages", () => {
+    const env = { SLOWCOOK_MODEL_BREW: "claude-haiku-4-5" } as NodeJS.ProcessEnv;
+    expect(resolveModel("brew", undefined, env)).toBe("claude-haiku-4-5");
+    expect(resolveModel("taste", undefined, env)).toBe(STAGE_DEFAULTS.taste);
+  });
+});
