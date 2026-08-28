@@ -91,7 +91,20 @@ ${
   contradicts the spec's runtime context — that is blocking, not a nit.
 - Fixtures must return the shapes the real dependency returns (e.g. PostgREST
   returns ARRAYS for multi-row selects — a fixture handing back a bare object
-  forces the implementation to grow normalization hacks for the mock's sake).`
+  forces the implementation to grow normalization hacks for the mock's sake).
+- TESTS MUST MATCH SHIPPED SIGNATURES (2026-08-28, story-022): for every
+  component/function the tests CONSTRUCT, compare what they pass against that
+  symbol's CURRENT exported signature — the head files and the code map are in
+  your context, so this is checkable, not guesswork. A suite that renders
+  <Widget a={1} b={2} /> against a shipped no-props component is demanding an
+  undeclared breaking refactor of shipped code: BLOCKING unless the spec (or a
+  recorded PM ruling) declares the shape change. Say which symbol, its current
+  signature, and what the test assumes. Live case: tests constructed a
+  presentational RationPill with props while the shipped component was a
+  no-props async server component, and the mismatch reached brew.
+- Tests must not silently drop an existing test hook another suite depends on
+  (a data-testid, a role, an exported name): if the diff removes one, name the
+  dependent suite.`
     : ctx.kind === "brew"
       ? `- Does the diff implement the spec's invariants — nothing missing, nothing invented beyond the spec?
 - TEST TAMPERING: the tests are the frozen contract; a change under tests/ in an implementation diff normally means the agent moved the goalposts — BLOCKING. Exception: when the PR thread or a commit subject records an explicit PM arbitration/ruling ("PM arbitration", "human gate", "ruling") covering those edits, they are AUTHORIZED — judge whether the edits faithfully implement the recorded ruling instead of flagging tampering.
