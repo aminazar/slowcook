@@ -45,3 +45,12 @@ describe("S2 amendment discipline", () => {
     expect(amend).toContain("never edit, reword, or delete");
   });
 });
+
+describe("#539 — a cited contract answers the question", () => {
+  const system = REFINEMENT_ANALYST_SYSTEM("checklist", "ctx");
+  it("forbids option sets that exclude the cited contract, and demands copied values", () => {
+    expect(system).toContain("A cited contract ANSWERS the question");
+    expect(system).toContain("Never offer an option set that excludes the contract you just cited");
+    expect(system).toContain("COPIED, not recalled");
+  });
+});

@@ -176,3 +176,18 @@ describe("mock-boundary review dimension (2026-08-24)", () => {
     expect(system).toContain("ARRAYS for multi-row selects");
   });
 });
+
+describe("#541 — tests must match shipped signatures", () => {
+  it("the tests-review prompt demands a props-vs-signature comparison and hook-removal checks", () => {
+    const { system } = buildTastePrompt({
+      prNumber: 1, prTitle: "t", prBody: "", headBranch: "slowcook/tests/story-022",
+      kind: "tests", storyId: "022", diff: "", specYaml: null,
+      sourceIssueTitle: null, sourceIssueBody: null, issueThread: null, prThread: null,
+      manifestJson: null, headFiles: null, commitSubjects: null,
+      constitution: "", analyzeFindings: "",
+    });
+    expect(system).toContain("TESTS MUST MATCH SHIPPED SIGNATURES");
+    expect(system).toContain("undeclared breaking refactor");
+    expect(system).toContain("silently drop an existing test hook");
+  });
+});
