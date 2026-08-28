@@ -53,6 +53,11 @@ export interface TasteContext {
    *  reviews ("" when clean or not a spec PR). Machine evidence, not
    *  opinion — a conflict here is blocking unless the PM has ruled. */
   analyzeFindings: string;
+  /** #545: the PR is a HUMAN repair citing a story, not an agent
+   *  artifact. Review is advisory (the human merges) and the frozen-test
+   *  rules read differently — the human IS the authority that may amend
+   *  them, so judge fidelity to the recorded amendment, not tampering. */
+  humanAuthored?: boolean;
 }
 
 export interface TasteFinding {
@@ -173,7 +178,19 @@ Respond with ONLY a JSON object:
     );
   }
   parts.push(`## Diff under review\n\n\`\`\`diff\n${ctx.diff}\n\`\`\``);
-  return { system: system + ctx.constitution, user: parts.join("\n\n---\n\n") };
+  const humanNote = ctx.humanAuthored
+    ? `\n\n## This PR is a HUMAN repair, not an agent artifact (#545)\n\n` +
+      `A person authored or repaired this work at the merge gate, citing story-${ctx.storyId}. ` +
+      `Your review is ADVISORY — you do not merge it, and you must not flag test or spec ` +
+      `edits as tampering: the human is the authority that may amend a frozen contract. ` +
+      `Judge instead: does the change do what its stated amendment/ruling says; does it keep ` +
+      `every shipped contract it touches (signatures, test hooks, response shapes); and is ` +
+      `anything silently dropped. Say plainly what you would fix and what you would keep.`
+    : "";
+  return {
+    system: system + ctx.constitution + humanNote,
+    user: parts.join("\n\n---\n\n"),
+  };
 }
 
 /** Extract the first balanced JSON object from model text. */

@@ -105,6 +105,7 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
     commitSubjects: null,
     constitution: "",
     analyzeFindings: "",
+    humanAuthored: false,
   };
 
   it("renders current head files as authoritative over thread claims", () => {
@@ -123,6 +124,7 @@ describe("PR-D (2026-08-23): present-vs-history evidence", () => {
       commitSubjects: ["fix(human gate): byline column", "brew iter 3"],
       constitution: "",
       analyzeFindings: "",
+      humanAuthored: false,
     });
     expect(user).toContain("Commits on this PR branch");
     expect(user).toContain("fix(human gate): byline column");
@@ -170,6 +172,7 @@ describe("mock-boundary review dimension (2026-08-24)", () => {
       commitSubjects: null,
       constitution: "",
       analyzeFindings: "",
+      humanAuthored: false,
     });
     expect(system).toContain("ARCHITECTURAL CLAIM");
     expect(system).toContain("service-role (admin) client");
@@ -189,5 +192,27 @@ describe("#541 — tests must match shipped signatures", () => {
     expect(system).toContain("TESTS MUST MATCH SHIPPED SIGNATURES");
     expect(system).toContain("undeclared breaking refactor");
     expect(system).toContain("silently drop an existing test hook");
+  });
+});
+
+describe("#545 — advisory review of human-gate repairs", () => {
+  const base = {
+    prNumber: 283, prTitle: "story-022 repair", prBody: "", headBranch: "fix/b7-follow-story-022-seam",
+    kind: "brew" as const, storyId: "022", diff: "", specYaml: null,
+    sourceIssueTitle: null, sourceIssueBody: null, issueThread: null, prThread: null,
+    manifestJson: null, headFiles: null, commitSubjects: null,
+    constitution: "", analyzeFindings: "",
+  };
+
+  it("adds the advisory block and forbids tampering flags when the author is human", () => {
+    const { system } = buildTastePrompt({ ...base, humanAuthored: true });
+    expect(system).toContain("HUMAN repair, not an agent artifact");
+    expect(system).toContain("Your review is ADVISORY");
+    expect(system).toContain("must not flag test or spec");
+  });
+
+  it("agent PRs are unchanged — no advisory block", () => {
+    const { system } = buildTastePrompt({ ...base, humanAuthored: false });
+    expect(system).not.toContain("HUMAN repair, not an agent artifact");
   });
 });
