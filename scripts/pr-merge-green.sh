@@ -25,11 +25,17 @@ for _ in $(seq 1 20); do
   sleep 10
 done
 
-# Phase 2: wait for every run on this sha to complete.
+# Phase 2: wait for every run on this sha to complete, judging only the
+# LATEST run per workflow name. GitHub auto-cancels a superseded run when
+# a new one starts on the same concurrency group; an earlier `cancelled`
+# alongside a later `success` is not a red check (rewo season, PR #281).
 for _ in $(seq 1 60); do
-  rows="$(gh run list --branch "$branch" --limit 20 \
-      --json headSha,status,conclusion,name \
-      --jq ".[] | select(.headSha == \"${head_sha}\") | \"\(.status) \(.conclusion) \(.name)\"")"
+  rows="$(gh run list --branch "$branch" --limit 40 \
+      --json headSha,status,conclusion,name,createdAt \
+      --jq "[.[] | select(.headSha == \"${head_sha}\")]
+            | sort_by(.createdAt) | reverse
+            | group_by(.name) | map(.[0])
+            | .[] | \"\(.status) \(.conclusion) \(.name)\"")"
   if [ -z "$rows" ]; then sleep 10; continue; fi
   if ! grep -qv '^completed ' <<<"$rows"; then break; fi
   sleep 15
