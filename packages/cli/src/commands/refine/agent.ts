@@ -1438,9 +1438,10 @@ export async function runResubmitRefinement(
   // comments (line-anchored) come from a separate endpoint (0.11.8+).
   // Filter bot-authored brand-header comments in both — don't feed the
   // agent its own prior output.
-  const [timelineComments, reviewComments] = await Promise.all([
+  const [timelineComments, reviewComments, reviewBodies] = await Promise.all([
     ctx.forge.listIssueComments(ctx.prNumber),
     ctx.forge.listPullRequestReviewComments?.(ctx.prNumber) ?? Promise.resolve([]),
+    ctx.forge.listPullRequestReviews?.(ctx.prNumber) ?? Promise.resolve([]),
   ]);
   const pmTimeline = timelineComments.filter((c) => {
     const body = c.body ?? "";
@@ -1458,7 +1459,18 @@ export async function runResubmitRefinement(
     return true;
   });
 
-  if (pmTimeline.length === 0 && pmReview.length === 0) {
+  // Submitted review BODIES are the third feedback surface — a PM using
+  // `gh pr review --request-changes --body ...` leaves text that appears
+  // in neither list above. The resubmit DERIVATION already counts such a
+  // review as feedback, so a gatherer blind to it no-ops forever and the
+  // job re-fires every pass (rewo season, 2026-08-28).
+  const pmReviewBodies = reviewBodies.filter((c) => {
+    if (c.is_bot) return false;
+    const body = c.body ?? "";
+    return !(body.includes("### slowcook ·") && !body.includes("slowcook-emission-gate"));
+  });
+
+  if (pmTimeline.length === 0 && pmReview.length === 0 && pmReviewBodies.length === 0) {
     return {
       kind: "noop",
       reason: "no PM comments (timeline or review) to process on the PR",
@@ -1470,9 +1482,14 @@ export async function runResubmitRefinement(
   // feedback (single-field scope). Line-anchored comments include the
   // path + line + a short excerpt from the spec file at that line so
   // the agent can match feedback to the exact field being reviewed.
-  const timelineFeedback = pmTimeline
-    .map((c) => `## Timeline comment — @${c.author} at ${c.created_at}\n${c.body}`)
-    .join("\n\n");
+  const timelineFeedback = [
+    ...pmReviewBodies.map(
+      (c) => `## Submitted review — @${c.author} at ${c.created_at}\n${c.body}`
+    ),
+    ...pmTimeline.map(
+      (c) => `## Timeline comment — @${c.author} at ${c.created_at}\n${c.body}`
+    ),
+  ].join("\n\n");
   const reviewFeedback = pmReview
     .map((c) => {
       const excerpt = c.line != null ? extractFileLineExcerpt(ctx.repoRoot, c.path, c.line) : null;

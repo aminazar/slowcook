@@ -145,6 +145,18 @@ export interface ForgeAdapter {
   listPullRequestReviewComments?(number: number): Promise<ReviewComment[]>;
 
   /**
+   * Submitted REVIEW bodies (the summary text of an approve /
+   * request-changes / comment review) — distinct from both timeline
+   * comments and line-anchored review comments. A PM who reviews with
+   * `gh pr review --request-changes --body ...` leaves feedback that
+   * appears in NEITHER of the other two lists; the resubmit derivation
+   * saw the review and fired, the gatherer found nothing, and the job
+   * re-fired every worker pass forever (rewo season, 2026-08-28).
+   * Returns an empty array for issues that aren't PRs.
+   */
+  listPullRequestReviews?(number: number): Promise<Comment[]>;
+
+  /**
    * 0.11.10+ — reply *threaded* to a specific PR review comment, so the
    * agent's response sits under the PM's original inline comment instead
    * of posting a disconnected timeline message. Optional: adapters that
