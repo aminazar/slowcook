@@ -79,6 +79,32 @@ export class GitHubAdapter implements ForgeAdapter {
     }));
   }
 
+  /** Submitted review BODIES — the third feedback surface, invisible to
+   *  both listIssueComments and listReviewComments. Reviews with an
+   *  empty body (approve-with-no-text) are dropped: nothing to act on. */
+  async listPullRequestReviews(number: number): Promise<Comment[]> {
+    try {
+      const reviews = await this.octokit.paginate(this.octokit.pulls.listReviews, {
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: number,
+        per_page: 100,
+      });
+      return reviews
+        .filter((r) => (r.body ?? "").trim().length > 0)
+        .map((r) => ({
+          id: r.id,
+          author: r.user?.login ?? "unknown",
+          body: `[${r.state}] ${r.body ?? ""}`,
+          created_at: r.submitted_at ?? "",
+          is_bot: r.user?.type === "Bot",
+        }));
+    } catch (e) {
+      if ((e as { status?: number }).status === 404) return [];
+      throw e;
+    }
+  }
+
   async listPullRequestReviewComments(number: number): Promise<ReviewComment[]> {
     try {
       const comments = await this.octokit.paginate(
