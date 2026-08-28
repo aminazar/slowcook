@@ -38,8 +38,16 @@ export interface CliTurnArgs {
 
 /** An expired/absent CLI login is an OPERATOR problem, not an agent stall —
  *  brew must say so instead of burning iterations and blaming the model. */
-export function isAuthFailure(text: string | undefined): boolean {
-  return /authenticate|oauth|not logged in|unauthorized|invalid api key/i.test(text ?? "");
+export function isAuthFailure(text: string | undefined, errored = true): boolean {
+  // Only a FAILED turn can be an auth failure. The old test matched the
+  // bare word "authenticate" anywhere in the CLI's output, so a story
+  // about authentication — a 401 test named "returns 401 with
+  // unauthenticated code" — halted brew claiming the CLI could not log
+  // in, on a session that had authenticated fine (rewo story-022).
+  if (!errored) return false;
+  return /not logged ?in|invalid api key|authentication (failed|error)|oauth token (expired|invalid)|claude setup-token|please (run )?login|credentials? (expired|invalid|missing)/i.test(
+    text ?? ""
+  );
 }
 
 export interface CliTurnResult {
@@ -189,6 +197,8 @@ export function runCliTurn(a: CliTurnArgs): CliTurnResult {
             ? `claude session failed: ${parsed.resultText.slice(0, 200)}`
             : `claude exited ${status}` }
       : {}),
-    ...(isAuthFailure(parsed.resultText) ? { authFailed: true } : {}),
+    ...(isAuthFailure(parsed.resultText, parsed.isError || status !== 0)
+      ? { authFailed: true }
+      : {}),
   };
 }
