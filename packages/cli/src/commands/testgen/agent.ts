@@ -22,6 +22,22 @@ import { readContextMd } from "../refine/context.js";
 import { TESTGEN_SYSTEM } from "./prompts.js";
 import { truncatedEmissionError } from "../../lib/emission-guard.js";
 import { appendAuthored, triggerFromEnv } from "../../lib/provenance.js";
+import { extendRedBaseline } from "../../lib/red-baseline.js";
+import { readFileSync as readFileSyncForBaseline, existsSync as existsSyncForBaseline } from "node:fs";
+
+/** The consumer's declared red-by-design baseline path (#542), or null. */
+function readRedBaselinePath(repoRoot: string): string | null {
+  const p = join(repoRoot, ".brewing", "stack.json");
+  if (!existsSyncForBaseline(p)) return null;
+  try {
+    const raw = JSON.parse(readFileSyncForBaseline(p, "utf8")) as { red_baseline?: unknown };
+    return typeof raw.red_baseline === "string" && raw.red_baseline.trim()
+      ? raw.red_baseline.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export const LABEL_TESTS_READY = "tests-ready";
 export const LABEL_OVERRIDE_FREEZE = "override-freeze";
@@ -247,6 +263,7 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     }
   }
 
+  let baselineWritten: string | null = null;
   // Apply to disk: write new, delete superseded
   for (const g of generated) {
     if (g.testPath && g.fileContents) {
@@ -268,6 +285,31 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     }
     for (const extra of g.extraTestFiles) {
       writeFileAt(ctx.repoRoot, extra.path, extra.contents);
+    }
+  }
+
+  // #542 — the tests just written are red BY DESIGN until brew implements
+  // the story. When the consumer's CI judges the failure-set diff against
+  // a declared baseline, that baseline must grow in THIS commit, or the
+  // gate reads them as regressions on every subsequent PR (observed on
+  // rewo: 10 tests, every PR red until a human baselined them by hand).
+  const redBaselinePath = readRedBaselinePath(ctx.repoRoot);
+  if (redBaselinePath) {
+    const newIds = generated.flatMap((g) =>
+      (g.manifest as { tests?: { id: string }[] }).tests?.map((t) => t.id) ?? []
+    );
+    try {
+      const res = extendRedBaseline(ctx.repoRoot, redBaselinePath, newIds);
+      if (res.declared) {
+        console.log(
+          `  red baseline: +${res.added} test(s) → ${res.total} in ${res.path} (red by design until brew)`
+        );
+        baselineWritten = res.added ? redBaselinePath : null;
+      }
+    } catch (e) {
+      // Never silently continue: a stale baseline turns the honest gate
+      // into a permanently-red one.
+      console.error(`  red baseline NOT updated: ${(e as Error).message}`);
     }
   }
   const actuallyRemoved: string[] = [];
@@ -301,6 +343,8 @@ export async function runTestgen(ctx: TestgenContext): Promise<TestgenOutcome> {
     await ctx.forge.git.stage(join(TESTS_INTEGRATION_DIR, `story-${id}.test.ts`));
     await ctx.forge.git.stage(join(MANIFESTS_DIR, `story-${id}.json`));
   }
+  // #542 — the baseline grows in the SAME commit as the tests it covers.
+  if (baselineWritten) await ctx.forge.git.stage(baselineWritten);
   // Provenance: the ledger entry rides the same commit as the tests —
   // owned files only (tests + removed tests); stubs live under src/,
   // which nobody owns (ratchet-adoption "producers").

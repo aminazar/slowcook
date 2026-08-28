@@ -86,6 +86,15 @@ export interface StackConfig {
   test?: Record<string, SuiteConfig>;
   /** 0.11.13+ — optional lint/typecheck commands. Missing or empty means brew skips lint signals (no-op). */
   lint?: LintConfig;
+  /**
+   * #542 — path to the consumer's red-by-design baseline (e.g.
+   * ".brewing/known-red.json"): the JSON array of test ids that are
+   * SUPPOSED to fail right now, against which CI judges the failure-set
+   * diff instead of demanding absolute green. When declared, testgen
+   * appends the tests it just wrote, so the list stays honest without a
+   * human maintaining it. Absent = no baseline discipline; nothing writes.
+   */
+  red_baseline?: string;
 }
 
 export class StackConfigError extends Error {
@@ -172,5 +181,7 @@ export function validateStackConfig(raw: unknown): StackConfig {
       config.lint = lint;
     }
   }
+  const rb = (raw as Record<string, unknown>)["red_baseline"];
+  if (typeof rb === "string" && rb.trim()) config.red_baseline = rb.trim();
   return config;
 }

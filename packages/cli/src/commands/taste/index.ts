@@ -65,14 +65,42 @@ export async function taste(argv: string[]): Promise<void> {
   const head = pr.head?.ref ?? "";
   const parsed = parseStoryBranch(head);
   const kindMatch = parsed ? [head, parsed.kind, parsed.storyId] : null;
-  if (!kindMatch) {
+  // #545 — a PR that CITES a story is reviewable even off an agent
+  // branch. Human-gate repairs of a halted brew touch shipped contracts
+  // and frozen tests, so they deserve review MORE than a routine agent
+  // PR, not less; the old ownership test left exactly that class
+  // unreviewed. The claim must be explicit (a story id in the title or
+  // body) AND corroborated by a spec on the base branch.
+  const citedStory = kindMatch
+    ? null
+    : (`${pr.title ?? ""}\n${pr.body ?? ""}`.match(/story-(\d{3})/) ?? [])[1] ?? null;
+  const citedSpecExists =
+    citedStory != null &&
+    (() => {
+      try {
+        execSync(
+          `git show origin/${pr.base?.ref ?? "main"}:specs/story-${citedStory}.yaml`,
+          { cwd: args.repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+  if (!kindMatch && !citedSpecExists) {
     console.error(
-      `slowcook taste: PR #${args.pr} head "${head}" is not a slowcook spec/tests branch — refusing to review what no agent owns.`
+      `slowcook taste: PR #${args.pr} head "${head}" is not a slowcook branch and cites no story with a spec on the base branch — refusing to review what no artifact owns.`
     );
     process.exit(2);
   }
-  const kind = kindMatch[1] as PrKind;
-  const storyId = kindMatch[2]!;
+  const humanAuthored = !kindMatch;
+  const kind = (kindMatch ? kindMatch[1] : "brew") as PrKind;
+  const storyId = (kindMatch ? kindMatch[2] : citedStory)!;
+  if (humanAuthored) {
+    console.log(
+      `  human-authored PR citing story-${storyId} — reviewing as ADVISORY (no merge authority).`
+    );
+  }
 
   const { data: diffData } = await octokit.request(
     "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -236,6 +264,7 @@ export async function taste(argv: string[]): Promise<void> {
     headFiles,
     commitSubjects,
     constitution: constitutionBlock(args.repoRoot),
+    humanAuthored,
     analyzeFindings: await (async () => {
       if (kind !== "spec" || !specYaml) return "";
       try {
@@ -282,7 +311,9 @@ export async function taste(argv: string[]): Promise<void> {
   if (verdict.verdict === "approve" && humanGate) {
     console.log(`gate: ${kind} is declared human — merge left to the PM`);
   }
-  if (verdict.verdict === "approve" && args.merge && !humanGate) {
+  // #545 — an advisory review of a human repair never merges, whatever
+  // --merge says: the human owns that merge.
+  if (verdict.verdict === "approve" && args.merge && !humanGate && !humanAuthored) {
     try {
       // Agent PRs are born drafts; an approved draft is ready by definition.
       if (pr.draft) {
