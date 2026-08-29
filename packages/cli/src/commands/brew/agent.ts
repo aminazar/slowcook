@@ -2516,6 +2516,23 @@ function commitCheckpoint(
   ctx: BrewContext,
   args: { iteration: number; target: string; gains: string[]; filesTouched: string[] }
 ): void {
+  // A checkpoint must land on THIS run's branch. Another process sharing
+  // the checkout can switch it out from under us — the worker timer's
+  // ensureBaseCheckout does exactly `git checkout main` — and then every
+  // later checkpoint commits to main instead. Observed live on rewo
+  // story-023: five checkpoints ($6.78) went to local main, the branch
+  // stayed empty, and the PR failed with "No commits between main and
+  // <branch>". Re-attach (the working tree carries over) and say so.
+  const head = execSync(`git -C "${ctx.repoRoot}" rev-parse --abbrev-ref HEAD`, {
+    encoding: "utf8",
+  }).trim();
+  if (head !== ctx.branchName) {
+    appendRunLog(
+      ctx,
+      `WARN  checkout drifted to "${head}" — another process shares this repo. Re-attaching to ${ctx.branchName} before the iter ${args.iteration} checkpoint.`
+    );
+    execSync(`git -C "${ctx.repoRoot}" checkout ${ctx.branchName}`, { stdio: "ignore" });
+  }
   execSync(`git -C "${ctx.repoRoot}" add -A`, { stdio: "ignore" });
   const msg = `slowcook/brew iter ${args.iteration}: +${args.gains.length} green — target ${args.target}`;
   execSync(`git -C "${ctx.repoRoot}" commit -m ${JSON.stringify(msg)}`, { stdio: "ignore" });
