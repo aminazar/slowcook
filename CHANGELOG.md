@@ -6,6 +6,74 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## cli 0.37.0 · core 0.20.0 · forge-github 0.17.0 · llm-anthropic 0.27.0 · stack-ts 0.14.0 — the spec-kit borrowings, run in anger
+
+Three capabilities adapted from [Spec Kit](https://github.com/github/spec-kit)
+(GitHub's Spec-Driven Development toolkit, MIT — see
+docs/plans/spec-kit-borrowings.md for what was borrowed, adapted, and
+deliberately refused), plus everything a two-story dogfood season on a
+live app shook out of the pipeline. Nine defects found by running it;
+eight fixed in this release.
+
+**The constitution** (`slowcook rule init|add`, loaded by every agent
+stage). A repo-level law file with three-state decision slots: ticked
+(agents enforce and cite), deliberately blank (a recorded deferral with
+justification — agents stay SILENT on the concern), unaddressed (agents
+escalate once on first material contact). Filled lazily, never as a
+day-one questionnaire; rulings are recorded verbatim with date, author,
+and source. Injected into refine/plate/vibe/brand (via project
+context), taste, brew (inside the cached system block), and sift.
+
+**The clarify gate.** Refine scans nine ambiguity categories (vendored
+from Spec Kit) before asking anything, asks in a budgeted decision TREE
+(≤6 nodes, nesting only where an answer changes the next question,
+recommended options marked, 👍 accepts them all, "I don't know" routes
+to the default or an investigate round), parks honestly on
+`slowcook-awaiting-pm` (an exit-0 wait, not a failure), and records PM
+answers VERBATIM in the spec's `clarifications:` block — append-only
+under amendment; a paraphrase is a defect. A cited predecessor contract
+ANSWERS a question: refine must decide by it or ask a deviation
+question whose recommended option IS the shipped value, and values
+attributed to a predecessor must be copied, not recalled.
+
+**Spec-analyze** (`slowcook analyze --spec N`). Deterministic
+cross-spec + as-built consistency: the same endpoint declared with
+contradictory request fields in another active spec (param spellings
+normalize), two specs creating one table, cited entities that exist
+nowhere. Taste's spec reviews receive the findings as blocking machine
+evidence.
+
+**Season fixes, each from a live failure:**
+- refine's resubmit read timeline and line comments but never submitted
+  review BODIES — a PM `gh pr review --request-changes --body ...`
+  produced an endless no-op loop that logged success every pass. New
+  forge seam `listPullRequestReviews` (core + forge-github).
+- brew's auth-failure detector matched the word "authenticate" anywhere
+  in the model's output, so any story ABOUT authentication halted
+  iteration 1 claiming the CLI couldn't log in. Only errored turns with
+  login-specific patterns count now.
+- brew checkpoints could land on the WRONG BRANCH when another process
+  (the worker timer's base-checkout reset) switched the shared checkout
+  mid-run — five checkpoints of work went to local main while the run's
+  branch stayed empty and the halt report claimed them. commitCheckpoint
+  now verifies HEAD and re-attaches.
+- taste reviews tests against SHIPPED SIGNATURES: a suite constructing
+  a component with props the shipped export doesn't take is an
+  undeclared breaking refactor — blocking. It also flags dropped test
+  hooks, and it can now review HUMAN repairs that cite a story
+  (advisory: no merge authority, amendment-fidelity judged instead of
+  tampering).
+- testgen extends the consumer's red-by-design baseline (stack.json
+  `red_baseline`) in the same commit as the tests it writes, so a
+  failure-diff CI gate stays honest without a human curating it.
+- the worker parks drift-on-shipped stories for the PM instead of
+  regenerating sanctioned merged suites; sift gets 24 tool rounds and
+  per-round progress (8 starved multi-file fixes into silent no-edit
+  halts); per-stage model env `SLOWCOOK_MODEL_<STAGE>` gives worker
+  boxes a real cost ladder (flag > stage env > global env > default).
+
+`@slowcook-ai/cli` 1853 tests · full monorepo green.
+
 ## cli 0.36.0 · core 0.19.0 · stack-ts 0.13.0 · llm-anthropic 0.26.0 — the release where the human stopped writing code
 
 **The LLM seam speaks tools on both backends** (core 0.19.0 +
