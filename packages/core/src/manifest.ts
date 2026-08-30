@@ -76,6 +76,39 @@ export function diffManifest(
 }
 
 /**
+ * The spec-contract text: the spec file with its bookkeeping blocks
+ * stripped (#553). Two top-level blocks never describe the contract:
+ * `cost:` — a glance-readable mirror of the sidecar cost ledger,
+ * rewritten on every cost commit — and `amendments:` — append-only
+ * records of the sanctioned change flow, where the change itself edits
+ * the contract body. Hashing the raw file made bookkeeping read as
+ * drift: a cost-row commit re-derived tests-regeneration for a story
+ * whose contract never changed, and `amend` + `manifest record` had to
+ * land in exactly that order or the amendment re-drifted the hash it
+ * had just recorded. Hash this text instead. The worker's drift check
+ * still accepts a raw-file match so pre-#553 manifests do not all read
+ * as drifted the day this ships.
+ */
+export function specContractText(specYaml: string): string {
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of specYaml.split("\n")) {
+    if (/^(cost|amendments):/.test(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping) {
+      // Block members are indented; blank lines inside the block are
+      // part of it. The block ends at the next top-level key.
+      if (line.trim() === "" || /^[ \t]/.test(line)) continue;
+      skipping = false;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+/**
  * Build a manifest from a fresh discovery result.
  */
 export function buildManifest(args: {

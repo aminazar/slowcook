@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   deriveJobs,
+  deriveClarifyAnsweredJobs,
+  DERIVED_CLARIFY_ANSWERED_TRIGGER,
   evaluatePreconditions,
   summarizeWorkload,
   renderWorkloadLine,
@@ -399,5 +401,36 @@ describe("#536 — drift on shipped stories parks for the PM", () => {
   it("absent storyShipped (fs-only callers) behaves as not-shipped", () => {
     const jobs = deriveRecipeJobs([base]);
     expect(jobs[0]!.runnable).toBe(true);
+  });
+});
+
+describe("deriveClarifyAnsweredJobs (#554 — an answered 👍 re-derives the job)", () => {
+  const parked = (number: number, extra: string[] = []) =>
+    issue({ number, labels: ["needs-refinement", "slowcook-awaiting-pm", ...extra] });
+
+  it("derives one refine job per answered park, with the derived trigger", () => {
+    const jobs = deriveClarifyAnsweredJobs([parked(292)], noFacts);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.agent).toBe("refine");
+    expect(jobs[0]!.triggerLabel).toBe(DERIVED_CLARIFY_ANSWERED_TRIGGER);
+    expect(jobs[0]!.cmd).toEqual(["slowcook", "refine", "--issue", "292"]);
+    expect(jobs[0]!.runnable).toBe(true);
+  });
+
+  it("skips issues the labeled trigger already owns", () => {
+    expect(
+      deriveClarifyAnsweredJobs([parked(292, ["agent:refine"])], noFacts)
+    ).toHaveLength(0);
+  });
+
+  it("agent:failed stays terminal even when the PM has answered", () => {
+    expect(
+      deriveClarifyAnsweredJobs([parked(292, ["agent:failed"])], noFacts)
+    ).toHaveLength(0);
+  });
+
+  it("carries the resolved story id into the job", () => {
+    const jobs = deriveClarifyAnsweredJobs([parked(292)], () => ({ storyId: "024" }));
+    expect(jobs[0]!.storyId).toBe("024");
   });
 });

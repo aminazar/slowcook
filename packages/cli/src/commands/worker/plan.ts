@@ -296,6 +296,52 @@ export function evaluatePreconditions(
 }
 
 /**
+ * A clarify park the PM has ANSWERED is pipeline state (#554): refine
+ * consumed its `agent:refine` trigger when it posted the questions, and
+ * a 👍 reaction is not a comment — no event re-fires the job, so the
+ * answer used to sit there until a human relabeled by hand. The IO
+ * wrapper gathers issues still labeled `slowcook-awaiting-pm` whose
+ * park has resolved (a human comment after the last questions comment,
+ * or a human 👍 on it — the same `clarifyParkState` rule the run side
+ * applies) and this derives the refine job the answer is waiting for.
+ * Re-fire guard is the derivation itself: refine either emits the spec
+ * (label comes off) or re-asks (new questions comment, unanswered →
+ * park again).
+ */
+export const DERIVED_CLARIFY_ANSWERED_TRIGGER = "(derived) clarify-answered";
+
+/**
+ * One refine job per answered clarify park. `issues` must already be
+ * filtered to answered-awaiting-pm issues by the IO wrapper; issues
+ * also carrying `agent:refine` or `agent:failed` are skipped here — the
+ * labeled trigger (or the terminal state) owns those.
+ */
+export function deriveClarifyAnsweredJobs(
+  issues: IssueFact[],
+  factsFor: (issue: IssueFact) => StoryArtifactFacts
+): WorkerJob[] {
+  const jobs: WorkerJob[] = [];
+  for (const issue of issues) {
+    if (issue.labels.includes(FAILED_LABEL)) continue;
+    if (issue.labels.includes("agent:refine")) continue;
+    const facts = factsFor(issue);
+    const preconditions = evaluatePreconditions("refine", issue, facts);
+    jobs.push({
+      issue: issue.number,
+      issueTitle: issue.title,
+      agent: "refine",
+      triggerLabel: DERIVED_CLARIFY_ANSWERED_TRIGGER,
+      ...(facts.storyId !== undefined ? { storyId: facts.storyId } : {}),
+      cmd: cmdFor("refine", issue.number, facts.storyId),
+      preconditions,
+      runnable: preconditions.every((c) => c.status !== "fail"),
+      priority: priorityOf(issue.labels),
+    });
+  }
+  return orderJobs(jobs, issues);
+}
+
+/**
  * A submitted human review on an open spec PR IS pipeline state (plan §1):
  * the spec's owner (refine) must answer it. The worker derives this — no
  * label, no human transport (ledger G8: a PM review sat unattended because

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { diffManifest, buildManifest, type Manifest, type TestEntry } from "./manifest.js";
+import {
+  diffManifest,
+  buildManifest,
+  specContractText,
+  type Manifest,
+  type TestEntry,
+} from "./manifest.js";
 
 function entry(id: string, file = "tests/a.test.ts"): TestEntry {
   return { id, file };
@@ -101,5 +107,63 @@ describe("buildManifest", () => {
       suites: [],
     });
     expect(m.story_id).toBeNull();
+  });
+});
+
+describe("specContractText (#553 — bookkeeping is not contract drift)", () => {
+  const contract = [
+    "story: 24",
+    "title: feed timestamps",
+    "invariants:",
+    "  - the reaction date renders",
+    "",
+    "clarifications:",
+    "  - q: which dates?",
+    "    a: both",
+  ].join("\n");
+
+  it("strips a top-level cost block, keeping everything around it", () => {
+    const withCost = [
+      "story: 24",
+      "title: feed timestamps",
+      "cost:",
+      "  total_usd: 2.36",
+      "",
+      "  last_updated: 2026-08-29",
+      "invariants:",
+      "  - the reaction date renders",
+      "",
+      "clarifications:",
+      "  - q: which dates?",
+      "    a: both",
+    ].join("\n");
+    expect(specContractText(withCost)).toBe(contract);
+  });
+
+  it("strips a top-level amendments block", () => {
+    const withAmend =
+      contract + "\namendments:\n  - date: 2026-08-29\n    reason: record after amend\n";
+    expect(specContractText(withAmend)).toBe(contract);
+  });
+
+  it("cost-only and amendment-only edits do not change the text", () => {
+    const a = contract + "\ncost:\n  total_usd: 1.00\n";
+    const b = contract + "\ncost:\n  total_usd: 9.99\namendments:\n  - reason: x\n";
+    expect(specContractText(a)).toBe(specContractText(b));
+  });
+
+  it("is the identity on a spec with neither block", () => {
+    expect(specContractText(contract)).toBe(contract);
+  });
+
+  it("does not strip indented keys that merely contain the words", () => {
+    const spec = "story: 1\nnotes:\n  cost: high\n  amendments: none\ndone: true";
+    expect(specContractText(spec)).toBe(spec);
+  });
+
+  it("a real contract edit still changes the text even beside a cost block", () => {
+    const v1 = contract + "\ncost:\n  total_usd: 1.00\n";
+    const v2 = contract.replace("both", "only one") + "\ncost:\n  total_usd: 1.00\n";
+    expect(specContractText(v1)).not.toBe(specContractText(v2));
   });
 });

@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import {
   buildManifest,
   diffManifest,
+  specContractText,
   type Manifest,
   type TestEntry,
 } from "@slowcook-ai/core";
@@ -240,10 +241,14 @@ function recordManifest(args: ManifestArgs, config: StackConfig): void {
   let specSha256: string | undefined;
   if (args.storyId) {
     try {
-      const specBytes = readFileSync(
-        join(args.cwd ?? process.cwd(), "specs", `story-${args.storyId}.yaml`)
+      const specText = readFileSync(
+        join(args.cwd ?? process.cwd(), "specs", `story-${args.storyId}.yaml`),
+        "utf8"
       );
-      specSha256 = createHash("sha256").update(specBytes).digest("hex");
+      // #553 — hash the CONTRACT, not the file: cost mirrors and
+      // amendment records are bookkeeping, and hashing them made every
+      // cost commit read as spec drift.
+      specSha256 = createHash("sha256").update(specContractText(specText)).digest("hex");
     } catch { /* no spec file — hash stays unknown */ }
   }
 

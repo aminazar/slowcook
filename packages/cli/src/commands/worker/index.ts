@@ -24,14 +24,18 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Octokit } from "@octokit/rest";
 import { appAuthConfigured, mintInstallationToken } from "@slowcook-ai/forge-github";
+import { specContractText } from "@slowcook-ai/core";
 import { readIndex, readSpec } from "../refine/spec-yaml.js";
+import { clarifyParkState } from "../refine/agent.js";
 import {
   deriveJobs,
+  deriveClarifyAnsweredJobs,
   deriveResubmitJobs,
   deriveRecipeJobs,
   deriveTasteJobs,
   deriveBrewJobs,
   DERIVED_SPEC_REVIEW_TRIGGER,
+  DERIVED_CLARIFY_ANSWERED_TRIGGER,
   summarizeWorkload,
   renderWorkloadLine,
   TRIGGER_LABELS,
@@ -130,6 +134,9 @@ async function inspectWorkload(argv: string[]): Promise<void> {
     ...deriveTasteJobs(agentPrFacts),
     ...deriveRecipeJobs(specReady),
     ...deriveBrewJobs(await gatherBrewReadyFacts(fetchArgs, specReady, openHeadRefs)),
+    ...deriveClarifyAnsweredJobs(await fetchClarifyAnsweredIssues(fetchArgs), (issue) =>
+      gatherFacts(args.repoRoot, issue)
+    ),
     ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
   ];
   if (args.json) {
@@ -249,6 +256,10 @@ async function runPass(argv: string[]): Promise<void> {
       ...deriveRecipeJobs(specReady),
       ...deriveBrewJobs(
         await gatherBrewReadyFacts({ owner, repo, token }, specReady, openHeadRefs)
+      ),
+      ...deriveClarifyAnsweredJobs(
+        await fetchClarifyAnsweredIssues({ owner, repo, token }),
+        (issue) => gatherFacts(args.repoRoot, issue)
       ),
       ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
     ];
@@ -553,7 +564,12 @@ async function processLive(
   // applying agent:refine has declared the issue needs refinement, so the
   // worker publishes that derived state as the label refine requires —
   // label reconciliation per plan §1, not a repair.
-  if (job.agent === "refine" && !derived) {
+  // A clarify-answered derivation (#554) reconciles the same way: the park
+  // began under needs-refinement, and resuming refine requires it still.
+  if (
+    job.agent === "refine" &&
+    (!derived || job.triggerLabel === DERIVED_CLARIFY_ANSWERED_TRIGGER)
+  ) {
     await octokit.issues.addLabels({
       owner: gh.owner,
       repo: gh.repo,
@@ -1109,10 +1125,19 @@ function gatherSpecReadyFacts(repoRoot: string, openHeadRefs: string[]): SpecRea
           JSON.parse(readFileSync(manifestPath, "utf8")) as { spec_sha256?: string }
         ).spec_sha256;
         if (recorded) {
-          const current = createHash("sha256")
-            .update(readFileSync(join(repoRoot, "specs", `story-${storyId}.yaml`)))
+          const specText = readFileSync(
+            join(repoRoot, "specs", `story-${storyId}.yaml`),
+            "utf8"
+          );
+          // #553 — drift means the CONTRACT changed. The contract hash
+          // strips cost/amendments bookkeeping; the raw-file hash is
+          // still accepted so pre-#553 manifests (which recorded raw
+          // bytes) don't all read as drifted the day this ships.
+          const contract = createHash("sha256")
+            .update(specContractText(specText))
             .digest("hex");
-          specDrifted = recorded !== current;
+          const raw = createHash("sha256").update(specText).digest("hex");
+          specDrifted = recorded !== contract && recorded !== raw;
         }
       } catch { /* unreadable manifest — unknown, not drift */ }
     }
@@ -1253,6 +1278,79 @@ async function fetchOpenPrFacts(
 }
 
 /** All open issues carrying a trigger label or agent:failed. */
+/**
+ * #554 — issues still parked `slowcook-awaiting-pm` whose park has in
+ * fact resolved: a human comment after the last questions comment, or a
+ * human 👍 on it. The RUN side has honored those since S2
+ * (`clarifyParkState`), but the derivation side never looked — refine's
+ * trigger label was consumed when the questions were posted, and a
+ * reaction fires no event, so an answered 👍 sat until a human
+ * relabeled. Cost: one comment listing per awaiting-pm issue plus one
+ * reaction listing on its questions comment — issues carrying this
+ * label are few by construction.
+ */
+async function fetchClarifyAnsweredIssues(args: FetchArgs): Promise<IssueFact[]> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  let parked;
+  try {
+    parked = await octokit.paginate(octokit.issues.listForRepo, {
+      owner: args.owner,
+      repo: args.repo,
+      state: "open",
+      labels: AWAITING_PM_LABEL,
+      per_page: 100,
+    });
+  } catch (e) {
+    throw new Error(`awaiting-pm scan failed: ${(e as Error).message}`);
+  }
+  const answered: IssueFact[] = [];
+  for (const issue of parked) {
+    if (issue.pull_request) continue;
+    const labels = (issue.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : (l.name ?? "")))
+      .filter((s): s is string => s.length > 0);
+    // The labeled trigger (or the terminal state) owns these.
+    if (labels.includes("agent:refine") || labels.includes(FAILED_LABEL)) continue;
+    const raw = await octokit.paginate(octokit.issues.listComments, {
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: issue.number,
+      per_page: 100,
+    });
+    const comments = raw.map((c) => ({
+      id: c.id,
+      author: c.user?.login ?? "",
+      body: c.body ?? "",
+      created_at: c.created_at,
+      is_bot: c.user?.type === "Bot",
+    }));
+    const lastQuestions = [...comments]
+      .reverse()
+      .find((c) => c.body.startsWith("### slowcook · refinement agent"));
+    if (!lastQuestions) continue;
+    const reactions = (
+      await octokit.paginate(octokit.reactions.listForIssueComment, {
+        owner: args.owner,
+        repo: args.repo,
+        comment_id: lastQuestions.id,
+        per_page: 100,
+      })
+    )
+      .filter((r) => r.user?.type !== "Bot")
+      .map((r) => ({ user: r.user?.login ?? "", content: r.content }));
+    if (clarifyParkState(labels, comments, reactions) !== "park") {
+      answered.push({
+        number: issue.number,
+        title: issue.title,
+        body: issue.body ?? "",
+        labels,
+        createdAt: issue.created_at,
+      });
+    }
+  }
+  return answered;
+}
+
 async function fetchTriggerIssues(args: FetchArgs): Promise<IssueFact[]> {
   const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
   const byNumber = new Map<number, IssueFact>();
