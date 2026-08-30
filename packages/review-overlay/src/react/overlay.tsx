@@ -3387,10 +3387,56 @@ export function AskPanel(props: AskPanelProps): JSX.Element {
         }
       }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setError(String((e as Error).message || e).slice(0, 200));
+      /* A BROKEN STREAM IS NOT A LOST ANSWER (2026-08-19).
+         This used to surface the browser's own words — Chrome says exactly
+         "network error" when a streaming response is interrupted — so a
+         reviewer on a shaky link saw a scary message and lost a finished reply.
+         The agent never stops when the socket drops, so the answer is usually
+         sitting on the server: reconnect and collect it instead of reporting a
+         failure that already succeeded. */
+      if ((e as Error).name === "AbortError") return;
+      const recovered = await recoverTurn(active.id, token, append);
+      if (!recovered) {
+        setError("Connection dropped mid-answer. The agent is still working — reopen this chat in a moment to pick it up.");
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  /* Poll the server for the turn the dropped stream was carrying. Returns true
+     if the answer was delivered (or is genuinely still running and reported as
+     such). Bounded: a reviewer should never watch this spin forever. */
+  async function recoverTurn(
+    conversationId: string,
+    token: string,
+    append: (patch: (a: AskMessage) => AskMessage) => void,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 5000));
+      let t: { found?: boolean; done?: boolean; running?: boolean; text?: string; error?: string } | null = null;
+      try {
+        const r = await fetch(
+          `${base}/__slowcook/ask/turn?conversationId=${encodeURIComponent(conversationId)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (r.ok) t = await r.json();
+      } catch { /* still offline — keep trying within the bound */ }
+      if (!t?.found) continue;
+      if (t.text) {
+        // Replace rather than append: the buffer holds the whole turn, and
+        // whatever arrived before the drop is already on screen.
+        const whole = t.text;
+        append((a) => ({ ...a, text: whole }));
+      }
+      if (t.done) {
+        if (t.error) setError(t.error);
+        else setError(null);
+        return true;
+      }
+      setError("Connection dropped — reconnected, the agent is still working…");
+    }
+    return false;
   }
 
   const copyMessage = (m: AskMessage) => {
