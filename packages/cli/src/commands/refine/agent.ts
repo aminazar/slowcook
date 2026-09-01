@@ -349,12 +349,35 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
               "split approved, but the sub-issues could not be recovered from the proposal comment — file them by hand or re-propose",
           };
         }
+        // #556 — a post-spec split (the halt-split path) replaces the
+        // parent's ACTIVE spec: the first slice declares `supersedes` so
+        // the index retires the parent on merge (and the parent's brew
+        // derivation with it); later slices cite it as lineage instead
+        // of colliding with it.
+        const parentSpec = activeSpecs.find(
+          (s) => s.source_issue?.match(/^#?(\d+)$/)?.[1] === String(ctx.issueNumber)
+        );
+        let supersedeAssigned = false;
         const filed: Array<{ number: number; url: string; title: string }> = [];
         for (const s of subs) {
           if (s.existing_spec_id) continue; // PM folds/skips these per row
           const bodyLines = [s.summary, ""];
           if (s.depends_on && s.depends_on.length > 0) {
             bodyLines.push(`_Depends on: ${s.depends_on.map((d) => `"${d}"`).join(", ")}_`, "");
+          }
+          if (parentSpec && !supersedeAssigned) {
+            supersedeAssigned = true;
+            bodyLines.push(
+              `_This slice supersedes the parent's spec story-${parentSpec.story_id}: declare ` +
+                `\`supersedes: ["${parentSpec.story_id}"]\` when emitting the spec._`,
+              ""
+            );
+          } else if (parentSpec) {
+            bodyLines.push(
+              `_Parent spec story-${parentSpec.story_id} is superseded by the first slice — ` +
+                `cite it in \`related_specs\`, do not redeclare its scope._`,
+              ""
+            );
           }
           bodyLines.push(
             `_Split from #${ctx.issueNumber} — multifurcation proposal approved by 👍._`
@@ -472,8 +495,26 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     }
   }
 
-  // Step 1: relationship analysis (reuses `activeSpecs` from above)
-  const existingSpecs = activeSpecs;
+  // Step 1: relationship analysis (reuses `activeSpecs` from above).
+  //
+  // #556/#558 lineage exclusion, deterministic: a split child must not
+  // see its PARENT's spec as a foreign active spec — the children exist
+  // to replace it (first live halt-split: both slices of story-023 were
+  // instantly blocked-overlap against story-023 itself). The parent
+  // number comes from the split-executed body line, so this never
+  // depends on model judgment.
+  const splitParent = issue.body?.match(/split from #(\d+)/i)?.[1];
+  const existingSpecs = splitParent
+    ? activeSpecs.filter((s) => {
+        const src = s.source_issue?.match(/^#?(\d+)$/)?.[1];
+        return src !== splitParent;
+      })
+    : activeSpecs;
+  if (splitParent && existingSpecs.length < activeSpecs.length) {
+    console.log(
+      `  lineage: excluding the split parent's spec (source #${splitParent}) from overlap candidates`
+    );
+  }
   const relationshipResult = await analyzeRelationship(
     { issueTitle: issue.title, issueBody: issue.body, activeSpecs: existingSpecs },
     { llm: ctx.llm, model: ctx.relationshipModel }
