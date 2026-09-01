@@ -173,7 +173,9 @@ Respond with ONLY a JSON object:
     parts.push(
       `## Deterministic consistency findings (\`slowcook analyze\`)\n\n` +
         `These are machine-checked against the other ACTIVE specs and the as-built migrations — ` +
-        `treat each as a blocking finding unless the thread shows a PM ruling that resolves it:\n\n` +
+        `treat each as a blocking finding unless the thread shows a PM ruling that resolves it. ` +
+        `Lines marked "(advisory)" (#557 sizing) are different: raise them in your review as a ` +
+        `question for the PM, never as a blocker — the sizing heuristic has false positives by design:\n\n` +
         "```\n" + ctx.analyzeFindings + "\n```"
     );
   }
