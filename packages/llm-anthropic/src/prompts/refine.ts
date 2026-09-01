@@ -463,7 +463,7 @@ When emitting the spec: output ONLY the YAML, nothing before or after, starting 
 - title: string (one-line description)
 - status: "active"
 - created_at: ISO-8601 UTC timestamp (provided to you)
-- supersedes: string[] (provided to you)
+- supersedes: string[] (provided to you — OR, on a split-lineage issue whose body carries a "This slice supersedes the parent's spec story-N" note, exactly that story id: the split replaces the parent's spec and the index retires it on merge)
 - superseded_by: null
 - token_budget_usd?: number
 - estimate?: "small" | "medium" | "large"  (small ≤4h, medium ≤12h, large = split it)
