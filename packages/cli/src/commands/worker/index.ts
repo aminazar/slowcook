@@ -26,7 +26,7 @@ import { Octokit } from "@octokit/rest";
 import { appAuthConfigured, mintInstallationToken } from "@slowcook-ai/forge-github";
 import { specContractText } from "@slowcook-ai/core";
 import { readIndex, readSpec } from "../refine/spec-yaml.js";
-import { clarifyParkState } from "../refine/agent.js";
+import { clarifyParkState, LABEL_MULTIFURCATION_PROPOSED } from "../refine/agent.js";
 import {
   deriveJobs,
   deriveClarifyAnsweredJobs,
@@ -37,8 +37,11 @@ import {
   DERIVED_SPEC_REVIEW_TRIGGER,
   DERIVED_CLARIFY_ANSWERED_TRIGGER,
   DERIVED_HALT_ANSWERED_TRIGGER,
+  DERIVED_SPLIT_DECIDED_TRIGGER,
   HUMAN_OWNED_LABEL,
   brewHaltGate,
+  isAgentShapedComment,
+  deriveSplitDecidedJobs,
   deriveBrewHaltParks,
   renderHaltChoiceComment,
   summarizeWorkload,
@@ -144,6 +147,9 @@ async function inspectWorkload(argv: string[]): Promise<void> {
     ...deriveRecipeJobs(specReady),
     ...deriveBrewJobs(brewFacts),
     ...deriveClarifyAnsweredJobs(await fetchClarifyAnsweredIssues(fetchArgs), (issue) =>
+      gatherFacts(args.repoRoot, issue)
+    ),
+    ...deriveSplitDecidedJobs(await fetchSplitDecidedIssues(fetchArgs), (issue) =>
       gatherFacts(args.repoRoot, issue)
     ),
     ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
@@ -273,6 +279,10 @@ async function runPass(argv: string[]): Promise<void> {
       ...deriveBrewJobs(brewFacts),
       ...deriveClarifyAnsweredJobs(
         await fetchClarifyAnsweredIssues({ owner, repo, token }),
+        (issue) => gatherFacts(args.repoRoot, issue)
+      ),
+      ...deriveSplitDecidedJobs(
+        await fetchSplitDecidedIssues({ owner, repo, token }),
         (issue) => gatherFacts(args.repoRoot, issue)
       ),
       ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
@@ -591,7 +601,8 @@ async function processLive(
     job.agent === "refine" &&
     (!derived ||
       job.triggerLabel === DERIVED_CLARIFY_ANSWERED_TRIGGER ||
-      job.triggerLabel === DERIVED_HALT_ANSWERED_TRIGGER)
+      job.triggerLabel === DERIVED_HALT_ANSWERED_TRIGGER ||
+      job.triggerLabel === DERIVED_SPLIT_DECIDED_TRIGGER)
   ) {
     await octokit.issues.addLabels({
       owner: gh.owner,
@@ -1090,7 +1101,7 @@ async function gatherBrewReadyFacts(
           if (
             haltGate &&
             !haltGate.humanTurn &&
-            haltGate.choicePosted &&
+            haltGate.choiceAwaitsAnswer &&
             haltGate.choiceCommentId !== null
           ) {
             const reactions = await octokit.paginate(octokit.reactions.listForIssueComment, {
@@ -1467,6 +1478,73 @@ async function fetchClarifyAnsweredIssues(args: FetchArgs): Promise<IssueFact[]>
     }
   }
   return answered;
+}
+
+/**
+ * #556 follow-through — issues whose standing multifurcation proposal has
+ * a human response (reaction on the proposal comment, or a human-shaped
+ * comment after it). One comments listing + one reactions listing per
+ * proposal-labeled issue; those are few by construction.
+ */
+async function fetchSplitDecidedIssues(args: FetchArgs): Promise<IssueFact[]> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  let proposed;
+  try {
+    proposed = await octokit.paginate(octokit.issues.listForRepo, {
+      owner: args.owner,
+      repo: args.repo,
+      state: "open",
+      labels: LABEL_MULTIFURCATION_PROPOSED,
+      per_page: 100,
+    });
+  } catch (e) {
+    throw new Error(`multifurcation-proposed scan failed: ${(e as Error).message}`);
+  }
+  const decided: IssueFact[] = [];
+  for (const issue of proposed) {
+    if (issue.pull_request) continue;
+    const labels = (issue.labels ?? [])
+      .map((l) => (typeof l === "string" ? l : (l.name ?? "")))
+      .filter((s): s is string => s.length > 0);
+    if (labels.includes("agent:refine") || labels.includes(FAILED_LABEL)) continue;
+    const raw = await octokit.paginate(octokit.issues.listComments, {
+      owner: args.owner,
+      repo: args.repo,
+      issue_number: issue.number,
+      per_page: 100,
+    });
+    const proposal = [...raw]
+      .reverse()
+      .find((c) => (c.body ?? "").includes("<!-- slowcook:multifurcation -->"));
+    if (!proposal) continue;
+    const humanAfter = raw.some(
+      (c) =>
+        !isAgentShapedComment(c.body ?? "") &&
+        Date.parse(c.created_at) > Date.parse(proposal.created_at)
+    );
+    let humanReacted = false;
+    if (!humanAfter) {
+      const reactions = await octokit.paginate(octokit.reactions.listForIssueComment, {
+        owner: args.owner,
+        repo: args.repo,
+        comment_id: proposal.id,
+        per_page: 100,
+      });
+      humanReacted = reactions.some(
+        (r) => (r.content === "+1" || r.content === "-1") && r.user?.type !== "Bot"
+      );
+    }
+    if (humanAfter || humanReacted) {
+      decided.push({
+        number: issue.number,
+        title: issue.title,
+        body: issue.body ?? "",
+        labels,
+        createdAt: issue.created_at,
+      });
+    }
+  }
+  return decided;
 }
 
 async function fetchTriggerIssues(args: FetchArgs): Promise<IssueFact[]> {

@@ -5,6 +5,8 @@ import {
   DERIVED_CLARIFY_ANSWERED_TRIGGER,
   deriveBrewJobs,
   deriveBrewHaltParks,
+  deriveSplitDecidedJobs,
+  DERIVED_SPLIT_DECIDED_TRIGGER,
   brewHaltGate,
   renderHaltChoiceComment,
   DERIVED_BREW_READY_TRIGGER,
@@ -547,10 +549,15 @@ describe("#556 — brew halts are derivation state", () => {
   });
 
   it("👍 accepts the recommendation: plateau → refine, single checkpointing halt → brew", () => {
-    const plateau = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 0 })])!;
+    const choice = (haltTs: string) => ({
+      id: 9,
+      body: `### slowcook · brew halted — your call 🍲\n<!-- slowcook:brew-halt-choice story=023 halt=${haltTs} -->`,
+      created_at: "2026-08-30T00:00:00Z",
+    });
+    const plateau = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 0 }), choice("2026-08-29T01:00:00Z")])!;
     const jobsA = deriveBrewJobs([fact(plateau, { thumbsUpOnChoice: true })]);
     expect(jobsA[0]!.agent).toBe("refine");
-    const capped = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 3 })])!;
+    const capped = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 3 }), choice("2026-08-29T01:00:00Z")])!;
     const jobsB = deriveBrewJobs([fact(capped, { thumbsUpOnChoice: true })]);
     expect(jobsB[0]!.agent).toBe("brew");
   });
@@ -574,5 +581,69 @@ describe("#556 — brew halts are derivation state", () => {
     ])!;
     expect(g2.choicePosted).toBe(true);
     expect(g2.humanTurn).toBe(false); // the choice comment is agent-shaped, not a PM answer
+  });
+});
+
+describe("#556 fix round — the 👍 is one-shot; split decisions derive", () => {
+  const halt = (created_at: string) => ({
+    id: 1,
+    body:
+      "### slowcook · brew halted — `ITERATION_CAP`\n\n" +
+      "<!-- slowcook:cost agent=brew usd=1.00 iterations=8 checkpoints=0 model=claude-haiku-4-5 halted=ITERATION_CAP -->",
+    created_at,
+  });
+  const fact = (gate: BrewHaltGate | null, over: Partial<BrewReadyFact> = {}): BrewReadyFact => ({
+    storyId: "023",
+    sourceIssue: 285,
+    title: "React from the feed",
+    manifestExists: true,
+    specParses: true,
+    openBrewPr: false,
+    openTestsPr: false,
+    specDrifted: false,
+    issueSettled: false,
+    haltGate: gate,
+    ...over,
+  });
+  const choiceBody = (haltTs: string) =>
+    `### slowcook · brew halted — your call 🍲\n<!-- slowcook:brew-halt-choice story=023 halt=${haltTs} -->\noptions`;
+
+  it("an agent response after the choice comment consumes the standing 👍 — no re-derive loop", () => {
+    const ts = "2026-08-29T01:00:00Z";
+    const answered = brewHaltGate([
+      halt(ts),
+      { id: 2, body: choiceBody(ts), created_at: "2026-09-01T09:00:00Z" },
+      { id: 3, body: "### slowcook · overlap detected\n\nstuff", created_at: "2026-09-01T11:52:00Z" },
+    ])!;
+    expect(answered.choiceAwaitsAnswer).toBe(false);
+    expect(deriveBrewJobs([fact(answered, { thumbsUpOnChoice: true })])).toHaveLength(0);
+    const fresh = brewHaltGate([
+      halt(ts),
+      { id: 2, body: choiceBody(ts), created_at: "2026-09-01T09:00:00Z" },
+    ])!;
+    expect(fresh.choiceAwaitsAnswer).toBe(true);
+    expect(deriveBrewJobs([fact(fresh, { thumbsUpOnChoice: true })])).toHaveLength(1);
+  });
+
+  it("deriveSplitDecidedJobs routes decided proposals to refine, skips owned/terminal issues", () => {
+    const jobs = deriveSplitDecidedJobs(
+      [issue({ number: 285, labels: ["slowcook-multifurcation-proposed"] })],
+      () => ({ storyId: "023" })
+    );
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.agent).toBe("refine");
+    expect(jobs[0]!.triggerLabel).toBe(DERIVED_SPLIT_DECIDED_TRIGGER);
+    expect(
+      deriveSplitDecidedJobs(
+        [issue({ number: 285, labels: ["slowcook-multifurcation-proposed", "agent:refine"] })],
+        noFacts
+      )
+    ).toHaveLength(0);
+    expect(
+      deriveSplitDecidedJobs(
+        [issue({ number: 285, labels: ["slowcook-multifurcation-proposed", "agent:failed"] })],
+        noFacts
+      )
+    ).toHaveLength(0);
   });
 });

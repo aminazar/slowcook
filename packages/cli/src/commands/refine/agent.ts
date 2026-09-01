@@ -71,6 +71,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildProjectContext } from "./context.js";
 import {
+  BREW_HALT_CHOICE_MARKER,
+  DERIVED_HALT_ANSWERED_TRIGGER,
+} from "../worker/plan.js";
+import {
   analyzeRelationship,
   contradictionCommentBody,
   overlapCommentBody,
@@ -200,6 +204,53 @@ export function clarifyParkState(
   if (humanAfter) return "proceed";
   if (reactions.some((r) => r.content === "+1")) return "thumbs-up-accepted";
   return "park";
+}
+
+/**
+ * #556 — detect brew-halt split mode from the thread itself: a halt-gate
+ * choice comment exists AND the PM chose split (the worker's derived
+ * trigger says so, or a human 👍 sits on the choice comment). Returns the
+ * context block to append to the issue body for the multifurcation
+ * assessment, or null when this is not a halt-split run.
+ */
+export async function detectHaltSplitContext(
+  ctx: RefineContext,
+  comments: Comment[]
+): Promise<string | null> {
+  const choice = [...comments]
+    .reverse()
+    .find((c) => c.body.includes(BREW_HALT_CHOICE_MARKER));
+  if (!choice) return null;
+  let chose = process.env["SLOWCOOK_TRIGGER_REASON"] === DERIVED_HALT_ANSWERED_TRIGGER;
+  if (!chose && ctx.forge.listCommentReactions) {
+    try {
+      const rs = await ctx.forge.listCommentReactions(choice.id);
+      chose = rs.some((r) => r.content === "+1");
+    } catch {
+      /* reactions unreadable — not a halt-split run */
+    }
+  }
+  if (!chose) return null;
+  const agentShaped = (b: string) => b.startsWith("### slowcook") || b.includes("<!-- slowcook");
+  const halts = comments
+    .filter((c) => /slowcook:cost\s+agent=brew\b[^>]*\bhalted=/.test(c.body))
+    .slice(-2);
+  const pmWords = [...comments]
+    .reverse()
+    .find(
+      (c) => !agentShaped(c.body) && Date.parse(c.created_at) > Date.parse(choice.created_at)
+    );
+  const clip = (s: string) => (s.length > 1500 ? s.slice(0, 1500) + "\n…(truncated)" : s);
+  return [
+    "\n\n---\n### brew-halt split context (worker-derived, slowcook#556)",
+    "The PM has chosen to SPLIT this story after terminal brew halts.",
+    "This issue's own active spec is the PARENT being split — do not treat it as an overlapping foreign spec. Propose sub-issues that cover ONLY the remaining red scope named in the halt reports below; work already implemented and preserved on a rescue branch must not be re-scoped. Each sub-issue must be sized for a single brew run.",
+    ...halts.map((h) => `\n#### halt report (${h.created_at})\n${clip(h.body)}`),
+    `\n#### the standing choice comment\n${clip(choice.body)}`,
+    ...(pmWords
+      ? [`\n#### the PM's own words (these govern the split)\n${clip(pmWords.body)}`]
+      : []),
+  ].join("\n");
 }
 
 /** The synthetic user turn injected when the PM answered via 👍. */
@@ -348,16 +399,42 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
 
   if (!isSplitChild && !issue.labels.includes(LABEL_MULTIFURCATION_PROPOSED)) {
     const existingComments = await ctx.forge.listIssueComments(ctx.issueNumber);
-    if (!hasExistingMultifurcationComment(existingComments)) {
+    // #556 — brew-halt split mode. When the PM answered the halt-gate
+    // choice comment with `split` (or 👍 on a split recommendation), this
+    // run's job is to propose slices of the REMAINING scope — the issue's
+    // own active spec is the parent being superseded, so the normal
+    // "overlap with existing spec" block downstream must never be reached
+    // (first live run: refine flagged story-023 as overlapping ITSELF and
+    // parked). Detection is thread-derived (choice marker + 👍/derived
+    // trigger), so a manual `agent:refine` relabel takes the same path.
+    const haltSplitContext = await detectHaltSplitContext(ctx, existingComments);
+    if (!hasExistingMultifurcationComment(existingComments) || haltSplitContext) {
       try {
         const mf = await assessMultifurcation(
           {
             issueTitle: issue.title,
-            issueBody: issue.body,
+            issueBody: haltSplitContext ? issue.body + haltSplitContext : issue.body,
             activeSpecs: digestActiveSpecs(activeSpecs),
           },
           { llm: ctx.llm, model: ctx.relationshipModel }
         );
+        if (haltSplitContext && mf.verdict.kind !== "many") {
+          // The model judged the remainder unsplittable. Say so on the
+          // thread (agent-shaped — closes the halt gate) and stop; the
+          // PM's rebrew/handoff options still stand.
+          await ctx.forge.createIssueComment(
+            ctx.issueNumber,
+            `${BRAND_HEADER}The PM chose **split** after the brew halts, but the remaining ` +
+              `red scope reads as one indivisible slice to me — I have no split to propose.\n\n` +
+              `The other halt options still stand: reply \`rebrew: $N [model]\` or \`handoff\`, ` +
+              `or describe the slices you see and I will take that as the split.` +
+              pmCc(ctx.repoRoot)
+          );
+          return {
+            kind: "noop",
+            reason: "halt-split requested, but the remainder assessed as unsplittable — asked the PM for slicing guidance",
+          };
+        }
         if (mf.verdict.kind === "many") {
           const marker = costMarker({
             agent: "refine",
