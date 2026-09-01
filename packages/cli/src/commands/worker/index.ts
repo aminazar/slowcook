@@ -36,6 +36,11 @@ import {
   deriveBrewJobs,
   DERIVED_SPEC_REVIEW_TRIGGER,
   DERIVED_CLARIFY_ANSWERED_TRIGGER,
+  DERIVED_HALT_ANSWERED_TRIGGER,
+  HUMAN_OWNED_LABEL,
+  brewHaltGate,
+  deriveBrewHaltParks,
+  renderHaltChoiceComment,
   summarizeWorkload,
   renderWorkloadLine,
   TRIGGER_LABELS,
@@ -45,6 +50,8 @@ import {
   type StoryArtifactFacts,
   type SpecReadyFact,
   type BrewReadyFact,
+  type BrewHaltGate,
+  type BrewHaltPark,
   type AgentPrFact,
   type WorkerJob,
 } from "./plan.js";
@@ -129,11 +136,13 @@ async function inspectWorkload(argv: string[]): Promise<void> {
   const issues = await fetchTriggerIssues(fetchArgs);
   const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts(fetchArgs);
   const specReady = await markShippedStories(fetchArgs, gatherSpecReadyFacts(args.repoRoot, openHeadRefs));
+  const brewFacts = await gatherBrewReadyFacts(fetchArgs, specReady, openHeadRefs);
+  const haltParks = deriveBrewHaltParks(brewFacts);
   const jobs = [
     ...deriveResubmitJobs(agentPrFacts),
     ...deriveTasteJobs(agentPrFacts),
     ...deriveRecipeJobs(specReady),
-    ...deriveBrewJobs(await gatherBrewReadyFacts(fetchArgs, specReady, openHeadRefs)),
+    ...deriveBrewJobs(brewFacts),
     ...deriveClarifyAnsweredJobs(await fetchClarifyAnsweredIssues(fetchArgs), (issue) =>
       gatherFacts(args.repoRoot, issue)
     ),
@@ -142,7 +151,7 @@ async function inspectWorkload(argv: string[]): Promise<void> {
   if (args.json) {
     console.log(
       JSON.stringify(
-        { identity: identity.forgeIdentity, checkout: checkoutLine, workload: summarizeWorkload(issues, jobs), jobs },
+        { identity: identity.forgeIdentity, checkout: checkoutLine, workload: summarizeWorkload(issues, jobs), jobs, haltParks },
         null,
         2
       )
@@ -152,6 +161,11 @@ async function inspectWorkload(argv: string[]): Promise<void> {
   console.log(
     renderWorkloadView({ identity: identity.forgeIdentity, checkoutLine, issues, jobs })
   );
+  for (const p of haltParks) {
+    console.log(
+      `  parked (halt-gate): story-${p.storyId} #${p.sourceIssue} — ${p.gate.haltKind} × ${p.gate.haltCount}, awaiting the PM's choice${p.gate.choicePosted ? "" : " (choice comment pending next live pass)"}`
+    );
+  }
 }
 
 /** Forge identity, in preference order (ledger O2): App installation
@@ -250,19 +264,24 @@ async function runPass(argv: string[]): Promise<void> {
     const { agentPrFacts, openHeadRefs } = await fetchOpenPrFacts({ owner, repo, token });
     // Unanswered spec-PR feedback outranks fresh triggers (plan §1 rule 1).
     const specReady = await markShippedStories({ owner, repo, token }, gatherSpecReadyFacts(args.repoRoot, openHeadRefs));
+    const brewFacts = await gatherBrewReadyFacts({ owner, repo, token }, specReady, openHeadRefs);
+    const haltParks = deriveBrewHaltParks(brewFacts);
     const jobs = [
       ...deriveResubmitJobs(agentPrFacts),
       ...deriveTasteJobs(agentPrFacts),
       ...deriveRecipeJobs(specReady),
-      ...deriveBrewJobs(
-        await gatherBrewReadyFacts({ owner, repo, token }, specReady, openHeadRefs)
-      ),
+      ...deriveBrewJobs(brewFacts),
       ...deriveClarifyAnsweredJobs(
         await fetchClarifyAnsweredIssues({ owner, repo, token }),
         (issue) => gatherFacts(args.repoRoot, issue)
       ),
       ...deriveJobs(issues, (issue) => gatherFacts(args.repoRoot, issue)),
     ];
+    // #556 — halt parks reconcile before anything runs: the choice
+    // comment is the PM interface and must exist even when no job does.
+    if (!args.dryRun) {
+      await reconcileBrewHaltParks({ owner, repo, token }, args.repoRoot, haltParks);
+    }
     const summary = summarizeWorkload(issues, jobs);
 
     // Publish the workload every pass — the reportable state labels can't express.
@@ -285,7 +304,8 @@ async function runPass(argv: string[]): Promise<void> {
           { owner, repo, token },
           args.repoRoot,
           issues,
-          agentPrFacts
+          agentPrFacts,
+          haltParks
         );
       } catch (e) {
         console.error(`warn: pm-rollup reconcile failed: ${(e as Error).message}`);
@@ -564,11 +584,14 @@ async function processLive(
   // applying agent:refine has declared the issue needs refinement, so the
   // worker publishes that derived state as the label refine requires —
   // label reconciliation per plan §1, not a repair.
-  // A clarify-answered derivation (#554) reconciles the same way: the park
-  // began under needs-refinement, and resuming refine requires it still.
+  // A clarify-answered (#554) or halt-choice-answered (#556) derivation
+  // reconciles the same way: refine resumes an issue-thread conversation,
+  // and refine requires needs-refinement to act.
   if (
     job.agent === "refine" &&
-    (!derived || job.triggerLabel === DERIVED_CLARIFY_ANSWERED_TRIGGER)
+    (!derived ||
+      job.triggerLabel === DERIVED_CLARIFY_ANSWERED_TRIGGER ||
+      job.triggerLabel === DERIVED_HALT_ANSWERED_TRIGGER)
   ) {
     await octokit.issues.addLabels({
       owner: gh.owner,
@@ -929,7 +952,8 @@ async function reconcilePmRollup(
   args: FetchArgs,
   repoRoot: string,
   issues: IssueFact[],
-  prs: AgentPrFact[]
+  prs: AgentPrFact[],
+  brewParks: BrewHaltPark[] = []
 ): Promise<void> {
   const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
   const awaitingPm = (
@@ -943,7 +967,7 @@ async function reconcilePmRollup(
   )
     .filter((i) => !i.pull_request)
     .map((i) => ({ number: i.number, title: i.title }));
-  const items = buildRollupItems({ awaitingPm, issues, prs });
+  const items = buildRollupItems({ awaitingPm, issues, prs, brewParks });
 
   // Find the roll-up issue by its body marker (open first, else the most
   // recent closed one — reopening keeps the thread's history).
@@ -1021,6 +1045,9 @@ async function gatherBrewReadyFacts(
       r.includes(`slowcook/tests/story-${f.storyId}`)
     );
     let issueSettled = false;
+    let humanOwned = false;
+    let haltGate: BrewHaltGate | null = null;
+    let thumbsUpOnChoice = false;
     if (!openBrewPr) {
       try {
         const { data: issue } = await octokit.issues.get({
@@ -1042,8 +1069,45 @@ async function gatherBrewReadyFacts(
           !labels.includes(RESULT_LABELS.recipe) ||
           labels.includes(RESULT_LABELS.brew) ||
           labels.includes(FAILED_LABEL);
+        humanOwned = labels.includes(HUMAN_OWNED_LABEL);
       } catch {
         issueSettled = true; // can't verify — do not spend
+      }
+      // #556 — the halt gate needs the issue's comment thread. Only for
+      // live brew candidates (unsettled, un-owned): one listComments per
+      // candidate, and candidates are few by construction.
+      if (!issueSettled && !humanOwned) {
+        try {
+          const raw = await octokit.paginate(octokit.issues.listComments, {
+            owner: args.owner,
+            repo: args.repo,
+            issue_number: f.sourceIssue,
+            per_page: 100,
+          });
+          haltGate = brewHaltGate(
+            raw.map((c) => ({ id: c.id, body: c.body ?? "", created_at: c.created_at }))
+          );
+          if (
+            haltGate &&
+            !haltGate.humanTurn &&
+            haltGate.choicePosted &&
+            haltGate.choiceCommentId !== null
+          ) {
+            const reactions = await octokit.paginate(octokit.reactions.listForIssueComment, {
+              owner: args.owner,
+              repo: args.repo,
+              comment_id: haltGate.choiceCommentId,
+              per_page: 100,
+            });
+            thumbsUpOnChoice = reactions.some(
+              (r) => r.content === "+1" && r.user?.type !== "Bot"
+            );
+          }
+        } catch {
+          haltGate = null; // can't read the thread — fall back to the plain
+          // derivation; the gate fails OPEN here because a closed failure
+          // would silently park every story on any comments-API hiccup.
+        }
       }
     }
     out.push({
@@ -1056,9 +1120,63 @@ async function gatherBrewReadyFacts(
       openTestsPr,
       specDrifted: f.specDrifted,
       issueSettled,
+      humanOwned,
+      haltGate,
+      thumbsUpOnChoice,
     });
   }
   return out;
+}
+
+/**
+ * #556 — reconcile parked halt-choices (live passes only, best-effort):
+ * post the idempotent choice comment for a fresh halt, and execute a PM
+ * `handoff` (apply the label + one confirmation). Never throws.
+ */
+async function reconcileBrewHaltParks(
+  args: FetchArgs,
+  repoRoot: string,
+  parks: BrewHaltPark[]
+): Promise<void> {
+  const octokit = new Octokit({ auth: args.token, userAgent: "slowcook-ai/cli worker" });
+  for (const p of parks) {
+    try {
+      if (p.handoff) {
+        await octokit.issues.addLabels({
+          owner: args.owner,
+          repo: args.repo,
+          issue_number: p.sourceIssue,
+          labels: [HUMAN_OWNED_LABEL],
+        });
+        await octokit.issues.createComment({
+          owner: args.owner,
+          repo: args.repo,
+          issue_number: p.sourceIssue,
+          body:
+            `### slowcook · handoff acknowledged 🍲\n\n` +
+            `story-${p.storyId} is now \`${HUMAN_OWNED_LABEL}\`: the worker derives no further ` +
+            `agent work for it. Remove the label to hand it back.`,
+        });
+        console.log(`halt-gate: story-${p.storyId} handed off to the PM (label applied)`);
+        continue;
+      }
+      if (p.needsChoiceComment) {
+        await octokit.issues.createComment({
+          owner: args.owner,
+          repo: args.repo,
+          issue_number: p.sourceIssue,
+          body: renderHaltChoiceComment(p, pmCc(repoRoot)),
+        });
+        console.log(
+          `halt-gate: story-${p.storyId} parked — choice comment posted on #${p.sourceIssue}`
+        );
+      }
+    } catch (e) {
+      console.error(
+        `warning: halt-park reconcile for story-${p.storyId} failed: ${(e as Error).message}`
+      );
+    }
+  }
 }
 
 /** Stories whose merged spec awaits tests — the recipe derivation facts. */

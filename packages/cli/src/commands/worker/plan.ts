@@ -588,14 +588,269 @@ export interface BrewReadyFact {
   specDrifted: boolean;
   /** Source issue already carries agent:brewed or agent:failed. */
   issueSettled: boolean;
+  /** #556 — issue carries slowcook-human-owned (PM said `handoff`). */
+  humanOwned?: boolean;
+  /** #556 — halt-gate state parsed from the story issue's comments;
+   *  null/absent = no terminal brew halt on record. */
+  haltGate?: BrewHaltGate | null;
+  /** #556 — a human 👍 on the standing choice comment (accept the
+   *  recommended option). Wrapper-populated; absent = false. */
+  thumbsUpOnChoice?: boolean;
+}
+
+/**
+ * #556 — brew halts are derivation state. A story whose latest brew run
+ * ended in a terminal halt must not re-derive a runnable brew (story-023
+ * burned ~$16 across 5 runs on exactly that loop). The gate opens only
+ * when a human has spoken on the story issue SINCE the halt — and since
+ * the newest agent comment, so one answer routes one job, not one per
+ * pass. Cross-run memory is the worker's own halt comments, matched by
+ * their `slowcook:cost agent=brew … halted=` marker, never by prose.
+ */
+export interface BrewHaltGate {
+  /** created_at of the newest terminal halt comment. */
+  lastHaltAt: string;
+  haltKind: string;
+  /** Checkpoints reported by the last halt (0 = the plateau signature). */
+  checkpoints: number;
+  /** Distinct models across all halts on this story. */
+  models: string[];
+  haltCount: number;
+  /** A human comment exists newer than the halt AND newer than every
+   *  agent comment — the PM has spoken and the pipeline owes a response. */
+  humanTurn: boolean;
+  /** Parsed from the newest human comment when humanTurn; null otherwise. */
+  directive: HaltDirective | null;
+  /** The choice comment for THIS halt is already on the issue. */
+  choicePosted: boolean;
+  choiceCommentId: number | null;
+}
+
+export type HaltDirective =
+  | { kind: "split" }
+  | { kind: "rebrew"; budgetUsd: number; model?: string }
+  | { kind: "handoff" }
+  | { kind: "freeform" };
+
+export const BREW_HALT_CHOICE_MARKER = "slowcook:brew-halt-choice";
+export const HUMAN_OWNED_LABEL = "slowcook-human-owned";
+export const DERIVED_PM_REBREW_TRIGGER = "(derived) pm-rebrew";
+export const DERIVED_HALT_ANSWERED_TRIGGER = "(derived) halt-choice-answered";
+
+export interface IssueCommentFact {
+  id: number;
+  body: string;
+  created_at: string;
+}
+
+/** Agent-authored comments are recognized by SHAPE, not author — under an
+ *  operator token the forge author is the operator for both voices. */
+export function isAgentShapedComment(body: string): boolean {
+  return body.startsWith("### slowcook") || body.includes("<!-- slowcook");
+}
+
+const HALT_MARKER_RE =
+  /<!--\s*slowcook:cost\s+agent=brew\b[^>]*\bhalted=([A-Z_]+)[^>]*-->/;
+
+/** Parse the halt gate from a story issue's comments (any order). */
+export function brewHaltGate(comments: IssueCommentFact[]): BrewHaltGate | null {
+  const byTime = [...comments].sort(
+    (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)
+  );
+  const halts = byTime.filter((c) => HALT_MARKER_RE.test(c.body));
+  if (halts.length === 0) return null;
+  const last = halts[halts.length - 1]!;
+  const marker = last.body.match(HALT_MARKER_RE)!;
+  const checkpoints = Number(last.body.match(/\bcheckpoints=(\d+)/)?.[1] ?? "0");
+  const models = [
+    ...new Set(
+      halts
+        .map((c) => c.body.match(/\bmodel=([\w.:-]+)/)?.[1])
+        .filter((m): m is string => m !== undefined)
+    ),
+  ];
+  const lastHaltMs = Date.parse(last.created_at);
+  const newestAgentMs = Math.max(
+    ...byTime.filter((c) => isAgentShapedComment(c.body)).map((c) => Date.parse(c.created_at))
+  );
+  const humansSince = byTime.filter(
+    (c) => !isAgentShapedComment(c.body) && Date.parse(c.created_at) > lastHaltMs
+  );
+  const newestHuman = humansSince[humansSince.length - 1];
+  const humanTurn =
+    newestHuman !== undefined && Date.parse(newestHuman.created_at) > newestAgentMs;
+  const choice = byTime.find(
+    (c) =>
+      c.body.includes(BREW_HALT_CHOICE_MARKER) && c.body.includes(`halt=${last.created_at}`)
+  );
+  return {
+    lastHaltAt: last.created_at,
+    haltKind: marker[1]!,
+    checkpoints,
+    models,
+    haltCount: halts.length,
+    humanTurn,
+    directive: humanTurn ? parseHaltDirective(newestHuman!.body) : null,
+    choicePosted: choice !== undefined,
+    choiceCommentId: choice?.id ?? null,
+  };
+}
+
+/** The PM's reply grammar — keywords route directly; anything else is
+ *  guidance for refine (PM words → spec changes is refine's competence). */
+export function parseHaltDirective(body: string): HaltDirective {
+  const rebrew = body.match(/(?:^|\n)\s*rebrew:?\s*\$?(\d+(?:\.\d+)?)(?:\s+([\w.:-]+))?/i);
+  if (rebrew) {
+    const model = rebrew[2];
+    return { kind: "rebrew", budgetUsd: Number(rebrew[1]), ...(model ? { model } : {}) };
+  }
+  if (/(?:^|\n)\s*handoff\b/i.test(body)) return { kind: "handoff" };
+  if (/(?:^|\n)\s*split\b/i.test(body)) return { kind: "split" };
+  return { kind: "freeform" };
+}
+
+/** Which option earns the (recommended) mark, from halt evidence alone:
+ *  a plateau (0 checkpoints) or repeated halts / two model rungs → split;
+ *  a single cap halt that was still checkpointing → one more brew. */
+export function recommendAfterHalt(g: BrewHaltGate): "split" | "rebrew" {
+  if (g.checkpoints === 0 || g.haltCount >= 2 || g.models.length >= 2) return "split";
+  return "rebrew";
+}
+
+/** A story parked behind the halt gate — reported, commented, rolled up. */
+export interface BrewHaltPark {
+  storyId: string;
+  sourceIssue: number;
+  title: string;
+  gate: BrewHaltGate;
+  recommend: "split" | "rebrew";
+  /** The choice comment for this halt is not on the issue yet. */
+  needsChoiceComment: boolean;
+  /** PM said handoff; the wrapper should apply the label + confirm. */
+  handoff: boolean;
+}
+
+export function deriveBrewHaltParks(facts: BrewReadyFact[]): BrewHaltPark[] {
+  const parks: BrewHaltPark[] = [];
+  for (const f of facts) {
+    if (!f.manifestExists || !f.specParses) continue;
+    if (f.openBrewPr || f.issueSettled || f.humanOwned) continue;
+    if (f.sourceIssue === null) continue;
+    const g = f.haltGate;
+    if (!g) continue;
+    const handoff = g.humanTurn && g.directive?.kind === "handoff";
+    const awaiting = !g.humanTurn && !f.thumbsUpOnChoice;
+    if (!handoff && !awaiting) continue;
+    parks.push({
+      storyId: f.storyId,
+      sourceIssue: f.sourceIssue,
+      title: f.title,
+      gate: g,
+      recommend: recommendAfterHalt(g),
+      needsChoiceComment: awaiting && !g.choicePosted,
+      handoff,
+    });
+  }
+  return parks;
+}
+
+/** The idempotent PM-choice comment (marker-keyed to the halt it answers).
+ *  Posted on the STORY ISSUE — the single thread (#558). */
+export function renderHaltChoiceComment(p: BrewHaltPark, pmMention: string): string {
+  const g = p.gate;
+  const rec = (o: "split" | "rebrew") => (p.recommend === o ? " **(recommended)**" : "");
+  return [
+    `### slowcook · brew halted — your call 🍲`,
+    `<!-- ${BREW_HALT_CHOICE_MARKER} story=${p.storyId} halt=${g.lastHaltAt} -->`,
+    ``,
+    `story-${p.storyId} has halted terminally ${g.haltCount} time(s) — last: \`${g.haltKind}\`` +
+      ` with ${g.checkpoints} checkpoint(s), model(s) tried: ${g.models.join(", ") || "unknown"}.` +
+      ` The worker will NOT re-derive brew until you choose:`,
+    ``,
+    `1. **split**${rec("split")} — reply \`split\` (or react 👍 when recommended): refine re-reads this thread and proposes slices via multifurcation.`,
+    `2. **rebrew**${rec("rebrew")} — reply \`rebrew: $N [model]\` (or react 👍 when recommended — one run, $10, default ladder): one more brew at that budget.`,
+    `3. **handoff** — reply \`handoff\`: the story is labeled \`${HUMAN_OWNED_LABEL}\`; agent spend on it stops.`,
+    ``,
+    `Any other reply routes to refine as your guidance, verbatim.`,
+    pmMention,
+  ].join("\n");
 }
 
 export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
   const jobs: WorkerJob[] = [];
   for (const f of facts) {
     if (!f.manifestExists || !f.specParses) continue;
-    if (f.openBrewPr || f.issueSettled) continue;
+    if (f.openBrewPr || f.issueSettled || f.humanOwned) continue;
     if (f.sourceIssue === null) continue;
+    // #556 — the halt gate. A terminal halt on record suppresses the
+    // default derivation entirely; the PM's answer (or 👍) routes ONE job.
+    const g = f.haltGate;
+    if (g) {
+      let route: "brew" | "refine" | "none" = "none";
+      let budgetUsd = 10;
+      let model: string | undefined;
+      if (g.humanTurn && g.directive) {
+        if (g.directive.kind === "rebrew") {
+          route = "brew";
+          budgetUsd = g.directive.budgetUsd;
+          model = g.directive.model;
+        } else if (g.directive.kind === "handoff") route = "none";
+        else route = "refine"; // split | freeform — refine reads the thread
+      } else if (f.thumbsUpOnChoice) {
+        route = recommendAfterHalt(g) === "rebrew" ? "brew" : "refine";
+      }
+      if (route === "none") continue; // parked (or handed off) — deriveBrewHaltParks reports it
+      if (route === "refine") {
+        jobs.push({
+          issue: f.sourceIssue,
+          issueTitle: f.title,
+          agent: "refine",
+          triggerLabel: DERIVED_HALT_ANSWERED_TRIGGER,
+          storyId: f.storyId,
+          cmd: cmdFor("refine", f.sourceIssue, f.storyId),
+          preconditions: [
+            {
+              name: "halt-choice-answered",
+              status: "pass",
+              detail:
+                `story-${f.storyId}: PM answered the brew-halt choice (${g.directive ? g.directive.kind : "👍 accept recommended: split"}) — ` +
+                `refine takes the thread (split via multifurcation, or the PM's guidance verbatim)`,
+            },
+          ],
+          runnable: true,
+          priority: 10,
+        });
+        continue;
+      }
+      jobs.push({
+        issue: f.sourceIssue,
+        issueTitle: f.title,
+        agent: "brew",
+        triggerLabel: DERIVED_PM_REBREW_TRIGGER,
+        storyId: f.storyId,
+        cmd: [
+          "slowcook",
+          "brew",
+          "--story",
+          f.storyId,
+          "--budget-usd",
+          String(budgetUsd),
+          ...(model ? ["--model", model] : []),
+        ],
+        preconditions: [
+          {
+            name: "pm-rebrew",
+            status: "pass",
+            detail:
+              `story-${f.storyId}: PM directed one more brew ($${budgetUsd}` +
+              `${model ? `, ${model}` : ""}) after the ${g.haltKind} halt at ${g.lastHaltAt}`,
+          },
+        ],
+        runnable: true,
+        priority: 15,
+      });
+      continue;
+    }
     const testsContested = f.openTestsPr || f.specDrifted;
     jobs.push({
       issue: f.sourceIssue,

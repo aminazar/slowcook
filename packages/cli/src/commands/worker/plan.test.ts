@@ -3,6 +3,15 @@ import {
   deriveJobs,
   deriveClarifyAnsweredJobs,
   DERIVED_CLARIFY_ANSWERED_TRIGGER,
+  deriveBrewJobs,
+  deriveBrewHaltParks,
+  brewHaltGate,
+  renderHaltChoiceComment,
+  DERIVED_BREW_READY_TRIGGER,
+  DERIVED_PM_REBREW_TRIGGER,
+  DERIVED_HALT_ANSWERED_TRIGGER,
+  type BrewReadyFact,
+  type BrewHaltGate,
   evaluatePreconditions,
   summarizeWorkload,
   renderWorkloadLine,
@@ -432,5 +441,138 @@ describe("deriveClarifyAnsweredJobs (#554 — an answered 👍 re-derives the jo
   it("carries the resolved story id into the job", () => {
     const jobs = deriveClarifyAnsweredJobs([parked(292)], () => ({ storyId: "024" }));
     expect(jobs[0]!.storyId).toBe("024");
+  });
+});
+
+describe("#556 — brew halts are derivation state", () => {
+  const halt = (created_at: string, over: Partial<{ kind: string; checkpoints: number; model: string }> = {}) => ({
+    id: 1,
+    body:
+      `### slowcook · brew halted — \`${over.kind ?? "ITERATION_CAP"}\`\n\nstuff\n\n` +
+      `<!-- slowcook:cost agent=brew usd=1.00 iterations=10 checkpoints=${over.checkpoints ?? 2} model=${over.model ?? "claude-haiku-4-5"} halted=${over.kind ?? "ITERATION_CAP"} -->`,
+    created_at,
+  });
+  const human = (created_at: string, body: string) => ({ id: 2, body, created_at });
+  const agentNote = (created_at: string) => ({
+    id: 3,
+    body: "### slowcook · tests opened\n\nPR #295",
+    created_at,
+  });
+
+  const fact = (gate: BrewHaltGate | null, over: Partial<BrewReadyFact> = {}): BrewReadyFact => ({
+    storyId: "023",
+    sourceIssue: 285,
+    title: "React from the feed",
+    manifestExists: true,
+    specParses: true,
+    openBrewPr: false,
+    openTestsPr: false,
+    specDrifted: false,
+    issueSettled: false,
+    haltGate: gate,
+    ...over,
+  });
+
+  it("parses the gate from halt cost-markers, newest halt wins", () => {
+    const g = brewHaltGate([
+      halt("2026-08-28T23:00:00Z", { model: "claude-haiku-4-5" }),
+      halt("2026-08-29T01:00:00Z", { kind: "BUDGET_EXHAUSTED", checkpoints: 0, model: "claude-sonnet-5" }),
+    ])!;
+    expect(g.haltKind).toBe("BUDGET_EXHAUSTED");
+    expect(g.checkpoints).toBe(0);
+    expect(g.haltCount).toBe(2);
+    expect(g.models).toEqual(["claude-haiku-4-5", "claude-sonnet-5"]);
+    expect(g.humanTurn).toBe(false);
+  });
+
+  it("no halts → null gate → plain derivation unchanged", () => {
+    expect(brewHaltGate([agentNote("2026-08-28T23:00:00Z")])).toBeNull();
+    const jobs = deriveBrewJobs([fact(null)]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.triggerLabel).toBe(DERIVED_BREW_READY_TRIGGER);
+  });
+
+  it("a terminal halt with no human word derives NO job — it parks", () => {
+    const g = brewHaltGate([halt("2026-08-29T01:00:00Z")])!;
+    expect(deriveBrewJobs([fact(g)])).toHaveLength(0);
+    const parks = deriveBrewHaltParks([fact(g)]);
+    expect(parks).toHaveLength(1);
+    expect(parks[0]!.needsChoiceComment).toBe(true);
+  });
+
+  it("an agent comment after the halt does not open the gate", () => {
+    const g = brewHaltGate([halt("2026-08-29T01:00:00Z"), agentNote("2026-08-29T12:00:00Z")])!;
+    expect(g.humanTurn).toBe(false);
+  });
+
+  it("a human comment older than the newest agent comment stays parked (one answer routes one job)", () => {
+    const g = brewHaltGate([
+      halt("2026-08-29T01:00:00Z"),
+      human("2026-08-29T02:00:00Z", "parked, not abandoned"),
+      agentNote("2026-08-29T12:00:00Z"),
+    ])!;
+    expect(g.humanTurn).toBe(false);
+  });
+
+  it("rebrew: $8 sonnet derives exactly that brew", () => {
+    const g = brewHaltGate([
+      halt("2026-08-29T01:00:00Z"),
+      human("2026-08-30T10:00:00Z", "rebrew: $8 claude-sonnet-5"),
+    ])!;
+    expect(g.directive).toEqual({ kind: "rebrew", budgetUsd: 8, model: "claude-sonnet-5" });
+    const jobs = deriveBrewJobs([fact(g)]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.triggerLabel).toBe(DERIVED_PM_REBREW_TRIGGER);
+    expect(jobs[0]!.cmd).toEqual([
+      "slowcook", "brew", "--story", "023", "--budget-usd", "8", "--model", "claude-sonnet-5",
+    ]);
+  });
+
+  it("split and free text both route to refine", () => {
+    for (const reply of ["split", "I think the API slice should land first, then the UI"]) {
+      const g = brewHaltGate([halt("2026-08-29T01:00:00Z"), human("2026-08-30T10:00:00Z", reply)])!;
+      const jobs = deriveBrewJobs([fact(g)]);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.agent).toBe("refine");
+      expect(jobs[0]!.triggerLabel).toBe(DERIVED_HALT_ANSWERED_TRIGGER);
+    }
+  });
+
+  it("handoff derives nothing and parks for the label", () => {
+    const g = brewHaltGate([halt("2026-08-29T01:00:00Z"), human("2026-08-30T10:00:00Z", "handoff")])!;
+    expect(deriveBrewJobs([fact(g)])).toHaveLength(0);
+    const parks = deriveBrewHaltParks([fact(g)]);
+    expect(parks).toHaveLength(1);
+    expect(parks[0]!.handoff).toBe(true);
+  });
+
+  it("👍 accepts the recommendation: plateau → refine, single checkpointing halt → brew", () => {
+    const plateau = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 0 })])!;
+    const jobsA = deriveBrewJobs([fact(plateau, { thumbsUpOnChoice: true })]);
+    expect(jobsA[0]!.agent).toBe("refine");
+    const capped = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 3 })])!;
+    const jobsB = deriveBrewJobs([fact(capped, { thumbsUpOnChoice: true })]);
+    expect(jobsB[0]!.agent).toBe("brew");
+  });
+
+  it("human-owned stories derive nothing, park nothing", () => {
+    const g = brewHaltGate([halt("2026-08-29T01:00:00Z")])!;
+    expect(deriveBrewJobs([fact(g, { humanOwned: true })])).toHaveLength(0);
+    expect(deriveBrewHaltParks([fact(g, { humanOwned: true })])).toHaveLength(0);
+  });
+
+  it("the choice comment carries the idempotency marker and moves the recommended mark", () => {
+    const g = brewHaltGate([halt("2026-08-29T01:00:00Z", { checkpoints: 0 })])!;
+    const park = deriveBrewHaltParks([fact(g)])[0]!;
+    const body = renderHaltChoiceComment(park, "cc @pm");
+    expect(body).toContain("slowcook:brew-halt-choice story=023 halt=2026-08-29T01:00:00Z");
+    expect(body).toContain("**split** **(recommended)**");
+    expect(body).not.toContain("**rebrew** **(recommended)**");
+    const g2 = brewHaltGate([
+      halt("2026-08-29T01:00:00Z", { checkpoints: 0 }),
+      human("2026-08-29T02:00:00Z", body),
+    ])!;
+    expect(g2.choicePosted).toBe(true);
+    expect(g2.humanTurn).toBe(false); // the choice comment is agent-shaped, not a PM answer
   });
 });
