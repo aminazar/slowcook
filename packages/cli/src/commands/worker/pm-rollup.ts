@@ -32,8 +32,16 @@ export function buildRollupItems(input: {
   awaitingPm: Array<{ number: number; title: string }>;
   issues: IssueFact[];
   prs: AgentPrFact[];
+  /** #556 — stories parked behind the brew halt gate. */
+  brewParks?: Array<{ storyId: string; sourceIssue: number; title: string }>;
 }): RollupItem[] {
   const items: RollupItem[] = [];
+  for (const p of input.brewParks ?? []) {
+    items.push({
+      key: `brew-halt-choice:${p.storyId}`,
+      text: `#${p.sourceIssue} ${p.title} — brew halted terminally; choose split / rebrew / handoff on the story issue`,
+    });
+  }
   for (const i of input.awaitingPm) {
     items.push({
       key: `awaiting-pm:${i.number}`,
