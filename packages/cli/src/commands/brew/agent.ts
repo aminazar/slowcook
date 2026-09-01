@@ -1261,13 +1261,21 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
         if (n >= 2) {
           revertToSnapshot(ctx, snapshot);
           appendRunLog(ctx, `ITER ${iteration} SPEC_CONTRADICTION  greening "${currentTarget!.slice(0, 70)}" broke "${broken.slice(0, 70)}" ${n}× — the spec disagrees with itself`);
+          let claimRef = "";
           try {
-            await fileBackpropClaims(ctx.repoRoot, [{
+            const sourceIssue = ctx.spec.source_issue?.match(/^#?(\d+)$/)?.[1];
+            const filed = await fileBackpropClaims(ctx.repoRoot, [{
               target: "stories",
               summary: `spec contradiction: satisfying one test repeatedly breaks another`,
               detail: `Greening the target test broke the same green test ${n} times in a row.\nTarget:  ${currentTarget}\nBroken:  ${broken}\nOne of the two requirements must be superseded; a machine cannot pick which.`,
               source: `brew story-${ctx.storyId} iteration ${iteration}`,
+              // #558 — cite the story issue in the claim so GitHub
+              // cross-links it onto the story's own timeline.
+              ...(sourceIssue ? { storyIssue: parseInt(sourceIssue, 10) } : {}),
             }]);
+            if (filed.issuedNumbers.length > 0) {
+              claimRef = ` (${filed.issuedNumbers.map((num) => `#${num}`).join(", ")})`;
+            }
           } catch { /* claim filing is best-effort; the halt still names the pair */ }
           return haltFor(ctx, {
             reason: "SPEC_CONTRADICTION",
@@ -1277,7 +1285,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
             totalCount: expectedTestIds.size,
             spendUsd,
             iterationLogs,
-            summary: `Satisfying "${currentTarget}" broke "${broken}" ${n} times in a row. The two requirements are incompatible — a backprop claim was filed; the founder decides which side wins.`,
+            summary: `Satisfying "${currentTarget}" broke "${broken}" ${n} times in a row. The two requirements are incompatible — a backprop claim was filed${claimRef}; the founder decides which side wins.`,
           });
         }
       }

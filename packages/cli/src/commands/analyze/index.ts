@@ -26,10 +26,92 @@ export interface AnalyzeFinding {
     | "request-field-conflict"
     | "response-conflict"
     | "table-create-collision"
-    | "unknown-entity";
+    | "unknown-entity"
+    | "sizing";
   message: string;
   /** Both sides, so a reviewer can rule without re-deriving. */
   cites: string[];
+  /** Advisory findings inform the review; they never block on their own
+   *  (#557 — the PM may rule "one story anyway", and the heuristic will
+   *  have false positives by design). */
+  advisory?: boolean;
+}
+
+// ---- #557: a-priori story sizing ------------------------------------
+//
+// The predictor the 2026-08 season paid ~$16 to learn: how many
+// architectural LAYERS a story's invariants bind, and whether it touches
+// a contract that already ships. Refine tags every invariant with its
+// layer; these checks are the deterministic backstop when a spec escapes
+// untagged or oversized. Thresholds come from a four-story sample —
+// which is why every sizing finding is ADVISORY and a recorded PM
+// sizing ruling in `clarifications` silences them.
+
+export const INVARIANT_LAYER_TAGS = [
+  "render",
+  "client-state",
+  "api-contract",
+  "schema",
+] as const;
+
+const LAYER_TAG_RE = /^\s*\[(render|client-state|api-contract|schema)\]/i;
+
+/** Distinct layers the invariants declare, plus how many carry no tag. */
+export function invariantLayerSpan(invariants: string[]): {
+  layers: string[];
+  untagged: number;
+} {
+  const layers = new Set<string>();
+  let untagged = 0;
+  for (const inv of invariants) {
+    const m = inv.match(LAYER_TAG_RE);
+    if (m) layers.add(m[1]!.toLowerCase());
+    else untagged++;
+  }
+  return { layers: [...layers].sort(), untagged };
+}
+
+/** A recorded PM ruling on sizing (asked via the sizing question, or any
+ *  clarification that speaks to splitting) silences the advisory. */
+function hasSizingRuling(spec: Spec): boolean {
+  const entries = (spec.clarifications ?? []).flatMap((c) => c.entries ?? []);
+  return entries.some((e) => /\bsiz|split|slice|one story|single story|keep as one/i.test(e));
+}
+
+export function sizingFindings(target: Spec, asBuiltRoutes: Set<string>): AnalyzeFinding[] {
+  if (hasSizingRuling(target)) return [];
+  const findings: AnalyzeFinding[] = [];
+  const my = `story-${target.story_id}`;
+  const span = invariantLayerSpan(target.invariants ?? []);
+  if (span.layers.length >= 3) {
+    findings.push({
+      kind: "sizing",
+      advisory: true,
+      message:
+        `invariants span ${span.layers.length} layers (${span.layers.join(", ")}) with no sizing ruling ` +
+        `in clarifications — the profile that plateaued every brew budget in the 2026-08 season ` +
+        `(story-023, ~$16, five terminal halts). Ask the PM: split into a contract slice + a ` +
+        `consumer slice, or record "one story anyway".`,
+      cites: [`${my} invariants`],
+    });
+  }
+  if (span.layers.includes("api-contract")) {
+    for (const c of target.api_contract ?? []) {
+      const key = `${c.method.toUpperCase()} ${normalizePath(c.path)}`;
+      if (asBuiltRoutes.has(key)) {
+        findings.push({
+          kind: "sizing",
+          advisory: true,
+          message:
+            `${key} already ships — this spec declares a contract on it, and a shape change ` +
+            `ripples to shipped consumers (the story-023 class). Confirm the change is sliced ` +
+            `to land first, alone, or record a sizing ruling.`,
+          cites: [`${my} api_contract ${c.path}`],
+        });
+      }
+    }
+  }
+  return findings;
 }
 
 /** `:slug`, `{slug}`, `[slug]` segments all normalize to `:param` so the
@@ -186,14 +268,17 @@ export async function analyzeSpecYaml(
     for (const t of mig.tables_created) asBuilt.add(t);
     for (const t of Object.keys(mig.columns_added)) asBuilt.add(t);
   }
-  return analyzeSpec(target, others, asBuilt);
+  const asBuiltRoutes = new Set<string>(
+    index.api_routes.map((r) => `${r.method.toUpperCase()} ${normalizePath(r.path)}`)
+  );
+  return [...analyzeSpec(target, others, asBuilt), ...sizingFindings(target, asBuiltRoutes)];
 }
 
 export function renderFindings(findings: AnalyzeFinding[]): string {
   if (findings.length === 0) return "analyze: clean — no cross-spec or as-built conflicts.";
   const lines = [`analyze: ${findings.length} finding(s):`];
   for (const f of findings) {
-    lines.push(`  ✗ [${f.kind}] ${f.message}`);
+    lines.push(`  ${f.advisory ? "▲ (advisory)" : "✗"} [${f.kind}] ${f.message}`);
     for (const c of f.cites) lines.push(`      ↳ ${c}`);
   }
   return lines.join("\n");
@@ -228,7 +313,9 @@ export async function analyze(argv: string[]): Promise<void> {
   } else {
     console.log(renderFindings(findings));
   }
-  if (findings.length > 0) process.exitCode = 1;
+  // Advisory findings (sizing) inform but never fail the command — the
+  // review conversation is their venue, not CI.
+  if (findings.some((f) => !f.advisory)) process.exitCode = 1;
 }
 
 function printHelp(): void {

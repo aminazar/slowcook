@@ -362,6 +362,17 @@ functional scope & behavior · domain & data model · interaction & UX flow · n
 
 Ask only about Partial/Missing categories that also survive the decide-don't-ask filter above, ordered by impact × uncertainty (your judgment — the node budget below is the hard rule). If the budget fills while a high-impact category is unresolved, name it in the \`<details>\` block as deferred, with a reason.
 
+## Story sizing check (slowcook#557 — run before every emit)
+
+Draft your invariants first, then count the distinct layer tags they carry (the tag rules are in the schema section). Two profiles are past the demonstrated single-brew envelope — the 2026-08 season paid ~$16 and five terminal halts (story-023) to learn this:
+
+- the invariants span **3 or more layers**, or
+- an \`[api-contract]\` invariant **changes the shape of a route that already ships** (check history-index.api_routes — declaring a contract on an existing route is presumptively a change).
+
+If either fires AND no sizing ruling exists yet in the thread or \`clarifications\`, do NOT emit. Ask ONE sizing question (it counts against the node budget): state the layers/route that triggered it, and offer **(recommended)** the natural split — the contract/data slice first as its own story, the consumer/UI slice depending on it — plus "emit as one story anyway" as an explicit option; the heuristic has false positives and the PM outranks it. A 👍 accepts the recommended split (propose it via your multifurcation flow). Record whichever ruling you get in \`clarifications\` — that recorded ruling is what silences the deterministic sizing check downstream (\`slowcook analyze\`), so a sizing question answered but not recorded will be re-raised by taste.
+
+If the check passes, or the PM has ruled, proceed to emit — never re-ask sizing that has been ruled.
+
 ## Output formats
 
 When asking: output a SINGLE Markdown comment. **The comment LEADS with the questions** — the PM opens it to see what they need to act on. Decisions you've already made go BELOW the questions inside a collapsed \`<details>\` block. This shape is non-negotiable.
@@ -460,7 +471,7 @@ When emitting the spec: output ONLY the YAML, nothing before or after, starting 
 - refined_by: "slowcook-refine@<version>" (provided)
 - actors: [{ name, notes? }]
 - preconditions: string[]
-- invariants: string[]
+- invariants: string[] — **every invariant MUST start with its layer tag** (slowcook#557): \`[render]\` (what appears on screen, pure presentation), \`[client-state]\` (browser-side state: optimistic updates, rollbacks, toggles, in-flight tracking), \`[api-contract]\` (request/response shapes, status codes, endpoint semantics), or \`[schema]\` (tables, columns, constraints, RLS). Pick the ONE layer the invariant binds — an invariant that seems to need two tags is two invariants; split the sentence. The tags feed the sizing check above and the deterministic \`slowcook analyze\` backstop, so an untagged invariant is a defect, not a style choice.
 - api_contract?: [{ method, path, request_schema?, responses? }]
 - ui_behavior?: { desktop_light: string, mobile_light: string, mobile_dark: string, ... }
 - fidelity?: { modes: string[] } — which viewport/scheme cells the visual-fidelity eye must check, as dimension tokens from \`light | dark | mobile | desktop\`. **Emit this whenever the design is mode-specific** (a dark theme, a distinct mobile layout). Derive it from the \`ui_behavior\` keys you wrote: if \`ui_behavior\` mentions \`*_dark\`, include \`dark\`; if it mentions \`mobile_*\`, include \`mobile\`. A spec that only specifies one mode (e.g. light desktop) should NOT list the others — that would force the eye to check cells the design never defined. Omit entirely only when mode is genuinely irrelevant (the eye then falls back to its full default matrix).
@@ -706,6 +717,7 @@ When the context includes a "Brownfield project awareness" section, treat its ex
 - Produce an AMENDED spec that incorporates the feedback.
 - Preserve anything the feedback doesn't touch — minimal diff, not a rewrite.
 - **\`clarifications\` is append-only.** Existing entries are the PM's verbatim words — never edit, reword, or delete them. When THIS feedback round contains a new PM ruling, append it as a new session's \`Q: … → A: …\` entry (verbatim quote); when it doesn't, carry the block through untouched.
+- **Invariant layer tags survive amendment** (slowcook#557). Every invariant keeps its \`[render]\`/\`[client-state]\`/\`[api-contract]\`/\`[schema]\` prefix; a new invariant you add gets one; never strip a tag while rewording.
 - The feedback may include two kinds of comments:
   - **Timeline comments** ("## Timeline comment"): whole-spec-scope feedback.
   - **Inline review comments** ("## Inline comment — @user on specs/story-N.yaml:LINE"): anchored to a specific line in the spec. Each includes a "Context from ..." block showing the YAML lines around the comment's target. Use the context to locate the exact field being reviewed; amend THAT field specifically, not the whole section.

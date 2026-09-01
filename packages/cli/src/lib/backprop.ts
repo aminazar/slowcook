@@ -23,6 +23,11 @@ export interface BackpropClaim {
   detail: string;
   /** Where the claim arose (journey/step/walk/check id or artifact ref). */
   source: string;
+  /** #558 — the story issue this claim belongs to, when the caller knows
+   *  it. Rendered as `#N` in the claim body, so GitHub cross-links the
+   *  claim onto the story issue's timeline (the story-thread rule:
+   *  everything about a story is visible from its issue). */
+  storyIssue?: number;
 }
 
 export interface StoredClaim extends BackpropClaim {
@@ -52,7 +57,14 @@ function saveClaims(cwd: string, claims: StoredClaim[]): void {
 
 const claimKey = (c: BackpropClaim) => `${c.target}::${c.summary}`;
 
-export interface FileClaimsResult { mirrored: number; issued: number; skippedDuplicates: number; }
+export interface FileClaimsResult {
+  mirrored: number;
+  issued: number;
+  skippedDuplicates: number;
+  /** Issue numbers actually filed this call (#558 — callers cite them
+   *  on the story thread instead of saying "a claim was filed"). */
+  issuedNumbers: number[];
+}
 
 /**
  * Record claims: dedupe against the mirror (open claims with the same
@@ -87,7 +99,11 @@ export async function fileBackpropClaims(cwd: string, claims: BackpropClaim[], o
       try {
         const issue = await adapter.createIssue({
           title: `[backprop:${c.target}] ${c.summary}`,
-          body: `**Backprop claim** — a downstream stage found a gap that belongs to the ${c.target}.\n\n${c.detail}\n\n**Source:** ${c.source}\n\n_Filed by the storyteller practice; resolve by amending the ${c.target}, then mark this claim resolved._`,
+          body:
+            `**Backprop claim** — a downstream stage found a gap that belongs to the ${c.target}.\n\n` +
+            `${c.detail}\n\n**Source:** ${c.source}\n` +
+            (c.storyIssue ? `**Story thread:** #${c.storyIssue}\n` : "") +
+            `\n_Filed by the storyteller practice; resolve by amending the ${c.target}, then mark this claim resolved._`,
           labels: ["backprop-claim", `backprop:${c.target}`],
         });
         c.issueNumber = issue.number;
@@ -99,7 +115,14 @@ export async function fileBackpropClaims(cwd: string, claims: BackpropClaim[], o
   }
 
   saveClaims(cwd, [...existing, ...stored]);
-  return { mirrored: stored.length, issued, skippedDuplicates: claims.length - fresh.length };
+  return {
+    mirrored: stored.length,
+    issued,
+    skippedDuplicates: claims.length - fresh.length,
+    issuedNumbers: stored
+      .map((c) => c.issueNumber)
+      .filter((n): n is number => n !== undefined),
+  };
 }
 
 async function tryForgeAdapter(cwd: string): Promise<{ createIssue: (i: { title: string; body: string; labels: string[] }) => Promise<{ number: number }> } | null> {

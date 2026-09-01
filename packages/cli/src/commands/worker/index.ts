@@ -729,6 +729,31 @@ async function processLive(
         })
       );
     }
+    // #558 story-thread rule — a resubmit answered a review ON THE PR;
+    // echo one line to the story issue so review-round state is visible
+    // from the thread. Only for PR-scoped jobs whose story issue differs.
+    if (
+      job.triggerLabel === DERIVED_SPEC_REVIEW_TRIGGER &&
+      mapped.outcome === "success" &&
+      job.storyId
+    ) {
+      try {
+        const index = readIndex(args.repoRoot);
+        const src = index.stories?.[job.storyId]?.source_issue?.match(/(\d+)\s*$/)?.[1];
+        if (src && Number(src) !== job.issue) {
+          await forgeMutate(gh.token, (o) =>
+            o.issues.createComment({
+              owner: gh.owner,
+              repo: gh.repo,
+              issue_number: Number(src),
+              body: `### slowcook · ${job.agent} — answered the review on #${job.issue}\n\nDetails on the PR thread.`,
+            })
+          );
+        }
+      } catch {
+        /* echo is visibility, never a failure */
+      }
+    }
     if (mapped.outcome === "failed") {
       const tail = (s: string, n: number) => s.split("\n").slice(-n).join("\n");
       await forgeMutate(gh.token, (o) =>

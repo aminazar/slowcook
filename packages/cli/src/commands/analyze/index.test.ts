@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Spec } from "@slowcook-ai/core";
-import { analyzeSpec, normalizePath, ddlTables } from "./index.js";
+import { analyzeSpec, normalizePath, ddlTables, sizingFindings, invariantLayerSpan, renderFindings } from "./index.js";
 
 function spec(partial: Partial<Spec> & { story_id: string }): Spec {
   return {
@@ -124,5 +124,69 @@ describe("analyze (S3, #528)", () => {
       api_contract: [{ method: "GET", path: "/api/reactions/remaining", responses: { "200": {} } }],
     });
     expect(analyzeSpec(s, [other], new Set(["rewo_reactions"]))).toHaveLength(0);
+  });
+});
+
+describe("#557 — sizing (advisory)", () => {
+  const routes = new Set(["GET /api/feed/connections"]);
+  const threeLayer = [
+    "[render] the picker renders on the card",
+    "[client-state] reaction applies optimistically and rolls back on failure",
+    "[api-contract] GET /api/feed/connections returns viewer_reaction per rewo",
+  ];
+
+  it("tags parse; untagged invariants are counted, not guessed", () => {
+    const span = invariantLayerSpan([...threeLayer, "reactions are weekly-rationed"]);
+    expect(span.layers).toEqual(["api-contract", "client-state", "render"]);
+    expect(span.untagged).toBe(1);
+  });
+
+  it("three layers → one advisory sizing finding citing the season evidence", () => {
+    const f = sizingFindings(spec({ story_id: "023", invariants: threeLayer }), new Set());
+    expect(f).toHaveLength(1);
+    expect(f[0]!.kind).toBe("sizing");
+    expect(f[0]!.advisory).toBe(true);
+    expect(f[0]!.message).toContain("3 layers");
+  });
+
+  it("an api-contract invariant on a shipped route → advisory, param-normalized", () => {
+    const f = sizingFindings(
+      spec({
+        story_id: "023",
+        invariants: ["[api-contract] the feed payload gains viewer_reaction"],
+        api_contract: [{ method: "get", path: "/api/feed/connections/" }],
+      }),
+      routes
+    );
+    expect(f).toHaveLength(1);
+    expect(f[0]!.message).toContain("already ships");
+  });
+
+  it("a recorded sizing ruling silences everything", () => {
+    const f = sizingFindings(
+      spec({
+        story_id: "023",
+        invariants: threeLayer,
+        api_contract: [{ method: "GET", path: "/api/feed/connections" }],
+        clarifications: [
+          { session: "2026-09-01", entries: ["Q: split or one story? → A: one story anyway (👍)"] },
+        ],
+      }),
+      routes
+    );
+    expect(f).toHaveLength(0);
+  });
+
+  it("two layers, no shipped route → clean", () => {
+    const f = sizingFindings(
+      spec({ story_id: "022", invariants: threeLayer.slice(0, 2) }),
+      routes
+    );
+    expect(f).toHaveLength(0);
+  });
+
+  it("advisory findings render with the advisory mark and do not read as blockers", () => {
+    const f = sizingFindings(spec({ story_id: "023", invariants: threeLayer }), new Set());
+    expect(renderFindings(f)).toContain("▲ (advisory) [sizing]");
   });
 });
