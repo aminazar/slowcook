@@ -1991,8 +1991,11 @@ function buildPrBody(args: {
     if (g.testPath) parts.push(`\`${g.testPath}\``);
     if (g.uiTestPath) parts.push(`\`${g.uiTestPath}\``);
     const modeTag = g.mode === "ui-only" ? " *(ui-only mode — handler tests already present)*" : g.mode === "full" ? " *(handler + UI)*" : "";
+    // #558 story-thread rule — cite the story issue so GitHub timelines
+    // this PR under it.
+    const src = g.spec.source_issue?.match(/^#?(\d+)$/)?.[1];
     sections.push(
-      `- \`story-${g.spec.story_id}\` — *${g.spec.title}* — ${manifestCount} test(s) in ${parts.join(" + ")}${modeTag}`
+      `- \`story-${g.spec.story_id}\`${src ? ` (#${src})` : ""} — *${g.spec.title}* — ${manifestCount} test(s) in ${parts.join(" + ")}${modeTag}`
     );
   }
 

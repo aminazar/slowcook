@@ -134,11 +134,13 @@ export async function taste(argv: string[]): Promise<void> {
   let sourceIssueTitle: string | null = null;
   let sourceIssueBody: string | null = null;
   let issueThread: string | null = null;
+  let storyIssueNumber: number | null = null;
   try {
     const index = readIndex(args.repoRoot);
     const srcNum = index.stories?.[storyId]?.source_issue?.match(/(\d+)\s*$/)?.[1];
     if (srcNum) {
       const issueNumber = Number(srcNum);
+      storyIssueNumber = issueNumber;
       const [{ data: issue }, { data: comments }] = await Promise.all([
         octokit.issues.get({ owner, repo, issue_number: issueNumber }),
         octokit.issues.listComments({ owner, repo, issue_number: issueNumber, per_page: 100 }),
@@ -374,6 +376,25 @@ export async function taste(argv: string[]): Promise<void> {
   );
   if (merged) console.log(`Merged PR #${args.pr}.`);
   else if (mergeNote) console.log(`Merge failed: ${mergeNote}`);
+
+  // #558 story-thread rule — one-line echo on the story issue, so
+  // review-round state is visible without opening the PR. Best-effort.
+  if (storyIssueNumber !== null && storyIssueNumber !== args.pr) {
+    try {
+      await octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: storyIssueNumber,
+        body:
+          `### slowcook · taste — ${verdict.verdict === "approve" ? "APPROVE" : "REQUEST_CHANGES"} on #${args.pr}` +
+          `${merged ? " · merged" : mergeNote ? " · merge failed" : ""}` +
+          `${humanGate ? " · advisory (human-authored)" : ""}\n\n` +
+          `Full review on the PR thread.`,
+      });
+    } catch {
+      /* echo is visibility, never a failure */
+    }
+  }
 }
 
 function parseArgs(argv: string[]): TasteArgs {

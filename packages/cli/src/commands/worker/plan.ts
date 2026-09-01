@@ -418,10 +418,12 @@ export function deriveResubmitJobs(prs: AgentPrFact[]): WorkerJob[] {
     if (Date.parse(pr.lastAnyReviewAt) <= Date.parse(pr.lastCommitAt)) continue;
     if (pr.submittedReviewCount >= MAX_REVIEW_ROUNDS) continue; // PM arbitrates
     const agent: AgentKind = kind === "spec" ? "refine" : "recipe";
+    const story = pr.headBranch.match(/story-([\w.-]+)/)?.[1];
     jobs.push({
       issue: pr.prNumber,
       issueTitle: pr.title,
       agent,
+      ...(story !== undefined ? { storyId: story } : {}),
       triggerLabel: DERIVED_SPEC_REVIEW_TRIGGER,
       cmd: ["slowcook", agent === "refine" ? "refine" : "recipe", "--pr", String(pr.prNumber)],
       preconditions: [
