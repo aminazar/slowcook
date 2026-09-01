@@ -207,6 +207,17 @@ export function clarifyParkState(
 }
 
 /**
+ * #556 — the split-lineage supersession note, parsed from a slice issue's
+ * body. Written by the split executor; consumed deterministically at
+ * emission so the parent's spec is retired even when the model ignores
+ * the note as prose.
+ */
+export function splitSupersedes(issueBody: string): string[] {
+  const m = issueBody.match(/supersedes the parent'?s spec story-([\w.-]+)/i);
+  return m ? [m[1]!] : [];
+}
+
+/**
  * #556 — detect brew-halt split mode from the thread itself: a halt-gate
  * choice comment exists AND the PM chose split (the worker's derived
  * trigger says so, or a human 👍 sits on the choice comment). Returns the
@@ -624,8 +635,14 @@ export async function runRefinement(ctx: RefineContext): Promise<RefineOutcome> 
     await ctx.forge.removeIssueLabel(ctx.issueNumber, LABEL_BLOCKED_CONTRADICTION);
   }
 
-  const supersedes: string[] =
-    verdict.kind === "contradiction" && hasChangeOfMind ? verdict.conflicting_ids : [];
+  const supersedes: string[] = [
+    ...(verdict.kind === "contradiction" && hasChangeOfMind ? verdict.conflicting_ids : []),
+    // #556 — a split slice carrying the "supersedes the parent's spec"
+    // lineage note retires the parent DETERMINISTICALLY: the very first
+    // live slice proved the model treats a body note as optional
+    // (emitted supersedes: [] and left the parent spec active).
+    ...splitSupersedes(issue.body ?? ""),
+  ];
 
   // Step 2: refinement loop (single round — ask or emit based on full history)
   const comments = await ctx.forge.listIssueComments(ctx.issueNumber);

@@ -5,6 +5,7 @@ import {
   clarifyParkState,
   THUMBS_UP_TURN,
   LABEL_AWAITING_PM,
+  splitSupersedes,
 } from "./agent.js";
 
 const CTX = {
@@ -246,5 +247,21 @@ describe("S2 clarify parking (#527)", () => {
     expect(
       clarifyParkState([LABEL_AWAITING_PM], [humanBefore, q], [{ user: "amin", content: "eyes" }])
     ).toBe("park");
+  });
+});
+
+describe("splitSupersedes (#556 — the lineage note is law, not prose)", () => {
+  it("parses the story id from the split executor's note", () => {
+    expect(
+      splitSupersedes(
+        "Some summary\n\n_This slice supersedes the parent's spec story-023: declare `supersedes: [\"023\"]` when emitting the spec._\n\n_Split from #285 — multifurcation proposal approved by 👍._"
+      )
+    ).toEqual(["023"]);
+  });
+  it("returns empty for ordinary issues and for later slices", () => {
+    expect(splitSupersedes("just an issue body")).toEqual([]);
+    expect(
+      splitSupersedes("_Parent spec story-023 is superseded by the first slice — cite it in `related_specs`._")
+    ).toEqual([]);
   });
 });
