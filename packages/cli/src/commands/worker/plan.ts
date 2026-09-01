@@ -342,6 +342,48 @@ export function deriveClarifyAnsweredJobs(
 }
 
 /**
+ * #556 follow-through — a PM response on a standing multifurcation
+ * proposal (👍 / 👎 / "keep as one" / any reply) is pipeline state:
+ * refine consumed its trigger when it POSTED the proposal, and reactions
+ * fire no event, so an approved split used to stall until a human
+ * relabeled. The IO wrapper gathers issues labeled
+ * `slowcook-multifurcation-proposed` whose proposal comment has a human
+ * response; this derives the refine run that reads the decision
+ * (decideMultifurcation) and executes or falls through.
+ */
+export const DERIVED_SPLIT_DECIDED_TRIGGER = "(derived) multifurcation-decided";
+
+export function deriveSplitDecidedJobs(
+  issues: IssueFact[],
+  factsFor: (issue: IssueFact) => StoryArtifactFacts
+): WorkerJob[] {
+  const jobs: WorkerJob[] = [];
+  for (const issue of issues) {
+    if (issue.labels.includes(FAILED_LABEL)) continue;
+    if (issue.labels.includes("agent:refine")) continue;
+    const facts = factsFor(issue);
+    jobs.push({
+      issue: issue.number,
+      issueTitle: issue.title,
+      agent: "refine",
+      triggerLabel: DERIVED_SPLIT_DECIDED_TRIGGER,
+      ...(facts.storyId !== undefined ? { storyId: facts.storyId } : {}),
+      cmd: cmdFor("refine", issue.number, facts.storyId),
+      preconditions: [
+        {
+          name: "multifurcation-decided",
+          status: "pass",
+          detail: `#${issue.number}: the PM responded on the standing multifurcation proposal — refine reads the decision and executes or proceeds single-spec`,
+        },
+      ],
+      runnable: true,
+      priority: 10,
+    });
+  }
+  return orderJobs(jobs, issues);
+}
+
+/**
  * A submitted human review on an open spec PR IS pipeline state (plan §1):
  * the spec's owner (refine) must answer it. The worker derives this — no
  * label, no human transport (ledger G8: a PM review sat unattended because
@@ -624,6 +666,12 @@ export interface BrewHaltGate {
   /** The choice comment for THIS halt is already on the issue. */
   choicePosted: boolean;
   choiceCommentId: number | null;
+  /** No agent-shaped comment is newer than the choice comment — a 👍 on
+   *  it is still unanswered. Once the routed agent posts ANYTHING, the
+   *  standing 👍 is consumed (first live run of #556: the reaction has
+   *  no timestamp order vs the response, so an un-consumed 👍 re-derived
+   *  refine every pass — a money loop). */
+  choiceAwaitsAnswer: boolean;
 }
 
 export type HaltDirective =
@@ -683,6 +731,13 @@ export function brewHaltGate(comments: IssueCommentFact[]): BrewHaltGate | null 
     (c) =>
       c.body.includes(BREW_HALT_CHOICE_MARKER) && c.body.includes(`halt=${last.created_at}`)
   );
+  const choiceAwaitsAnswer =
+    choice !== undefined &&
+    !byTime.some(
+      (c) =>
+        isAgentShapedComment(c.body) &&
+        Date.parse(c.created_at) > Date.parse(choice.created_at)
+    );
   return {
     lastHaltAt: last.created_at,
     haltKind: marker[1]!,
@@ -693,6 +748,7 @@ export function brewHaltGate(comments: IssueCommentFact[]): BrewHaltGate | null 
     directive: humanTurn ? parseHaltDirective(newestHuman!.body) : null,
     choicePosted: choice !== undefined,
     choiceCommentId: choice?.id ?? null,
+    choiceAwaitsAnswer,
   };
 }
 
@@ -739,7 +795,7 @@ export function deriveBrewHaltParks(facts: BrewReadyFact[]): BrewHaltPark[] {
     const g = f.haltGate;
     if (!g) continue;
     const handoff = g.humanTurn && g.directive?.kind === "handoff";
-    const awaiting = !g.humanTurn && !f.thumbsUpOnChoice;
+    const awaiting = !g.humanTurn && !(f.thumbsUpOnChoice && g.choiceAwaitsAnswer);
     if (!handoff && !awaiting) continue;
     parks.push({
       storyId: f.storyId,
@@ -796,7 +852,7 @@ export function deriveBrewJobs(facts: BrewReadyFact[]): WorkerJob[] {
           model = g.directive.model;
         } else if (g.directive.kind === "handoff") route = "none";
         else route = "refine"; // split | freeform — refine reads the thread
-      } else if (f.thumbsUpOnChoice) {
+      } else if (f.thumbsUpOnChoice && g.choiceAwaitsAnswer) {
         route = recommendAfterHalt(g) === "rebrew" ? "brew" : "refine";
       }
       if (route === "none") continue; // parked (or handed off) — deriveBrewHaltParks reports it
