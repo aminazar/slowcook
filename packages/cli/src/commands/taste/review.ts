@@ -40,7 +40,7 @@ export interface TasteContext {
   /** CURRENT contents of key story files at the PR head (2026-08-23):
    *  the diff shows deltas and the thread shows history — neither is the
    *  present. Reviews must judge these, not recalled thread claims. */
-  headFiles: Array<{ path: string; content: string }> | null;
+  headFiles: Array<{ path: string; content: string; source?: boolean }> | null;
   /** Recent commit subjects on the PR branch — PM-arbitration commits
    *  ("human gate", "PM arbitration") are visible here, so authorized
    *  test edits are distinguishable from agent goalpost-moving. */
@@ -165,7 +165,10 @@ Respond with ONLY a JSON object:
     parts.push(
       `## Current state of key files at the PR head (authoritative over any historical claims in the thread)\n\n` +
         ctx.headFiles
-          .map((f) => `### ${f.path}\n\n\`\`\`\n${f.content}\n\`\`\``)
+          .map(
+            (f) =>
+              `### ${f.path}${f.source ? " (shipped source — compare signatures against this)" : ""}\n\n\`\`\`\n${f.content}\n\`\`\``
+          )
           .join("\n\n")
     );
   }

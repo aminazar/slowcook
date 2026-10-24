@@ -25,6 +25,51 @@ export function pruneBaseline(existing: string[], nowGreen: string[]): string[] 
   return existing.filter((e) => !green.has(e));
 }
 
+export interface PruneResult {
+  /** false when the consumer declares no baseline — a no-op, not an error. */
+  declared: boolean;
+  path?: string;
+  removed?: number;
+  total?: number;
+}
+
+/**
+ * Drop the ids of tests that are now green from the consumer's declared
+ * baseline (WP2, 2026-10-24). `pruneBaseline` had no caller: a brewed
+ * story turned its red-by-design tests green and the list kept claiming
+ * them red, so the failure-set-diff gate was comparing against a lie.
+ * Missing or empty baseline file → nothing to prune, nothing written.
+ */
+export function pruneRedBaseline(
+  repoRoot: string,
+  baselinePath: string | undefined,
+  nowGreen: string[]
+): PruneResult {
+  if (!baselinePath) return { declared: false };
+  const abs = join(repoRoot, baselinePath);
+  if (!existsSync(abs)) return { declared: true, path: baselinePath, removed: 0, total: 0 };
+  let existing: string[];
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(abs, "utf8"));
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    existing = parsed.filter((x): x is string => typeof x === "string");
+  } catch {
+    throw new Error(
+      `red baseline at ${baselinePath} is not a JSON array of test ids — fix it before pruning.`
+    );
+  }
+  const pruned = pruneBaseline(existing, nowGreen);
+  if (pruned.length !== existing.length) {
+    writeFileSync(abs, JSON.stringify(pruned, null, 2) + "\n", "utf8");
+  }
+  return {
+    declared: true,
+    path: baselinePath,
+    removed: existing.length - pruned.length,
+    total: pruned.length,
+  };
+}
+
 export interface ExtendResult {
   /** false when the consumer declares no baseline — a no-op, not an error. */
   declared: boolean;

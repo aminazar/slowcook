@@ -6,6 +6,33 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## unreleased — WP2: the substrate-independent fixes before the swarm baseline
+
+Four cheap fixes that improve every arm of the haiku-vs-plain experiment
+(docs/plans ruling 2026-10-23), landed BEFORE the baseline runs so the
+baseline includes them:
+
+- **brew sees the PM's answers.** The bounded-attention spec slice rendered
+  invariants, scenarios and non_goals only; `clarifications` (S2 #527) and
+  approved `proposals` were dropped on every iteration, so brew never saw a
+  single PM ruling. Both are now kept whole, like non_goals, and rendered
+  under `clarifications:` / `proposals_approved:`.
+- **taste reads shipped src at the PR head.** The head-file read kept only
+  tests/, supabase/tests/, specs/ and the manifest while the prompt promised
+  a tests-vs-shipped-signatures check. Touched src files now follow the
+  contract files, those a kept test imports first, capped at 12, and are
+  labelled as shipped source in the prompt (`taste/head-files.ts`, pure).
+- **the red baseline prunes on green.** `pruneBaseline` (#542) had no
+  caller. A brew that passes the final gate removes every baselined test
+  that just passed and commits the list on its branch; `slowcook verify`
+  prunes after its suite run.
+- **the brew system prompt names the real history-index path.** It said
+  `.brewing/history-index.json`; the writer moved to
+  `.brewing/local/history-index.json`. `buildBrewSystem({historyIndexPath})`
+  takes the consumer's real path; `BREW_SYSTEM` keeps the default.
+
+---
+
 ## cli 0.37.0 · core 0.20.0 · forge-github 0.17.0 · llm-anthropic 0.27.0 · stack-ts 0.14.0 — the spec-kit borrowings, run in anger
 
 Three capabilities adapted from [Spec Kit](https://github.com/github/spec-kit)

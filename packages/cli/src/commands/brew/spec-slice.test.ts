@@ -160,6 +160,69 @@ describe("sliceSpecForTarget", () => {
   });
 });
 
+describe("WP2 — clarifications and approved proposals survive slicing", () => {
+  const withClarifications: Spec = {
+    ...baseSpec,
+    invariants: [
+      "POST /api/bookmarks creates a row",
+      "GET /api/feed orders newest-first",
+      "DELETE /api/bookmarks deletes a row",
+    ],
+    clarifications: [
+      { session: "2026-09-01", entries: ["Q: soft delete? → A: hard delete, no tombstone"] },
+      { session: "2026-09-03", entries: ["Q: who may delete? → A: only the owner"] },
+    ],
+    proposals: {
+      schema: { status: "approved", proposed_by: "refine", sql: "ALTER TABLE bookmarks\n  ADD COLUMN note text;" },
+      auth: { status: "pending", proposed_by: "refine", requirements: ["member session"] },
+      routes: { status: "rejected", proposed_by: "refine", paths: [{ path: "/x", file: "src/x.ts" }] },
+    },
+  };
+
+  it("clarifications survive slicing, newest session first, verbatim", () => {
+    const slice = sliceSpecForTarget(
+      withClarifications,
+      "tests/x.test.ts > POST /api/bookmarks > saves"
+    );
+    expect(slice.fellBack).toBe(false);
+    expect(slice.invariants.length).toBeLessThan(3);
+    expect(slice.clarifications).toEqual([
+      "Q: who may delete? → A: only the owner",
+      "Q: soft delete? → A: hard delete, no tombstone",
+    ]);
+    const yaml = renderSpecSlice(slice, withClarifications);
+    expect(yaml).toContain("clarifications:");
+    expect(yaml).toContain("hard delete, no tombstone");
+  });
+
+  it("accepted proposals are rendered, pending and rejected ones are not", () => {
+    const slice = sliceSpecForTarget(withClarifications, "tests/x.test.ts > POST /api/bookmarks > saves");
+    expect(slice.proposals_accepted).toEqual(["schema: ALTER TABLE bookmarks ADD COLUMN note text;"]);
+    const yaml = renderSpecSlice(slice, withClarifications);
+    expect(yaml).toContain("proposals_approved:");
+    expect(yaml).toContain("ADD COLUMN note text");
+    expect(yaml).not.toContain("member session");
+    expect(yaml).not.toContain("src/x.ts");
+  });
+
+  it("the fallback keeps clarifications too", () => {
+    const slice = sliceSpecForTarget(withClarifications, "tests/x.test.ts > completely unrelated > foobar");
+    expect(slice.fellBack).toBe(true);
+    expect(slice.clarifications.length).toBe(2);
+    expect(slice.proposals_accepted.length).toBe(1);
+  });
+
+  it("a spec without either renders neither key", () => {
+    const slice = sliceSpecForTarget(
+      { ...baseSpec, invariants: ["POST /api/x creates"] },
+      "POST /api/x"
+    );
+    const yaml = renderSpecSlice(slice, baseSpec);
+    expect(yaml).not.toContain("clarifications:");
+    expect(yaml).not.toContain("proposals_approved:");
+  });
+});
+
 describe("renderSpecSlice", () => {
   it("emits YAML-shaped prose with story_id + title preserved", () => {
     const spec: Spec = {

@@ -28,6 +28,7 @@ import { loadGates } from "../../lib/gates.js";
 import { constitutionBlock } from "../../lib/constitution.js";
 import { analyzeSpecYaml, renderFindings } from "../analyze/index.js";
 import { parseStoryBranch } from "../../lib/story-branch.js";
+import { rankHeadFiles, isContractPath } from "./head-files.js";
 import {
   buildTastePrompt,
   parseTasteVerdict,
@@ -185,7 +186,7 @@ export async function taste(argv: string[]): Promise<void> {
   // story's key files as they ARE (git show against FETCH_HEAD — the
   // checkout-independent G26 pattern), plus commit subjects so PM-
   // arbitration commits are visible to the tampering rule.
-  let headFiles: Array<{ path: string; content: string }> | null = null;
+  let headFiles: Array<{ path: string; content: string; source?: boolean }> | null = null;
   let commitSubjects: string[] | null = null;
   try {
     const { data: prFiles } = await octokit.pulls.listFiles({
@@ -198,29 +199,33 @@ export async function taste(argv: string[]): Promise<void> {
       cwd: args.repoRoot,
       stdio: ["ignore", "ignore", "pipe"],
     });
-    const keyPaths = prFiles
-      .map((f) => f.filename)
-      .filter(
-        (f) =>
-          f.startsWith("tests/") ||
-          f.startsWith("supabase/tests/") ||
-          f.startsWith("specs/") ||
-          f.startsWith(".brewing/manifests/")
-      )
-      .slice(0, 8);
-    headFiles = [];
-    for (const path of keyPaths) {
+    const changed = prFiles.map((f) => f.filename);
+    const showAtHead = (path: string): string | null => {
       try {
-        const content = execSync(`git show FETCH_HEAD:${JSON.stringify(path)}`, {
+        return execSync(`git show FETCH_HEAD:${JSON.stringify(path)}`, {
           cwd: args.repoRoot,
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
           maxBuffer: 4 * 1024 * 1024,
         });
-        headFiles.push({ path, content: content.slice(0, 12_000) });
       } catch {
-        /* deleted at head — its absence IS the current state */
+        return null; /* deleted at head — its absence IS the current state */
       }
+    };
+    // WP2 (2026-10-24) — contract files first (as before), then the src
+    // files the kept tests import, then other touched src: the signature
+    // check in the prompt finally has shipped code to compare against.
+    const testContents = new Map<string, string>();
+    for (const path of changed.filter(isContractPath).slice(0, 8)) {
+      const content = showAtHead(path);
+      if (content !== null) testContents.set(path, content);
+    }
+    const ranked = rankHeadFiles(changed, testContents);
+    headFiles = [];
+    for (const path of ranked.paths) {
+      const content = testContents.get(path) ?? showAtHead(path);
+      if (content === null) continue;
+      headFiles.push({ path, content: content.slice(0, 12_000), source: ranked.sourcePaths.has(path) });
     }
     if (headFiles.length === 0) headFiles = null;
   } catch {
