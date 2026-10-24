@@ -4,7 +4,10 @@ import { buildPlainPrompt, plainArgv, runPlainArm, PLAIN_DONE_MARKER, PLAIN_NUDG
 import { aggregateRuns, isSelectorOnlyFailure, summarizeOne, priceBasis } from "./report.js";
 import { rediscoverySignal, wrongSignatureSignal, wrongFileSignal, lostClarificationSignal, reasoningSignal, draftClass, classifyRun } from "./classify.js";
 import { storyArtifactPaths } from "./tree.js";
-import { parseRunArgs, brewArgv, modelsFor } from "./run.js";
+import { parseRunArgs, brewArgv, modelsFor, captureTestImports } from "./run.js";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { LoadedRun, RunRecord } from "./records.js";
 
 const price = (model: string, u: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number }) =>
@@ -235,5 +238,15 @@ describe("not-run tests are never green", () => {
     const { baseVerifyName } = await import("./records.js");
     expect(baseVerifyName(undefined)).toBe("base.verify.json");
     expect(baseVerifyName(["db", "backend"])).toBe("base.verify.backend+db.json");
+  });
+});
+
+describe("captureTestImports", () => {
+  it("records import specifiers AND source paths a static-check test names", () => {
+    const root = mkdtempSync(join(tmpdir(), "exp-imports-"));
+    mkdirSync(join(root, "tests"), { recursive: true });
+    writeFileSync(join(root, "tests/a.test.ts"), `import { x } from "@/lib/x";\nconst src = readFileSync("src/components/rewo/feed-list.tsx", "utf8");\n`, "utf8");
+    const got = captureTestImports(root, [{ file: "tests/a.test.ts" }, { file: "tests/missing.test.ts" }]);
+    expect(got).toEqual([{ file: "tests/a.test.ts", specifiers: ["@/lib/x", "src/components/rewo/feed-list.tsx"] }]);
   });
 });
