@@ -57,7 +57,7 @@ describe("summarizeRun (verify --json, WP1)", () => {
   it("splits the story contract from the full-suite reds and sorts red files", () => {
     const tests = [
       { id: "t/a > one", file: "t/a", status: "passed" },
-      { id: "t/a > two", file: "t/a", status: "failed" },
+      { id: "t/a > two", file: "t/a", status: "failed", failure_message: "Unable to find an element by: [data-testid=\"save\"]" },
       { id: "t/z > other", file: "t/z", status: "failed" },
       { id: "t/b > other", file: "t/b", status: "failed" },
       { id: "t/c > fine", file: "t/c", status: "passed" },
@@ -67,6 +67,7 @@ describe("summarizeRun (verify --json, WP1)", () => {
       green: 2,
       total: 3,
       red_ids: ["t/a > two"],
+      red: [{ id: "t/a > two", message: "Unable to find an element by: [data-testid=\"save\"]" }],
       red_outside_story: 2,
       red_files: ["t/b", "t/z"],
     });

@@ -52,7 +52,14 @@ export interface VerifyResult {
   base: string;
   ok: boolean;
   sections: VerifySection[];
-  story_contract?: { green: number; total: number; red_ids: string[] };
+  story_contract?: {
+    green: number;
+    total: number;
+    red_ids: string[];
+    /** The red tests with their runner failure text (first 600 chars) — the
+     *  plain arm's "selector-only vs behavioural" split reads from here. */
+    red: Array<{ id: string; message?: string }>;
+  };
   full_suite?: { red_outside_story: number; red_files: string[] };
   typecheck?: { total_errors: number; regressions: Array<{ file: string; was: number; now: number }>; baseline_recorded: boolean };
 }
@@ -148,15 +155,20 @@ export function typecheckRegressions(
  * for tests and for `experiment report`.
  */
 export function summarizeRun(
-  tests: Array<{ id: string; file: string; status: string }>,
+  tests: Array<{ id: string; file: string; status: string; failure_message?: string }>,
   expected: ReadonlySet<string>
-): { green: number; total: number; red_ids: string[]; red_outside_story: number; red_files: string[] } {
+): {
+  green: number; total: number; red_ids: string[];
+  red: Array<{ id: string; message?: string }>;
+  red_outside_story: number; red_files: string[];
+} {
   const storyRed = tests.filter((t) => expected.has(t.id) && t.status !== "passed");
   const otherRed = tests.filter((t) => !expected.has(t.id) && t.status !== "passed");
   return {
     green: expected.size - storyRed.length,
     total: expected.size,
     red_ids: storyRed.map((t) => t.id),
+    red: storyRed.map((t) => ({ id: t.id, ...(t.failure_message ? { message: t.failure_message.slice(0, 600) } : {}) })),
     red_outside_story: otherRed.length,
     red_files: [...new Set(otherRed.map((t) => t.file))].sort(),
   };
@@ -308,7 +320,7 @@ export async function verify(argv: string[]): Promise<void> {
       expected = new Set(run.tests.filter((t) => re.test(t.file)).map((t) => t.id));
     }
     const sum = summarizeRun(run.tests, expected);
-    result.story_contract = { green: sum.green, total: sum.total, red_ids: sum.red_ids };
+    result.story_contract = { green: sum.green, total: sum.total, red_ids: sum.red_ids, red: sum.red };
     result.full_suite = { red_outside_story: sum.red_outside_story, red_files: sum.red_files };
     section(
       "story-contract",
