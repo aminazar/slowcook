@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { migrationCollisions, tscErrorCounts, typecheckRegressions } from "./index.js";
+import { migrationCollisions, summarizeRun, tscErrorCounts, typecheckRegressions } from "./index.js";
 
 describe("migrationCollisions", () => {
   it("flags a branch migration whose number a DIFFERENT base file owns", () => {
@@ -50,5 +50,26 @@ describe("typecheck ratchet", () => {
     expect(typecheckRegressions(baseline, new Map([["src/new.ts", 1]]))).toEqual([
       { file: "src/new.ts", was: 0, now: 1 },
     ]);
+  });
+});
+
+describe("summarizeRun (verify --json, WP1)", () => {
+  it("splits the story contract from the full-suite reds and sorts red files", () => {
+    const tests = [
+      { id: "t/a > one", file: "t/a", status: "passed" },
+      { id: "t/a > two", file: "t/a", status: "failed", failure_message: "Unable to find an element by: [data-testid=\"save\"]" },
+      { id: "t/z > other", file: "t/z", status: "failed" },
+      { id: "t/b > other", file: "t/b", status: "failed" },
+      { id: "t/c > fine", file: "t/c", status: "passed" },
+    ];
+    const got = summarizeRun(tests, new Set(["t/a > one", "t/a > two", "t/a > missing"]));
+    expect(got).toEqual({
+      green: 2,
+      total: 3,
+      red_ids: ["t/a > two"],
+      red: [{ id: "t/a > two", message: "Unable to find an element by: [data-testid=\"save\"]" }],
+      red_outside_story: 2,
+      red_files: ["t/b", "t/z"],
+    });
   });
 });

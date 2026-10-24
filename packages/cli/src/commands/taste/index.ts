@@ -15,6 +15,7 @@
  * PR stays open, PM is cc'd.
  */
 
+import { withLedger } from "../../lib/ledger-client.js";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -287,7 +288,10 @@ export async function taste(argv: string[]): Promise<void> {
 
   const model = resolveModel("taste", args.model);
   console.log(`slowcook taste · PR #${args.pr} (${kind}, story-${storyId}) — model ${model}`);
-  const llm = await createLlmClient();
+  // WP1 — taste writes its own cost rows (list price; null if unpriced).
+  const llm = withLedger(await createLlmClient(), {
+    repoRoot: args.repoRoot, storyId, agent: "taste", priceFor: costEntryUsd,
+  });
   const prompt = buildTastePrompt(ctx);
   const response = await llm.complete({
     system: prompt.system,

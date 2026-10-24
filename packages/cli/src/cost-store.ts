@@ -46,7 +46,26 @@ export interface CostEntry {
   tokens_out?: number;
   cache_read?: number;
   cache_create?: number;
+  /**
+   * 2026-10-24 (swarm-vs-plain experiment, WP1) — provenance a cost row
+   * needs before two runs can be compared: which run and which arm paid
+   * for it, and how long the call took. All optional; rows written before
+   * this date parse unchanged. `appendCostEntry` fills `run_id`/`arm` from
+   * SLOWCOOK_RUN_ID / SLOWCOOK_ARM when the writer did not, so every
+   * existing writer joins the experiment without a code change.
+   */
+  run_id?: string;
+  arm?: string;
+  /** Pipeline stage that made the call when it differs from `agent`
+   *  (e.g. agent "navigator" inside stage "brew"). */
+  stage?: string;
+  /** ISO-8601 wall-clock bounds of the LLM call. */
+  started_at?: string;
+  finished_at?: string;
 }
+
+export const RUN_ID_ENV = "SLOWCOOK_RUN_ID";
+export const ARM_ENV = "SLOWCOOK_ARM";
 
 const SPECS_DIR = "specs";
 
@@ -70,12 +89,58 @@ function specYamlPath(repoRoot: string, storyId: string): string {
 export function appendCostEntry(
   repoRoot: string,
   storyId: string,
-  entry: CostEntry
+  entry: CostEntry,
+  env: NodeJS.ProcessEnv = process.env
 ): void {
   const p = costSidecarPath(repoRoot, storyId);
   mkdirSync(dirname(p), { recursive: true });
   // Trailing newline → safe append on partial-write recovery.
-  appendFileSync(p, JSON.stringify(entry) + "\n", "utf8");
+  appendFileSync(p, JSON.stringify(withRunProvenance(entry, env)) + "\n", "utf8");
+}
+
+/**
+ * Stamp `run_id` / `arm` from the environment when the writer left them
+ * blank. Pure; exported for tests. An explicit value on the entry wins —
+ * the env is a default, not an override.
+ */
+export function withRunProvenance(entry: CostEntry, env: NodeJS.ProcessEnv = process.env): CostEntry {
+  const runId = entry.run_id ?? env[RUN_ID_ENV]?.trim();
+  const arm = entry.arm ?? env[ARM_ENV]?.trim();
+  if (!runId && !arm) return entry;
+  return {
+    ...entry,
+    ...(runId ? { run_id: runId } : {}),
+    ...(arm ? { arm } : {}),
+  };
+}
+
+/**
+ * The rows that belong to one run / arm / agent. Pure. `experiment report`
+ * and the halt-vs-ledger identity check both read through this so "the
+ * cost of run X" has exactly one definition.
+ */
+export function filterEntries(
+  entries: CostEntry[],
+  by: { run_id?: string; arm?: string; agent?: string }
+): CostEntry[] {
+  return entries.filter(
+    (e) =>
+      (by.run_id === undefined || e.run_id === by.run_id) &&
+      (by.arm === undefined || e.arm === by.arm) &&
+      (by.agent === undefined || e.agent === by.agent)
+  );
+}
+
+/** Sum of priced rows plus the count of unpriced ones — never a short
+ *  total presented as complete. Pure. */
+export function sumEntries(entries: CostEntry[]): { totalUsd: number; unpricedCount: number } {
+  let totalUsd = 0;
+  let unpricedCount = 0;
+  for (const e of entries) {
+    if (e.usd === null) unpricedCount += 1;
+    else totalUsd += e.usd;
+  }
+  return { totalUsd, unpricedCount };
 }
 
 /**

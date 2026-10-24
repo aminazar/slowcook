@@ -64,7 +64,7 @@ import {
   CODE_MAP_TARGET_MD_PATH,
   renderMarkdown,
 } from "../map/render.js";
-import { appendCostEntry, applyCostToSpec, costSidecarPath } from "../../cost-store.js";
+import { appendCostEntry, applyCostToSpec, costSidecarPath, ARM_ENV, RUN_ID_ENV } from "../../cost-store.js";
 import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
@@ -135,6 +135,8 @@ export interface BrewContext {
   maxIterations: number;
   wallClockMs: number;
   now: () => Date;
+  /** When `slowcook brew` started (WP1 wall-clock). Optional for tests. */
+  startedAt?: Date;
   /** Branch to push checkpoints onto. */
   branchName: string;
   /** Paths writable by this brew session, as declared in the spec (or inferred). */
@@ -849,6 +851,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     ctx.turnModel = isFirstContact ? ctx.model : (ctx.emitModel ?? ctx.model);
     if (ctx.turnModel !== ctx.model) appendRunLog(ctx, `ITER ${iteration} MODEL  emit=${ctx.turnModel} (plan=${ctx.model})`);
     const usageBefore = { ...(ctx.usageTotals ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0 }) };
+    const turnStartedAt = new Date();
     const turnResult = await runTurn(ctx, {
       iteration,
       target: currentTarget,
@@ -873,16 +876,27 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
     // re-derive from the tokens. Never fail a brew over bookkeeping.
     try {
       const t = ctx.usageTotals ?? usageBefore;
+      const turnModel = ctx.turnModel ?? ctx.model;
+      const delta = {
+        inputTokens: t.inputTokens - usageBefore.inputTokens,
+        outputTokens: t.outputTokens - usageBefore.outputTokens,
+        cacheReadTokens: t.cacheReadTokens - usageBefore.cacheReadTokens,
+        cacheCreateTokens: t.cacheCreateTokens - usageBefore.cacheCreateTokens,
+      };
       appendCostEntry(ctx.repoRoot, ctx.storyId, {
         agent: "brew",
-        usd: turnResult.spendDelta,
-        model: ctx.turnModel ?? ctx.model,
+        // The budget's own arithmetic keeps its `?? 0` for an unpriced
+        // model; the LEDGER records unknown as null (WP1: never silent-zero).
+        usd: costEntryUsd(turnModel, delta) === null ? null : turnResult.spendDelta,
+        model: turnModel,
         round: `iter-${iteration}`,
         at: new Date().toISOString(),
-        tokens_in: t.inputTokens - usageBefore.inputTokens,
-        tokens_out: t.outputTokens - usageBefore.outputTokens,
-        cache_read: t.cacheReadTokens - usageBefore.cacheReadTokens,
-        cache_create: t.cacheCreateTokens - usageBefore.cacheCreateTokens,
+        tokens_in: delta.inputTokens,
+        tokens_out: delta.outputTokens,
+        cache_read: delta.cacheReadTokens,
+        cache_create: delta.cacheCreateTokens,
+        started_at: turnStartedAt.toISOString(),
+        finished_at: new Date().toISOString(),
       });
       applyCostToSpec(ctx.repoRoot, ctx.storyId);
     } catch { /* bookkeeping must never halt the work */ }
@@ -1703,6 +1717,15 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       );
     }
 
+    writeRunSummary(ctx, {
+      outcome: "success",
+      halt_reason: "SUCCESS_ALL_GREEN",
+      iterations: iterationLogs.length,
+      checkpoints: checkpointsCount,
+      green: greenSet.size,
+      total: expectedTestIds.size,
+      usd: spendUsd,
+    });
     return {
       kind: "success",
       iterations: iterationLogs.length,
@@ -3066,6 +3089,66 @@ function costUsdForResponse(
   });
 }
 
+/** ------------------------- Run timing + summary (WP1) ------------------------- */
+
+/** The halt report's wall-clock + run provenance fields. Pure over ctx. */
+export function runTiming(ctx: Pick<BrewContext, "startedAt" | "now">, env: NodeJS.ProcessEnv = process.env): {
+  started_at?: string; finished_at?: string; wall_ms?: number; run_id?: string; arm?: string;
+} {
+  const finished = ctx.now();
+  const runId = env[RUN_ID_ENV]?.trim();
+  const arm = env[ARM_ENV]?.trim();
+  return {
+    ...(ctx.startedAt
+      ? { started_at: ctx.startedAt.toISOString(), finished_at: finished.toISOString(), wall_ms: finished.getTime() - ctx.startedAt.getTime() }
+      : {}),
+    ...(runId ? { run_id: runId } : {}),
+    ...(arm ? { arm } : {}),
+  };
+}
+
+export interface RunSummary {
+  story_id: string;
+  outcome: "success" | "halted";
+  halt_reason: HaltReason;
+  model: string;
+  branch?: string;
+  iterations: number;
+  checkpoints: number;
+  green: number;
+  total: number;
+  usd: number;
+  started_at?: string;
+  finished_at?: string;
+  wall_ms?: number;
+  run_id?: string;
+  arm?: string;
+}
+
+/**
+ * `.brewing/local/runs/<run>/summary.json` next to `iterations.log` — one
+ * machine-readable line per brew with the numbers an experiment compares
+ * (cost, coverage, speed). Written on success AND halt; never fails a brew.
+ */
+function writeRunSummary(
+  ctx: BrewContext,
+  s: Omit<RunSummary, "story_id" | "model" | "branch" | "started_at" | "finished_at" | "wall_ms" | "run_id" | "arm">
+): void {
+  if (!ctx.runLogPath) return;
+  try {
+    const summary: RunSummary = {
+      story_id: ctx.storyId,
+      model: ctx.model,
+      branch: ctx.branchName,
+      ...s,
+      ...runTiming(ctx),
+    };
+    const p = join(dirname(ctx.runLogPath), "summary.json");
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify(summary, null, 2) + "\n", "utf8");
+  } catch { /* bookkeeping never halts the work */ }
+}
+
 /** ------------------------- Halt path ------------------------- */
 
 interface HaltArgs {
@@ -3099,6 +3182,7 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
     story_id: ctx.storyId,
     halt_reason: args.reason,
     halt_timestamp: ctx.now().toISOString(),
+    ...runTiming(ctx),
     iterations_run: args.iterations,
     checkpoints_committed: args.checkpoints,
     tests_green: args.greenCount,
@@ -3127,6 +3211,15 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
     `story-${ctx.storyId}-${report.halt_timestamp.replace(/[:.]/g, "-")}.json`
   );
   writeHaltReport(reportPath, report);
+  writeRunSummary(ctx, {
+    outcome: args.reason === "SUCCESS_ALL_GREEN" ? "success" : "halted",
+    halt_reason: args.reason,
+    iterations: args.iterations,
+    checkpoints: args.checkpoints,
+    green: args.greenCount,
+    total: args.totalCount,
+    usd: args.spendUsd,
+  });
   appendRunLog(
     ctx,
     `HALT ${args.reason}  iterations=${args.iterations}  checkpoints=${args.checkpoints}  green=${args.greenCount}/${args.totalCount}  spend=$${args.spendUsd.toFixed(2)}  report=${reportPath}`

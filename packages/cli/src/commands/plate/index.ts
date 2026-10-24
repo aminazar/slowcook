@@ -9,6 +9,8 @@
  * but the index doesn't fetch image attachments yet — coming α.3.1.
  */
 
+import { costEntryUsd } from "@slowcook-ai/llm-anthropic";
+import { withLedger } from "../../lib/ledger-client.js";
 import { execSync } from "node:child_process";
 import { createLlmClient } from "../refine/llm.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -512,7 +514,10 @@ export async function plate(argv: string[], cliVersion: string): Promise<void> {
 
   const ctx: PlateContext = {
     repoRoot: args.repoRoot,
-    llm: await createLlmClient(),
+    // WP1 — plate writes its own cost rows (list price; null if unpriced).
+    llm: withLedger(await createLlmClient(), {
+      repoRoot: args.repoRoot, storyId, agent: "plate", priceFor: costEntryUsd,
+    }),
     model: args.model,
     storyId,
     prNumber: pr.number,

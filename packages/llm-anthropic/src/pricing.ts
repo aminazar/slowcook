@@ -17,7 +17,9 @@ export const PRICING_PER_M_TOKENS: Record<string, { input: number; output: numbe
   "claude-opus-4-6": { input: 5, output: 25 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-sonnet-4-5": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 0.8, output: 4 },
+  // Haiku 4.5 lists at $1/$5 (checked 2026-10-24 — the $0.8/$4 row UNDER-
+  // reported every haiku brew by 20%; reprice settles past rows).
+  "claude-haiku-4-5": { input: 1, output: 5 },
   // Claude 5 family (added 2026-08-13 — the dovizir dual-build run priced a
   // real claude-opus-5 refine at $0 because these were missing). Sonnet 5 is
   // listed at its STANDARD rate: introductory pricing runs to 2026-08-31, so
@@ -27,6 +29,15 @@ export const PRICING_PER_M_TOKENS: Record<string, { input: number; output: numbe
   "claude-opus-5": { input: 5, output: 25 },
   "claude-sonnet-5": { input: 3, output: 15 },
   "claude-fable-5": { input: 10, output: 50 },
+  // 2026-10-24 (swarm-vs-plain experiment): the current generation. Exact
+  // keys come first in matchPricing, so "claude-opus-5-5" no longer falls
+  // through to the "claude-opus-5" prefix at $5/$25. Haiku 5.5 bills a higher
+  // rate past 100K prompt tokens; the base rate is recorded here (budget
+  // guards may under-count only on prompts that large).
+  "claude-fable-5-1": { input: 10, output: 50 },
+  "claude-opus-5-5": { input: 4, output: 20 },
+  "claude-sonnet-5-5": { input: 2, output: 10 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
 };
 
 function matchPricing(model: string): { input: number; output: number } | null {

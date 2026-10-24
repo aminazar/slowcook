@@ -11,6 +11,8 @@
  * `slowcook plate` command (α.3); vibe is single-shot.
  */
 
+import { costEntryUsd } from "@slowcook-ai/llm-anthropic";
+import { withLedger } from "../../lib/ledger-client.js";
 import { execSync } from "node:child_process";
 import { createLlmClient } from "../refine/llm.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -363,7 +365,10 @@ export async function vibe(argv: string[], cliVersion: string): Promise<void> {
     return;
   }
 
-  const llm = await createLlmClient();
+  // WP1 — every stage writes its own cost rows (list price; null if unpriced).
+  const llm = withLedger(await createLlmClient(), {
+    repoRoot: args.repoRoot, storyId: args.specId, agent: "vibe", priceFor: costEntryUsd,
+  });
 
   // Spec must exist
   const specPath = join(args.repoRoot, "specs", `story-${args.specId}.yaml`);
