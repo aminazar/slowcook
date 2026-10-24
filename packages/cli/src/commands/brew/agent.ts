@@ -2587,7 +2587,23 @@ function commitCheckpoint(
   }
 }
 
+/**
+ * SLOWCOOK_BREW_LOCAL=1 — brew keeps every GitHub-side write to itself: no
+ * branch push, no draft PR, no halt comment on the source issue. The
+ * ratchet, checkpoints, halts, ledger and summary are untouched. Added for
+ * `slowcook experiment`, whose brew arms re-implement SHIPPED stories and
+ * must not open PRs or comment on closed issues of the product repo.
+ */
+export function isBrewLocal(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env["SLOWCOOK_BREW_LOCAL"]?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 async function pushBranch(ctx: BrewContext): Promise<void> {
+  if (isBrewLocal()) {
+    appendRunLog(ctx, `LOCAL  push of ${ctx.branchName} skipped (SLOWCOOK_BREW_LOCAL)`);
+    return;
+  }
   execSync(
     `git -C "${ctx.repoRoot}" push --set-upstream origin ${ctx.branchName}`,
     { stdio: "ignore" }
@@ -2625,6 +2641,10 @@ async function openBrewPullRequest(
     `${titlePrefix} ${storyTag}: ${outcome.checkpointsCommitted} checkpoint(s) · ` +
     `${outcome.greenCount}/${outcome.totalCount} green · $${outcome.spendUsd.toFixed(2)}`;
   const body = buildBrewPrBody(ctx, outcome);
+  if (isBrewLocal()) {
+    appendRunLog(ctx, `LOCAL  PR skipped (SLOWCOOK_BREW_LOCAL): ${title}`);
+    return;
+  }
 
   try {
     const pr = await ctx.forge.createPullRequest({
@@ -3329,7 +3349,9 @@ async function haltFor(ctx: BrewContext, args: HaltArgs): Promise<BrewOutcome> {
   // marker appeared on the source issue → "shipped" comment listed
   // only refine cost.
   const sourceIssue = ctx.spec.source_issue?.match(/#?(\d+)/)?.[1];
-  if (sourceIssue) {
+  if (sourceIssue && isBrewLocal()) {
+    appendRunLog(ctx, `LOCAL  halt comment on #${sourceIssue} skipped (SLOWCOOK_BREW_LOCAL)`);
+  } else if (sourceIssue) {
     try {
       await ctx.forge.createIssueComment(
         parseInt(sourceIssue, 10),

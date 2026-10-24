@@ -15,7 +15,9 @@
  *             capable one navigating — the haiku-brew / fable-refine shape.
  *
  * Models are env-driven so an arm changes nothing in code: brew reads
- * SLOWCOOK_MODEL_BREW etc. through `resolveModel`.
+ * SLOWCOOK_MODEL_BREW etc. through `resolveModel`. Brew arms set
+ * SLOWCOOK_BREW_LOCAL=1: they re-implement SHIPPED stories, so no branch
+ * push, no draft PR, no halt comment on the (closed) source issue.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -46,9 +48,9 @@ export const DEFAULT_ARMS: Record<string, ArmConfig> = {
   pipeline: {
     name: "pipeline",
     kind: "brew",
-    env: { SLOWCOOK_LLM: "claude-cli" },
+    env: { SLOWCOOK_LLM: "claude-cli", SLOWCOOK_BREW_LOCAL: "1" },
     flags: [],
-    notes: "slowcook brew as-is: STAGE_DEFAULTS, claude-cli backend, list price.",
+    notes: "slowcook brew as-is: STAGE_DEFAULTS, claude-cli backend, list price; no push/PR/issue comment (local).",
   },
   swarm: {
     name: "swarm",
@@ -56,6 +58,7 @@ export const DEFAULT_ARMS: Record<string, ArmConfig> = {
     env: {
       SLOWCOOK_LLM: "claude-cli",
       SLOWCOOK_MODEL_BREW: "claude-haiku-5-5",
+      SLOWCOOK_BREW_LOCAL: "1",
     },
     flags: ["--with-navigator", "--navigator-model", "claude-fable-5-1"],
     notes: "Cheap brew (haiku) with a capable navigator (fable); haiku halts are re-dispatched by hand this round.",
