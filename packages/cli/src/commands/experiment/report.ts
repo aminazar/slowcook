@@ -73,9 +73,10 @@ export function summarizeOne(
 } {
   const repriced = repriceEntries(run.cost, priceFor).entries;
   const { totalUsd, unpricedCount } = sumEntries(repriced);
-  // A plain arm has no ledger rows; its own record carries the price.
+  // A plain arm has no ledger rows; its own record carries the price. A brew
+  // arm with NO rows at all never ran (or wrote nothing): unknown, not $0.
   const plainUsd = run.plain ? (run.plain.unpriced ? null : run.plain.usd) : undefined;
-  const cost_usd = plainUsd !== undefined ? plainUsd : unpricedCount > 0 ? null : totalUsd;
+  const cost_usd = plainUsd !== undefined ? plainUsd : unpricedCount > 0 || repriced.length === 0 ? null : totalUsd;
   const unpriced_rows = unpricedCount + (run.plain?.unpriced ? 1 : 0);
   const sc = run.verify?.story_contract;
   const green = sc?.green ?? 0;
@@ -86,6 +87,11 @@ export function summarizeOne(
   const baseOutside = run.baseVerify?.full_suite?.red_outside_story ?? 0;
   const outside = run.verify?.full_suite?.red_outside_story ?? 0;
   const wall_ms = run.record.wall_ms ?? run.summary?.wall_ms ?? run.plain?.wall_ms ?? null;
+  // Typecheck regressions the ARM introduced: the ratchet in a checkout whose
+  // baseline is newer than the base commit reports base's own debt as
+  // regressions too, so diff against the base verify measured the same way.
+  const baseReg = new Map((run.baseVerify?.typecheck?.regressions ?? []).map((r) => [r.file, r.now] as const));
+  const armReg = (run.verify?.typecheck?.regressions ?? []).filter((r) => r.now > (baseReg.get(r.file) ?? 0));
   return {
     cost_usd,
     unpriced_rows,
@@ -96,10 +102,10 @@ export function summarizeOne(
     selector_only_red,
     behavioural_red: reds.length - selector_only_red,
     new_full_suite_reds: Math.max(0, outside - baseOutside),
-    typecheck_regressions: run.verify?.typecheck?.regressions.length ?? 0,
+    typecheck_regressions: armReg.length,
     wall_ms,
     iterations: run.summary?.iterations ?? run.halt?.iterations_run ?? (run.plain ? run.plain.turns : null),
-    halt_reason: run.summary?.halt_reason ?? run.halt?.halt_reason ?? (run.plain ? `plain:${run.plain.stop}` : undefined),
+    halt_reason: run.summary?.halt_reason ?? run.halt?.halt_reason ?? (run.plain ? `plain:${run.plain.stop}` : run.record.error ? "RUN_ERROR" : undefined),
     model: run.summary?.model ?? run.halt?.model ?? run.record.models["brew"] ?? run.record.models["plain"],
     cls: run.classification?.confirmed_class ?? (run.classification ? `${run.classification.draft_class}?` : undefined),
   };

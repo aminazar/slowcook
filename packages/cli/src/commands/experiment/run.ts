@@ -296,6 +296,13 @@ async function runBrew(f: Flow & { brewArgs: string[] }): Promise<void> {
     f.record.oracle_skip_db = args.skipDb;
     if (args.oracleSuites) f.record.oracle_suites = args.oracleSuites;
   } finally {
+    // Leave the main checkout as we found it. The tree was asserted CLEAN at
+    // the start, so everything modified or untracked now was made by this run
+    // and has been copied into the run dir: brew's uncommitted provenance
+    // write and its .brewing/halts/ files blocked the next arm on the first
+    // smoke run ("main checkout is dirty"). Ignored files (.brewing/local)
+    // are not touched (no -x).
+    try { exec("git checkout -q -- .", tree); exec("git clean -fdq", tree); } catch { log("could not clean the main checkout after brew"); }
     try { exec(`git checkout -q ${JSON.stringify(previous)}`, tree); } catch { log(`could not restore branch ${previous}; the checkout is left as brew left it`); }
   }
 }
