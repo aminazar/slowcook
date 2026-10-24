@@ -160,14 +160,12 @@ describe("parseNavigatorVerdict", () => {
 
 describe("navigator spend reaches the ledger (WP1, 2026-10-24)", () => {
   const verdictText = JSON.stringify({ overall: "approve", axes: [], rationale: "fine" });
-  const fakeAnthropic = (text: string) => ({
-    messages: {
-      create: async () => ({
-        content: [{ type: "text", text }],
-        usage: { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 500, cache_creation_input_tokens: 0 },
-      }),
+  // The LlmClient seam: what claude-cli or the API adapter would return.
+  const fakeLlm = (text: string): import("@slowcook-ai/core").LlmClient => ({
+    async complete() {
+      return { text, usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 500, cacheCreateTokens: 0 }, costUsd: 0, model: "m" };
     },
-  }) as unknown as import("@anthropic-ai/sdk").default;
+  });
   const input = {
     iteration: 4, storyId: "7", filesTouched: ["src/a.ts"], linesAdded: 1, linesRemoved: 0,
     rationale: "r", gainedTests: [], repoRoot: "/r",
@@ -177,7 +175,7 @@ describe("navigator spend reaches the ledger (WP1, 2026-10-24)", () => {
   it("prices through costFor (cache tokens included) and reports usage on every call", async () => {
     const calls: Array<{ iteration: number; model: string; costUsd: number | null; cacheRead: number }> = [];
     const hook = createPairNavigatorHook({
-      anthropic: fakeAnthropic(verdictText),
+      llm: fakeLlm(verdictText),
       model: "claude-fable-5-1",
       costFor: (u) => (u.inputTokens * 10 + u.outputTokens * 50 + u.cacheReadTokens * 1) / 1_000_000,
       onCall: (i) => calls.push({ iteration: i.iteration, model: i.model, costUsd: i.costUsd, cacheRead: i.usage.cacheReadTokens }),
@@ -191,7 +189,7 @@ describe("navigator spend reaches the ledger (WP1, 2026-10-24)", () => {
   it("an unparseable verdict still reports the spend (abstain is not free)", async () => {
     const calls: number[] = [];
     const hook = createPairNavigatorHook({
-      anthropic: fakeAnthropic("not json at all"),
+      llm: fakeLlm("not json at all"),
       model: "m",
       costFor: () => 0.02,
       onCall: (i) => calls.push(i.costUsd ?? -1),
@@ -204,7 +202,7 @@ describe("navigator spend reaches the ledger (WP1, 2026-10-24)", () => {
   it("an unpriced model reaches the ledger as null while the budget keeps a number", async () => {
     let seen: number | null | undefined;
     const hook = createPairNavigatorHook({
-      anthropic: fakeAnthropic(verdictText),
+      llm: fakeLlm(verdictText),
       model: "claude-unknown",
       costFor: () => null,
       onCall: (i) => { seen = i.costUsd; },

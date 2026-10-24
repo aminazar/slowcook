@@ -8,6 +8,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ## Unreleased — `slowcook experiment`: the swarm-vs-plain harness (WP3)
 
+- The pair-brew navigator runs through the `LlmClient` seam (`createLlmClient`),
+  so it works on subscription auth like every other agent call; it was the one
+  call still on the Anthropic SDK and silently abstained on a key-less box.
+  The harness's `pipeline` arm pins `SLOWCOOK_MODEL_BREW=claude-sonnet-5-5`.
 - `SLOWCOOK_BREW_LOCAL=1`: brew keeps every GitHub write to itself (no push,
   no draft PR, no halt comment); the ratchet, halts, ledger and summary are
   unchanged. The harness's brew arms set it — they re-implement shipped stories.

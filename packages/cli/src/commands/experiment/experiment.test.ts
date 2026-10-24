@@ -224,7 +224,8 @@ describe("tree + run args", () => {
     expect(m["brew"]).toBe("claude-haiku-5-5");
     expect(m["navigator"]).toBe("claude-fable-5-1");
     expect(modelsFor(DEFAULT_ARMS["plain"]!, {})).toEqual({ plain: "claude-sonnet-5-5" });
-    expect(modelsFor(DEFAULT_ARMS["pipeline"]!, { SLOWCOOK_MODEL: "claude-opus-5-5" })["brew"]).toBe("claude-opus-5-5");
+    // the arm's pin beats a box env that pins brew elsewhere
+    expect(modelsFor(DEFAULT_ARMS["pipeline"]!, { SLOWCOOK_MODEL_BREW: "claude-haiku-4-5" })["brew"]).toBe("claude-sonnet-5-5");
   });
 });
 
