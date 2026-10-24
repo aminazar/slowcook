@@ -14,12 +14,13 @@
 //
 // Exit codes: 0 clean · 1 findings · 2 setup error.
 
+import { memoBySha } from "../../lib/sha-cache.js";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import YAML from "yaml";
 import type { Spec } from "@slowcook-ai/core";
 import { listActiveSpecs } from "../refine/spec-yaml.js";
-import { buildHistoryIndex } from "../refine/history-index.js";
+import { buildHistoryIndex, HISTORY_INDEX_CACHE_VERSION } from "../refine/history-index.js";
 
 export interface AnalyzeFinding {
   kind:
@@ -262,7 +263,7 @@ export async function analyzeSpecYaml(
   const target = YAML.parse(specYaml) as Spec;
   if (!target || !target.story_id) return [];
   const others = listActiveSpecs(repoRoot).filter((s) => s.story_id !== target.story_id);
-  const index = buildHistoryIndex({ repoRoot });
+  const index = memoBySha({ repoRoot, name: "history-index", version: HISTORY_INDEX_CACHE_VERSION, build: () => buildHistoryIndex({ repoRoot }) }).value;
   const asBuilt = new Set<string>();
   for (const mig of index.migrations) {
     for (const t of mig.tables_created) asBuilt.add(t);

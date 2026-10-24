@@ -126,6 +126,9 @@ interface BuildOptions {
   };
 }
 
+/** Bump when the index's shape or scan semantics change (sha-cache key). */
+export const HISTORY_INDEX_CACHE_VERSION = "2026-10-24.1";
+
 export function buildHistoryIndex(opts: BuildOptions): HistoryIndex {
   const { repoRoot } = opts;
 

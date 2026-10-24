@@ -1,3 +1,4 @@
+import { memoBySha } from "../../lib/sha-cache.js";
 import {
   readFileSync,
   writeFileSync,
@@ -2748,14 +2749,19 @@ function buildBrewPrBody(ctx: BrewContext, outcome: BrewPrOutcome): string {
  */
 function regenerateCodeMap(ctx: BrewContext, when: string): void {
   try {
-    const fresh = generateFullMap({
+    // WP4 — sha-keyed: the same tree yields the same map (two arms of an
+    // experiment at one base, or a re-run, pay the scan once).
+    const memo = memoBySha({
       repoRoot: ctx.repoRoot,
-      slowcookVersion: ctx.cliVersion,
+      name: "code-map",
+      version: ctx.cliVersion,
+      build: () => generateFullMap({ repoRoot: ctx.repoRoot, slowcookVersion: ctx.cliVersion }),
     });
+    const fresh = memo.value;
     writeFreshMap(ctx.repoRoot, CODE_MAP_JSON_PATH, CODE_MAP_MD_PATH, fresh);
     appendRunLog(
       ctx,
-      `CODEMAP regenerated (${when})  routes=${fresh.api_routes.length} components=${fresh.components.length} helpers=${fresh.helpers.length} types=${fresh.types.length}${fresh.contracts?.length ? ` contracts=${fresh.contracts.length}` : ""}`
+      `CODEMAP ${memo.hit ? "cache hit" : "regenerated"} (${when})  routes=${fresh.api_routes.length} components=${fresh.components.length} helpers=${fresh.helpers.length} types=${fresh.types.length}${fresh.contracts?.length ? ` contracts=${fresh.contracts.length}` : ""}`
     );
   } catch (e) {
     appendRunLog(ctx, `CODEMAP regenerate FAILED (${when}): ${(e as Error).message.slice(0, 200)}`);

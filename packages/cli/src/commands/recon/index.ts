@@ -22,9 +22,10 @@
  *      component covered by ANOTHER story's tests
  */
 
+import { memoBySha, describeMemo } from "../../lib/sha-cache.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { buildHistoryIndex, type HistoryIndex } from "../refine/history-index.js";
+import { buildHistoryIndex, type HistoryIndex, HISTORY_INDEX_CACHE_VERSION } from "../refine/history-index.js";
 import { extractShape, synthesiseShapeTestFile, findMockFilesForStory } from "./shape-preserve.js";
 import { checkMigrationGate, formatMigrationGap } from "./migration-gate.js";
 import { isReadOnlyMode } from "../../lib/read-only.js";
@@ -209,7 +210,9 @@ export async function recon(argv: string[], cliVersion: string): Promise<void> {
 
   console.log(`slowcook recon · story-${args.story} · cwd: ${relative(process.cwd(), args.repoRoot) || "."}`);
 
-  const idx = buildHistoryIndex({ repoRoot: args.repoRoot });
+  const idxMemo = memoBySha({ repoRoot: args.repoRoot, name: "history-index", version: HISTORY_INDEX_CACHE_VERSION, build: () => buildHistoryIndex({ repoRoot: args.repoRoot }) });
+  console.log(`  (${describeMemo("history-index", idxMemo)})`);
+  const idx = idxMemo.value;
   const result: ReconResult = {
     story: args.story,
     generated_at: new Date().toISOString(),
