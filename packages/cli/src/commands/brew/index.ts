@@ -497,10 +497,12 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   let navigatorHook: BrewContext["navigatorHook"] = undefined;
   if (effectiveWithNavigator) {
     const { createPairNavigatorHook } = await import("./pair-navigator.js");
-    const { costEntryUsd } = await import("@slowcook-ai/llm-anthropic");
+    const { costEntryUsd, createLlmClient } = await import("@slowcook-ai/llm-anthropic");
     const { appendCostEntry } = await import("../../cost-store.js");
     navigatorHook = createPairNavigatorHook({
-      anthropic,
+      // The seam picks the backend from the environment (claude-cli on the
+      // box, the API by key elsewhere) — same auth as brew's own turns.
+      llm: await createLlmClient(),
       model: args.navigatorModel,
       // WP1 — the ONE pricing table (prefix-aware), not an exact-key lookup
       // that silently fell back to sonnet prices for any other model.

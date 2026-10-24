@@ -48,9 +48,11 @@ export const DEFAULT_ARMS: Record<string, ArmConfig> = {
   pipeline: {
     name: "pipeline",
     kind: "brew",
-    env: { SLOWCOOK_LLM: "claude-cli", SLOWCOOK_BREW_LOCAL: "1" },
+    // The brew model is PINNED (Amin, 2026-10-24): a box env that pins brew
+    // elsewhere (rewo pins haiku-4-5) must not silently redefine the arm.
+    env: { SLOWCOOK_LLM: "claude-cli", SLOWCOOK_BREW_LOCAL: "1", SLOWCOOK_MODEL_BREW: "claude-sonnet-5-5" },
     flags: [],
-    notes: "slowcook brew as-is: STAGE_DEFAULTS, claude-cli backend, list price; no push/PR/issue comment (local).",
+    notes: "slowcook brew with its capable model pinned (sonnet-5-5), claude-cli backend, list price; no push/PR/issue comment (local).",
   },
   swarm: {
     name: "swarm",

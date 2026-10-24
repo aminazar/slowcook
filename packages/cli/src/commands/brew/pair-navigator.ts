@@ -17,8 +17,7 @@
  * brew/agent.ts.
  */
 
-import type Anthropic from "@anthropic-ai/sdk";
-import type { LlmUsage } from "@slowcook-ai/core";
+import type { LlmClient, LlmUsage } from "@slowcook-ai/core";
 import {
   NAVIGATOR_SYSTEM,
   buildNavigatorPrompt,
@@ -70,8 +69,14 @@ export function navigatorVerdictToHookVerdict(
 }
 
 export interface PairNavigatorOptions {
-  /** Anthropic SDK client to call. */
-  anthropic: Anthropic;
+  /**
+   * 2026-10-24 — the LlmClient seam, not the Anthropic SDK. Every other
+   * agent call runs on `createLlmClient()` (subscription auth via claude-cli
+   * or the API by key); the navigator was the one call still on the SDK, so
+   * on a key-less box it silently abstained on every iteration (the first
+   * swarm-vs-plain smoke run: a "fable navigator" that never fired).
+   */
+  llm: LlmClient;
   /** Model id (e.g., "claude-sonnet-4-5-20250929"). */
   model: string;
   /** Per-iter token cap for the navigator response. */
@@ -139,7 +144,7 @@ export interface PairNavigatorOptions {
  */
 export function createPairNavigatorHook(options: PairNavigatorOptions): NavigatorHook {
   const {
-    anthropic,
+    llm,
     model,
     maxTokens = 1024,
     perIterBudgetUsd = 0.10,
@@ -184,26 +189,17 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
 
       let response;
       try {
-        response = await anthropic.messages.create({
+        response = await llm.complete({
           model,
           system: NAVIGATOR_SYSTEM,
-          max_tokens: maxTokens,
+          maxTokens,
           messages: [{ role: "user", content: prompt }],
         });
       } catch {
         return null;
       }
 
-      const raw = (response.usage ?? { input_tokens: 0, output_tokens: 0 }) as {
-        input_tokens?: number; output_tokens?: number;
-        cache_read_input_tokens?: number; cache_creation_input_tokens?: number;
-      };
-      const usage: LlmUsage = {
-        inputTokens: raw.input_tokens ?? 0,
-        outputTokens: raw.output_tokens ?? 0,
-        cacheReadTokens: raw.cache_read_input_tokens ?? 0,
-        cacheCreateTokens: raw.cache_creation_input_tokens ?? 0,
-      };
+      const usage: LlmUsage = response.usage;
       const priced: number | null = costFor
         ? costFor(usage)
         : pricingPerMTokens
@@ -220,7 +216,7 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
         return null;
       }
 
-      const text = extractTextFromResponse(response);
+      const text = response.text;
       if (!text) return null;
 
       let verdict: NavigatorVerdict;
@@ -236,9 +232,9 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
 }
 
 /**
- * Pull the text out of an Anthropic Messages API response. Returns
- * empty string if the response shape is unexpected (defensive).
- * Pure: no IO.
+ * Pull the text out of an Anthropic Messages API response. Kept for
+ * callers that still hold a raw SDK response; the hook itself reads
+ * `LlmResponse.text`. Pure: no IO.
  */
 export function extractTextFromResponse(response: { content: Array<{ type: string; text?: string }> }): string {
   if (!Array.isArray(response.content)) return "";

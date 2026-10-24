@@ -58,6 +58,22 @@ cross-contract drift):
 Base = the commit before each story's brew merged (`--base <sha>`), so the
 implementation is absent and the tests present in history.
 
+### The set (Amin, 2026-10-24): nine stories, seed 1 first, seed 2 where the arms disagree
+
+| story | issue | base (pre-brew) | notes |
+|---|---|---|---|
+| 016 pinned rewos strip | #138 | f3183118 | brew $2.80; shipped without migration (human added). Issue #138 is the PARENT of the 016/017 split: the plain arm gets the whole issue |
+| 017 pin affordance | #138 | e3d45359 | brew $5.18 broke two shipped contracts; base already holds 016's implementation; plain arm gets #138 again |
+| 019 crawler dedupe | #215 | b32b31b2 | brew 1 iteration $1.04 after a $6.24 halt; pgTAP, merge_rewos rpc |
+| 020 taxonomy categories | #216 | ae62dd5a | brew $1.53; tests had mocked the wrong module (hand-repaired after) |
+| 021 publisher + byline | #217 | 7eea0d66 | brew $4.26; RLS + migration repaired against amended spec |
+| 022 ration pill bands | #277 | c8d26bdf | haiku brew, human-gate repaired; declared presentational/server split |
+| 024 feed timestamps | #292 | d37f914e | the smoke story; contract pinned RewoCard, live page was FeedPage |
+| 025 invite status | #293 | b5f2ec59 | brew partial $0.21 13/30, then human amendments |
+| 026 feed API reaction state | #317 | 072fbb99 (origin/main) | spec #320 + tests #321 merged, NO brew yet: the cleanest case |
+
+Budget $5 per run (the shipped brews ranged $0.82–$5.18; on subscription auth the list price bounds time, not dollars). Brew arms: `pipeline` pins sonnet-5-5, `swarm` pins haiku-5-5 with the fable-5-1 navigator (now on the LlmClient seam). Plain oracle: `--oracle-suites backend`.
+
 ## Running (rewo box, worker timer OFF)
 
 ```
