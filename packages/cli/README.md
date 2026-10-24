@@ -270,6 +270,10 @@ Run `slowcook help <command>` or `slowcook <command> --help` for per-command det
 
 ### Experimental
 
+- **`experiment`** [experimental] — Compare arms (plain Claude Code · pipeline · cheap-brew swarm) on cost, coverage and speed; classify each halt as knowledge or reasoning with evidence.
+  ```
+  slowcook experiment run --story <id> --arm <plain|pipeline|swarm> [--exp <id>] [--seed <k>] [--dry-run] · report [--exp <id>] [--json] · classify --run <id> [--confirm <class> --by <name>]
+  ```
 - **`investigate`** [alpha] — Diagnose a bug from a GitHub issue and emit a bug-profile.
   ```
   slowcook investigate --issue <number> [--cwd <path>]
