@@ -128,7 +128,12 @@ describe("report", () => {
     expect(swarm).toMatchObject({ verdict: "partial", selector_only_red: 1, behavioural_red: 1, halt_reasons: ["STAGNATION_CAP"] });
     const plain = rows[1]!;
     expect(plain).toMatchObject({ cost_usd: 0.4, selector_only_red: 2, behavioural_red: 1, wall_min: 5, iterations: 20, halt_reasons: ["plain:done"] });
-    expect(summarizeOne(run({ story: "9", arm: "pipeline" }), price).verdict).toBe("no-verify");
+    const never = summarizeOne(run({ story: "9", arm: "pipeline", error: "dirty checkout" }), price);
+    expect(never).toMatchObject({ verdict: "no-verify", cost_usd: null, halt_reason: "RUN_ERROR" });
+    // typecheck: base already carried file a at 3 errors; only file b is the arm's
+    const tv = (regs: Array<{ file: string; was: number; now: number }>) => ({ story: "7", base: "main", ok: true, sections: [], typecheck: { total_errors: 0, regressions: regs, baseline_recorded: false } });
+    const tc = summarizeOne(run({ story: "7", arm: "pipeline" }, { verify: tv([{ file: "a", was: 1, now: 3 }, { file: "b", was: 0, now: 2 }]), baseVerify: tv([{ file: "a", was: 1, now: 3 }]) }), price);
+    expect(tc.typecheck_regressions).toBe(1);
     expect(priceBasis(runs, price).map((b) => b.model)).toEqual(["m", "unpriced"]);
     expect(priceBasis(runs, price)[1]).toEqual({ model: "unpriced", in_per_m: null, out_per_m: null });
   });
