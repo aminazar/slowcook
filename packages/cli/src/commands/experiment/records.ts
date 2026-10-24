@@ -42,6 +42,9 @@ export interface RunRecord {
   branch?: string;
   /** The hidden oracle ran with --skip-db (worktree runs). */
   oracle_skip_db?: boolean;
+  /** Declared suites the oracle was limited to (worktrees cannot host the
+   *  db singleton or the acceptance app); undefined = every suite. */
+  oracle_suites?: string[];
   started_at: string;
   finished_at?: string;
   wall_ms?: number;
@@ -83,6 +86,12 @@ function readJsonl<T>(p: string): T[] {
   });
 }
 
+/** `base.verify.json`, or `base.verify.<a+b>.json` when the oracle ran a subset —
+ *  arms are only compared against a base measured the same way. */
+export function baseVerifyName(oracleSuites: string[] | undefined): string {
+  return oracleSuites && oracleSuites.length > 0 ? `base.verify.${[...oracleSuites].sort().join("+")}.json` : "base.verify.json";
+}
+
 export function runDirFor(repoRoot: string, exp: string, story: string, arm: string, seed: number): string {
   return join(repoRoot, EXPERIMENTS_DIR, exp, story, `${arm}-${seed}`);
 }
@@ -94,7 +103,7 @@ export function loadRun(dir: string): LoadedRun | null {
     dir,
     record,
     verify: readJson<VerifyResult>(join(dir, "verify.json")),
-    baseVerify: readJson<VerifyResult>(join(dir, "..", "base.verify.json")),
+    baseVerify: readJson<VerifyResult>(join(dir, "..", baseVerifyName(record.oracle_suites))),
     cost: readJsonl<CostEntry>(join(dir, "cost.jsonl")),
     summary: readJson<RunSummary>(join(dir, "summary.json")),
     halt: readJson<HaltReport>(join(dir, "halt.json")),

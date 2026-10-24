@@ -22,6 +22,8 @@ export interface ReportRow {
   unpriced_rows: number;
   green: number;
   total: number;
+  /** Expected tests with no result (oracle limited to some suites, or a broken runner). */
+  not_run: number;
   verdict: Verdict;
   /** Red story tests whose failure text names a missing testid/role/text hook. */
   selector_only_red: number;
@@ -53,9 +55,9 @@ function mean(xs: number[]): number | null {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 }
 
-export function verdictFor(green: number, total: number, hasVerify: boolean): Verdict {
+export function verdictFor(green: number, total: number, hasVerify: boolean, notRun = 0): Verdict {
   if (!hasVerify) return "no-verify";
-  if (total > 0 && green === total) return "all-green";
+  if (total > 0 && green === total && notRun === 0) return "all-green";
   if (green > 0) return "partial";
   return "red";
 }
@@ -65,7 +67,7 @@ export function summarizeOne(
   run: LoadedRun,
   priceFor: (model: string, usage: LlmUsage) => number | null
 ): {
-  cost_usd: number | null; unpriced_rows: number; green: number; total: number; verdict: Verdict;
+  cost_usd: number | null; unpriced_rows: number; green: number; total: number; not_run: number; verdict: Verdict;
   selector_only_red: number; behavioural_red: number; new_full_suite_reds: number; typecheck_regressions: number;
   wall_ms: number | null; iterations: number | null; halt_reason?: string; model?: string; cls?: string;
 } {
@@ -78,6 +80,7 @@ export function summarizeOne(
   const sc = run.verify?.story_contract;
   const green = sc?.green ?? 0;
   const total = sc?.total ?? 0;
+  const not_run = sc?.not_run ?? 0;
   const reds = sc?.red ?? [];
   const selector_only_red = reds.filter((r) => isSelectorOnlyFailure(r.message)).length;
   const baseOutside = run.baseVerify?.full_suite?.red_outside_story ?? 0;
@@ -88,7 +91,8 @@ export function summarizeOne(
     unpriced_rows,
     green,
     total,
-    verdict: verdictFor(green, total, Boolean(sc)),
+    not_run,
+    verdict: verdictFor(green, total, Boolean(sc), not_run),
     selector_only_red,
     behavioural_red: reds.length - selector_only_red,
     new_full_suite_reds: Math.max(0, outside - baseOutside),
@@ -122,6 +126,7 @@ export function aggregateRuns(
     const iters = ones.map((o) => o.iterations).filter((i): i is number => i !== null);
     const green = Math.round((mean(greens) ?? 0) * 10) / 10;
     const total = Math.max(0, ...totals);
+    const notRun = Math.max(0, ...ones.map((o) => o.not_run));
     rows.push({
       story,
       arm,
@@ -130,7 +135,8 @@ export function aggregateRuns(
       unpriced_rows: ones.reduce((a, o) => a + o.unpriced_rows, 0),
       green,
       total,
-      verdict: verdictFor(green, total, ones.some((o) => o.verdict !== "no-verify")),
+      not_run: notRun,
+      verdict: verdictFor(green, total, ones.some((o) => o.verdict !== "no-verify"), notRun),
       selector_only_red: ones.reduce((a, o) => a + o.selector_only_red, 0),
       behavioural_red: ones.reduce((a, o) => a + o.behavioural_red, 0),
       new_full_suite_reds: Math.max(0, ...ones.map((o) => o.new_full_suite_reds)),
@@ -169,7 +175,7 @@ export function renderMarkdown(rows: ReportRow[], basis: ReturnType<typeof price
   for (const r of rows) {
     const cost = r.cost_usd === null ? `? (${r.unpriced_rows} unpriced)` : `${r.cost_usd.toFixed(2)}${r.unpriced_rows ? ` (+${r.unpriced_rows} unpriced)` : ""}`;
     lines.push(
-      `| ${r.story} | ${r.arm} | ${r.n} | ${cost} | ${r.green}/${r.total} | ${r.verdict} | ${r.selector_only_red} | ${r.behavioural_red} | ${r.new_full_suite_reds} | ${r.typecheck_regressions} | ${r.wall_min ?? "?"} | ${r.iterations ?? "?"} | ${r.halt_reasons.join(" ") || "-"} | ${r.models || "-"} | ${r.classes.join(" ") || "-"} |`
+      `| ${r.story} | ${r.arm} | ${r.n} | ${cost} | ${r.green}/${r.total}${r.not_run ? ` (${r.not_run} not run)` : ""} | ${r.verdict} | ${r.selector_only_red} | ${r.behavioural_red} | ${r.new_full_suite_reds} | ${r.typecheck_regressions} | ${r.wall_min ?? "?"} | ${r.iterations ?? "?"} | ${r.halt_reasons.join(" ") || "-"} | ${r.models || "-"} | ${r.classes.join(" ") || "-"} |`
     );
   }
   lines.push("");

@@ -30,7 +30,7 @@ import { resolveModel } from "../../lib/model-defaults.js";
 import { importSpecifiers } from "../taste/head-files.js";
 import { loadArms, resolveArm, runIdFor, type ArmConfig } from "./arms.js";
 import { runPlainArm, type PlainIssue } from "./arm-plain.js";
-import { runDirFor, type RunRecord } from "./records.js";
+import { baseVerifyName, runDirFor, type RunRecord } from "./records.js";
 import {
   changedFiles, commitAll, currentBranch, defaultExec, ensureTree, gitSha, hideArtifacts, isClean,
   newestFile, readManifestTests, restoreArtifacts, storyArtifactPaths, trackedFiles, type Exec,
@@ -48,6 +48,8 @@ export interface RunArgs {
   dryRun: boolean;
   skipDb: boolean;
   maxSessions?: number;
+  /** Limit the oracle (and the base verify) to these declared suites. */
+  oracleSuites?: string[];
 }
 
 export function parseRunArgs(argv: string[], now: () => Date = () => new Date()): RunArgs {
@@ -66,6 +68,7 @@ export function parseRunArgs(argv: string[], now: () => Date = () => new Date())
     else if (arg === "--budget-usd" && next) { a.budgetUsd = Number(next); i++; }
     else if (arg === "--issue" && next) { a.issue = Number(next); i++; }
     else if (arg === "--max-sessions" && next) { a.maxSessions = Number(next); i++; }
+    else if (arg === "--oracle-suites" && next) { a.oracleSuites = next.split(",").map((s) => s.trim()).filter(Boolean); i++; }
     else if (arg === "--dry-run") a.dryRun = true;
     else if (arg === "--skip-db") a.skipDb = true;
     else throw new Error(`experiment run: unknown option ${arg}`);
@@ -120,8 +123,8 @@ function fetchIssue(repoRoot: string, number: number): PlainIssue {
 }
 
 /** Run `slowcook verify --json` through the same cli entry; returns the parsed object (exit code ignored). */
-function runVerifyJson(cliEntry: string, tree: string, storyId: string, base: string, skipDb: boolean, log: (l: string) => void): unknown {
-  const args = [cliEntry, "verify", "--story", storyId, "--cwd", tree, "--base", base, "--json", ...(skipDb ? ["--skip-db"] : [])];
+function runVerifyJson(cliEntry: string, tree: string, storyId: string, base: string, skipDb: boolean, log: (l: string) => void, suites?: string[]): unknown {
+  const args = [cliEntry, "verify", "--story", storyId, "--cwd", tree, "--base", base, "--json", ...(skipDb ? ["--skip-db"] : []), ...(suites && suites.length ? ["--suite", suites.join(",")] : [])];
   log(`verify: ${args.slice(1).join(" ")}`);
   const r = spawnSync(process.execPath, args, { cwd: tree, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: process.env });
   const out = r.stdout ?? "";
@@ -166,7 +169,7 @@ export async function experimentRun(argv: string[]): Promise<void> {
       run_id: runId, run_dir: runDir, tree, kind: arm.kind, base: args.base, base_sha: baseSha, models,
       env_names: [...Object.keys(arm.env), RUN_ID_ENV, ARM_ENV].sort(),
       argv: arm.kind === "brew" ? [process.execPath, ...brewArgs] : ["claude", "-p", "<issue prompt>", "--allowedTools", "<native>", "--output-format", "stream-json", "--verbose", "--max-turns", "40", "--model", models["plain"]],
-      oracle: `slowcook verify --story ${args.storyId} --json${args.skipDb || arm.kind === "plain" ? " --skip-db" : ""}`,
+      oracle: `slowcook verify --story ${args.storyId} --json${args.skipDb || arm.kind === "plain" ? " --skip-db" : ""}${args.oracleSuites ? ` --suite ${args.oracleSuites.join(",")}` : ""}`,
       notes: arm.notes,
     }, null, 2));
     return;
@@ -217,8 +220,8 @@ async function runPlain(f: Flow): Promise<void> {
   if (!issueNumber) throw new Error(`no issue for story-${args.storyId}: spec has no source_issue — pass --issue <n>`);
   writeJson(join(runDir, "test-imports.json"), captureTestImports(tree, manifestTests));
   writeJson(join(runDir, "clarifications.json"), (spec?.clarifications ?? []).flatMap((s) => s.entries));
-  const baseVerifyPath = join(runDir, "..", "base.verify.json");
-  if (!existsSync(baseVerifyPath)) writeJson(baseVerifyPath, runVerifyJson(cliEntry, tree, args.storyId, args.base, true, log));
+  const baseVerifyPath = join(runDir, "..", baseVerifyName(args.oracleSuites));
+  if (!existsSync(baseVerifyPath)) writeJson(baseVerifyPath, runVerifyJson(cliEntry, tree, args.storyId, args.base, true, log, args.oracleSuites));
 
   const artifacts = storyArtifactPaths(args.storyId, manifestTests, trackedFiles(tree, exec));
   hideArtifacts(tree, artifacts, exec);
@@ -252,8 +255,9 @@ async function runPlain(f: Flow): Promise<void> {
   f.record.branch = gitSha(tree, "HEAD", exec);
   log(`plain: ${result.stop} after ${result.sessions} session(s), ${changed.length} file(s) changed; running the hidden oracle`);
   restoreArtifacts(tree, baseSha, artifacts, exec);
-  writeJson(join(runDir, "verify.json"), runVerifyJson(cliEntry, tree, args.storyId, args.base, true, log));
+  writeJson(join(runDir, "verify.json"), runVerifyJson(cliEntry, tree, args.storyId, args.base, true, log, args.oracleSuites));
   f.record.oracle_skip_db = true;
+  if (args.oracleSuites) f.record.oracle_suites = args.oracleSuites;
 }
 
 async function runBrew(f: Flow & { brewArgs: string[] }): Promise<void> {
@@ -266,8 +270,8 @@ async function runBrew(f: Flow & { brewArgs: string[] }): Promise<void> {
     writeJson(join(runDir, "test-imports.json"), captureTestImports(tree, manifestTests));
     const spec = readSpec(tree, args.storyId);
     writeJson(join(runDir, "clarifications.json"), (spec?.clarifications ?? []).flatMap((s) => s.entries));
-    const baseVerifyPath = join(runDir, "..", "base.verify.json");
-    if (!existsSync(baseVerifyPath)) writeJson(baseVerifyPath, runVerifyJson(cliEntry, tree, args.storyId, args.base, args.skipDb, log));
+    const baseVerifyPath = join(runDir, "..", baseVerifyName(args.oracleSuites));
+    if (!existsSync(baseVerifyPath)) writeJson(baseVerifyPath, runVerifyJson(cliEntry, tree, args.storyId, args.base, args.skipDb, log, args.oracleSuites));
 
     log(`brew: ${brewArgs.slice(1).join(" ")}  env=${f.record.env_names.join(",")}`);
     const r = spawnSync(process.execPath, brewArgs, { cwd: tree, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 256 * 1024 * 1024, env: envForArm });
@@ -288,8 +292,9 @@ async function runBrew(f: Flow & { brewArgs: string[] }): Promise<void> {
     writeFileSync(join(runDir, "cost.jsonl"), ledger.map((e) => JSON.stringify(e)).join("\n") + (ledger.length ? "\n" : ""), "utf8");
     f.record.branch = currentBranch(tree, exec);
     log(`brew: exit ${r.status}, ${ledger.length} ledger row(s), branch ${f.record.branch}; verifying`);
-    writeJson(join(runDir, "verify.json"), runVerifyJson(cliEntry, tree, args.storyId, args.base, args.skipDb, log));
+    writeJson(join(runDir, "verify.json"), runVerifyJson(cliEntry, tree, args.storyId, args.base, args.skipDb, log, args.oracleSuites));
     f.record.oracle_skip_db = args.skipDb;
+    if (args.oracleSuites) f.record.oracle_suites = args.oracleSuites;
   } finally {
     try { exec(`git checkout -q ${JSON.stringify(previous)}`, tree); } catch { log(`could not restore branch ${previous}; the checkout is left as brew left it`); }
   }

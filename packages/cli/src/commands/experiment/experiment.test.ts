@@ -109,7 +109,7 @@ describe("report", () => {
 
   it("aggregates story × arm over seeds; unpriced never sums as 0; regressions diff against base", () => {
     const verify = (green: number, total: number, outside: number, reds: Array<{ id: string; message?: string }> = []) =>
-      ({ story: "7", base: "main", ok: green === total, sections: [], story_contract: { green, total, red_ids: reds.map((r) => r.id), red: reds }, full_suite: { red_outside_story: outside, red_files: [] }, typecheck: { total_errors: 0, regressions: [], baseline_recorded: false } });
+      ({ story: "7", base: "main", ok: green === total, sections: [], story_contract: { green, total, not_run: 0, red_ids: reds.map((r) => r.id), red: reds }, full_suite: { red_outside_story: outside, red_files: [] }, typecheck: { total_errors: 0, regressions: [], baseline_recorded: false } });
     const baseVerify = verify(0, 5, 2);
     const runs: LoadedRun[] = [
       run({ story: "7", arm: "pipeline", seed: 1, wall_ms: 600_000 }, { verify: verify(5, 5, 2), baseVerify, cost: [{ agent: "brew", usd: 1, model: "m", at: "a", tokens_in: 1_000_000, tokens_out: 0 }], summary: { story_id: "7", outcome: "success", halt_reason: "SUCCESS_ALL_GREEN", model: "m", iterations: 4, checkpoints: 2, green: 5, total: 5, usd: 1 } }),
@@ -195,6 +195,7 @@ describe("tree + run args", () => {
     expect(a).toMatchObject({ storyId: "007", arm: "swarm", seed: 2, budgetUsd: 2.5, dryRun: true, exp: "exp-2026-10-24", base: "main" });
     expect(() => parseRunArgs(["--arm", "x"])).toThrow(/--story/);
     expect(() => parseRunArgs(["--story", "1", "--arm", "x", "--seed", "0"])).toThrow(/--seed/);
+    expect(parseRunArgs(["--story", "1", "--arm", "plain", "--oracle-suites", "backend, unit"]).oracleSuites).toEqual(["backend", "unit"]);
     expect(brewArgv({ cliEntry: "/cli.js", storyId: "7", tree: "/t", base: "main", budgetUsd: 2, flags: ["--with-navigator"] }))
       .toEqual(["/cli.js", "brew", "--story", "7", "--cwd", "/t", "--base", "main", "--budget-usd", "2", "--with-navigator"]);
     const m = modelsFor(DEFAULT_ARMS["swarm"]!, {});
@@ -202,5 +203,18 @@ describe("tree + run args", () => {
     expect(m["navigator"]).toBe("claude-fable-5-1");
     expect(modelsFor(DEFAULT_ARMS["plain"]!, {})).toEqual({ plain: "claude-sonnet-5-5" });
     expect(modelsFor(DEFAULT_ARMS["pipeline"]!, { SLOWCOOK_MODEL: "claude-opus-5-5" })["brew"]).toBe("claude-opus-5-5");
+  });
+});
+
+describe("not-run tests are never green", () => {
+  it("verdict is partial, not all-green, when expected tests had no result", async () => {
+    const { verdictFor } = await import("./report.js");
+    expect(verdictFor(3, 5, true, 2)).toBe("partial");
+    expect(verdictFor(5, 5, true, 0)).toBe("all-green");
+  });
+  it("base verify is keyed by the oracle's suite set", async () => {
+    const { baseVerifyName } = await import("./records.js");
+    expect(baseVerifyName(undefined)).toBe("base.verify.json");
+    expect(baseVerifyName(["db", "backend"])).toBe("base.verify.backend+db.json");
   });
 });

@@ -33,6 +33,10 @@ interface VerifyArgs {
   skipDb: boolean;
   /** WP1 — machine-readable result on stdout (human lines go to stderr). */
   json: boolean;
+  /** Run only these declared suites (e.g. a worktree that cannot host the
+   *  db singleton). Tests the manifest expects from other suites are
+   *  reported as `not_run`, never as green. */
+  suites: string[];
 }
 
 /** One PASS/FAIL/skipped line of the battery. `ok: null` = skipped. */
@@ -52,9 +56,13 @@ export interface VerifyResult {
   base: string;
   ok: boolean;
   sections: VerifySection[];
+  /** Which declared suites ran and which runners broke. */
+  suites?: { ran: string[]; broken: string[] };
   story_contract?: {
     green: number;
     total: number;
+    /** Expected tests with NO result (suite not run or runner broken). */
+    not_run: number;
     red_ids: string[];
     /** The red tests with their runner failure text (first 600 chars) — the
      *  plain arm's "selector-only vs behavioural" split reads from here. */
@@ -65,7 +73,7 @@ export interface VerifyResult {
 }
 
 function parseArgs(argv: string[]): VerifyArgs {
-  const args: VerifyArgs = { storyId: "", repoRoot: process.cwd(), base: "main", skipDb: false, json: false };
+  const args: VerifyArgs = { storyId: "", repoRoot: process.cwd(), base: "main", skipDb: false, json: false, suites: [] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = argv[i + 1];
@@ -74,6 +82,7 @@ function parseArgs(argv: string[]): VerifyArgs {
     else if (arg === "--base" && next) { args.base = next; i++; }
     else if (arg === "--skip-db") { args.skipDb = true; }
     else if (arg === "--json") { args.json = true; }
+    else if (arg === "--suite" && next) { args.suites.push(...next.split(",").map((s) => s.trim()).filter(Boolean)); i++; }
     else if (arg === "--help" || arg === "-h") { printHelp(); process.exit(0); }
     else { console.error(`Unknown option: ${arg}`); printHelp(); process.exit(64); }
   }
@@ -85,7 +94,7 @@ function printHelp(): void {
   console.log(`slowcook verify — the human merge-gate battery, as one command
 
 Usage:
-  slowcook verify --story <id> [--cwd <path>] [--base <branch>] [--skip-db] [--json]
+  slowcook verify --story <id> [--cwd <path>] [--base <branch>] [--skip-db] [--json] [--suite <a,b>]
 
 Sections (each PASS/FAIL, exit 1 on any failure):
   migrations   duplicate migration numbers vs origin/<base>
@@ -95,7 +104,8 @@ Sections (each PASS/FAIL, exit 1 on any failure):
   full-suite   red list printed for the operator's regression diff
 
 --json        print a VerifyResult object on stdout (sections, story_contract,
-              full_suite, typecheck); human lines go to stderr; exit code unchanged`);
+              full_suite, typecheck); human lines go to stderr; exit code unchanged
+--suite a,b   run only these declared suites; expected tests from the others count as not_run`);
 }
 
 /**
@@ -158,15 +168,18 @@ export function summarizeRun(
   tests: Array<{ id: string; file: string; status: string; failure_message?: string }>,
   expected: ReadonlySet<string>
 ): {
-  green: number; total: number; red_ids: string[];
+  green: number; total: number; not_run: number; red_ids: string[];
   red: Array<{ id: string; message?: string }>;
   red_outside_story: number; red_files: string[];
 } {
+  const seen = new Set(tests.map((t) => t.id));
   const storyRed = tests.filter((t) => expected.has(t.id) && t.status !== "passed");
   const otherRed = tests.filter((t) => !expected.has(t.id) && t.status !== "passed");
+  const notRun = [...expected].filter((id) => !seen.has(id)).length;
   return {
-    green: expected.size - storyRed.length,
+    green: expected.size - storyRed.length - notRun,
     total: expected.size,
+    not_run: notRun,
     red_ids: storyRed.map((t) => t.id),
     red: storyRed.map((t) => ({ id: t.id, ...(t.failure_message ? { message: t.failure_message.slice(0, 600) } : {}) })),
     red_outside_story: otherRed.length,
@@ -301,11 +314,26 @@ export async function verify(argv: string[]): Promise<void> {
   }
 
   // 4 + 5 — every suite, story contract, full red list
-  log(`→ running every declared suite…`);
-  const run = runTests(stackConfig, { cwd: args.repoRoot });
-  if (!run.ran) {
+  const declared = Object.keys((stackConfig as { test?: Record<string, unknown> }).test ?? {});
+  const unknownSuites = args.suites.filter((s) => !declared.includes(s));
+  if (unknownSuites.length > 0) {
+    console.error(`verify: --suite names ${unknownSuites.join(", ")} not declared in stack.json (declared: ${declared.join(", ")})`);
+    process.exit(64);
+  }
+  const runConfig: StackConfig = args.suites.length > 0
+    ? ({ ...stackConfig, test: Object.fromEntries(Object.entries((stackConfig as { test: Record<string, unknown> }).test).filter(([k]) => args.suites.includes(k))) } as StackConfig)
+    : stackConfig;
+  log(args.suites.length > 0 ? `→ running suite(s) ${args.suites.join(", ")} (of ${declared.join(", ")})…` : `→ running every declared suite…`);
+  const run = runTests(runConfig, { cwd: args.repoRoot });
+  const broken = (run.suiteErrors ?? []).map((e) => e.suite);
+  result.suites = { ran: run.suites.map((s) => s.suite).filter((s) => !broken.includes(s)), broken };
+  if (!run.ran || broken.length > 0) {
+    // Fail closed on the gate — but keep the verdicts of the suites that DID
+    // run (the story-016 lesson in both directions: a broken runner must not
+    // waive the gate, and must not erase the evidence the other suites gave).
     section("suites", false, `runner broken: ${(run.suiteErrors ?? []).map((e) => `[${e.suite}] ${e.error.slice(0, 150)}`).join("; ") || run.error}`);
-  } else {
+  }
+  if (run.tests.length > 0) {
     let expected = new Set<string>();
     try {
       const manifest = JSON.parse(
@@ -320,14 +348,15 @@ export async function verify(argv: string[]): Promise<void> {
       expected = new Set(run.tests.filter((t) => re.test(t.file)).map((t) => t.id));
     }
     const sum = summarizeRun(run.tests, expected);
-    result.story_contract = { green: sum.green, total: sum.total, red_ids: sum.red_ids, red: sum.red };
+    result.story_contract = { green: sum.green, total: sum.total, not_run: sum.not_run, red_ids: sum.red_ids, red: sum.red };
     result.full_suite = { red_outside_story: sum.red_outside_story, red_files: sum.red_files };
+    const notRunNote = sum.not_run > 0 ? ` (${sum.not_run} expected test(s) NOT RUN — suite skipped or runner broken)` : "";
     section(
       "story-contract",
-      sum.red_ids.length === 0,
+      sum.red_ids.length === 0 && sum.not_run === 0,
       sum.red_ids.length === 0
-        ? `${sum.total} test(s) all green`
-        : `${sum.red_ids.length}/${sum.total} red — first: ${sum.red_ids[0]!.slice(0, 140)}`
+        ? `${sum.green}/${sum.total} green${notRunNote}`
+        : `${sum.red_ids.length}/${sum.total} red — first: ${sum.red_ids[0]!.slice(0, 140)}${notRunNote}`
     );
     // WP2 (2026-10-24) — the red-by-design baseline (#542) follows reality
     // down: tests it lists that just passed are removed, so the failure-set

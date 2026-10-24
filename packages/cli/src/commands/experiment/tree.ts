@@ -4,7 +4,7 @@
  * function takes an injectable `exec` so the flow unit-tests without git.
  */
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 
 export type Exec = (cmd: string, cwd: string) => string;
@@ -35,8 +35,16 @@ export function ensureTree(repoRoot: string, treePath: string, sha: string, exec
   }
   const nm = join(treePath, "node_modules");
   if (!existsSync(nm) && existsSync(join(repoRoot, "node_modules"))) symlinkSync(join(repoRoot, "node_modules"), nm, "dir");
+  // Gitignored local config the suites read (never committed, never leaves
+  // the box): the first dogfood worktree had no .env.local and every suite
+  // that needed it broke.
+  for (const f of LOCAL_ENV_FILES) {
+    if (existsSync(join(repoRoot, f)) && !existsSync(join(treePath, f))) copyFileSync(join(repoRoot, f), join(treePath, f));
+  }
   return treePath;
 }
+
+export const LOCAL_ENV_FILES = [".env", ".env.local", ".env.test", ".env.test.local", ".env.acceptance"];
 
 /**
  * The slowcook artifacts of one story: its spec, cost sidecar, manifest and

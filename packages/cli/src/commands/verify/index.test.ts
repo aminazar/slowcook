@@ -63,9 +63,11 @@ describe("summarizeRun (verify --json, WP1)", () => {
       { id: "t/c > fine", file: "t/c", status: "passed" },
     ];
     const got = summarizeRun(tests, new Set(["t/a > one", "t/a > two", "t/a > missing"]));
+    // "missing" has no result at all: not run, never counted green.
     expect(got).toEqual({
-      green: 2,
+      green: 1,
       total: 3,
+      not_run: 1,
       red_ids: ["t/a > two"],
       red: [{ id: "t/a > two", message: "Unable to find an element by: [data-testid=\"save\"]" }],
       red_outside_story: 2,
