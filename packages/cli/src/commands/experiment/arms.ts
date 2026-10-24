@@ -62,8 +62,10 @@ export const DEFAULT_ARMS: Record<string, ArmConfig> = {
       SLOWCOOK_MODEL_BREW: "claude-haiku-5-5",
       SLOWCOOK_BREW_LOCAL: "1",
     },
-    flags: ["--with-navigator", "--navigator-model", "claude-fable-5-1"],
-    notes: "Cheap brew (haiku) with a capable navigator (fable); haiku halts are re-dispatched by hand this round.",
+    // $0.50/iteration (Amin, 2026-10-24): a fable review of a ~20k-token prompt
+    // is $0.20–0.30 at list price; the default $0.10 cap would abstain every time.
+    flags: ["--with-navigator", "--navigator-model", "claude-fable-5-1", "--navigator-cap-usd", "0.5"],
+    notes: "Cheap brew (haiku) with a capable navigator (fable, $0.50/iteration cap); haiku halts are re-dispatched by hand this round.",
   },
 };
 

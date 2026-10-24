@@ -54,6 +54,8 @@ interface BrewArgs {
    */
   withNavigator: boolean | undefined;
   navigatorModel: string;
+  /** Per-iteration list-price cap for one navigator review; over it the hook abstains. */
+  navigatorCapUsd?: number;
   /** dovizir §11 — consecutive no-edit iterations before halting. */
   stallIterations?: number;
   /** §13 — tool rounds per turn (default 12). */
@@ -140,6 +142,7 @@ function parseArgs(argv: string[]): BrewArgs {
     else if (arg === "--with-navigator") { args.withNavigator = true; }
     else if (arg === "--without-navigator") { args.withNavigator = false; }
     else if (arg === "--navigator-model" && next) { args.navigatorModel = next; i++; }
+    else if (arg === "--navigator-cap-usd" && next) { args.navigatorCapUsd = Number(next); i++; }
     else if (arg === "--allow-unpriced") { args.allowUnpriced = true; }
     else if (arg === "--stall-iterations" && next) { args.stallIterations = numericFlag("--stall-iterations", next, "int"); i++; }
     else if (arg === "--max-tool-rounds" && next) { args.maxToolRounds = numericFlag("--max-tool-rounds", next, "int"); i++; }
@@ -504,6 +507,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
       // box, the API by key elsewhere) — same auth as brew's own turns.
       llm: await createLlmClient(),
       model: args.navigatorModel,
+      ...(args.navigatorCapUsd !== undefined ? { perIterBudgetUsd: args.navigatorCapUsd } : {}),
       // WP1 — the ONE pricing table (prefix-aware), not an exact-key lookup
       // that silently fell back to sonnet prices for any other model.
       costFor: (usage) => costEntryUsd(args.navigatorModel, usage),
