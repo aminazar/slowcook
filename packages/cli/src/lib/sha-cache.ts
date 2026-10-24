@@ -34,14 +34,26 @@ export interface TreeFingerprint {
   dirty: string;
 }
 
+/**
+ * Paths that never count as dirt: slowcook's own artifacts. The memoized
+ * producers scan source trees (src, tests, supabase, mock); the files
+ * slowcook writes under .brewing/ are OUTPUTS of such runs — counting them
+ * made the first dogfood miss on every second run, because the first run
+ * had just written its report. Pure; exported for tests.
+ */
+export function isFingerprintExcluded(path: string): boolean {
+  return path === ".brewing" || path.startsWith(".brewing/") || /(^|\/)\.brewing\//.test(path);
+}
+
 /** What the tree IS right now. Throws outside a git repo. */
 export function treeFingerprint(repoRoot: string, exec: CacheExec = defaultExec): TreeFingerprint {
   const head_sha = exec("git rev-parse HEAD", repoRoot).trim();
-  const status = exec("git status --porcelain=v1 -z --untracked-files=all", repoRoot);
-  if (status.trim() === "") return { head_sha, dirty: "clean" };
-  const diff = exec("git diff HEAD --no-color", repoRoot);
-  const untracked = status
-    .split("\0")
+  const rawStatus = exec("git status --porcelain=v1 -z --untracked-files=all", repoRoot);
+  const entries = rawStatus.split("\0").filter((l) => l.length > 3 && !isFingerprintExcluded(l.slice(3)));
+  if (entries.length === 0) return { head_sha, dirty: "clean" };
+  const status = entries.join("\0");
+  const diff = exec("git diff HEAD --no-color -- . ':(exclude).brewing' ':(exclude)**/.brewing/**'", repoRoot);
+  const untracked = entries
     .filter((l) => l.startsWith("?? "))
     .map((l) => l.slice(3))
     .map((p) => {
