@@ -6,6 +6,36 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## Unreleased — honest numbers before the swarm-vs-plain experiment (WP1)
+
+Measurement fixes that have to land before any arm of the haiku-swarm vs
+plain-Claude-Code experiment is run (plan: measure first, 2026-10-23).
+
+- **Cost ledger rows carry provenance and timing.** `CostEntry` gains
+  optional `run_id`, `arm`, `stage`, `started_at`, `finished_at`;
+  `appendCostEntry` fills `run_id`/`arm` from `SLOWCOOK_RUN_ID` /
+  `SLOWCOOK_ARM` so every existing writer joins an experiment unchanged.
+  Pure `filterEntries` / `sumEntries` give "the cost of run X" one definition.
+- **Every stage writes rows.** New `lib/ledger-client.ts` `withLedger()` wraps
+  an `LlmClient` and appends one list-priced row per call; wired into vibe,
+  plate, taste, testgen (single-story runs) and chef-orchestrate. The pair-brew
+  navigator reports every API call (verdict or abstain) through `onCall`, and
+  brew appends a `navigator` row — its spend used to live only in brew's
+  in-memory total, so the halt total and the ledger disagreed by exactly it.
+- **Never silent-zero.** The navigator is priced through the one pricing table
+  (prefix-aware) instead of an exact-key lookup that fell back to sonnet prices;
+  both LLM adapters price through `costEntryUsd` (loud once per unpriced
+  model); brew's per-iteration ledger row records `null` for an unpriced model
+  while the budget arithmetic keeps its number. Pricing table: Haiku 4.5
+  corrected to $1/$5 (was under-reporting 20%); Fable 5.1, Opus 5.5, Sonnet 5.5
+  and Haiku 5.5 added so the 5.5 ids stop matching the Claude 5 prefixes.
+- **Wall-clock.** `HaltReport` gains `started_at`, `finished_at`, `wall_ms`,
+  `run_id`, `arm` (rendered in the halt comment); brew writes
+  `.brewing/local/runs/<run>/summary.json` on success and halt with the numbers
+  an experiment compares (iterations, checkpoints, green/total, usd, wall_ms).
+- **`slowcook verify --json`.** One `VerifyResult` object on stdout (sections,
+  story_contract, full_suite, typecheck ratchet); human lines move to stderr;
+  exit code unchanged. Pure `summarizeRun` exported for the harness.
 ## unreleased — WP2: the substrate-independent fixes before the swarm baseline
 
 Four cheap fixes that improve every arm of the haiku-vs-plain experiment

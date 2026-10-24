@@ -18,6 +18,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type { LlmUsage } from "@slowcook-ai/core";
 import {
   NAVIGATOR_SYSTEM,
   buildNavigatorPrompt,
@@ -78,9 +79,19 @@ export interface PairNavigatorOptions {
   /** Per-iter cost ceiling — when the LLM call would exceed this,
    *  the hook abstains (returns null) instead of blocking the iter. */
   perIterBudgetUsd?: number;
-  /** Pricing per million tokens for cost computation. Required so
-   *  the hook can report costUsd accurately to the budget tracker. */
-  pricingPerMTokens: { input: number; output: number };
+  /** Pricing per million tokens for cost computation (legacy exact-key
+   *  shape). Superseded by `costFor` when both are given. */
+  pricingPerMTokens?: { input: number; output: number };
+  /** WP1 — list price through the ONE pricing table (prefix-aware,
+   *  cache-aware); `null` = unpriced. Preferred over `pricingPerMTokens`. */
+  costFor?: (usage: LlmUsage) => number | null;
+  /**
+   * WP1 — fired after EVERY API response, verdict or abstain alike, so the
+   * navigator's spend reaches the ledger even when the verdict is
+   * unparseable (the money was spent either way). brew/index.ts appends a
+   * `navigator` cost row from it.
+   */
+  onCall?: (info: { iteration: number; model: string; usage: LlmUsage; costUsd: number | null }) => void;
   /**
    * Loader for the per-call prompt context. Brew/agent.ts doesn't
    * carry mockFiles / codeMapDigest / storyTestIds / specYaml in
@@ -133,6 +144,8 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
     maxTokens = 1024,
     perIterBudgetUsd = 0.10,
     pricingPerMTokens,
+    costFor,
+    onCall,
     loadPromptContext,
   } = options;
   return {
@@ -181,10 +194,25 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
         return null;
       }
 
-      const usage = response.usage ?? { input_tokens: 0, output_tokens: 0 };
-      const costUsd =
-        (usage.input_tokens * pricingPerMTokens.input) / 1_000_000 +
-        (usage.output_tokens * pricingPerMTokens.output) / 1_000_000;
+      const raw = (response.usage ?? { input_tokens: 0, output_tokens: 0 }) as {
+        input_tokens?: number; output_tokens?: number;
+        cache_read_input_tokens?: number; cache_creation_input_tokens?: number;
+      };
+      const usage: LlmUsage = {
+        inputTokens: raw.input_tokens ?? 0,
+        outputTokens: raw.output_tokens ?? 0,
+        cacheReadTokens: raw.cache_read_input_tokens ?? 0,
+        cacheCreateTokens: raw.cache_creation_input_tokens ?? 0,
+      };
+      const priced: number | null = costFor
+        ? costFor(usage)
+        : pricingPerMTokens
+          ? (usage.inputTokens * pricingPerMTokens.input) / 1_000_000 +
+            (usage.outputTokens * pricingPerMTokens.output) / 1_000_000
+          : null;
+      try { onCall?.({ iteration: input.iteration, model, usage, costUsd: priced }); } catch { /* bookkeeping */ }
+      // Budget arithmetic keeps a number; the ledger (onCall) keeps the null.
+      const costUsd = priced ?? 0;
 
       if (costUsd > perIterBudgetUsd) {
         // Over-budget — surface as abstain so brew doesn't pay the

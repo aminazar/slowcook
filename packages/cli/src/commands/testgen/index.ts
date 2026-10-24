@@ -1,3 +1,5 @@
+import { costEntryUsd } from "@slowcook-ai/llm-anthropic";
+import { withLedger } from "../../lib/ledger-client.js";
 import { execSync } from "node:child_process";
 import { GitHubAdapter } from "@slowcook-ai/forge-github";
 import { createLlmClient } from "../refine/llm.js";
@@ -142,6 +144,11 @@ export async function testgen(argv: string[], cliVersion: string): Promise<void>
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(2);
+  }
+  // WP1 — testgen writes its own cost rows when it runs for one story
+  // (list price; null if unpriced). `--all` / `--pr` runs keep the bare client.
+  if (args.specId) {
+    llm = withLedger(llm, { repoRoot: args.repoRoot, storyId: args.specId, agent: "testgen", priceFor: costEntryUsd });
   }
   const githubToken = process.env["GITHUB_TOKEN"];
   if (!githubToken) {

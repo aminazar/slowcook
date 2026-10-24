@@ -7,7 +7,7 @@ import type {
   LlmRateLimits,
 } from "@slowcook-ai/core";
 import { LlmCreditExhaustedError } from "@slowcook-ai/core";
-import { costUsdForUsage } from "./pricing.js";
+import { costEntryUsd } from "./pricing.js";
 
 const ANTHROPIC_BILLING_URL = "https://console.anthropic.com/settings/billing";
 
@@ -181,7 +181,7 @@ export class AnthropicClient implements LlmClient {
       text,
       ...(toolUses.length > 0 ? { toolUses } : {}),
       usage,
-      costUsd: costUsdForUsage(args.model, usage),
+      costUsd: costEntryUsd(args.model, usage) ?? 0,
       model: args.model,
       rateLimits,
       stopReason: response.stop_reason ?? undefined,

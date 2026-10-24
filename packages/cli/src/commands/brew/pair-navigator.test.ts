@@ -3,6 +3,7 @@ import {
   navigatorVerdictToHookVerdict,
   extractTextFromResponse,
   parseNavigatorVerdict,
+  createPairNavigatorHook,
 } from "./pair-navigator.js";
 import type { NavigatorVerdict } from "@slowcook-ai/llm-anthropic";
 
@@ -154,5 +155,63 @@ describe("parseNavigatorVerdict", () => {
   it("throws when rationale is missing", () => {
     const text = JSON.stringify({ overall: "approve", axes: [] });
     expect(() => parseNavigatorVerdict(text)).toThrow(/rationale/);
+  });
+});
+
+describe("navigator spend reaches the ledger (WP1, 2026-10-24)", () => {
+  const verdictText = JSON.stringify({ overall: "approve", axes: [], rationale: "fine" });
+  const fakeAnthropic = (text: string) => ({
+    messages: {
+      create: async () => ({
+        content: [{ type: "text", text }],
+        usage: { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 500, cache_creation_input_tokens: 0 },
+      }),
+    },
+  }) as unknown as import("@anthropic-ai/sdk").default;
+  const input = {
+    iteration: 4, storyId: "7", filesTouched: ["src/a.ts"], linesAdded: 1, linesRemoved: 0,
+    rationale: "r", gainedTests: [], repoRoot: "/r",
+  };
+  const ctx = async () => ({ mockFiles: [], codeMapDigest: "", storyTestIds: [] });
+
+  it("prices through costFor (cache tokens included) and reports usage on every call", async () => {
+    const calls: Array<{ iteration: number; model: string; costUsd: number | null; cacheRead: number }> = [];
+    const hook = createPairNavigatorHook({
+      anthropic: fakeAnthropic(verdictText),
+      model: "claude-fable-5-1",
+      costFor: (u) => (u.inputTokens * 10 + u.outputTokens * 50 + u.cacheReadTokens * 1) / 1_000_000,
+      onCall: (i) => calls.push({ iteration: i.iteration, model: i.model, costUsd: i.costUsd, cacheRead: i.usage.cacheReadTokens }),
+      loadPromptContext: ctx,
+    });
+    const v = await hook.review(input);
+    expect(calls).toEqual([{ iteration: 4, model: "claude-fable-5-1", costUsd: 0.0155, cacheRead: 500 }]);
+    expect(v?.costUsd).toBeCloseTo(0.0155, 6);
+  });
+
+  it("an unparseable verdict still reports the spend (abstain is not free)", async () => {
+    const calls: number[] = [];
+    const hook = createPairNavigatorHook({
+      anthropic: fakeAnthropic("not json at all"),
+      model: "m",
+      costFor: () => 0.02,
+      onCall: (i) => calls.push(i.costUsd ?? -1),
+      loadPromptContext: ctx,
+    });
+    expect(await hook.review(input)).toBeNull();
+    expect(calls).toEqual([0.02]);
+  });
+
+  it("an unpriced model reaches the ledger as null while the budget keeps a number", async () => {
+    let seen: number | null | undefined;
+    const hook = createPairNavigatorHook({
+      anthropic: fakeAnthropic(verdictText),
+      model: "claude-unknown",
+      costFor: () => null,
+      onCall: (i) => { seen = i.costUsd; },
+      loadPromptContext: ctx,
+    });
+    const v = await hook.review(input);
+    expect(seen).toBeNull();
+    expect(v?.costUsd).toBeUndefined();
   });
 });

@@ -19,6 +19,8 @@
  *     --story 018
  */
 
+import { costEntryUsd } from "@slowcook-ai/llm-anthropic";
+import { withLedger } from "../../lib/ledger-client.js";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { recallContext } from "../recall/context.js";
@@ -429,7 +431,10 @@ export async function chefOrchestrate(argv: string[], cliVersion: string): Promi
   const userContent = recalled ? `${recalled}\n\n---\n\n${prompt}` : prompt;
 
   console.log(`  prompt: ${userContent.length} chars · calling chef-orchestrate LLM (${args.model})`);
-  const client = new AnthropicClient(apiKey);
+  // WP1 — chef-orchestrate writes its own cost rows (list price; null if unpriced).
+  const client = withLedger(new AnthropicClient(apiKey), {
+    repoRoot: args.repoRoot, storyId: args.storyId, agent: "chef-orchestrate", priceFor: costEntryUsd,
+  });
   const resp = await client.complete({
     model: args.model,
     system: CHEF_ORCHESTRATE_SYSTEM,

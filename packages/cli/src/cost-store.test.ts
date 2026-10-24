@@ -8,6 +8,10 @@ import {
   readCostTotal,
   applyCostToSpec,
   costSidecarPath,
+  filterEntries,
+  sumEntries,
+  withRunProvenance,
+  type CostEntry,
 } from "./cost-store.js";
 
 function makeRepo(): string {
@@ -138,5 +142,49 @@ describe("cost-store sidecar (sc#67)", () => {
     appendCostEntry(repo, "007", { agent: "vibe", usd: 0.2, at: "t2" });
     const out = applyCostToSpec(repo, "007");
     expect(out.totalUsd).toBe(0.3);
+  });
+});
+
+describe("cost-store run provenance + filters (WP1, 2026-10-24)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = makeRepo();
+  });
+
+  it("stamps run_id/arm from the environment when the writer left them blank", () => {
+    const env = { SLOWCOOK_RUN_ID: "exp1/007/swarm/1", SLOWCOOK_ARM: "swarm" } as NodeJS.ProcessEnv;
+    appendCostEntry(repo, "007", { agent: "brew", usd: 0.5, at: "2026-10-24T00:00:00Z" }, env);
+    appendCostEntry(repo, "007", { agent: "brew", usd: 0.1, at: "2026-10-24T00:01:00Z", run_id: "explicit", arm: "plain" }, env);
+    appendCostEntry(repo, "007", { agent: "brew", usd: 0.2, at: "2026-10-24T00:02:00Z" }, {} as NodeJS.ProcessEnv);
+    const { entries } = readCostTotal(repo, "007");
+    expect(entries[0]).toMatchObject({ run_id: "exp1/007/swarm/1", arm: "swarm" });
+    expect(entries[1]).toMatchObject({ run_id: "explicit", arm: "plain" });
+    expect(entries[2]!.run_id).toBeUndefined();
+    expect(entries[2]!.arm).toBeUndefined();
+  });
+
+  it("old rows without the new fields still parse", () => {
+    writeFileSync(costSidecarPath(repo, "3"), '{"agent":"refine","usd":0.42,"at":"2026-05-01T00:00:00Z"}\n', "utf8");
+    const { entries, totalUsd } = readCostTotal(repo, "3");
+    expect(entries).toHaveLength(1);
+    expect(totalUsd).toBe(0.42);
+  });
+
+  it("filterEntries + sumEntries: one definition of 'the cost of run X'; unpriced never sums as 0", () => {
+    const rows: CostEntry[] = [
+      { agent: "brew", usd: 1, at: "a", run_id: "r1", arm: "plain" },
+      { agent: "navigator", usd: null, at: "b", run_id: "r1", arm: "plain" },
+      { agent: "brew", usd: 5, at: "c", run_id: "r2", arm: "swarm" },
+    ];
+    const r1 = filterEntries(rows, { run_id: "r1" });
+    expect(r1).toHaveLength(2);
+    expect(sumEntries(r1)).toEqual({ totalUsd: 1, unpricedCount: 1 });
+    expect(filterEntries(rows, { arm: "swarm", agent: "brew" })).toHaveLength(1);
+    expect(filterEntries(rows, {})).toHaveLength(3);
+  });
+
+  it("withRunProvenance is pure and returns the same object when nothing applies", () => {
+    const e: CostEntry = { agent: "x", usd: 0, at: "t" };
+    expect(withRunProvenance(e, {} as NodeJS.ProcessEnv)).toBe(e);
   });
 });

@@ -19,6 +19,18 @@ export interface HaltReport {
   model: string;
   summary_plain_english: string;
   /**
+   * 2026-10-24 (swarm-vs-plain WP1) — wall-clock. Nothing stored a brew's
+   * duration before this; "speed" was unmeasurable after the fact.
+   * `started_at` is when `slowcook brew` began; `wall_ms` the span to the
+   * halt. `run_id` / `arm` echo SLOWCOOK_RUN_ID / SLOWCOOK_ARM so a halt
+   * joins the cost ledger rows of the same run.
+   */
+  started_at?: string;
+  finished_at?: string;
+  wall_ms?: number;
+  run_id?: string;
+  arm?: string;
+  /**
    * α.51 — brew mode in effect when the halt fired. Populated by
    * brew/agent.ts from BrewContext.allowedPaths + the dispatched
    * --mode flag. Chef reads this to know whether
@@ -142,6 +154,14 @@ export function writeHaltReport(path: string, report: HaltReport): void {
   writeFileSync(path, JSON.stringify(report, null, 2) + "\n", "utf8");
 }
 
+/** "1h 03m" / "12m 05s" / "42s". Pure; exported for tests. */
+export function formatWallClock(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  if (s >= 60) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
 /** Render a halt report as a markdown comment for posting on an issue. */
 export function haltReportToMarkdown(report: HaltReport): string {
   const lines: string[] = [];
@@ -152,7 +172,9 @@ export function haltReportToMarkdown(report: HaltReport): string {
     `**Progress:** ${report.tests_green}/${report.tests_total} tests green · ${report.checkpoints_committed} checkpoint(s) · ${report.iterations_run} iteration(s)`
   );
   lines.push(
-    `**Spend:** $${report.tokens_spent_usd.toFixed(2)} of $${report.budget_usd.toFixed(2)} budget · model \`${report.model}\``
+    `**Spend:** $${report.tokens_spent_usd.toFixed(2)} of $${report.budget_usd.toFixed(2)} budget · model \`${report.model}\`` +
+      (typeof report.wall_ms === "number" ? ` · wall-clock ${formatWallClock(report.wall_ms)}` : "") +
+      (report.run_id ? ` · run \`${report.run_id}\`` : "")
   );
   lines.push("");
   lines.push("#### What happened");

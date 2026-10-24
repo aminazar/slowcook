@@ -497,12 +497,32 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
   let navigatorHook: BrewContext["navigatorHook"] = undefined;
   if (effectiveWithNavigator) {
     const { createPairNavigatorHook } = await import("./pair-navigator.js");
-    const { PRICING_PER_M_TOKENS } = await import("@slowcook-ai/llm-anthropic");
-    const navPricing = PRICING_PER_M_TOKENS[args.navigatorModel] ?? { input: 3, output: 15 };
+    const { costEntryUsd } = await import("@slowcook-ai/llm-anthropic");
+    const { appendCostEntry } = await import("../../cost-store.js");
     navigatorHook = createPairNavigatorHook({
       anthropic,
       model: args.navigatorModel,
-      pricingPerMTokens: navPricing,
+      // WP1 — the ONE pricing table (prefix-aware), not an exact-key lookup
+      // that silently fell back to sonnet prices for any other model.
+      costFor: (usage) => costEntryUsd(args.navigatorModel, usage),
+      // WP1 — navigator spend used to live only in brew's in-memory
+      // `spendUsd`; the halt total and the ledger disagreed by exactly it.
+      onCall: ({ iteration, model, usage, costUsd }) => {
+        try {
+          appendCostEntry(args.repoRoot, args.storyId, {
+            agent: "navigator",
+            stage: "brew",
+            usd: costUsd,
+            model,
+            round: `iter-${iteration}`,
+            at: new Date().toISOString(),
+            tokens_in: usage.inputTokens,
+            tokens_out: usage.outputTokens,
+            cache_read: usage.cacheReadTokens,
+            cache_create: usage.cacheCreateTokens,
+          });
+        } catch { /* bookkeeping never halts the work */ }
+      },
       // Lean loader: fills in only what's cheap to derive from the
       // brew context. Spec yaml + cross-story file list are pulled
       // from disk; mock files are scoped to the story dir; storyTestIds
@@ -594,6 +614,7 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
     maxIterations: args.maxIterations,
     wallClockMs: args.wallClockMs,
     now: () => new Date(),
+    startedAt,
     branchName,
     allowedPaths,
     frozenPaths,

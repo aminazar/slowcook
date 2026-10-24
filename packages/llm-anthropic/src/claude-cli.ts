@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import type {
   LlmToolDef,
   LlmToolUse, LlmClient, LlmRequest, LlmResponse } from "@slowcook-ai/core";
-import { costUsdForUsage } from "./pricing.js";
+import { costEntryUsd } from "./pricing.js";
 
 /**
  * Key-less Claude adapter: drives the `claude` CLI's headless print mode,
@@ -230,7 +230,7 @@ export class ClaudeCliClient implements LlmClient {
       text,
       ...(toolUses.length > 0 ? { toolUses } : {}),
       usage,
-      costUsd: costUsdForUsage(args.model, usage),
+      costUsd: costEntryUsd(args.model, usage) ?? 0,
       model: args.model,
       stopReason,
     };
