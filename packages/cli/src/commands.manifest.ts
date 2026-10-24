@@ -131,6 +131,13 @@ export const COMMANDS: ReadonlyArray<CommandEntry> = [
     group: "knowledge",
   },
   {
+    name: "experiment",
+    usage: "slowcook experiment run --story <id> --arm <plain|pipeline|swarm> [--exp <id>] [--seed <k>] [--dry-run] · report [--exp <id>] [--json] · classify --run <id> [--confirm <class> --by <name>]",
+    description: "Compare arms (plain Claude Code · pipeline · cheap-brew swarm) on cost, coverage and speed; classify each halt as knowledge or reasoning with evidence.",
+    group: "experimental",
+    status: "experimental",
+  },
+  {
     name: "cost",
     usage: "slowcook cost log --story <id> --usd <n> --agent <name> [--apply-to-spec] · slowcook cost reprice (--story <id>|--all) [--dry-run]",
     description: "Stamp a cost marker on a story for non-Actions agents; reprice settles entries against the current pricing table from their stored token counts.",

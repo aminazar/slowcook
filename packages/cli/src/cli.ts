@@ -241,6 +241,12 @@ async function main(): Promise<void> {
     case "catchup":
       await catchup(args.slice(1), VERSION);
       return;
+    case "experiment": {
+      // 2026-10-24 — swarm-vs-plain harness: run arms, report, classify failures.
+      const { experiment } = await import("./commands/experiment/index.js");
+      await experiment(args.slice(1));
+      return;
+    }
     case "verify": {
       // PR-E (2026-08-23) — the human merge-gate battery as one command.
       const { verify } = await import("./commands/verify/index.js");

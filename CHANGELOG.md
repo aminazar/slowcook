@@ -6,6 +6,23 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## Unreleased — `slowcook experiment`: the swarm-vs-plain harness (WP3)
+
+`slowcook experiment run | report | classify | arms` — compare arms on cost,
+coverage and speed under one run id. Arms: `plain` (plain Claude Code given
+the issue text ONLY — the story's spec, manifest and tests are removed from
+its worktree and committed away, then restored for a hidden
+`verify --json` oracle), `pipeline` (brew as shipped), `swarm` (haiku brew
+under a fable navigator); consumers override in `.brewing/experiments/arms.json`.
+Each run writes `run.json`, `verify.json`, `cost.jsonl` (ledger rows by run
+id), `summary.json`/`halt.json`, `plain.json`, `transcripts/`. `report`
+aggregates story × arm over seeds, reprices in memory (one price basis),
+never sums unpriced rows as $0, and splits the plain arm's red tests into
+selector-only (a hook it could not know) vs behavioural. `classify` drafts
+knowledge/re-discovery · wrong-file · wrong-signature · lost-clarification
+vs reasoning vs harness from evidence, for a human to confirm. Protocol and
+stated biases: `docs/experiments/swarm-vs-plain-2026-10-24.md`.
+
 ## Unreleased — honest numbers before the swarm-vs-plain experiment (WP1)
 
 Measurement fixes that have to land before any arm of the haiku-swarm vs
