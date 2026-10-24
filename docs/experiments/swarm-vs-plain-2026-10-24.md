@@ -93,4 +93,26 @@ GitHub comment channel stays as the human-visible mirror.
 
 ## Results
 
-_(filled after the runs: the `report --md` table per story, classifications per halt, and the decision.)_
+### Smoke run `smoke-1` — story-024 (issue #292), base d37f914, one seed, budget $3
+
+Run 2026-10-24 on rewo, worker timer off. At base, 13 of the story's 25
+tests are already green (the red-by-design set is 12).
+
+| story | arm | n | cost $ | green/total | verdict | selector-only | behavioural | new reds | tsc regr | wall min | iters | halts | models |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 024 | pipeline | 1 | 0.51 | 25/25 | all-green | 0 | 0 | 1 | 1 | 11.9 | 3 | TRANSITIVE_REGRESSION | claude-haiku-4-5 |
+| 024 | plain | 1 | 0.34 | 13/25 | partial | 8 | 4 | 0 | 0 | 3.8 | 18 | plain:done | claude-sonnet-5-5 |
+| 024 | swarm | 1 | 0.02 | 13/25 | partial | 8 | 4 | 0 | 0 | 3.8 | 2 | AGENT_STALLED_NO_EDITS | claude-haiku-5-5 |
+
+Price basis (list, $/M tokens): fable-5-1 10/50 · haiku-4-5 1/5 · haiku-5-5 0.1/0.5 · sonnet-5-5 2/10.
+Plain-arm oracle: backend suite only (`--oracle-suites backend`), base measured the same way; brew arms: every suite.
+
+What one seed of one story says (and does not say):
+
+- **Pipeline** (the box pins brew to haiku-4-5, so "as-is" on rewo is a haiku brew without a navigator) turned all 25 story tests green in 3 iterations for $0.51, and halted on the full-suite gate: one true regression in story-013's feed-connections test. The classifier's draft (`wrong-file`: feed-list.tsx) was a false positive — the story's static-check test names that file by path rather than importing it; fixed in the rubric the same day. The halt itself is a real regression the gate caught, as designed.
+- **Plain** (sonnet-5-5, issue text only) finished in 3.8 minutes for $0.34 and gained **zero** story tests: 8 reds are selector-only (RewoCard/FeedList text and hooks the tests pin), 4 are behavioural (the API route never gained the `reaction` object the tests read; the FeedList static check). It implemented the timestamps on `feed-page.tsx` — the surface the spec's own later amendment (rewo #311–#313) identified as the page users actually see, which the original contract (RewoCard/FeedList) had missed. One story cannot settle whether that is "plain found the real surface" or "plain ignored the contract"; it is exactly the comparison the behavioural column exists for.
+- **Swarm** (haiku-5-5) read 9 files in iteration 1, made zero tool calls in iteration 2 and halted on the stall cap after $0.02. Its oracle equals base. Draft class: reasoning (the model stopped acting on correct inputs). The fable navigator never ran: it reviews only after a checkpoint, and the box has no API key — the navigator calls the Anthropic SDK directly, so on subscription auth it abstains. **The swarm arm as defined cannot run on the box until the navigator goes through the LlmClient seam.**
+
+Harness defects the smoke found and fixed the same day (PRs #568–#570 and the classifier follow-up): brew arms must not write to GitHub; a worktree cannot run the acceptance/db suites and the old verify discarded the backend verdicts with them; brew arms left the main checkout dirty; typecheck "regressions" counted base's own debt; a never-ran arm reported $0; classifier drafts must ignore reds already red at base.
+
+Decision: none yet — a smoke run is not a sample. Next: fix the navigator seam, pin the pipeline arm's model explicitly in `arms.json` (box env vs. stage default is a choice, not an accident), then the story set.
