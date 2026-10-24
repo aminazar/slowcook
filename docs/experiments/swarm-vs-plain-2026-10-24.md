@@ -131,4 +131,54 @@ What one seed of one story says (and does not say):
 
 Harness defects the smoke found and fixed the same day (PRs #568–#570 and the classifier follow-up): brew arms must not write to GitHub; a worktree cannot run the acceptance/db suites and the old verify discarded the backend verdicts with them; brew arms left the main checkout dirty; typecheck "regressions" counted base's own debt; a never-ran arm reported $0; classifier drafts must ignore reds already red at base.
 
-Decision: none yet — a smoke run is not a sample. Next: fix the navigator seam, pin the pipeline arm's model explicitly in `arms.json` (box env vs. stage default is a choice, not an accident), then the story set.
+Decision after the smoke: none — a smoke run is not a sample. The navigator seam was fixed (#573, #574, #575), the pipeline arm pinned, the box CLI updated (fable-5-1 needs Claude Code ≥ 2.1.251), and the set ran.
+
+### Set `set-1` — nine stories, seed 1, $5 budget, 2026-10-24 14:02–17:51 CEST
+
+Arms: `plain` = sonnet-5-5 on the issue text only (oracle: backend suite); `pipeline` = brew with sonnet-5-5; `swarm` = brew with haiku-5-5 under a fable-5-1 navigator ($0.50/iteration cap). Prices are list prices; the box runs on subscription auth.
+
+| story | arm | cost $ | green/total | verdict | selector-only | behavioural | new reds | tsc | wall min | iters | halt |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 016 | pipeline | 0.46 | 27/27 | all-green | 0 | 0 | 0 | 0 | 10.9 | 3 | SUCCESS |
+| 016 | plain | 0.42 | 16/27 (1 not run) | partial | 2 | 8 | 0 | 3 | 4.2 | 16 | done |
+| 016 | swarm | 1.10 | 27/27 | all-green | 0 | 0 | 0 | 0 | 15.9 | 5 | SUCCESS |
+| 017 | pipeline | 0.67 | 18/24 | partial | 0 | 6 | 0 | 0 | 9.5 | 5 | STALLED |
+| 017 | plain | 0.26 | 11/24 | partial | 0 | 13 | 0 | 3 | 3.3 | 14 | done |
+| 017 | swarm | 0.25 | 17/24 | partial | 1 | 6 | 0 | 1 | 5.6 | 3 | STALLED |
+| 019 | pipeline | 0.22 | 20/20 | all-green | 0 | 0 | 0 | 0 | 6.4 | 1 | SUCCESS |
+| 019 | plain | 0.24 | 19/20 (1 not run) | partial | 0 | 0 | 0 | 0 | 2.9 | 14 | done |
+| 019 | swarm | 0.42 | 20/20 | all-green | 0 | 0 | 1* | 0 | 9.4 | 2 | SUCCESS |
+| 020 | pipeline | 0.43 | 21/21 | all-green | 0 | 0 | 0 | 0 | 11.1 | 3 | SUCCESS |
+| 020 | plain | 0.19 | 16/21 | partial | 0 | 5 | 1 | 0 | 2.8 | 12 | done |
+| 020 | swarm | 1.50 | 21/21 | all-green | 0 | 0 | 0 | 0 | 25.8 | 9 | SUCCESS |
+| 021 | pipeline | ? | 6/30 (1 not run) | partial | 0 | 23 | 0 | 0 | 2.9 | 0 | MANIFEST_DRIFT |
+| 021 | plain | 0.27 | 19/30 (1 not run) | partial | 0 | 10 | 0 | 0 | 3.4 | 12 | done |
+| 021 | swarm | ? | 6/30 (1 not run) | partial | 0 | 23 | 0 | 0 | 2.0 | 0 | MANIFEST_DRIFT |
+| 022 | pipeline | 0.27 | 20/20 | all-green | 0 | 0 | 0 | 1 | 9.5 | 2 | TRANSITIVE_REGRESSION |
+| 022 | plain | 0.19 | 16/20 | partial | 0 | 4 | 0 | 0 | 3.3 | 16 | done |
+| 022 | swarm | 0.26 | 18/20 | partial | 0 | 2 | 1 | 1 | 6.6 | 3 | STALLED |
+| 024 | pipeline | 0.53 | 25/25 | all-green | 0 | 0 | 0 | 0 | 12.5 | 3 | SUCCESS |
+| 024 | plain | 0.17 | 13/25 | partial | 8 | 4 | 0 | 0 | 3.2 | 15 | done |
+| 024 | swarm | 1.30 | 25/25 | all-green | 0 | 0 | 0 | 0 | 19.5 | 6 | SUCCESS |
+| 025 | pipeline | 0.67 | 28/30 | partial | 0 | 2 | 0 | 0 | 15.5 | 6 | STALLED |
+| 025 | plain | 0.13 | 14/30 | partial | 6 | 10 | 1 | 0 | 3.4 | 16 | done |
+| 025 | swarm | 0.79 | 22/30 | partial | 0 | 8 | 1* | 0 | 16.6 | 6 | STALLED |
+| 026 | pipeline | 0.23 | 10/10 | all-green | 0 | 0 | 0 | 0 | 7.5 | 1 | SUCCESS |
+| 026 | plain | 0.12 | 2/10 | partial | 0 | 8 | 0 | 0 | 2.9 | 10 | done |
+| 026 | swarm | 0.62 | 10/10 | all-green | 0 | 0 | 1* | 0 | 10.9 | 3 | SUCCESS |
+
+`*` the "new red" is `tests/integration/story-009-ui.test.tsx`, the pre-existing order-dependent flake already on record (rewo #230), not a regression of the arm. Story-021 is a harness case at its base: the manifest lists a test the runner cannot discover, so both brew arms halted `MANIFEST_DRIFT` before spending; excluded from the arm comparison below.
+
+**Totals, eight comparable stories (021 excluded):**
+
+| arm | cost $ | story tests green | stories all-green | selector-only reds | behavioural reds | wall min |
+|---|---|---|---|---|---|---|
+| plain (sonnet-5-5, issue only) | 1.73 | 107/177 | 0/8 | 16 | 52 | 26 |
+| pipeline (sonnet-5-5 brew) | 3.48 | 169/177 | 6/8 | 0 | 8 | 83 |
+| swarm (haiku-5-5 + fable navigator) | 6.24 | 160/177 | 5/8 | 1 | 16 | 110 |
+
+Of the swarm's $6.24, **$6.01 is the navigator and $0.24 the haiku brew**: haiku's implementation spend was 14× below sonnet's for 160 vs 169 green tests. The navigator approved every one of its 68 reviews (zero blocks); on this set it bought no steering.
+
+**What the halts were.** Every brew halt that was not harness was `AGENT_STALLED_NO_EDITS`, and every stall rationale names a contract the model could not honestly satisfy: 017 (both arms) "the target test and an existing test require opposite results from identical setups" — the known 016/017 spec contradiction; 022 swarm "the component has 3 className attributes, the test requires 4"; 025 pipeline "the mock helper never records the select strings the test reads"; 025 swarm "the test expects an ASCII apostrophe, React escapes it". Sonnet stalled on 017 and 025 too; haiku alone stalled on 022. The classifier's drafts (`wrong-file` for sonnet's stalls, `reasoning` for haiku's) are wrong in the same way: a stall with that rationale is a **contract defect** — the #548 lesson, the agent blaming the test was right — and belongs under `harness`, not knowledge or reasoning. Human confirmation pending.
+
+**Reading, for the decision rule.** On eight stories and one seed, haiku's only own failure (022) was a test that pins an implementation detail, not missing knowledge of files, signatures or clarifications: zero `knowledge/*` classes survive the rationale check. The plain arm never reached the contract (0/8 all-green) but was 2× cheaper and 3× faster than the pipeline, and its behavioural-red count (52) is the honest size of what the spec + tests + manifest buy. One seed; seed 2 on the stories where the brew arms disagreed (017, 022, 025) is the agreed next step before anything is concluded.
