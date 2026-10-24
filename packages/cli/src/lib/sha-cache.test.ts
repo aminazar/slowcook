@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cacheKey, memoBySha, treeFingerprint, CACHE_ROOT_REL, describeMemo } from "./sha-cache.js";
+import { cacheKey, memoBySha, treeFingerprint, CACHE_ROOT_REL, describeMemo, isFingerprintExcluded } from "./sha-cache.js";
 
 function fakeGit(state: { head: string; status: string; diff?: string }) {
   return (cmd: string): string => {
@@ -18,6 +18,10 @@ describe("sha-keyed cache (WP4)", () => {
     const root = mkdtempSync(join(tmpdir(), "shacache-"));
     const clean = treeFingerprint(root, fakeGit({ head: "abc", status: "" }));
     expect(clean).toEqual({ head_sha: "abc", dirty: "clean" });
+    // slowcook's own artifacts are never dirt (the producer's report must not invalidate the producer)
+    expect(treeFingerprint(root, fakeGit({ head: "abc", status: "?? .brewing/recon/story-026.json\0?? mock/.brewing/x.json\0" }))).toEqual({ head_sha: "abc", dirty: "clean" });
+    expect(isFingerprintExcluded(".brewing/local/cache/a.json")).toBe(true);
+    expect(isFingerprintExcluded("src/.brewing-ish.ts")).toBe(false);
     const d1 = treeFingerprint(root, fakeGit({ head: "abc", status: " M src/a.ts\0", diff: "-x\n+y" }));
     const d2 = treeFingerprint(root, fakeGit({ head: "abc", status: " M src/a.ts\0", diff: "-x\n+z" }));
     expect(d1.dirty).not.toBe("clean");

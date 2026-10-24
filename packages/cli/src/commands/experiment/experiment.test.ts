@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mergeArms, DEFAULT_ARMS, resolveArm, runIdFor } from "./arms.js";
 import { buildPlainPrompt, plainArgv, runPlainArm, PLAIN_DONE_MARKER, PLAIN_NUDGE } from "./arm-plain.js";
 import { aggregateRuns, isSelectorOnlyFailure, summarizeOne, priceBasis } from "./report.js";
-import { rediscoverySignal, wrongSignatureSignal, wrongFileSignal, lostClarificationSignal, reasoningSignal, draftClass, classifyRun, contractDefectSignal, stallSignal } from "./classify.js";
+import { rediscoverySignal, wrongSignatureSignal, wrongFileSignal, lostClarificationSignal, reasoningSignal, draftClass, classifyRun, contractDefectSignal, stallSignal, crossContractSignal } from "./classify.js";
 import { storyArtifactPaths } from "./tree.js";
 import { parseRunArgs, brewArgv, modelsFor, captureTestImports } from "./run.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -272,5 +272,15 @@ describe("a stall that names the contract is a contract defect (set-1 ruling, #5
     expect(stallSignal("AGENT_STALLED_NO_EDITS", 2, "I ran out of ideas.").map((s) => s.kind)).toEqual(["reasoning"]);
     expect(contractDefectSignal("AGENT_STALLED_NO_EDITS", "I ran out of ideas.")).toEqual([]);
     expect(contractDefectSignal("SUCCESS_ALL_GREEN", rationales[0])).toEqual([]);
+  });
+});
+
+describe("a regression halt on another story's test with the story all green is a cross-contract conflict", () => {
+  it("fires only for TRANSITIVE_REGRESSION, all-green story, other story's test named", () => {
+    const sum = "Story tests all green, but the full-suite gate found 1 TRUE regression(s). First true regression: `tests/integration/story-016.test.ts > POST /api/pins > pins by slug`";
+    expect(crossContractSignal("TRANSITIVE_REGRESSION", "017", { green: 24, total: 24 }, sum).map((s) => s.kind)).toEqual(["harness"]);
+    expect(crossContractSignal("TRANSITIVE_REGRESSION", "016", { green: 24, total: 24 }, sum)).toEqual([]);
+    expect(crossContractSignal("TRANSITIVE_REGRESSION", "017", { green: 20, total: 24 }, sum)).toEqual([]);
+    expect(crossContractSignal("SUCCESS_ALL_GREEN", "017", { green: 24, total: 24 }, sum)).toEqual([]);
   });
 });

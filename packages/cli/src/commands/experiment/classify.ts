@@ -132,6 +132,27 @@ export function contractDefectSignal(haltReason: string | undefined, rationale: 
   return [{ kind: "harness", evidence: `stall rationale names a contract defect (#548: the agent blaming the test was right): ${rationale.replace(/\s+/g, " ").slice(0, 200)}` }];
 }
 
+/**
+ * The story's own tests all green and the full-suite gate red on ANOTHER
+ * story's test: two merged contracts in conflict (set-1 seed 2: 017's
+ * rewo_id vs 016's rewoSlug, 022's 401 body vs the B-7 regression test).
+ * Both models made the same move; it is the contract, not the model. The
+ * human still decides — a true regression looks the same from here, which
+ * the evidence says. Pure.
+ */
+export function crossContractSignal(
+  haltReason: string | undefined,
+  storyId: string,
+  contract: { green: number; total: number } | undefined,
+  summary: string | undefined
+): Signal[] {
+  if (haltReason !== "TRANSITIVE_REGRESSION" || !contract || contract.total === 0 || contract.green < contract.total) return [];
+  const m = summary?.match(/`([^`]*story-0*(\d+)[^`]*)`/);
+  const other = m && m[2] && m[2].replace(/^0+/, "") !== storyId.replace(/^0+/, "") ? m[1] : undefined;
+  if (!other) return [];
+  return [{ kind: "harness", evidence: `story tests all green; the gate's first regression is another story's test (${other.slice(0, 100)}) — two merged contracts conflict, or a true regression: human decides` }];
+}
+
 /** The agent stopped acting WITHOUT naming a contract problem: reasoning, not knowledge. Pure. */
 export function stallSignal(haltReason: string | undefined, iterations: number | undefined, rationale?: string): Signal[] {
   if (!haltReason || !STALL_HALTS.has(haltReason)) return [];
@@ -168,6 +189,7 @@ export function classifyRun(run: LoadedRun, extras: ClassifyExtras, now: () => D
   const signals: Signal[] = [
     ...harnessSignal(run.halt?.halt_reason ?? run.summary?.halt_reason),
     ...contractDefectSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.halt?.last_agent_rationale),
+    ...crossContractSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.record.story, run.verify?.story_contract, run.halt?.summary_plain_english),
     ...stallSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.halt?.iterations_run ?? run.summary?.iterations, run.halt?.last_agent_rationale),
     ...(untouched > 0 ? [{ kind: "note", evidence: `${untouched} red test(s) were already red at base — not attributed to this arm` }] : []),
     ...rediscoverySignal(extras.iterationsLog ?? ""),
