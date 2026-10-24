@@ -40,7 +40,8 @@ Report columns: cost $, green/total, verdict, selector-only vs behavioural reds,
 1. **The hidden oracle favours the pipeline.** The tests pin `data-testid` hooks, prop names and accessible names the plain arm could not know. `report` splits red tests whose failure text names a missing hook (`selector-only`) from the rest (`behavioural`). Read the behavioural column as the fair comparison and the selector column as the price of not having the contract.
 2. **The plain arm's oracle runs `--skip-db`** (it runs in a worktree; the local database stack is a per-directory singleton). Stateful stories therefore under-report plain-arm coverage on the db suite; the brew arms run in the main checkout with the db suite on.
 3. **The brew arms replay from the merged spec + tests** (brew-only comparison). A full-chain arm (refine → recipe → brew from the issue) needs a human in the loop for clarifications and is a separate, labelled arm if run.
-4. **Prices are list prices.** Subscription auth (`claude-cli`) spends no API dollars; the comparison is what each arm *would* cost.
+4. **Brew arms run with `SLOWCOOK_BREW_LOCAL=1`**: no branch push, no draft PR, no halt comment on the source issue (the stories are shipped; the product repo must not collect experiment PRs). Everything else brew does is unchanged.
+5. **Prices are list prices.** Subscription auth (`claude-cli`) spends no API dollars; the comparison is what each arm *would* cost.
 
 ## Story set
 

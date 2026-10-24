@@ -8,6 +8,10 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ## Unreleased — `slowcook experiment`: the swarm-vs-plain harness (WP3)
 
+- `SLOWCOOK_BREW_LOCAL=1`: brew keeps every GitHub write to itself (no push,
+  no draft PR, no halt comment); the ratchet, halts, ledger and summary are
+  unchanged. The harness's brew arms set it — they re-implement shipped stories.
+
 `slowcook experiment run | report | classify | arms` — compare arms on cost,
 coverage and speed under one run id. Arms: `plain` (plain Claude Code given
 the issue text ONLY — the story's spec, manifest and tests are removed from
