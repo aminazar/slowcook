@@ -24,6 +24,17 @@ export interface SpecSlice {
   invariants: string[];
   acceptance_scenarios: string[];
   non_goals: string[];
+  /**
+   * WP2 (2026-10-24) — the PM's clarify-session answers (S2 #527), flattened
+   * across sessions newest-first and ALWAYS kept whole, like `non_goals`.
+   * Until now the slice dropped them, so brew never saw a single PM ruling:
+   * every "lost clarification" failure in the haiku arm was unmeasurable
+   * because the model was never shown the answer it supposedly lost.
+   */
+  clarifications: string[];
+  /** Approved proposals, one line each (`<category>: <summary>`). Pending,
+   *  rejected and deferred proposals are not law and are not rendered. */
+  proposals_accepted: string[];
   /** True when the slicer fell back to the full spec (heuristic too weak). */
   fellBack: boolean;
   /** For iter-log telemetry. */
@@ -99,6 +110,46 @@ export function extractIdentifiersFromTargetTest(targetTestId: string): Set<stri
   }
 
   return ids;
+}
+
+/** Flatten clarify-session entries, newest session first, verbatim. */
+export function flattenClarifications(spec: Spec): string[] {
+  const sessions = spec.clarifications ?? [];
+  return [...sessions]
+    .reverse()
+    .flatMap((s) => (Array.isArray(s.entries) ? s.entries : []))
+    .filter((e): e is string => typeof e === "string" && e.trim().length > 0);
+}
+
+/**
+ * One line per APPROVED proposal. The shape differs per category, so the
+ * summary is the category's load-bearing field: DDL for schema, paths for
+ * routes, endpoints for api_shape, requirements for auth, the rationale
+ * otherwise. Nothing is invented — a category with no summarisable field
+ * still appears by name so brew knows the PM approved it.
+ */
+export function approvedProposalLines(spec: Spec): string[] {
+  const proposals = (spec.proposals ?? {}) as Record<string, unknown>;
+  const lines: string[] = [];
+  for (const [category, raw] of Object.entries(proposals)) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = raw as Record<string, unknown>;
+    if (p.status !== "approved") continue;
+    let summary = "";
+    if (typeof p.sql === "string") summary = p.sql.replace(/\s+/g, " ").trim();
+    else if (Array.isArray(p.paths)) {
+      summary = (p.paths as Array<{ path?: string; file?: string }>)
+        .map((r) => `${r.path ?? "?"} → ${r.file ?? "?"}`)
+        .join(", ");
+    } else if (Array.isArray(p.endpoints)) {
+      summary = (p.endpoints as Array<{ method?: string; path?: string }>)
+        .map((e) => `${e.method ?? "?"} ${e.path ?? "?"}`)
+        .join(", ");
+    } else if (Array.isArray(p.requirements)) summary = (p.requirements as string[]).join("; ");
+    else if (typeof p.rationale === "string") summary = p.rationale.trim();
+    lines.push(summary ? `${category}: ${summary}` : `${category}: approved`);
+  }
+  return lines;
 }
 
 /**
@@ -188,6 +239,8 @@ export function sliceSpecForTarget(
     invariants: keptInv,
     acceptance_scenarios: keptScn,
     non_goals: nonGoals, // always kept whole
+    clarifications: flattenClarifications(spec), // always kept whole — PM answers are law
+    proposals_accepted: approvedProposalLines(spec),
     fellBack,
     ratio: {
       invariants: { kept: keptInv.length, total: invariants.length },
@@ -222,6 +275,18 @@ export function renderSpecSlice(slice: SpecSlice, fullSpec: Spec): string {
     lines.push("non_goals:");
     for (const ng of slice.non_goals) {
       lines.push(`  - ${JSON.stringify(ng)}`);
+    }
+  }
+  if (slice.clarifications.length > 0) {
+    lines.push("clarifications:  # PM answers, verbatim — these are law over any reading of the lines above");
+    for (const c of slice.clarifications) {
+      lines.push(`  - ${JSON.stringify(c)}`);
+    }
+  }
+  if (slice.proposals_accepted.length > 0) {
+    lines.push("proposals_approved:");
+    for (const p of slice.proposals_accepted) {
+      lines.push(`  - ${JSON.stringify(p)}`);
     }
   }
   return lines.join("\n");

@@ -40,7 +40,7 @@ import {
 } from "./retrieval.js";
 import { readSpec } from "../refine/spec-yaml.js";
 import {
-  BREW_SYSTEM,
+  buildBrewSystem,
   BREW_TOOLS,
   turnPrompt,
   turnPromptParts,
@@ -69,6 +69,8 @@ import { costEntryUsd, costUsdForUsage } from "@slowcook-ai/llm-anthropic";
 import { recordRead, buildPreloadBlock, type ReadCacheEntry } from "./preload.js";
 import { runCliTurn } from "./cli-driver.js";
 import { touchLock } from "./run-lock.js";
+import { historyIndexReadPath } from "../../lib/local-state.js";
+import { pruneRedBaseline } from "../../lib/red-baseline.js";
 import { detectMaskedMonolith, peelTargetPrompt, peelResolved, diagnoseToolFailure, peelIsStandaloneCheckpoint, type PeelResult } from "./testability.js";
 import { ladderWindow, describeWindow } from "./ladder.js";
 import { fileBackpropClaims } from "../../lib/backprop.js";
@@ -1652,6 +1654,7 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       ctx,
       `FINAL_GATE  pass  full_suite_green=${verdict.fullGreen} pre_existing_red=${verdict.preExistingRed}`
     );
+    pruneRedBaselineOnGreen(ctx, finalRun);
     await pushBranch(ctx);
     const checkpointsCount = iterationLogs.filter((l) => l.outcome === "checkpoint").length;
     await openBrewPullRequest(ctx, {
@@ -1993,8 +1996,8 @@ async function runTurn(
           // constant across iterations, so the cache hit survives.
           text:
             (ctx.mode === "plate"
-              ? BREW_SYSTEM + BREW_PLATE_MODE_ADDENDUM
-              : BREW_SYSTEM) + constitutionBlock(ctx.repoRoot),
+              ? brewSystemFor(ctx) + BREW_PLATE_MODE_ADDENDUM
+              : brewSystemFor(ctx)) + constitutionBlock(ctx.repoRoot),
           cache_control: { type: "ephemeral" },
         },
       ] as never,
@@ -2849,6 +2852,42 @@ function appendRunLog(ctx: BrewContext, line: string): void {
 }
 
 /** ------------------------- Runner + parsers ------------------------- */
+
+/**
+ * WP2 (2026-10-24) — the system prompt names the history index where the
+ * consumer actually has it (`.brewing/local/…`, or the legacy path while a
+ * checkout still carries one). `BREW_SYSTEM` itself keeps the default so
+ * non-brew callers and the prompt fixtures are unchanged.
+ */
+function brewSystemFor(ctx: BrewContext): string {
+  const rel = relative(ctx.repoRoot, historyIndexReadPath(ctx.repoRoot)).split("\\").join("/");
+  return buildBrewSystem({ historyIndexPath: rel });
+}
+
+/**
+ * WP2 (2026-10-24) — a green brew shrinks the consumer's red-by-design
+ * baseline (#542): every baselined test the full-suite gate just saw pass
+ * is removed, committed on the brew branch so the PR carries the honest
+ * list. Best-effort: a baseline problem is logged, never a halt.
+ */
+function pruneRedBaselineOnGreen(ctx: BrewContext, finalRun: RunResult): void {
+  const baselinePath = (ctx.stackConfig as { red_baseline?: string }).red_baseline;
+  if (!baselinePath || !finalRun.ran) return;
+  try {
+    const nowGreen = finalRun.tests.filter((t) => t.status === "passed").map((t) => t.id);
+    const res = pruneRedBaseline(ctx.repoRoot, baselinePath, nowGreen);
+    if (!res.removed) return;
+    const g = `git -C "${ctx.repoRoot}"`;
+    execSync(`${g} add -- ${JSON.stringify(baselinePath)}`, { stdio: "ignore" });
+    execSync(
+      `${g} commit -m ${JSON.stringify(`slowcook/brew: red baseline -${res.removed} (now green)`)}`,
+      { stdio: "ignore" }
+    );
+    appendRunLog(ctx, `RED_BASELINE  pruned=${res.removed} remaining=${res.total} path=${baselinePath}`);
+  } catch (e) {
+    appendRunLog(ctx, `WARN  red baseline prune skipped: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
 
 function runTestSuite(ctx: BrewContext, scopeFiles?: string[]): RunResult {
   // 0.11.16+ — bounded-attention scoped runs. When scopeFiles is

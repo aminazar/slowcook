@@ -39,6 +39,8 @@ export { BRAND_SYSTEM } from "./prompts/brand.js";
 export { MENU_SYSTEM, type MenuStoryDraft } from "./prompts/menu.js";
 export {
   BREW_SYSTEM,
+  buildBrewSystem,
+  DEFAULT_HISTORY_INDEX_PATH,
   BREW_TOOLS,
   turnPrompt,
   turnPromptParts,

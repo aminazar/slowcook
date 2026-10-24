@@ -24,6 +24,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { runTests, discoverTests, validateStackConfig, type StackConfig } from "../../stack-resolve.js";
 import { foldCrossSuiteTests } from "../brew/cross-suite.js";
+import { pruneRedBaseline } from "../../lib/red-baseline.js";
 
 interface VerifyArgs {
   storyId: string;
@@ -256,6 +257,21 @@ export async function verify(argv: string[]): Promise<void> {
         ? `${[...expected].length} test(s) all green`
         : `${storyRed.length}/${[...expected].length} red — first: ${storyRed[0]!.id.slice(0, 140)}`
     );
+    // WP2 (2026-10-24) — the red-by-design baseline (#542) follows reality
+    // down: tests it lists that just passed are removed, so the failure-set
+    // diff compares against the honest list.
+    try {
+      const pruned = pruneRedBaseline(
+        args.repoRoot,
+        (stackConfig as { red_baseline?: string }).red_baseline,
+        run.tests.filter((t) => t.status === "passed").map((t) => t.id)
+      );
+      if (pruned.declared && pruned.removed) {
+        console.log(`   (red baseline ${pruned.path}: ${pruned.removed} now-green test(s) removed, ${pruned.total} remain)`);
+      }
+    } catch (e) {
+      console.log(`   (red baseline not pruned: ${e instanceof Error ? e.message : String(e)})`);
+    }
     const otherRed = run.tests.filter((t) => !expected.has(t.id) && t.status !== "passed");
     console.log(
       `ℹ️  full-suite reds outside the story: ${otherRed.length}` +

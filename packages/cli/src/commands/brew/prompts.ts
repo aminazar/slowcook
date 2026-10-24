@@ -5,6 +5,7 @@
 
 export {
   BREW_SYSTEM,
+  buildBrewSystem,
   BREW_TOOLS,
   turnPrompt,
   turnPromptParts,
