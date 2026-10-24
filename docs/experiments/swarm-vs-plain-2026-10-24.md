@@ -181,4 +181,28 @@ Of the swarm's $6.24, **$6.01 is the navigator and $0.24 the haiku brew**: haiku
 
 **What the halts were.** Every brew halt that was not harness was `AGENT_STALLED_NO_EDITS`, and every stall rationale names a contract the model could not honestly satisfy: 017 (both arms) "the target test and an existing test require opposite results from identical setups" — the known 016/017 spec contradiction; 022 swarm "the component has 3 className attributes, the test requires 4"; 025 pipeline "the mock helper never records the select strings the test reads"; 025 swarm "the test expects an ASCII apostrophe, React escapes it". Sonnet stalled on 017 and 025 too; haiku alone stalled on 022. The classifier's drafts (`wrong-file` for sonnet's stalls, `reasoning` for haiku's) are wrong in the same way: a stall with that rationale is a **contract defect** — the #548 lesson, the agent blaming the test was right — and belongs under `harness`, not knowledge or reasoning. Human confirmation pending.
 
-**Reading, for the decision rule.** On eight stories and one seed, haiku's only own failure (022) was a test that pins an implementation detail, not missing knowledge of files, signatures or clarifications: zero `knowledge/*` classes survive the rationale check. The plain arm never reached the contract (0/8 all-green) but was 2× cheaper and 3× faster than the pipeline, and its behavioural-red count (52) is the honest size of what the spec + tests + manifest buy. One seed; seed 2 on the stories where the brew arms disagreed (017, 022, 025) is the agreed next step before anything is concluded.
+**Reading after seed 1.** On eight stories and one seed, haiku's only own failure (022) was a test that pins an implementation detail, not missing knowledge of files, signatures or clarifications: zero `knowledge/*` classes survive the rationale check. The plain arm never reached the contract (0/8 all-green) but was 2× cheaper and 3× faster than the pipeline, and its behavioural-red count (52) is the honest size of what the spec + tests + manifest buy.
+
+### Seed 2 — 017, 022, 025 (the stories where the brew arms disagreed), 2026-10-24 19:04–21:00 CEST
+
+| story | arm | seed 2 | green/total | halt | what the halt was |
+|---|---|---|---|---|---|
+| 017 | pipeline | $0.97 · 18.4 min · 6 iters | 24/24 | TRANSITIVE_REGRESSION (story-016) | changed `POST /api/pins` body from `rewoSlug` to `rewo_id` to satisfy 017's test — the 016/017 spec-vs-spec contradiction (PM ruling Aug: the endpoint owner's shipped contract wins) |
+| 017 | swarm | $1.26 (navigator $1.22) · 20.4 min · 6 | 24/24 | TRANSITIVE_REGRESSION (016, 011, 009-flake) | the same change, same cause |
+| 017 | plain | $0.33 · 2.5 min | 11/24 | done | same as seed 1 |
+| 022 | pipeline | $0.27 · 8.1 min · 2 | 20/20 | TRANSITIVE_REGRESSION (B-7) | the 401 body gained `code`; the B-7 regression test pins the old header behaviour — two merged contracts conflict |
+| 022 | swarm | $0.61 (navigator $0.59) · 12.6 min · 3 | 20/20 | TRANSITIVE_REGRESSION (B-7) | the same change, same cause (seed 1 had stalled on the className count instead) |
+| 022 | plain | $0.14 · 1.6 min | 9/20 | done | 9 selector-only reds |
+| 025 | pipeline | $0.61 · 12.3 min · 6 | 28/30 | AGENT_STALLED | the mock helper never records the `select` strings the test reads — same as seed 1 |
+| 025 | swarm | $1.41 (navigator $1.36) · 26.6 min · 9 | 24/30 | AGENT_STALLED | the ASCII-apostrophe assertion React cannot satisfy — same as seed 1 |
+| 025 | plain | $0.14 · 1.6 min | 18/30 | done | — |
+
+Seed 2 holds and sharpens seed 1. Every brew halt, both arms, both seeds, is a **contract defect**: a spec-vs-spec contradiction (017), two merged test contracts in conflict (022), or a test that cannot be satisfied from source (025). Haiku and sonnet made the *same* moves and failed the *same* way; where haiku differed (022 seed 1) it stalled on a test that counts attributes. No `knowledge/*` class — wrong file, wrong signature, re-discovery, lost clarification — survived the rationale check in 16 brew halts. The classifier's drafts for these halts (`wrong-file`, `reasoning`) were wrong in the way that would have falsely supported a cell store; the record is confirmed `harness` with the #548 citation, and the classifier now drafts a stall that names the contract as `harness` (#577).
+
+Swarm economics, two seeds: haiku's implementation spend stayed in cents; the fable navigator cost 10–20× the brew it reviewed and approved every review (0 blocks in 68 + 30). On this set the navigator is the swarm's cost, not its value.
+
+### Decision (ruling 1, 2026-10-24 evening)
+
+Reasoning did not dominate either — **contract defects did** — but the rule's branch is the same: no knowledge gap showed, so slowcook takes the **sha-keyed cache** (#578: `lib/sha-cache.ts`, history index and code map memoized by tree sha + dirt fingerprint, receipts, `SLOWCOOK_NO_CACHE=1`) and does not build or embed a cell store. The Datumesh resolver for slowcook was conditional on a knowledge gap; it did not appear. Phase 2's three experiments stay with Datumesh.
+
+What the measurement actually points at for slowcook: the cheap model is not the bottleneck, the **contract** is — spec-vs-spec contradictions and test-side defects that stall every model equally. That is work for refine/recipe/taste (contract consistency across stories, test-helper fidelity), not for a knowledge substrate.
