@@ -112,12 +112,31 @@ export function harnessSignal(haltReason: string | undefined): Signal[] {
   return haltReason && HARNESS_HALTS.has(haltReason) ? [{ kind: "harness", evidence: `halt ${haltReason} — the harness, not the model` }] : [];
 }
 
-/** The agent stopped acting on correct inputs (read, then nothing): reasoning, not knowledge. Pure. */
-export function stallSignal(haltReason: string | undefined, iterations: number | undefined): Signal[] {
-  if (haltReason === "AGENT_STALLED_NO_EDITS" || haltReason === "AGENT_SELF_REPORTED_STUCK") {
-    return [{ kind: "reasoning", evidence: `halt ${haltReason} after ${iterations ?? "?"} iteration(s): the model read and then did not act` }];
-  }
-  return [];
+const STALL_HALTS = new Set(["AGENT_STALLED_NO_EDITS", "AGENT_SELF_REPORTED_STUCK"]);
+
+/**
+ * A stall whose rationale names the CONTRACT — a test that requires the
+ * opposite of another, a mock helper that records nothing, an assertion on
+ * an escaped character, an attribute count — is a contract defect, not a
+ * model failure. Amin's ruling (2026-10-24) on set-1: every non-harness halt
+ * was such a stall, the drafts said wrong-file/reasoning, and that
+ * misclassification is exactly what would have falsely supported the cell
+ * store. The #548 lesson, mechanized: when the agent blames the test with
+ * specifics, the draft is `harness`. Pure.
+ */
+export function contractDefectSignal(haltReason: string | undefined, rationale: string | undefined): Signal[] {
+  if (!haltReason || !STALL_HALTS.has(haltReason) || !rationale) return [];
+  const namesContract = /\b(tests?|assertions?|asserts?|expects?|mocks?|helpers?|fixtures?|manifest|spec)\b/i.test(rationale);
+  const saysUnsatisfiable = /\b(opposite|contradict\w*|cannot|can't|not fixable|outside (the )?(component|src)|would (only )?(lie|reproduce)|requires? \d+|needs? a change (outside|in tests?)|unsatisfiable|escapes?)\b/i.test(rationale);
+  if (!namesContract || !saysUnsatisfiable) return [];
+  return [{ kind: "harness", evidence: `stall rationale names a contract defect (#548: the agent blaming the test was right): ${rationale.replace(/\s+/g, " ").slice(0, 200)}` }];
+}
+
+/** The agent stopped acting WITHOUT naming a contract problem: reasoning, not knowledge. Pure. */
+export function stallSignal(haltReason: string | undefined, iterations: number | undefined, rationale?: string): Signal[] {
+  if (!haltReason || !STALL_HALTS.has(haltReason)) return [];
+  if (contractDefectSignal(haltReason, rationale).length > 0) return [];
+  return [{ kind: "reasoning", evidence: `halt ${haltReason} after ${iterations ?? "?"} iteration(s): the model read and then did not act, and gave no contract reason` }];
 }
 
 /** harness > the most frequent knowledge kind > reasoning > none. Pure. */
@@ -148,7 +167,8 @@ export function classifyRun(run: LoadedRun, extras: ClassifyExtras, now: () => D
   const touched = [...new Set((run.halt?.iteration_diffs ?? []).filter((d) => d.outcome === "checkpoint").flatMap((d) => d.files_touched))];
   const signals: Signal[] = [
     ...harnessSignal(run.halt?.halt_reason ?? run.summary?.halt_reason),
-    ...stallSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.halt?.iterations_run ?? run.summary?.iterations),
+    ...contractDefectSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.halt?.last_agent_rationale),
+    ...stallSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.halt?.iterations_run ?? run.summary?.iterations, run.halt?.last_agent_rationale),
     ...(untouched > 0 ? [{ kind: "note", evidence: `${untouched} red test(s) were already red at base — not attributed to this arm` }] : []),
     ...rediscoverySignal(extras.iterationsLog ?? ""),
     ...wrongSignatureSignal(reds),

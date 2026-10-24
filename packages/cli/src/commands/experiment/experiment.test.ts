@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mergeArms, DEFAULT_ARMS, resolveArm, runIdFor } from "./arms.js";
 import { buildPlainPrompt, plainArgv, runPlainArm, PLAIN_DONE_MARKER, PLAIN_NUDGE } from "./arm-plain.js";
 import { aggregateRuns, isSelectorOnlyFailure, summarizeOne, priceBasis } from "./report.js";
-import { rediscoverySignal, wrongSignatureSignal, wrongFileSignal, lostClarificationSignal, reasoningSignal, draftClass, classifyRun } from "./classify.js";
+import { rediscoverySignal, wrongSignatureSignal, wrongFileSignal, lostClarificationSignal, reasoningSignal, draftClass, classifyRun, contractDefectSignal, stallSignal } from "./classify.js";
 import { storyArtifactPaths } from "./tree.js";
 import { parseRunArgs, brewArgv, modelsFor, captureTestImports } from "./run.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -250,5 +250,27 @@ describe("captureTestImports", () => {
     writeFileSync(join(root, "tests/a.test.ts"), `import { x } from "@/lib/x";\nconst src = readFileSync("src/components/rewo/feed-list.tsx", "utf8");\n`, "utf8");
     const got = captureTestImports(root, [{ file: "tests/a.test.ts" }, { file: "tests/missing.test.ts" }]);
     expect(got).toEqual([{ file: "tests/a.test.ts", specifiers: ["@/lib/x", "src/components/rewo/feed-list.tsx"] }]);
+  });
+});
+
+describe("a stall that names the contract is a contract defect (set-1 ruling, #548)", () => {
+  const rationales = [
+    "I'm making no edits again. The target test and an existing test require opposite results from identical setups.",
+    "I haven't made any edits, because the target still can't be flipped without a choice you need to make. The component has 3 className= attributes; the test requires 4.",
+    "I made no edits, because the target is still not fixable from src/. The test builds its list from calls.map(c => c.select); the mock in tests/helpers/mocks/supabase.ts never records it.",
+    "I made no edits. The target asserts that the raw output contains it's with an ASCII apostrophe. React escapes text.",
+  ];
+  it("drafts harness, with the rationale as evidence, and the reasoning signal stays quiet", () => {
+    for (const r of rationales) {
+      const sig = contractDefectSignal("AGENT_STALLED_NO_EDITS", r);
+      expect(sig.map((s) => s.kind)).toEqual(["harness"]);
+      expect(stallSignal("AGENT_STALLED_NO_EDITS", 3, r)).toEqual([]);
+      expect(draftClass([...sig, { kind: "knowledge/wrong-file", evidence: "x" }])).toBe("harness");
+    }
+  });
+  it("a stall with no contract reason is still reasoning; a non-stall halt is nothing", () => {
+    expect(stallSignal("AGENT_STALLED_NO_EDITS", 2, "I ran out of ideas.").map((s) => s.kind)).toEqual(["reasoning"]);
+    expect(contractDefectSignal("AGENT_STALLED_NO_EDITS", "I ran out of ideas.")).toEqual([]);
+    expect(contractDefectSignal("SUCCESS_ALL_GREEN", rationales[0])).toEqual([]);
   });
 });
