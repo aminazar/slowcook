@@ -509,6 +509,9 @@ export async function brew(argv: string[], cliVersion: string): Promise<void> {
       costFor: (usage) => costEntryUsd(args.navigatorModel, usage),
       // WP1 — navigator spend used to live only in brew's in-memory
       // `spendUsd`; the halt total and the ledger disagreed by exactly it.
+      onAbstain: ({ iteration, phase, detail }) => {
+        console.error(`  navigator: iter ${iteration} ABSTAINED (${phase}): ${detail}`);
+      },
       onCall: ({ iteration, model, usage, costUsd }) => {
         try {
           appendCostEntry(args.repoRoot, args.storyId, {

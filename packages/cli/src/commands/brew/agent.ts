@@ -1435,6 +1435,8 @@ export async function runBrew(ctx: BrewContext): Promise<BrewOutcome> {
       });
       const navDecision = decideNavigatorAction(navVerdict);
       spendUsd += navDecision.costUsd;
+      if (navVerdict === null) appendRunLog(ctx, `ITER ${iteration} NAVIGATOR_ABSTAIN  (no verdict — see brew stdout for the reason)`);
+      else appendRunLog(ctx, `ITER ${iteration} NAVIGATOR_${navDecision.action.toUpperCase()}  concerns=${navVerdict.concerns.length}  cost=$${navDecision.costUsd.toFixed(3)}`);
       if (navDecision.action === "block") {
         appendRunLog(
           ctx,
