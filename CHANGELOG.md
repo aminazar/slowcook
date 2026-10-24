@@ -6,6 +6,19 @@ Semantic-ish: 0.6.x is additive + bug-fix; 0.7.0 is the first behavioural-breaki
 
 ---
 
+## Unreleased — the sha-keyed cache (WP4, the measured substrate)
+
+The swarm-vs-plain measurement found no knowledge gap in the cheap model's
+failures (every non-harness halt was a stall naming a contract defect), so
+ruling 1 resolves to the plain path: `lib/sha-cache.ts` `memoBySha()` keys a
+derived artifact by (name, producer version, HEAD sha, working-tree dirt
+fingerprint) and serves it from `.brewing/local/cache/<name>/<key>.json`
+with a receipt (built_at, built_in_ms, hits). Wired into the four
+history-index producers (refine, recon, analyze) and brew's code-map
+regeneration; `SLOWCOOK_NO_CACHE=1` bypasses. No daemon, no network, no
+signatures. The Datumesh resolver for slowcook was conditional on a knowledge
+gap showing; it did not.
+
 ## Unreleased — `slowcook experiment`: the swarm-vs-plain harness (WP3)
 
 - The pair-brew navigator runs through the `LlmClient` seam (`createLlmClient`),

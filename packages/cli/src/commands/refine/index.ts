@@ -1,3 +1,4 @@
+import { memoBySha, describeMemo } from "../../lib/sha-cache.js";
 import { execSync } from "node:child_process";
 import { historyIndexWritePath } from "../../lib/local-state.js";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import {
   type RefineContext,
   type ResubmitContext,
 } from "./agent.js";
-import { buildHistoryIndex, type HistoryIndex } from "./history-index.js";
+import { buildHistoryIndex, type HistoryIndex, HISTORY_INDEX_CACHE_VERSION } from "./history-index.js";
 import { computeGitAttention } from "./git-attention.js";
 import { deriveScope } from "../../lib/project-scope.js";
 import { resolveModel, renderModelTable, assertModelPriced } from "../../lib/model-defaults.js";
@@ -431,7 +432,10 @@ export async function refine(argv: string[], cliVersion: string): Promise<void> 
 function emitHistoryIndex(repoRoot: string): void {
   let idx: HistoryIndex;
   try {
-    idx = buildHistoryIndex({ repoRoot });
+    // WP4 — the sha-keyed cache: the same tree yields the same index.
+    const memo = memoBySha({ repoRoot, name: "history-index", version: HISTORY_INDEX_CACHE_VERSION, build: () => buildHistoryIndex({ repoRoot }) });
+    idx = memo.value;
+    console.log(`  (${describeMemo("history-index", memo)})`);
   } catch (e) {
     console.warn(`  (history-index emit failed; refine will run without it: ${(e as Error).message})`);
     return;
