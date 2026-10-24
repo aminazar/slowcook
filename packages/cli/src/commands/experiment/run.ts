@@ -139,12 +139,16 @@ function writeJson(p: string, v: unknown): void {
 }
 
 /** Import specifiers of each manifest test file — captured while the tree exists, for `classify`. */
-function captureTestImports(tree: string, tests: Array<{ file: string }>): Array<{ file: string; specifiers: string[] }> {
+export function captureTestImports(tree: string, tests: Array<{ file: string }>): Array<{ file: string; specifiers: string[] }> {
   const out: Array<{ file: string; specifiers: string[] }> = [];
   for (const file of new Set(tests.map((t) => t.file))) {
     const p = join(tree, file);
     if (!existsSync(p)) continue;
-    out.push({ file, specifiers: importSpecifiers(readFileSync(p, "utf8")) });
+    const src = readFileSync(p, "utf8");
+    // Static-check tests read a source file by PATH instead of importing it
+    // (story-024's feed-list check): path literals count as reaching the file.
+    const literals = src.match(/["'`]((?:src|app|lib|components|server)\/[\w\/.-]+)["'`]/g)?.map((m) => m.slice(1, -1)) ?? [];
+    out.push({ file, specifiers: [...new Set([...importSpecifiers(src), ...literals])] });
   }
   return out;
 }
