@@ -82,7 +82,9 @@ export function wrongFileSignal(
   const out: Signal[] = [];
   for (const f of filesTouched) {
     if (!/^(src|app|lib|components|server)\//.test(f) && !f.includes("/src/")) continue;
-    const imported = testImports.some((t) => t.specifiers.some((s) => importResolvesTo(s, t.file, f)));
+    // A static-check test names the file by PATH instead of importing it
+    // (the first smoke run's false positive): a literal path counts.
+    const imported = testImports.some((t) => t.specifiers.some((s) => s === f || f.endsWith(s) || importResolvesTo(s, t.file, f)));
     if (!imported) out.push({ kind: "knowledge/wrong-file", evidence: `${f} edited; no story test imports it` });
   }
   return out;
@@ -110,6 +112,14 @@ export function harnessSignal(haltReason: string | undefined): Signal[] {
   return haltReason && HARNESS_HALTS.has(haltReason) ? [{ kind: "harness", evidence: `halt ${haltReason} — the harness, not the model` }] : [];
 }
 
+/** The agent stopped acting on correct inputs (read, then nothing): reasoning, not knowledge. Pure. */
+export function stallSignal(haltReason: string | undefined, iterations: number | undefined): Signal[] {
+  if (haltReason === "AGENT_STALLED_NO_EDITS" || haltReason === "AGENT_SELF_REPORTED_STUCK") {
+    return [{ kind: "reasoning", evidence: `halt ${haltReason} after ${iterations ?? "?"} iteration(s): the model read and then did not act` }];
+  }
+  return [];
+}
+
 /** harness > the most frequent knowledge kind > reasoning > none. Pure. */
 export function draftClass(signals: Signal[]): Classification["draft_class"] {
   if (signals.some((s) => s.kind === "harness")) return "harness";
@@ -129,10 +139,17 @@ export interface ClassifyExtras {
 }
 
 export function classifyRun(run: LoadedRun, extras: ClassifyExtras, now: () => Date = () => new Date()): Classification {
-  const reds = run.verify?.story_contract?.red ?? [];
+  // Only the reds this arm REACHED carry a signal: a test red at base too was
+  // never attempted (the stalled swarm arm's "wrong signatures" were base's).
+  const baseRed = new Set(run.baseVerify?.story_contract?.red_ids ?? []);
+  const allReds = run.verify?.story_contract?.red ?? [];
+  const reds = run.baseVerify ? allReds.filter((r) => !baseRed.has(r.id)) : allReds;
+  const untouched = allReds.length - reds.length;
   const touched = [...new Set((run.halt?.iteration_diffs ?? []).filter((d) => d.outcome === "checkpoint").flatMap((d) => d.files_touched))];
   const signals: Signal[] = [
     ...harnessSignal(run.halt?.halt_reason ?? run.summary?.halt_reason),
+    ...stallSignal(run.halt?.halt_reason ?? run.summary?.halt_reason, run.halt?.iterations_run ?? run.summary?.iterations),
+    ...(untouched > 0 ? [{ kind: "note", evidence: `${untouched} red test(s) were already red at base — not attributed to this arm` }] : []),
     ...rediscoverySignal(extras.iterationsLog ?? ""),
     ...wrongSignatureSignal(reds),
     ...wrongFileSignal(touched, extras.testImports ?? []),

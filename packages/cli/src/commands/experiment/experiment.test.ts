@@ -158,6 +158,8 @@ describe("classify signals", () => {
     const wf = wrongFileSignal(["src/lib/bookmarks.ts", "src/lib/other.ts", "tests/x.test.ts"], [{ file: "tests/x.test.ts", specifiers: ["@/lib/bookmarks", "vitest"] }]);
     expect(wf.map((s) => s.evidence)).toEqual(["src/lib/other.ts edited; no story test imports it"]);
     expect(wrongFileSignal(["src/a.ts"], [])).toEqual([]);
+    // a static-check test that names the file by path counts as reaching it
+    expect(wrongFileSignal(["src/components/rewo/feed-list.tsx"], [{ file: "tests/x.test.ts", specifiers: ["src/components/rewo/feed-list.tsx"] }])).toEqual([]);
     expect(lostClarificationSignal(["Bookmarks toggle must call /api/bookmarks with the post id"], ["tests/b.test.ts > bookmarks > toggle calls /api/bookmarks"])).toHaveLength(1);
     expect(lostClarificationSignal(["Unrelated clarification about billing"], ["tests/b.test.ts > bookmarks > toggle"])).toEqual([]);
     expect(reasoningSignal("The ordering of the two awaits is wrong")).toHaveLength(1);
@@ -169,6 +171,18 @@ describe("classify signals", () => {
     expect(draftClass([{ kind: "knowledge/wrong-file", evidence: "" }, { kind: "knowledge/wrong-file", evidence: "" }, { kind: "knowledge/wrong-signature", evidence: "" }, { kind: "reasoning", evidence: "" }])).toBe("knowledge/wrong-file");
     expect(draftClass([{ kind: "reasoning", evidence: "" }])).toBe("reasoning");
     expect(draftClass([])).toBe("none");
+  });
+
+  it("a stalled arm is reasoning, and reds already red at base are not its signatures", () => {
+    const red = [{ id: "t1", message: "TypeError: Cannot read properties of undefined (reading 'created_at')" }];
+    const v = { story: "7", base: "main", ok: false, sections: [], story_contract: { green: 13, total: 25, not_run: 0, red_ids: ["t1"], red } };
+    const r = run({ story: "7", arm: "swarm" }, {
+      verify: v, baseVerify: v,
+      halt: { story_id: "7", halt_reason: "AGENT_STALLED_NO_EDITS", halt_timestamp: "t", iterations_run: 2, checkpoints_committed: 0, tests_green: 13, tests_total: 25, tokens_spent_usd: 0.02, budget_usd: 3, model: "claude-haiku-5-5", summary_plain_english: "", suggested_actions: [] },
+    });
+    const c = classifyRun(r, {}, () => new Date(0));
+    expect(c.draft_class).toBe("reasoning");
+    expect(c.signals.map((s) => s.kind)).toEqual(["reasoning", "note"]);
   });
 
   it("classifyRun keeps a prior confirmation and reports evidence", () => {
