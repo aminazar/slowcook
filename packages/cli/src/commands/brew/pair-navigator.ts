@@ -98,6 +98,13 @@ export interface PairNavigatorOptions {
    */
   onCall?: (info: { iteration: number; model: string; usage: LlmUsage; costUsd: number | null }) => void;
   /**
+   * Fired whenever the hook ABSTAINS and why (context load failed, the call
+   * threw, over the per-iteration budget, empty or unparseable verdict). The
+   * first swarm-vs-plain run had a navigator that never fired for 5
+   * checkpoints and nothing said so: the model was unavailable on the box.
+   */
+  onAbstain?: (info: { iteration: number; phase: "context" | "call" | "budget" | "empty" | "parse"; detail: string }) => void;
+  /**
    * Loader for the per-call prompt context. Brew/agent.ts doesn't
    * carry mockFiles / codeMapDigest / storyTestIds / specYaml in
    * `NavigatorHookInput` — the caller injects a loader that supplies
@@ -151,17 +158,22 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
     pricingPerMTokens,
     costFor,
     onCall,
+    onAbstain,
     loadPromptContext,
   } = options;
+  const abstain = (iteration: number, phase: "context" | "call" | "budget" | "empty" | "parse", detail: string): null => {
+    try { onAbstain?.({ iteration, phase, detail: detail.slice(0, 300) }); } catch { /* bookkeeping */ }
+    return null;
+  };
   return {
     async review(input: NavigatorHookInput): Promise<NavigatorHookVerdict | null> {
       let context;
       try {
         context = await loadPromptContext(input);
-      } catch {
-        return null;
+      } catch (e) {
+        return abstain(input.iteration, "context", (e as Error).message);
       }
-      if (!context) return null;
+      if (!context) return abstain(input.iteration, "context", "loader returned null");
 
       // Build a compact diff string from filesTouched + line counts.
       // The full git diff isn't always available at call time; this
@@ -195,8 +207,8 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
           maxTokens,
           messages: [{ role: "user", content: prompt }],
         });
-      } catch {
-        return null;
+      } catch (e) {
+        return abstain(input.iteration, "call", (e as Error).message);
       }
 
       const usage: LlmUsage = response.usage;
@@ -213,17 +225,17 @@ export function createPairNavigatorHook(options: PairNavigatorOptions): Navigato
       if (costUsd > perIterBudgetUsd) {
         // Over-budget — surface as abstain so brew doesn't pay the
         // full ticket on a runaway response.
-        return null;
+        return abstain(input.iteration, "budget", `$${costUsd.toFixed(3)} > per-iteration cap $${perIterBudgetUsd.toFixed(2)}`);
       }
 
       const text = response.text;
-      if (!text) return null;
+      if (!text) return abstain(input.iteration, "empty", "no text in the response");
 
       let verdict: NavigatorVerdict;
       try {
         verdict = parseNavigatorVerdict(text);
-      } catch {
-        return null;
+      } catch (e) {
+        return abstain(input.iteration, "parse", (e as Error).message);
       }
 
       return navigatorVerdictToHookVerdict(verdict, costUsd);

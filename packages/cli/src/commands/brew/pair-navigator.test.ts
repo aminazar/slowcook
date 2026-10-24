@@ -213,3 +213,30 @@ describe("navigator spend reaches the ledger (WP1, 2026-10-24)", () => {
     expect(v?.costUsd).toBeUndefined();
   });
 });
+
+describe("navigator abstentions are named (2026-10-24)", () => {
+  const input = { iteration: 1, storyId: "7", filesTouched: [], linesAdded: 0, linesRemoved: 0, rationale: "r", gainedTests: [], repoRoot: "/r" };
+  it("a throwing call reports phase=call with the error", async () => {
+    const seen: Array<{ phase: string; detail: string }> = [];
+    const hook = createPairNavigatorHook({
+      llm: { async complete() { throw new Error("claude CLI exited abnormally: model unavailable"); } },
+      model: "claude-fable-5-1",
+      costFor: () => 0,
+      onAbstain: (i) => seen.push({ phase: i.phase, detail: i.detail }),
+      loadPromptContext: async () => ({ mockFiles: [], codeMapDigest: "", storyTestIds: [] }),
+    });
+    expect(await hook.review(input)).toBeNull();
+    expect(seen).toEqual([{ phase: "call", detail: "claude CLI exited abnormally: model unavailable" }]);
+  });
+  it("over the per-iteration cap reports phase=budget", async () => {
+    const seen: string[] = [];
+    const hook = createPairNavigatorHook({
+      llm: { async complete() { return { text: "{}", usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreateTokens: 0 }, costUsd: 0, model: "m" }; } },
+      model: "m", costFor: () => 0.5, perIterBudgetUsd: 0.1,
+      onAbstain: (i) => seen.push(i.phase),
+      loadPromptContext: async () => ({ mockFiles: [], codeMapDigest: "", storyTestIds: [] }),
+    });
+    expect(await hook.review(input)).toBeNull();
+    expect(seen).toEqual(["budget"]);
+  });
+});
