@@ -18,6 +18,7 @@ describe("arms", () => {
     const arms = mergeArms(DEFAULT_ARMS, { swarm: { env: { SLOWCOOK_MODEL_BREW: "claude-haiku-4-5" } }, mine: { kind: "brew", env: { X: "1" }, notes: "n" } });
     expect(arms["swarm"]!.env).toMatchObject({ SLOWCOOK_LLM: "claude-cli", SLOWCOOK_MODEL_BREW: "claude-haiku-4-5" });
     expect(arms["swarm"]!.flags).toContain("--with-navigator");
+    expect(arms["swarm"]!.flags.join(" ")).toContain("--navigator-cap-usd 0.5");
     // brew arms never write to GitHub: they re-implement shipped stories
     expect(arms["swarm"]!.env["SLOWCOOK_BREW_LOCAL"]).toBe("1");
     expect(arms["pipeline"]!.env["SLOWCOOK_BREW_LOCAL"]).toBe("1");
